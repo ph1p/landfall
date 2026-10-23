@@ -1211,14 +1211,14 @@ function sitesView(n, o) {
       <p class="faint mono">lf deploy ./dist -d example.com -s ${esc(n)}</p></div></div>${othersCard(n, o)}`;
   }
   const rows = o.sites
-    .map(({ meta: m, status, services, domains, main }) => {
+    .map(({ meta: m, status, services, domains, main, state, kind }) => {
       const cur = m.releases.find((r) => r.id === m.current);
       const name = m.name;
       const open = S.open.has(`${n}/${name}`);
       const up = isUp(status);
-      const old = m.v !== 2;
+      const old = state === "old";
       // Adopted and pre-Compose sites: landfall runs them, it does not deploy them.
-      const managed = !old && !m.adopted;
+      const managed = state === "managed";
       const older = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1)).filter((r) => r.at < (cur?.at ?? ""));
       const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
       const deleteSite = () =>
@@ -1259,18 +1259,17 @@ function sitesView(n, o) {
       const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
       const live = m.releases?.find((r) => r.id === m.current);
       const svcDomains = (svc) => (svc === main ? m.domains : (live?.services?.find((x) => x.name === svc)?.domains ?? []));
-      const kind = m.adopted ? "adopted" : old ? `${m.kind} (old)` : m.kind;
       const detail = open
         ? `<tr class="detail"><td colspan="5"><dl class="kv">
             ${old ? `<dt>Old site</dt><dd class="dim">Deployed before sites were Compose projects: ${proj ? "redeploy it" : `run <span class="mono">lf deploy</span> for it`} once to manage it again.</dd>` : ""}
             <dt>Services</dt><dd>${services.length
               ? `<ul class="services">${services.map((x) => `<li>${statusDot(x.status)}<b>${esc(x.service)}</b>${svcDomains(x.service).length ? ` <span class="badge">${esc(svcDomains(x.service).join(" "))}</span>` : ""} <span class="faint">${esc(x.status.toLowerCase())}</span>${old ? "" : svcMenu(x)}</li>`).join("")}</ul>`
               : `<span class="dim">none running</span>`}</dd>
-            <dt>On ${esc(n)}</dt><dd>${siteFiles(m)}</dd>
+            <dt>On ${esc(n)}</dt><dd>${siteFiles(m, state)}</dd>
             ${m.adopted ? "" : `<dt>Source</dt><dd>${proj
               ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· redeploy runs there</span>`
               : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved)"}</span>`}</dd>`}
-            <dt>Kind</dt><dd>${esc(kind)}${main || old || m.adopted ? "" : ` <span class="dim">· domains set in compose.yaml</span>`}</dd>
+            <dt>Kind</dt><dd>${esc(kind)}${main || !managed ? "" : ` <span class="dim">· domains set in compose.yaml</span>`}</dd>
             ${managed ? `<dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>` : ""}
             <dt>Created</dt><dd>${esc(ago(m.createdAt))} · updated ${esc(ago(m.updatedAt))}</dd>
             ${m.releases.length ? `<dt>Releases</dt><dd><ul class="releases">${[...m.releases]
@@ -1295,10 +1294,10 @@ function sitesView(n, o) {
 }
 
 /** Where a site lives on the server: docker compose works in its current folder. */
-function siteFiles(m) {
+function siteFiles(m, state) {
   const dir = `${S.state.paths.sites}/${m.name}`;
   if (m.adopted) return `<span class="mono">${esc(m.adopted)}</span><div class="dim">its own folder; project <span class="mono">${esc(m.project ?? m.name)}</span></div>`;
-  if (m.v !== 2) return `<span class="mono">${esc(dir)}</span>`;
+  if (state === "old") return `<span class="mono">${esc(dir)}</span>`;
   return `<span class="mono">${esc(dir)}/current</span> <span class="dim">→ releases/${esc(m.current)}</span>
     <div class="faint mono">compose.yaml · compose.override.yaml (landfall's) · .env (mode 600)</div>
     <div class="faint">run it by hand: <span class="mono">cd ${esc(dir)}/current && docker compose ps</span></div>`;

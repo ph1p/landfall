@@ -7,6 +7,7 @@ import {
   isDone,
   isOld,
   isUp,
+  kindOf,
   oldProject,
   OVERRIDE_FILES,
   overrideYaml,
@@ -14,6 +15,8 @@ import {
   routed,
   ROUTER_RULE,
   ruleHosts,
+  siteState,
+  type SiteState,
   siteDomains,
   siteMain,
   type Release,
@@ -86,6 +89,9 @@ export interface SiteStatus {
   domains: string[];
   /** The service serving the site's own domains: `lf domains` changes them. None: fixed in compose.yaml. */
   main?: string;
+  state: SiteState;
+  /** kindOf: what lists show. */
+  kind: string;
 }
 
 export interface Overview {
@@ -214,7 +220,7 @@ ids=$(docker ps -aq 2>/dev/null || true)
   o.others = externals(labeled, status, o.proxy, new Set(metas.map(siteProject)));
   o.sites = metas.map((meta) => {
     const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
-    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name };
+    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, state: siteState(meta), kind: kindOf(meta) };
   });
   return o;
 }
