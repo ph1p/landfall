@@ -32,6 +32,8 @@ button {
   padding: 5px 11px; border-radius: 7px; cursor: pointer; white-space: nowrap;
 }
 button:hover { border-color: var(--faint); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary:hover { filter: brightness(1.08); }
 button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { color: var(--bad); }
@@ -46,26 +48,37 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
 textarea { font-family: var(--mono); font-size: 12.5px; min-height: 90px; }
 
-.app { display: grid; grid-template-columns: 250px 1fr; grid-template-rows: 52px 1fr; height: 100vh; }
-.app.with-job { grid-template-columns: 250px 1fr minmax(380px, 40%); }
+.app { display: grid; grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: 52px 1fr; height: 100vh; }
+.app.with-job { grid-template-columns: 250px minmax(0, 1fr) minmax(380px, 40%); }
 header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
-.brand small { font-weight: 400; color: var(--faint); font-size: 12px; }
+.brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; letter-spacing: -.01em; color: var(--text); }
+.brand:hover { text-decoration: none; }
+.brand svg { width: 22px; height: 22px; flex: none; }
+.brand small { font-weight: 400; color: var(--faint); font-size: 12px; letter-spacing: 0; }
 .project { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; min-width: 0; }
 .project .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36vw; }
-nav.servers { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 10px 8px; }
-nav h3 { margin: 6px 8px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; }
-.srv { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 7px; }
-.srv:hover { background: var(--bg); }
+nav.servers { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; display: flex; flex-direction: column; }
+.nav-top { position: sticky; top: 0; z-index: 1; background: var(--panel); display: flex; gap: 6px; padding: 10px 10px 6px; }
+.nav-top input { padding: 5px 9px; font-size: 13px; }
+.nav-top button { flex: none; }
+#navlist { padding: 0 8px 12px; }
+nav h3 { margin: 10px 8px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; display: flex; justify-content: space-between; }
+nav h3 span { font-weight: 500; letter-spacing: 0; }
+.srv { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: 7px; }
+.srv:hover { background: var(--bg); border-color: transparent; }
 .srv.on { background: var(--accent-bg); }
+.srv.on .n { color: var(--accent); }
 .srv .n { font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.srv .t { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.srv .t { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-none { color: var(--faint); font-size: 12.5px; padding: 6px 10px; }
 .star { color: var(--warn); font-size: 11px; }
 main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: inline-size; }
+.show-sm { display: none !important; }
 /* By main's own width, so an open job panel squeezes the tables like a small screen does. */
 @container (max-width: 720px) {
   td, th { padding: 8px; }
   .hide-sm { display: none; }
+  .show-sm { display: flex !important; }
 }
 .empty { color: var(--dim); text-align: center; padding: 60px 20px; }
 .empty h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
@@ -73,13 +86,46 @@ main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: in
 .head h1 { margin: 0; font-size: 22px; }
 .head .sub { color: var(--dim); font-size: 13px; margin-top: 2px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--dim); }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--dim); flex: none; }
+.tabs button:hover { color: var(--text); }
 .tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 .card + .card { margin-top: 16px; }
-.card > h2 { margin: 0; padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.card > h2 { margin: 0; padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .card > h2 .actions { font-weight: 400; }
+.card > h2 .sub { font-weight: 400; color: var(--dim); }
+.card > .lede { padding: 10px 16px; color: var(--dim); font-size: 13px; border-bottom: 1px solid var(--line); }
+
+/* "⋯" menus: one floating list at a time, placed by openMenu(). */
+button.more { padding-inline: 7px; letter-spacing: .05em; }
+.menu { position: fixed; z-index: 30; min-width: 180px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: grid; }
+.menu button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; gap: 16px; }
+.menu button:hover, .menu button:focus-visible { background: var(--bg); outline: none; }
+.menu button.danger:hover { background: var(--bad-bg); }
+.menu button .k { color: var(--faint); font-family: var(--mono); font-size: 11.5px; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+
+.home { max-width: 860px; margin: 0 auto; padding-top: 20px; }
+.home h1 { margin: 0 0 4px; font-size: 22px; }
+.home > p { color: var(--dim); margin: 0 0 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.tile { display: block; text-align: left; padding: 14px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); width: 100%; }
+.tile:hover { border-color: var(--accent); }
+.tile .n { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+.tile .t { color: var(--dim); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile.add { border-style: dashed; box-shadow: none; color: var(--dim); display: grid; place-items: center; min-height: 64px; }
+.cli { margin-top: 28px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--dim); }
+.cli pre { margin: 8px 0 0; font: 12.5px/1.6 var(--mono); color: var(--text); white-space: pre-wrap; }
+.cli pre span { color: var(--faint); }
+
+.drow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.drow:first-child { padding-top: 0; }
+.drow > div:first-child { flex: 1 1 260px; min-width: 0; }
+.drow .actions { flex: none; }
+.site-name { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+td .chips.show-sm { margin-top: 4px; }
 .card .body { padding: 12px 16px; }
 table { border-collapse: collapse; width: 100%; }
 th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px; border-bottom: 1px solid var(--line); }
@@ -102,7 +148,7 @@ td.acts button { margin-left: 4px; }
 .note { padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); margin-bottom: 14px; }
 .note.bad { background: var(--bad-bg); color: var(--bad); }
 .note.info { background: var(--accent-bg); color: var(--accent); }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; margin: 0; }
 .kv dt { color: var(--dim); } .kv dd { margin: 0; }
 pre.block { background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
 .detail td { background: var(--bg); }
@@ -178,11 +224,14 @@ body.dragging::after {
 }
 
 @media (max-width: 1100px) {
-  .app.with-job { grid-template-columns: 220px 1fr; }
+  .app.with-job { grid-template-columns: 220px minmax(0, 1fr); }
   aside.job { position: fixed; inset: 52px 0 0 auto; width: min(560px, 100vw); z-index: 5; box-shadow: var(--shadow); }
 }
 @media (max-width: 760px) {
-  .app, .app.with-job { grid-template-columns: 1fr; grid-template-rows: 52px auto 1fr; }
+  .app, .app.with-job { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52px auto 1fr; }
+  header { padding: 0 12px; gap: 8px; }
+  .brand small { display: none; }
+  .project button { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
   nav.servers { display: none; }
   .server-pick { display: block; padding: 10px 16px 0; }
   main { padding: 14px 16px 40px; }
@@ -194,10 +243,14 @@ body.dragging::after {
 <body>
 <div class="app" id="app">
   <header>
-    <div class="brand">landfall <small id="version"></small></div>
+    <a class="brand" href="#/"><svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4" fill="var(--accent)"/><path d="M4 5h8M4 8h8M4 11h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>landfall <small id="version"></small></a>
     <div class="project" id="project"></div>
   </header>
-  <nav class="servers" id="nav"></nav>
+  <!-- The filter stays put across renders, so typing keeps its focus. -->
+  <nav class="servers" id="nav">
+    <div class="nav-top"><input id="filter" type="search" placeholder="Filter servers" autocomplete="off" spellcheck="false" aria-label="Filter servers"><button type="button" id="add-server" title="Register an ssh alias or set up a fresh machine">+</button></div>
+    <div id="navlist"></div>
+  </nav>
   <div class="server-pick" id="pick"></div>
   <main id="main"></main>
   <aside class="job" id="job" hidden></aside>
@@ -232,6 +285,7 @@ const S = {
   settings: {},          // name -> {data: lf server config --json + dns of the main domain}
   dns: {},               // name -> {data: {ips, domains: [{domain, ips, ok, https}]}}
   open: new Set(),       // expanded site rows
+  filter: "",            // server list filter
   jobs: new Map(),       // id -> {info, lines, after, actions, es}
   job: null,             // shown job id
 };
@@ -266,14 +320,63 @@ function btn(label, fn, cls = "", title = "") {
 }
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-k]");
+  const menu = $("#menu");
+  // A click outside an open menu only closes it.
+  if (menu && !e.target.closest("#menu")) {
+    closeMenu();
+    e.preventDefault();
+    return void e.stopPropagation();
+  }
   if (!el || el.disabled) return;
   const fn = handlers.get(el.dataset.k);
   if (fn) {
     e.preventDefault();
     e.stopPropagation();
-    fn(e);
+    fn(e, el);
   }
 });
+
+/**
+ * A "⋯" button for the less used actions. items: [{label, run, cls, title, hint}] or "-" for a divider;
+ * falsy items are skipped. The menu keeps its own handlers, so a render while it is open leaves it working.
+ */
+function menuBtn(items, title = "More actions", cls = "sm") {
+  items = items.filter(Boolean);
+  if (!items.length) return "";
+  return btn("⋯", (e, el) => openMenu(el, items), `${cls} more`, title);
+}
+function openMenu(anchor, items) {
+  closeMenu();
+  const m = Object.assign(document.createElement("div"), { id: "menu", className: "menu" });
+  m.setAttribute("role", "menu");
+  m.innerHTML = items
+    .map((it, i) => it === "-" ? "<hr>" : `<button type="button" role="menuitem" data-i="${i}" class="${it.cls ?? ""}"${it.title ? ` title="${esc(it.title)}"` : ""}><span>${esc(it.label)}</span>${it.hint ? `<span class="k">${esc(it.hint)}</span>` : ""}</button>`)
+    .join("");
+  m.onclick = (e) => {
+    const b = e.target.closest("button[data-i]");
+    if (!b) return;
+    closeMenu();
+    items[b.dataset.i].run();
+  };
+  m.onkeydown = (e) => {
+    const all = [...m.querySelectorAll("button")];
+    const i = all.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length].focus();
+    }
+  };
+  document.body.append(m);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
+  m.style.top = `${r.bottom + 4 + m.offsetHeight > innerHeight - 8 ? Math.max(8, r.top - m.offsetHeight - 4) : r.bottom + 4}px`;
+  $("button", m)?.focus({ preventScroll: true });
+}
+function closeMenu() {
+  $("#menu")?.remove();
+}
+addEventListener("resize", closeMenu);
+document.addEventListener("scroll", closeMenu, true);
 
 // ---- routing: #/<server>/<tab> ---------------------------------------------
 
@@ -937,13 +1040,19 @@ function renderNav() {
   const list = st.servers;
   const own = list.filter((s) => s.registered);
   const aliases = list.filter((s) => !s.registered);
+  const q = S.filter.toLowerCase();
+  const hit = (s) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
   const item = (s) => `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
       <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
       <div class="t">${esc(s.target)}</div></button>`;
-  $("#nav").innerHTML = `
-    ${own.length ? `<h3>Servers</h3>${own.map(item).join("")}` : ""}
-    ${aliases.length ? `<h3>From ~/.ssh/config</h3>${aliases.map(item).join("")}` : ""}
-    <div style="padding:10px 8px">${btn("+ Add server", addServer, "", "Register an ssh alias or set up a fresh machine")}</div>`;
+  const group = (title, l) => {
+    const shown = l.filter(hit);
+    return l.length ? `<h3>${title}${q ? `<span>${shown.length}/${l.length}</span>` : ""}</h3>${shown.map(item).join("") || `<div class="nav-none">no match</div>`}` : "";
+  };
+  $("#filter").hidden = list.length < 8;
+  $("#add-server").textContent = list.length < 8 ? "+ Add server" : "+";
+  $("#navlist").innerHTML = `${group("Servers", own)}${group("From ~/.ssh/config", aliases)}
+    ${list.length ? "" : `<div class="nav-none">No servers yet.</div>`}`;
   $("#pick").innerHTML = `<select onchange="go(this.value || null)">
     <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}</option>`).join("")}
   </select>`;
@@ -1005,12 +1114,7 @@ function factsNote(n) {
 
 function renderMain() {
   const main = $("#main");
-  if (!S.sel) {
-    main.innerHTML = `<div class="empty"><h2>Pick a server</h2>
-      <p>landfall connects only when you open one. Servers are ssh targets: any ~/.ssh/config alias works.</p>
-      <p>${btn("+ Add server", addServer, "primary")}</p></div>`;
-    return;
-  }
+  if (!S.sel) return void (main.innerHTML = homeView());
   const n = S.sel;
   const s = server();
   const ov = S.overview[n] ?? { loading: true };
@@ -1027,12 +1131,15 @@ function renderMain() {
       <div><h1>${esc(n)}${s?.isDefault ? ` <span class="star" title="default server">★</span>` : ""}</h1><div class="sub">${sub}</div>${factsLine(n)}</div>
       <div class="actions">
         ${btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying")}
-        ${btn("Traefik", () => run(["traefik", "status", ...sv(n)]), "", "lf traefik status")}
-        ${btn("Info", () => run(["server", "info", n]), "", "lf server info")}
         ${btn("Run…", () => runCommand(n), "", "Run a shell command over ssh")}
-        ${s?.isDefault ? "" : btn("Make default", () => makeDefault(n), "ghost")}
-        ${s?.registered ? btn("Forget", () => forget(n), "ghost danger") : ""}
-        ${btn("↻", () => load(n, S.tab, true) || render(), "ghost", "Reload")}
+        ${btn("↻", () => load(n, S.tab, true) || render(), "", "Reload")}
+        ${menuBtn([
+          { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
+          { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) },
+          s?.isDefault ? null : { label: "Make default", title: "Commands without -s use it", run: () => makeDefault(n) },
+          s?.registered ? "-" : null,
+          s?.registered ? { label: `Forget ${n}…`, cls: "danger", hint: "lf server rm", run: () => forget(n) } : null,
+        ], "More", "")}
       </div>
     </div>
     ${factsNote(n)}
@@ -1051,14 +1158,37 @@ function renderMain() {
   else view.innerHTML = historyView(n);
 }
 
+/** No server open: the servers to pick from, and how the same works in a terminal. */
+function homeView() {
+  const list = S.state.servers;
+  const own = list.filter((s) => s.registered);
+  const tile = (s) => `<button type="button" class="tile" ${on(() => go(s.name, "sites"))}>
+      <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
+      <div class="t">${esc(s.target)}</div></button>`;
+  const def = list.find((s) => s.isDefault)?.name;
+  return `<div class="home">
+    <h1>${own.length ? "Your servers" : "Pick a server"}</h1>
+    <p>landfall connects only when you open one. Servers are ssh targets: any ~/.ssh/config alias works${own.length < list.length ? ` (${list.length - own.length} in the list on the left)` : ""}.</p>
+    <div class="grid">${own.map(tile).join("")}<button type="button" class="tile add" ${on(addServer)}>+ Add server</button></div>
+    <div class="cli">Everything here runs an <span class="mono">lf</span> command, shown above its output, so you can do the same in a terminal:
+      <pre>lf deploy ./dist -d blog <span># a folder, Dockerfile project or image, with HTTPS</span>
+lf ls${def ? "" : " -s <server>"}               <span># sites, and what else Traefik routes</span>
+lf logs blog -f          <span># follow a site's logs</span>
+lf undo                  <span># revert the last change</span>
+lf help                  <span># every command</span></pre></div>
+  </div>`;
+}
+
 /** Containers Traefik routes that landfall did not deploy: shown, never touched. */
 function othersCard(o) {
   if (!o.others?.length) return "";
+  const links = (e) => e.domains.map((d) => `<span class="chip"><a href="https://${esc(d)}" target="_blank" rel="noopener">${esc(d)}</a></span>`).join("");
   return `<div class="card scroll"><h2>Not deployed by landfall <span class="badge">${o.others.length}</span></h2>
-    <div class="body faint">Containers your Traefik routes, e.g. your own compose projects. landfall only shows them; deploying one of their domains warns.</div>
+    <div class="lede">Containers your Traefik routes, e.g. your own compose projects. landfall only shows them; deploying one of their domains warns.</div>
     <table><thead><tr><th>Name</th><th class="hide-sm">Domains</th><th class="hide-sm">Folder</th></tr></thead><tbody>${o.others
-      .map((e) => `<tr><td class="nowrap">${statusDot(e.status)}<b>${esc(e.name)}</b> <span class="faint">${esc(e.status.toLowerCase())}</span></td>
-        <td class="hide-sm"><div class="chips">${e.domains.map((d) => `<span class="chip"><a href="https://${esc(d)}" target="_blank" rel="noopener">${esc(d)}</a></span>`).join("")}</div></td>
+      .map((e) => `<tr><td><div class="site-name">${statusDot(e.status)}<b>${esc(e.name)}</b>&nbsp;<span class="faint">${esc(e.status.toLowerCase())}</span></div>
+          <div class="chips show-sm">${links(e)}</div></td>
+        <td class="hide-sm"><div class="chips">${links(e)}</div></td>
         <td class="hide-sm mono dim">${esc(e.dir ?? e.containers.join(", "))}</td></tr>`)
       .join("")}</tbody></table></div>`;
 }
@@ -1084,20 +1214,25 @@ function sitesView(n, o) {
       const up = isUp(status);
       const older = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1)).filter((r) => r.at < (cur?.at ?? ""));
       const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
+      const deleteSite = () => confirmDlg({ title: `Delete ${name} from ${n}?`, text: "Stops it and removes all its files and releases.\nThis cannot be undone.", ok: `Delete ${name}`, danger: true, onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]) });
       const acts = [
         proj
           ? btn("Redeploy", () => confirmDlg({ title: `Redeploy ${name}?`, text: `From ${tilde(proj.path)}${proj.kind === "static" ? " (runs its build first, if it has one)" : ""}.`, ok: "Deploy", onOk: () => run(["deploy", "-y", ...sv(n)], { server: n, cwd: proj.path, after: openAfter }) }), "sm primary", `lf deploy in ${proj.path}`)
           : "",
         btn("Logs", () => run(["logs", name, ...sv(n), "-f"]), "sm", "Follow the container logs"),
-        btn("Restart", () => run(["restart", name, ...sv(n)]), "sm"),
-        btn(up ? "Stop" : "Start", () => run([up ? "stop" : "start", name, ...sv(n)]), "sm"),
-        older.length
-          ? btn("Roll back", () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)})`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }), "sm")
-          : "",
-        btn("Domains", () => domainsDialog(n, m), "sm", "Add, change or remove domains"),
-        btn(m.auth?.length ? "Login" : "Password", () => authDialog(n, m), "sm", "Protect the site with a user and password"),
-        m.kind === "static" ? "" : btn("Env", () => envDialog(n, name), "sm", "Environment variables"),
-        btn("Delete", () => confirmDlg({ title: `Delete ${name} from ${n}?`, text: "Stops it and removes all its files and releases.\nThis cannot be undone.", ok: `Delete ${name}`, danger: true, onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]) }), "sm danger"),
+        menuBtn([
+          { label: "Restart", hint: "lf restart", run: () => run(["restart", name, ...sv(n)]) },
+          { label: up ? "Stop" : "Start", hint: `lf ${up ? "stop" : "start"}`, run: () => run([up ? "stop" : "start", name, ...sv(n)]) },
+          older.length
+            ? { label: "Roll back…", hint: "lf rollback", title: `To ${older[0].id} (${ago(older[0].at)})`, run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)})`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }) }
+            : null,
+          "-",
+          { label: "Domains…", hint: "lf domains", run: () => domainsDialog(n, m) },
+          { label: m.auth?.length ? "Login…" : "Password…", hint: "lf auth", title: "Protect the site with a user and password", run: () => authDialog(n, m) },
+          m.kind === "static" ? null : { label: "Environment…", hint: "lf env", run: () => envDialog(n, name) },
+          "-",
+          { label: `Delete ${name}…`, cls: "danger", hint: "lf sites rm", run: deleteSite },
+        ], `More for ${name}`),
       ].join("");
       const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
       const detail = open
@@ -1118,7 +1253,8 @@ function sitesView(n, o) {
           </dl></td></tr>`
         : "";
       return `<tr class="click" ${on(toggle)}>
-        <td class="nowrap">${statusDot(status)}<b>${esc(name)}</b>${m.auth?.length ? `<span class="lock" title="password protected">🔒</span>` : ""} <span class="faint">${open ? "▾" : "▸"}</span></td>
+        <td><div class="site-name">${statusDot(status)}<b>${esc(name)}</b>${m.auth?.length ? `<span class="lock" title="password protected">🔒</span>` : ""} <span class="faint">${open ? "▾" : "▸"}</span></div>
+          <div class="chips show-sm">${m.domains.map((d) => domainChip(n, d)).join("")}</div></td>
         <td class="hide-sm"><div class="chips">${m.domains.map((d) => domainChip(n, d)).join("")}</div></td>
         <td class="hide-sm"><span class="badge">${esc(m.kind)}</span></td>
         <td class="hide-sm dim">${cur ? esc(ago(cur.at)) : ""}</td>
@@ -1389,19 +1525,22 @@ function settingsView(n) {
   const saved = x.saved ? Object.entries(x.saved).filter(([k, v]) => v !== undefined && k !== "dashboard").map(([k, v]) => [k, `<span class="mono">${esc(String(v))}</span>`]) : [];
   return `
     <div class="card">
-      <h2>Main domains ${btn("Add…", addDomain, "sm")}</h2>
+      <h2>Main domains <span class="actions">${btn("Add domain…", addDomain, "sm")}</span></h2>
       <div class="body">${x.domains.length
-        ? `<table><tbody>${x.domains.map((d, i) => `<tr>
-             <td>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge">primary</span>` : ""}<div class="faint">sites: ${dnsRow(x.dns[i].wildcard)}</div><div class="faint">${servedBy(d) ? `served by <b>${esc(servedBy(d))}</b>` : external(d) ? `served by <b>${esc(external(d))}</b> (not landfall)` : "no site serves it"}</div></td>
-             <td><div class="actions">${btn(servedBy(d) ? "Serve another site…" : "Serve a site…", () => serve(d), "ghost sm")}${i ? btn("Make primary", () => run(["server", "domain", n, "--primary", d], reload), "ghost sm") : ""}${btn("Remove", () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }), "ghost sm")}</div></td>
-           </tr>`).join("")}</tbody></table>
+        ? `${x.domains.map((d, i) => `<div class="drow">
+             <div>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge accent">primary</span>` : ""}<div class="dim">sites: ${dnsRow(x.dns[i].wildcard)}</div><div class="faint">${servedBy(d) ? `served by <b>${esc(servedBy(d))}</b>` : external(d) ? `served by <b>${esc(external(d))}</b> (not landfall)` : "no site serves it"}</div></div>
+             <div class="actions">${btn(servedBy(d) ? "Serve another site…" : "Serve a site…", () => serve(d), "sm")}${menuBtn([
+               i ? { label: "Make primary", hint: "--primary", run: () => run(["server", "domain", n, "--primary", d], reload) } : null,
+               { label: `Remove ${d}…`, cls: "danger", hint: "--rm", run: () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }) },
+             ], `More for ${d}`)}</div>
+           </div>`).join("")}
            <p class="faint">New sites get <span class="mono">&lt;site&gt;.${esc(x.domains[0])}</span>; a bare name like <span class="mono">blog</span> means <span class="mono">blog.${esc(x.domains[0])}</span>, and <span class="mono">@</span> means <span class="mono">${esc(x.domains[0])}</span> itself.</p>
            ${records.length ? `<div class="note">Add at your DNS provider:<div class="mono">${records.join("<br>")}</div></div>` : ""}`
         : `<p class="dim">No main domain set in landfall. New sites get a free <span class="mono">&lt;site&gt;.&lt;ip&gt;.sslip.io</span> address until you set one.</p>`}
         ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>
     </div>
     <div class="card">
-      <h2>Traefik ${btn("Dashboard…", dashboard, "sm")}</h2>
+      <h2>Traefik <span class="actions">${btn("Dashboard…", dashboard, "sm")}</span></h2>
       <div class="body">${rows([
         ["image", esc(x.traefik.summary)],
         ["e-mail", esc(x.traefik.email ?? "none")],
@@ -1494,11 +1633,18 @@ function render() {
 }
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#menu")) return closeMenu();
   if (e.key === "Escape" && !$("#dlg").open && S.job) {
     S.job = null;
     render();
   }
 });
+
+$("#filter").addEventListener("input", (e) => {
+  S.filter = e.target.value.trim();
+  renderNav();
+});
+$("#add-server").onclick = () => addServer();
 
 (async () => {
   try {
