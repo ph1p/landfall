@@ -59,6 +59,47 @@ export interface Overview {
   /** Its container name: landfall's `traefik`, or the one sites were pointed at. */
   proxy: string;
   sites: SiteStatus[];
+  /** Containers routed by Traefik that landfall did not deploy (your own compose projects). Read only. */
+  others: External[];
+}
+
+export interface External {
+  /** Compose project, or the container name without one. */
+  name: string;
+  domains: string[];
+  /** Status of its routed containers, e.g. "Up 3 hours". */
+  status: string;
+  containers: string[];
+  /** Compose working directory on the server. */
+  dir?: string;
+}
+
+/** Hosts in a Traefik rule: Host(`a`) || Host(`b`, `c`). HostRegexp and HostSNI are not hosts. */
+export const ruleHosts = (rule: string) =>
+  [...rule.matchAll(/\bHost\(([^)]*)\)/g)].flatMap((m) => [...m[1].matchAll(/[`"]([^`"]+)[`"]/g)].map((h) => h[1].toLowerCase()));
+
+/**
+ * Group containers that carry Traefik router rules by compose project. Skips landfall's own
+ * sites (and srv's, before the migration), the proxy itself, and traefik.enable=false.
+ */
+export function externals(ctrs: { name: string; labels: Record<string, string> }[], status: Map<string, string>, proxy: string): External[] {
+  const out = new Map<string, External>();
+  for (const { name, labels } of ctrs) {
+    if (name === proxy || labels["landfall.managed"] || labels["srv.managed"] || labels["traefik.enable"] === "false") continue;
+    const hosts = Object.entries(labels)
+      .filter(([k]) => /^traefik\.http\.routers\.[^.]+\.rule$/.test(k))
+      .flatMap(([, v]) => ruleHosts(v));
+    if (!hosts.length) continue;
+    const key = labels["com.docker.compose.project"] || name;
+    const e = out.get(key) ?? { name: key, domains: [], status: "", containers: [], dir: labels["com.docker.compose.project.working_dir"] };
+    e.domains = [...new Set([...e.domains, ...hosts])];
+    e.containers.push(name);
+    const st = status.get(name) ?? "not running";
+    // A group is up only if all its routed containers are.
+    if (!e.status || !/^up/i.test(st)) e.status = st;
+    out.set(key, e);
+  }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function overview(s: Server): Promise<Overview> {
@@ -68,12 +109,16 @@ export async function overview(s: Server): Promise<Overview> {
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P"
 for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done
-docker ps -a --filter label=landfall.managed=true --format 'CTR\\t{{.Names}}\\t{{.Status}}' 2>/dev/null || true`,
+docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}' 2>/dev/null || true
+ids=$(docker ps -aq 2>/dev/null || true)
+# inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
+[ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true`,
     { capture: true },
   );
   const status = new Map<string, string>();
   const metas: SiteMeta[] = [];
-  const o: Overview = { ready: false, traefik: "", proxy: "traefik", sites: [] };
+  const labeled: { name: string; labels: Record<string, string> }[] = [];
+  const o: Overview = { ready: false, traefik: "", proxy: "traefik", sites: [], others: [] };
   for (const line of stdout.split("\n")) {
     const [kind, a = "", b] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
@@ -90,12 +135,17 @@ docker ps -a --filter label=landfall.managed=true --format 'CTR\\t{{.Names}}\\t{
       }
     }
     if (kind === "CTR") status.set(a, b);
+    if (kind === "LABELS") {
+      try {
+        labeled.push({ name: a.replace(/^\//, ""), labels: JSON.parse(b ?? "null") ?? {} });
+      } catch {}
+    }
   }
+  o.others = externals(labeled, status, o.proxy);
   o.sites = metas.map((meta) => ({ meta, status: status.get(container(meta.name)) ?? "not running" }));
   return o;
 }
 
-export const listSites = async (s: Server) => (await overview(s)).sites;
 
 export interface ApplyOpts {
   env?: string;

@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "./config";
 import { runScript } from "./ssh";
-import { COMPOSE_PLUGIN, PRELUDE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
+import { COMPOSE_PLUGIN, PRELUDE, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
 import { c, confirm, info, ok, warn } from "./ui";
 
 // Function declarations, not consts: config.ts calls these while modules still load.
@@ -62,6 +62,7 @@ old_conf=/etc/ssh/sshd_config.d/00-srv.conf
 rewrite() { o=$($SUDO stat -c %u:%g "$1"); $SUDO sed -i -E "$2" "$1"; $SUDO chown "$o" "$1"; }
 dc version >/dev/null 2>&1 || true
 sdc() { $SUDO $DC "$@"; }
+[ ! -f ${PROXY_FILE} ] || rewrite ${PROXY_FILE} 's/^# srv routes/# landfall routes/; s/let srv run/let landfall run/'
 f=${TRAEFIK_DIR}/docker-compose.yml
 if [ -f $f ] && grep -q "managed by srv" $f; then
   rewrite $f 's/managed by srv/managed by landfall/'

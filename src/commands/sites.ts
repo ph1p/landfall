@@ -4,7 +4,7 @@ import {
   applySite,
   composeCmd,
   dockerLogs,
-  listSites,
+  overview,
   mergeEnv,
   newestFirst,
   parseEnvPairs,
@@ -30,12 +30,24 @@ const paint = (status: string) => (status.startsWith("Up") ? c.green(status) : c
 export const sitesList = defineCommand({
   name: "sites list",
   summary: "List deployed sites on a server.",
-  options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
+  options: {
+    server: serverOpt,
+    json: { type: "boolean", desc: "machine-readable output" },
+    others: { type: "boolean", desc: "with --json: {sites, others}, others = containers Traefik routes that landfall did not deploy" },
+  },
   async run(_, o) {
     const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
-    const sites = await listSites(server);
-    if (o.json) return console.log(JSON.stringify(sites, null, 2));
-    if (!sites.length) return console.log(`no sites on ${name} yet — ${c.bold("lf deploy --domain example.com")}`);
+    const { sites, others } = await overview(server);
+    if (o.json) return console.log(JSON.stringify(o.others ? { sites, others } : sites, null, 2));
+    if (others.length) {
+      console.log(c.dim(`not deployed by landfall, routed by Traefik (read only):`));
+      table([
+        [c.dim("NAME"), c.dim("DOMAINS"), c.dim("FOLDER"), c.dim("STATUS")],
+        ...others.map((e) => [e.name, e.domains.join(", "), e.dir ?? c.dim(e.containers.join(", ")), paint(e.status)]),
+      ]);
+      if (sites.length) console.log();
+    }
+    if (!sites.length) return console.log(`no landfall sites on ${name} yet — ${c.bold("lf deploy --domain example.com")}`);
     table([
       [c.dim("NAME"), c.dim("KIND"), c.dim("DOMAINS"), c.dim("RELEASE"), c.dim("UPDATED"), c.dim("STATUS")],
       ...sites.map(({ meta, status }) => [

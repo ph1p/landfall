@@ -112,7 +112,7 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf deploy [dir] [-d domain...] [-n name] [-b cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n]` | Deploys a static folder, a Dockerfile app or an image. |
-| `lf ls [--json]` | Lists sites on the server with their status. Alias: `sites list`. |
+| `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows domains, container and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. |
 | `lf auth [name] -u user [-p pw]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
@@ -255,7 +255,7 @@ and so is a redeploy whose domain comes only from `.landfall.json` (pass `-d` to
 ## Day-to-day
 
 ```sh
-lf ls                              # sites with status
+lf ls                              # sites with status, and your own containers behind Traefik
 lf sites info                      # domains, container, releases
 lf logs -f                         # follow logs (-n 500 for more lines)
 lf rollback                        # previous release (--to <id> for a specific one)
@@ -323,6 +323,10 @@ e-mail, staging and dashboard are remembered per server.
 lf traefik use -s vps                          # finds the container on :80/:443
 lf traefik use traefik-reverseproxy-1 -s vps   # or name it
 ```
+
+Containers you run yourself behind that Traefik (compose projects with `traefik.http.routers.*.rule` labels)
+show up in `lf ls` and the dashboard as "not deployed by landfall", with their domains and folder. landfall
+never touches them; deploying one of their domains warns, since Traefik would send visitors to only one.
 
 landfall reads the network, HTTPS entrypoint and cert resolver from the container's flags. If your Traefik is
 configured by a file, pass `--network proxy --entrypoint websecure --resolver letsencrypt`. The choice is stored

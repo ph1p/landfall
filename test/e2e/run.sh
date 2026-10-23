@@ -135,6 +135,15 @@ for _ in $(seq 1 20); do [ "$(code who.test)" = 200 ] && break; sleep 1; done
 lf domains who --add who2.test >/dev/null 2>&1
 expect who2.test / "Hostname"
 { lf domains who --json | has '"who2.test"'; } || die "domains lists the new one"; pass "domains --add"
+# A compose project of the user's own, routed by the same Traefik.
+docker exec "$NAME" docker run -d --name ext-web-1 --label com.docker.compose.project=ext --label com.docker.compose.project.working_dir=/root/ext \
+  --label 'traefik.http.routers.ext.rule=Host(`ext.test`)' busybox:1.37 sleep 3600 >/dev/null
+out=$(lf ls 2>&1); { has "not deployed by landfall" <<<"$out" && has "ext.test" <<<"$out" && has "/root/ext" <<<"$out"; } || { echo "$out"; die "ls shows other containers"; }
+{ lf ls --json --others | has '"ext.test"'; } || die "ls --json --others"
+out=$(lf domains who --add ext.test 2>&1); { has "also routed to ext" <<<"$out"; } || { echo "$out"; die "taken by another container warns"; }
+lf domains who --rm ext.test -y >/dev/null 2>&1
+docker exec "$NAME" docker rm -f ext-web-1 >/dev/null
+pass "sites list shows containers landfall did not deploy, their domains warn"
 mkdir -p "$WORK/free" && cd "$WORK/free" && echo '<h1>free</h1>' > index.html
 lf deploy -y >/dev/null
 free=$(node --input-type=module -e 'console.log(JSON.parse((await import("node:fs")).readFileSync(".landfall.json", "utf8")).domains[0])')

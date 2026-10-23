@@ -11,7 +11,7 @@ import { journalCmd } from "../../src/cmd";
 import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
 import { findRun, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
-import { mergeEnv, parseEnvPairs } from "../../src/remote";
+import { externals, mergeEnv, parseEnvPairs } from "../../src/remote";
 import { shq, writeFileCmd } from "../../src/ssh";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
@@ -595,5 +595,27 @@ describe("main domains", () => {
   test("keeps co.uk-style suffixes", () => {
     expect(baseDomain("shop.example.co.uk")).toBe("example.co.uk");
     expect(baseDomain("a.b.example.com")).toBe("example.com");
+  });
+});
+
+describe("externals", () => {
+  test("groups routed containers by compose project, skips landfall and the proxy", () => {
+    const p = { "com.docker.compose.project": "korro", "com.docker.compose.project.working_dir": "/root/container/korro" };
+    const out = externals(
+      [
+        { name: "korro-korro-1", labels: { ...p, "traefik.http.routers.k.rule": "Host(`korro.app`) || Host(`www.korro.app`, `KORRO.app`)" } },
+        { name: "korro-pg-1", labels: p },
+        { name: "mail", labels: { "traefik.http.routers.m.rule": "Host(`mail.x.dev`)", "traefik.http.routers.m-http.rule": "Host(`mail.x.dev`) && PathPrefix(`/`)" } },
+        { name: "landfall-blog", labels: { "landfall.managed": "true", "traefik.http.routers.b.rule": "Host(`blog.dev`)" } },
+        { name: "off", labels: { "traefik.enable": "false", "traefik.http.routers.o.rule": "Host(`o.dev`)" } },
+        { name: "traefik", labels: { "traefik.http.routers.d.rule": "Host(`traefik.x.dev`)" } },
+      ],
+      new Map([["korro-korro-1", "Up 2 hours"], ["mail", "Exited (1)"]]),
+      "traefik",
+    );
+    expect(out).toEqual([
+      { name: "korro", domains: ["korro.app", "www.korro.app"], status: "Up 2 hours", containers: ["korro-korro-1"], dir: "/root/container/korro" },
+      { name: "mail", domains: ["mail.x.dev"], status: "Exited (1)", containers: ["mail"], dir: undefined },
+    ]);
   });
 });
