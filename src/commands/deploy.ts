@@ -13,6 +13,14 @@ import { claimDomains } from "./access";
 
 export { detectStaticDir, exposedPort, slug } from "../projects";
 
+/** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
+const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
+  compose: { files: "" },
+  dockerfile: { files: "", port: true },
+  static: { files: "/public" },
+  image: { port: true },
+};
+
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
 /** A release id not in `taken`: ids have one-second resolution, so a second deploy within it moves on a second. */
@@ -77,10 +85,9 @@ so \`docker compose\` works there without landfall. Settings are saved to
     const dir = compose || image ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd));
     const kind: SiteKind = compose ? "compose" : image ? "image" : !forceStatic && fs.existsSync(join(dir, "Dockerfile")) ? "dockerfile" : "static";
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) warn(`no index.html in ${relative(cwd, dir) || "."}`);
-    const port =
-      kind === "dockerfile" || kind === "image"
-        ? checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
-        : undefined;
+    const port = KINDS[kind].port
+      ? checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
+      : undefined;
     const spa = kind === "static" && !!(o.spa ?? project.spa);
 
     step(`deploying ${c.bold(name)} (${kind}) to ${c.bold(serverName)}`);
@@ -101,16 +108,16 @@ so \`docker compose\` works there without landfall. Settings are saved to
 
     const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id));
     const releaseDir = `${siteDir(name)}/releases/${id}`;
-    const generated: Record<string, string> = {};
-    if (kind === "static") Object.assign(generated, { "compose.yaml": generatedCompose("static"), "nginx.conf": nginxConf(spa) });
-    if (kind === "dockerfile" || kind === "image") generated["compose.yaml"] = generatedCompose(kind, { port, image });
+    const generated: Record<string, string> =
+      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
 
     // Anything that fails from the upload until the site switches takes the half-made release away again.
     let release: Release, domains: string[], move: () => Promise<void>;
     try {
-      if (kind !== "image") {
+      const files = KINDS[kind].files;
+      if (files !== undefined) {
         step(`uploading ${relative(cwd, dir) || "."}`);
-        await upload(server, dir, kind === "static" ? `${releaseDir}/public` : releaseDir);
+        await upload(server, dir, releaseDir + files);
       }
       const prepared = await prepareRelease(server, name, id, { file: compose, generated, env });
       const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
