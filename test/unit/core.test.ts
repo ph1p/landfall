@@ -20,7 +20,8 @@ import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { MIGRATED } from "../../src/legacy";
-import { DEFAULT_TRAEFIK_IMAGE, nginxConf, parseProxy, proxyFile, siteCompose, TLS_FILE, traefikCompose, traefikLabels, type SiteMeta } from "../../src/templates";
+import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
+import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, type Release, type SiteMeta } from "../../src/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -83,42 +84,97 @@ describe("deploy helpers", () => {
 });
 
 describe("templates", () => {
+  const release: Release = {
+    id: "20260101000000",
+    at: "",
+    services: [
+      { name: "web", networks: ["default"], build: true, port: 3000 },
+      { name: "admin", networks: ["default"], port: 8080, domains: ["admin.a.com"] },
+      { name: "db", networks: ["default"] },
+    ],
+  };
   const meta: SiteMeta = {
+    v: 2,
     name: "blog",
-    kind: "static",
+    kind: "compose",
     domains: ["a.com", "www.a.com"],
-    port: 80,
-    current: "20260101000000",
-    releases: [{ id: "20260101000000", at: "" }],
+    current: release.id,
+    releases: [release],
     createdAt: "",
     updatedAt: "",
   };
 
   test("labels route all domains over TLS", () => {
-    const l = traefikLabels("blog", meta.domains, 80);
-    expect(l).toContain("traefik.http.routers.landfall-blog.rule=Host(`a.com`) || Host(`www.a.com`)");
-    expect(l).toContain("traefik.http.routers.landfall-blog.tls.certresolver=le");
+    const l = routeLabels("blog", release.services[0], meta.domains, { container: "traefik", network: "web", entrypoint: "websecure", resolver: "le" });
+    expect(l["traefik.http.routers.blog-web.rule"]).toBe("Host(`a.com`) || Host(`www.a.com`)");
+    expect(l["traefik.http.routers.blog-web.tls.certresolver"]).toBe("le");
+    expect(l["traefik.http.services.blog-web.loadbalancer.server.port"]).toBe("3000");
+    expect(Object.keys(l).some((k) => k.includes("basicauth"))).toBe(false);
   });
 
-  test("site labels follow the proxy", () => {
+  test("override: project name, release tag, proxy network only on routed services", () => {
     const p = { container: "x", network: "proxy", entrypoint: "https", resolver: "acme" };
     expect(parseProxy(proxyFile(p))).toEqual(p);
-    const y = siteCompose(meta, p);
-    expect(y).toContain('"traefik.http.routers.landfall-blog.tls.certresolver=acme"');
-    expect(y).toContain("  proxy:\n    external: true");
+    const y = overrideYaml(meta, release, p);
+    expect(y).toContain('name: "blog"');
+    expect(y).toContain('image: "blog-web:20260101000000"');
+    expect(y).toContain('"traefik.http.routers.blog-web.tls.certresolver": "acme"');
+    expect(y).toContain('"traefik.http.routers.blog-admin.rule": "Host(`admin.a.com`)"');
+    expect(y).toMatch(/"db":\n    labels:/);
+    expect(y).toContain("  landfall-proxy:\n    name: \"proxy\"\n    external: true");
   });
 
-  test("static compose mounts releases, nginx pins release", () => {
-    expect(siteCompose(meta)).toContain("./releases:/site/releases:ro");
-    expect(nginxConf(meta.current, false)).toContain("root /site/releases/20260101000000;");
-    expect(nginxConf(meta.current, true)).toContain("/index.html;");
+  test("override escapes $ in basic auth", () => {
+    const y = overrideYaml({ ...meta, auth: ["bob:$2y$05$x"] }, release);
+    expect(y).toContain('"traefik.http.middlewares.blog-auth.basicauth.users": "bob:$$2y$$05$$x"');
+    expect(y).toContain('"traefik.http.routers.blog-web.middlewares": "blog-auth"');
   });
 
-  test("image compose uses release image and env file", () => {
-    const y = siteCompose({ ...meta, kind: "image", port: 3000, releases: [{ id: meta.current, at: "", image: "ghcr.io/x/y:1" }] });
-    expect(y).toContain('image: "ghcr.io/x/y:1"');
-    expect(y).toContain("env_file:");
-    expect(y).toContain("loadbalancer.server.port=3000");
+  test("site domains: the main service's plus each service's own", () => {
+    expect(mainService(release)?.name).toBe("web");
+    expect(siteDomains(meta)).toEqual(["a.com", "www.a.com", "admin.a.com"]);
+    expect(ruleHosts("Host(`a.x`) || Host(`B.x`, \"c.x\") && PathPrefix(`/`)")).toEqual(["a.x", "b.x", "c.x"]);
+  });
+
+  test("generated compose files", () => {
+    expect(generatedCompose("static")).toContain("./public:/usr/share/nginx/html:ro");
+    expect(generatedCompose("image", { image: "ghcr.io/x/y:1", port: 4000 })).toContain('image: "ghcr.io/x/y:1"');
+    expect(generatedCompose("dockerfile", { port: 4000 })).toContain("port: 4000");
+    expect(nginxConf(false)).toContain("=404;");
+    expect(nginxConf(true)).toContain("/index.html;");
+  });
+
+  test("analyze reads x-landfall and refuses unsafe setups", () => {
+    const dir = "/opt/landfall/sites/blog/releases/1";
+    const ok = analyze(
+      {
+        services: {
+          web: { build: { context: dir }, expose: ["3000"], "x-landfall": {}, networks: { default: null } },
+          db: { image: "postgres", volumes: [{ type: "volume", source: "db", target: "/var/lib/postgresql/data" }] },
+          mail: { image: "m", labels: { "traefik.http.routers.m.rule": "Host(`mail.a.com`)" } },
+        },
+      },
+      dir,
+    );
+    expect(ok.errors).toEqual([]);
+    expect(ok.services).toEqual([
+      { name: "web", networks: ["default"], build: true, port: 3000 },
+      { name: "db", networks: ["default"] },
+      { name: "mail", networks: ["default"], own: true, domains: ["mail.a.com"] },
+    ]);
+    const bad = analyze(
+      {
+        services: {
+          web: { image: "w", "x-landfall": { port: "x" } },
+          db: { image: "postgres", ports: [{ target: 5432, published: "5432" }], volumes: [{ type: "bind", source: `${dir}/data`, target: "/d" }] },
+        },
+      },
+      dir,
+    );
+    expect(bad.errors.join("\n")).toMatch(/port must be a port number/);
+    expect(bad.errors.join("\n")).toMatch(/db publishes 5432:5432/);
+    expect(bad.errors.join("\n")).toMatch(/writes to \.\/data/);
+    expect(analyze({ services: { db: { image: "p" } } }, dir).errors).toEqual([expect.stringMatching(/no service is routed/)]);
   });
 
   test("traefik dashboard escapes $ for compose", async () => {
@@ -523,12 +579,6 @@ describe("folders and access", () => {
   test("upload paths stay inside", () => {
     expect(safeParts("../../etc//passwd")).toEqual(["etc", "passwd"]);
     expect(safeParts("site\\a/./b.html")).toEqual(["site", "a", "b.html"]);
-  });
-  test("basic auth labels", () => {
-    const l = traefikLabels("blog", ["blog.test"], 80, undefined, ["bob:$apr1$x"]);
-    expect(l).toContain("traefik.http.middlewares.landfall-blog-auth.basicauth.users=bob:$apr1$x");
-    expect(l).toContain("traefik.http.routers.landfall-blog.middlewares=landfall-blog-auth");
-    expect(traefikLabels("blog", ["blog.test"], 80).some((x) => x.includes("basicauth"))).toBe(false);
   });
   test("which dashboard commands change a server", () => {
     expect(changes(["domains", "blog"])).toBe(false);

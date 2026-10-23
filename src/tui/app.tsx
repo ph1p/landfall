@@ -6,6 +6,8 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import pkg from "../../package.json";
 import { firewallState, type FirewallState } from "../commands/firewall";
 import { loadConfig, loadProject, resolveServer, saveConfig } from "../config";
+import { kindOf } from "../commands/sites";
+import { siteDomains } from "../compose";
 import { newestFirst, overview, siteDir, type Overview, type SiteStatus } from "../remote";
 import { pending, readJournal, type Run } from "../journal";
 import { effectiveSsh, sshAliases } from "../sshconfig";
@@ -573,7 +575,7 @@ export function App({ state, onAction }: { state: UiState; onAction: (a: Action)
           run(["env", name, ...s, ...v.split(/\s+/).filter(Boolean)]),
         );
       case "o": {
-        const url = `https://${site.meta.domains[0]}`;
+        const url = `https://${siteDomains(site.meta)[0]}`;
         spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { stdio: "ignore", detached: true }).unref();
         return setFlash(`opened ${url}`);
       }
@@ -939,11 +941,11 @@ function Right(p: {
             </Box>
             {showKind && (
               <Box width={12}>
-                <Text dimColor>{s.meta.kind}</Text>
+                <Text dimColor>{kindOf(s.meta)}</Text>
               </Box>
             )}
             <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="truncate">{s.meta.domains.join(" ")}</Text>
+              <Text wrap="truncate">{siteDomains(s.meta).join(" ")}</Text>
             </Box>
             {showAge && (
               <Box width={10} flexShrink={0} justifyContent="flex-end">
@@ -1036,28 +1038,34 @@ function SiteDetail({ s, height }: { s: SiteStatus; height: number }) {
     <Panel
       title={
         <Text>
-          <Text bold>{m.name}</Text> <Text dimColor>{m.kind}</Text> <Text color={isUp(s.status) ? "green" : "red"}>{s.status}</Text>
+          <Text bold>{m.name}</Text> <Text dimColor>{kindOf(m)}</Text> <Text color={isUp(s.status) ? "green" : "red"}>{s.status}</Text>
         </Text>
       }
       focused
       height={height}
     >
-      {m.domains.map((d) => (
+      {siteDomains(m).map((d) => (
         <Text key={d} color="cyan">
           https://{d}
         </Text>
       ))}
-      <Text dimColor>
-        {siteDir(m.name)} · port {m.port}
-        {m.spa ? " · single-page app" : ""}
-      </Text>
+      <Text dimColor>{m.adopted ?? siteDir(m.name)}</Text>
+      <Text> </Text>
+      <Text bold>Services</Text>
+      {s.services.map((v) => (
+        <Text key={v.container}>
+          {"  "}
+          {v.service} <Text color={isUp(v.status) ? "green" : /^exited \(0\)/i.test(v.status) ? undefined : "red"} dimColor={/^exited \(0\)/i.test(v.status)}>{v.status}</Text>
+        </Text>
+      ))}
+      {!s.services.length && <Text dimColor>  none running</Text>}
       <Text> </Text>
       <Text bold>Releases</Text>
       {releases.map((r) => (
         <Text key={r.id}>
           {r.id === m.current ? <Text color="green">● </Text> : "  "}
           {r.id} <Text dimColor>{ago(r.at)}</Text>
-          {r.image ? <Text dimColor> {r.image}</Text> : null}
+          {r.services?.length ? <Text dimColor> {r.services.map((v) => v.name).join(" ")}</Text> : null}
           {r.id === m.current ? <Text dimColor> (live)</Text> : null}
         </Text>
       ))}

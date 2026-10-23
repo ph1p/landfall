@@ -9,7 +9,8 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 ```
 
 - **Servers are ssh targets.** Any `~/.ssh/config` alias works. If `ssh vps` works, `lf deploy -s vps` works.
-- **No agent on the server.** Everything is plain Docker Compose under `/opt/landfall`, so you can read and fix it by hand.
+- **No agent on the server.** Every site is a plain Docker Compose project under `/opt/landfall`, so you can read, run and fix it by hand.
+- **Your compose.yaml is the site.** App, database, worker: `docker compose up` runs it locally, `lf deploy` runs the same file behind HTTPS.
 - **Every change is journaled** on the server and can be undone with `lf undo`.
 - **Three ways in:** plain commands for scripts, CI and agents; a web dashboard (`lf ui`); a terminal dashboard (`lf tui`).
 
@@ -50,7 +51,7 @@ lf <command> --help          # every option of one command
 | term | meaning |
 |---|---|
 | **server** | An ssh target: a `~/.ssh/config` alias, or one landfall registered with `lf server add`/`lf setup`. Pass it as `-s <name>`. The first server you add becomes the default. |
-| **site** | One deployed thing on a server: a static folder, a Dockerfile app or a prebuilt image. It runs as container `landfall-<name>` and Traefik routes its domains to it. |
+| **site** | One Compose project on a server: your `compose.yaml`, or one landfall generates for a static folder, a Dockerfile or a prebuilt image. Services with `x-landfall: { port }` are routed through Traefik. |
 | **project file** | `./.landfall.json`, written by the first `lf deploy`: `{ "name", "server", "domains" }`. Commands that take `[name]` default to this site, and `-s` defaults to its server. |
 | **main domain** | Optional per-server domain (`lf server domain vps example.com`). Sites then default to `<site>.example.com`, and a bare name like `shop` means `shop.example.com`. Without one, sites get `<site>.<ip-with-dashes>.sslip.io` (e.g. `blog.203-0-113-7.sslip.io`), which resolves without any DNS setup. |
 | **release** | Every deploy creates one, with an id like `20260122143005`. The last 5 are kept. `lf rollback` switches between them. |
@@ -111,23 +112,25 @@ lf undo -s box -y                           # revert the last run
 
 | command | what it does |
 |---|---|
-| `lf deploy [dir] [-d domain...] [-n name] [-b cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n]` | Deploys a static folder, a Dockerfile app or an image. |
+| `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n]` | Deploys a Compose project, static folder, Dockerfile app or image. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
-| `lf sites info [name]` | Shows domains, container and release history. |
+| `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. |
 | `lf auth [name] -u user [-p pw]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
 | `lf open [name]` | Opens the site in the browser. |
-| `lf logs [name] [-f] [-n lines]` | Shows container logs. |
-| `lf env [name] [K=V...] [-u K]` | Shows or changes env vars. Recreates the container. |
+| `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
+| `lf env [name] [K=V...] [-u K]` | Shows or changes the site's `.env`. Recreates the services. |
 | `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
-| `lf restart` / `stop` / `start [name]` | Restarts, stops or starts the site. |
-| `lf sites rm <name>` | Deletes the site and its files. |
+| `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
+| `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes stay unless `--volumes`. |
+| `lf adopt <project> [--name n]` | Makes a Compose project you started yourself a site, so `ls`, logs, restart and rm work for it. |
 
 **Traefik, firewall, updates, history**
 
 | command | what it does |
 |---|---|
-| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--staging] [--image img] [--host-network]` | Installs or reconfigures landfall's Traefik. |
+| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--staging] [--image img] [--host-network] [--force]` | Installs or reconfigures landfall's Traefik. `--force` overwrites hand edits. |
 | `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Routes sites through a Traefik you already run. |
 | `lf traefik status` / `logs [-f]` / `restart` | Inspects or restarts Traefik. `lf traefik` alone means `status`. |
 | `lf firewall [--json]` | Lists ufw rules and, for each listening port, whether it is reachable. |
@@ -209,7 +212,8 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 
 | kind | when | how |
 |---|---|---|
-| **static** | default | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/`. `--spa` sends unknown paths to `index.html`. |
+| **compose** | the folder has a `compose.yaml` | Uploads the folder and runs it as one Compose project. See [Compose sites](#compose-sites). |
+| **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/`. `--spa` sends unknown paths to `index.html`. |
 | **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from `EXPOSE`, else `--port` (default 3000). `--static` forces static. |
 | **image** | `--image ghcr.io/me/app:1.2` | Pulls the image and runs it. Needs `--port`. For private registries: `lf ssh vps -- docker login ghcr.io`. |
 
@@ -228,8 +232,76 @@ The first deploy writes `.landfall.json`. Commit it:
 { "name": "my-site", "server": "vps", "domains": ["example.com", "www.example.com"] }
 ```
 
-Local `.env*` files are never uploaded. Pass variables with `-e`/`--env-file`, or later with `lf env`.
-Switching a static release only reloads nginx, so there is no downtime. `--keep 10` keeps more releases.
+Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
+`-e`/`--env-file`, or later with `lf env`. `--keep 10` keeps more releases.
+
+### Compose sites
+
+A site can be a whole Compose project: the app, its database, a worker. The same `compose.yaml` runs locally
+with `docker compose up` and on the server with `lf deploy`. `lf init` writes one for an existing project:
+
+```sh
+lf init --postgres                 # compose.yaml (app + db + volume) and compose.override.yaml (local ports)
+echo POSTGRES_PASSWORD=dev > .env  # local only
+docker compose up --build          # http://localhost:3000
+lf deploy -e POSTGRES_PASSWORD=$(openssl rand -hex 16)   # the first time; later just lf deploy
+```
+
+```yaml
+services:
+  app:
+    build: .
+    env_file: [{ path: .env, required: false }]
+    environment:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@db:5432/app
+    depends_on: { db: { condition: service_healthy } }
+    x-landfall:
+      port: 3000                       # Traefik serves the site's domains from here
+  admin:
+    image: adminer
+    x-landfall: { port: 8080, domains: [db.example.com] }   # its own domains
+  db:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: app, POSTGRES_DB: app, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}" }
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck: { test: pg_isready -U app, interval: 5s }
+volumes:
+  db:
+```
+
+- **`x-landfall`** on a service routes it: `port` is where Traefik sends requests, `domains` gives it its own
+  (a bare name or `@` works as in `-d`). One routed service without `domains` serves the site's domains, which
+  `-d` and `lf domains` manage. Services without `x-landfall` (the database) stay off Traefik's network.
+- **`ports:` is refused**, since a published port bypasses Traefik and the firewall. Put local ports in
+  `compose.override.yaml`: `docker compose` merges it locally, `lf deploy` leaves it out. To publish a port on
+  the server anyway, add `x-landfall: { publish: true }` to that service.
+- **Named volumes keep your data** across deploys and rollbacks. `lf sites rm` keeps them, so deploying the
+  site again finds its data; `lf sites rm --volumes` deletes them. Each deploy gets a new release folder, so
+  a writable bind mount like `./data` is refused: write data to a named volume (read-only `./dist:…:ro` is fine).
+- **Images built on the server** are tagged `<site>-<service>:<release>`, so a rollback runs the exact image again.
+- Variables in `compose.yaml` come from the site's `.env` on the server (`-e`, `--env-file`, `lf env`).
+  `${VAR:?}` makes a missing one fail the deploy before anything changes.
+- Your own `traefik.*` labels win: a service with its own router keeps them and landfall adds only the network.
+- `-f other.yaml` deploys another file; it is saved in `.landfall.json`. Sites need Docker Compose 2.24 or newer
+  on the server (`lf update --compose`).
+
+The static, Dockerfile and image kinds are Compose sites too: landfall writes their `compose.yaml` for you.
+
+### Running without landfall
+
+Nothing on the server depends on the CLI. Each site is a folder you can drive with plain `docker compose`:
+
+```sh
+cd -P /opt/landfall/sites/blog/current          # -P: into the release folder itself
+docker compose ps                               # or logs -f, restart, up -d, down
+cd /opt/landfall/sites/blog                     # roll back by hand: point current at an older release …
+ln -sfn releases/20260122143005 current
+cd -P current && docker compose up -d           # … and bring it up
+```
+
+`/opt/landfall/README` on the server explains the same. A project you started yourself behind landfall's
+Traefik shows up in `lf sites` as not deployed by landfall; `lf adopt <project>` makes it a site that `lf` can
+list, show logs for, restart and remove, while it keeps running from its own folder.
 
 ### Main domains
 
@@ -256,8 +328,9 @@ and so is a redeploy whose domain comes only from `.landfall.json` (pass `-d` to
 
 ```sh
 lf ls                              # sites with status, and your own containers behind Traefik
-lf sites info                      # domains, container, releases
+lf sites info                      # services, domains, releases
 lf logs -f                         # follow logs (-n 500 for more lines)
+lf logs blog db                    # one service
 lf rollback                        # previous release (--to <id> for a specific one)
 lf env API_KEY=abc                 # set env (container is recreated); -u KEY removes one
 lf restart | stop | start
@@ -312,7 +385,8 @@ Traefik only answers hosts it has a certificate for (`sniStrict`). A domain poin
 by no site fails the TLS handshake, as if nothing listened there, instead of showing a 404 or Traefik's own
 certificate; plain HTTP to it redirects to HTTPS and fails the same way. A new site's domain fails the same way
 for the seconds until Let's Encrypt issues its certificate. Your own certificates and Traefik config go into
-`/opt/landfall/traefik/dynamic/`: landfall rewrites only `landfall.yml` there.
+`/opt/landfall/traefik/dynamic/`: landfall rewrites only `landfall.yml` there. If you edit
+`docker-compose.yml` by hand, `lf traefik setup` shows the diff and stops; `--force` overwrites your edits.
 
 The dashboard password is generated and printed once (`--dashboard-password` sets your own). Image, network mode,
 e-mail, staging and dashboard are remembered per server.
@@ -327,6 +401,7 @@ lf traefik use traefik-reverseproxy-1 -s vps   # or name it
 Containers you run yourself behind that Traefik (compose projects with `traefik.http.routers.*.rule` labels)
 show up in `lf ls` and the dashboard as "not deployed by landfall", with their domains and folder. landfall
 never touches them; deploying one of their domains warns, since Traefik would send visitors to only one.
+`lf adopt <project>` turns one into a site (see [Running without landfall](#running-without-landfall)).
 
 landfall reads the network, HTTPS entrypoint and cert resolver from the container's flags. If your Traefik is
 configured by a file, pass `--network proxy --entrypoint websecure --resolver letsencrypt`. The choice is stored
@@ -444,17 +519,19 @@ On the server:
   traefik/docker-compose.yml        Traefik, ports 80/443, Let's Encrypt (HTTP-01)
   traefik/letsencrypt/acme.json
   proxy.env                         only with `lf traefik use`
+  README                            how to run sites by hand
   sites/<name>/
     site.json                       metadata + release history
-    docker-compose.yml              container landfall-<name> on network "web" with Traefik labels
-    nginx.conf                      static sites
-    .env                            app sites (0600)
+    .env                            the site's variables (0600)
     releases/<id>/                  last 5 kept
+      compose.yaml                  yours, or generated for static/Dockerfile/image
+      compose.override.yaml         written by landfall: project name, Traefik labels, networks
+      .env -> ../../.env
     current -> releases/<id>
   journal.log                       every change, with the shell that reverts it
 ```
 
-`cd /opt/landfall/sites/blog && docker compose ps` works as usual.
+`cd -P /opt/landfall/sites/blog/current && docker compose ps` works as usual.
 
 ## Troubleshooting
 
@@ -464,7 +541,11 @@ On the server:
 | certificate warning in the browser | you used `--staging`: `lf setup <name> --no-staging` |
 | no certificate at all | DNS must point at the server and 80/443 must be open; see `lf traefik logs` |
 | TLS handshake fails | no site serves the domain (`lf domains --add …`), or its certificate isn't issued yet: `lf traefik logs` |
-| site container keeps restarting | `lf logs`; for apps check `--port` and env |
+| site container keeps restarting | `lf logs`; for apps check `--port` / `x-landfall.port` and env |
+| `… publishes 5432 on the server, past Traefik and the firewall` | move `ports:` to `compose.override.yaml`, or allow it with `x-landfall: { publish: true }` |
+| `sites need docker compose 2.24 or newer` | `lf update --compose` |
+| `required variable … is missing` | set it on the server: `lf env KEY=…` or `lf deploy -e KEY=…` |
+| `… was edited by hand` (traefik setup) | move your change to `dynamic/` or flags, or `lf traefik setup --force` |
 | `skipping firewall/ssh hardening: …` | setup protected something running there. Fix it, or re-run with `--force` |
 | `skipping traefik: port 80 is in use by …` | free the port, then `lf traefik setup`. If it's a Traefik, `lf traefik use` |
 | `… blocks ssh port 22 … (--force to do it anyway)` | `lf firewall allow 22/tcp` first, or force if you have another way in |

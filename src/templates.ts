@@ -176,6 +176,28 @@ compose_install() {
 }
 `;
 
+/** /opt/landfall/README: how to run everything here without landfall. Rewritten by every setup. */
+export const SERVER_README = `This server is run by landfall (https://www.npmjs.com/package/landfall).
+Everything here works without it: it is plain Docker Compose.
+
+${TRAEFIK_DIR}/          Traefik: docker-compose.yml, letsencrypt/ (certificates), dynamic/ (file provider)
+${SITES}/<site>/        one Compose project per site
+  .env                    the site's environment (lf env), mode 600
+  site.json               landfall's notes: domains, releases
+  current -> releases/<id>   the live release
+  releases/<id>/compose.yaml           the site's compose file as deployed
+  releases/<id>/compose.override.yaml  landfall's: Traefik labels, proxy network, project name
+${JOURNAL}           every change landfall made, with the shell that undoes it
+
+Run a site by hand:
+  cd ${SITES}/<site>/current && docker compose ps     (logs, restart, up -d, down …)
+Roll back by hand:
+  cd ${SITES}/<site> && ln -sfn releases/<id> current && cd -P current && docker compose up -d
+
+Named volumes (databases, uploads) belong to the project, not the release: they survive
+deploys and rollbacks. "lf sites rm" keeps them; "lf sites rm --volumes" deletes them.
+`;
+
 export const BOOTSTRAP = String.raw`
 ${COMPOSE_INSTALL}
 if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
@@ -204,10 +226,10 @@ if ! command -v docker >/dev/null 2>&1; then
   record "installed docker"
 fi
 $SUDO systemctl enable --now docker >/dev/null 2>&1 || $SUDO service docker start >/dev/null 2>&1 || true
-# Every site needs compose v2+. Distro docker packages (docker.io, moby) often lack it or ship v1:
-# Docker's own repo has the newest plugin, everyone else gets the official release binary.
+# Sites need compose 2.24+ (optional env_file, up --wait). Distro docker packages (docker.io, moby)
+# often lack it or ship older: Docker's own repo has the newest plugin, everyone else gets the release binary.
 v=$(docker compose version --short 2>/dev/null | sed 's/^v//' || true)
-case "$v" in ""|0.*|1.*)
+case "$v" in ""|0.*|1.*|2.[0-9].*|2.1[0-9].*|2.2[0-3].*)
   log "installing the newest docker compose"
   if pkg_has docker-ce && pkg_install docker-compose-plugin; then record "installed docker-compose-plugin"
   else compose_install || log "could not install docker compose; install it, then re-run setup"; fi ;;
@@ -246,6 +268,8 @@ new_sites=$([ -d ${SITES} ] || echo 1)
 new_traefik=$([ -d ${TRAEFIK_DIR} ] || echo 1)
 $SUDO install -d -o "$OWNER" -g "$OWNER" ${ROOT} ${SITES} ${TRAEFIK_DIR}
 $SUDO chown "$OWNER:$OWNER" ${JOURNAL} 2>/dev/null || true
+$SUDO tee ${ROOT}/README >/dev/null <<'LANDFALL_README'
+${SERVER_README}LANDFALL_README
 # ${ROOT} itself stays: it holds the journal. Each dir is only removed if setup created it.
 [ -z "$new_sites" ] || record "created ${SITES}" "_as ${ROOT} rmdir ${SITES}"
 [ -z "$new_traefik" ] || record "created ${TRAEFIK_DIR}" "_as ${ROOT} rm -rf ${TRAEFIK_DIR}"
@@ -436,109 +460,4 @@ ${o.hostNetwork ? "" : `    networks:\n      - ${NETWORK}\n`}${labels.length ? `
   // Host mode still reaches sites by their IP on the web network (providers.docker.network).
   o.hostNetwork ? "" : `networks:\n  ${NETWORK}:\n    external: true\n`
 }`;
-}
-
-export type SiteKind = "static" | "image" | "dockerfile";
-
-export interface Release {
-  id: string;
-  at: string;
-  image?: string;
-}
-
-/** Metadata stored on the server next to each site (site.json). */
-export interface SiteMeta {
-  name: string;
-  kind: SiteKind;
-  domains: string[];
-  port: number;
-  spa?: boolean;
-  /** htpasswd lines (user:bcrypt): the site asks for a login. */
-  auth?: string[];
-  current: string;
-  releases: Release[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export const container = (name: string) => `landfall-${name}`;
-
-export function traefikLabels(name: string, domains: string[], port: number, proxy = OWN_PROXY, auth: string[] = []): string[] {
-  const r = container(name);
-  const rule = domains.map((d) => `Host(\`${d}\`)`).join(" || ");
-  const login = auth.length
-    ? [`traefik.http.middlewares.${r}-auth.basicauth.users=${auth.join(",")}`, `traefik.http.routers.${r}.middlewares=${r}-auth`]
-    : [];
-  return [
-    "traefik.enable=true",
-    `traefik.docker.network=${proxy.network}`,
-    `traefik.http.routers.${r}.rule=${rule}`,
-    `traefik.http.routers.${r}.entrypoints=${proxy.entrypoint}`,
-    `traefik.http.routers.${r}.tls.certresolver=${proxy.resolver}`,
-    `traefik.http.services.${r}.loadbalancer.server.port=${port}`,
-    ...login,
-    "landfall.managed=true",
-    `landfall.site=${name}`,
-  ];
-}
-
-export function siteCompose(meta: SiteMeta, proxy = OWN_PROXY): string {
-  const release = meta.releases.find((r) => r.id === meta.current);
-  const labels = traefikLabels(meta.name, meta.domains, meta.port, proxy, meta.auth).map((l) => `      - ${yamlStr(composeEscape(l))}`);
-  let body: string;
-  if (meta.kind === "static") {
-    // nginx.conf pins root to /site/releases/<id>; switching releases rewrites it
-    // and reloads nginx, so there is no symlink race and no container restart.
-    body = `    image: nginx:alpine
-    volumes:
-      - ./releases:/site/releases:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro`;
-  } else {
-    body = `    image: ${yamlStr(release?.image ?? "")}
-    env_file:
-      - .env`;
-  }
-  return `# managed by landfall — do not edit, changes are overwritten on deploy
-name: ${container(meta.name)}
-services:
-  app:
-${body}
-    container_name: ${container(meta.name)}
-    restart: unless-stopped
-    networks:
-      - ${proxy.network}
-    labels:
-${labels.join("\n")}
-networks:
-  ${proxy.network}:
-    external: true
-`;
-}
-
-export function nginxConf(release: string, spa: boolean): string {
-  return `# managed by landfall
-server {
-  listen 80;
-  server_name _;
-  root /site/releases/${release};
-  index index.html;
-  absolute_redirect off;
-
-  gzip on;
-  gzip_types text/plain text/css application/javascript application/json image/svg+xml application/xml;
-
-  location ~* \\.(?:css|js|mjs|woff2?|ttf|otf|eot|svg|png|jpe?g|gif|webp|avif|ico)$ {
-    expires 30d;
-    add_header Cache-Control "public";
-    try_files $uri =404;
-  }
-
-  location / {
-    try_files $uri $uri/ $uri.html ${spa ? "/index.html" : "=404"};
-  }
-
-  error_page 404 /404.html;
-  location = /404.html { internal; }
-}
-`;
 }

@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { canLogin, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { COMPOSE_INSTALL, COMPOSE_PLUGIN, container, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
+import { COMPOSE_INSTALL, COMPOSE_PLUGIN, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 import { fail } from "./ui";
 
 /** The login that may run root commands: the server's own if it is root or has sudo, else root's key login. */
@@ -302,7 +302,9 @@ export interface ImageStatus {
   name: string;
   kind: "traefik" | "site" | "proxy";
   container: string;
-  /** Where its compose file is; empty for a foreign proxy. */
+  /** A site's compose service. */
+  service?: string;
+  /** Where its compose file is (`cd -P` it); empty for a foreign proxy. */
   dir: string;
   ref: string;
   /** update: the registry has a newer image for the tag. */
@@ -312,22 +314,26 @@ export interface ImageStatus {
   newer?: string;
 }
 
-/** Image, image id and repo digests of landfall's traefik and every site's container. */
+/** Image, image id and repo digests of landfall's traefik and every container of every site. */
 const IMAGES = String.raw`
 set +e
 P=${PROXY_CTR}
-img() { # img <kind> <name> <container> <dir>
-  ref=$(docker inspect -f '{{.Config.Image}}' "$3" 2>/dev/null) || { printf 'IMG\t%s\t%s\t%s\t%s\t\t\n' "$1" "$2" "$3" "$4"; return 0; }
+img() { # img <kind> <name> <container> <dir> [service]
+  svc=; [ $# -lt 5 ] || svc=$5
+  ref=$(docker inspect -f '{{.Config.Image}}' "$3" 2>/dev/null) || { printf 'IMG\t%s\t%s\t%s\t%s\t%s\t\t\n' "$1" "$2" "$3" "$4" "$svc"; return 0; }
   id=$(docker inspect -f '{{.Image}}' "$3" 2>/dev/null)
-  printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)"
+  printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$svc" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)"
 }
 if [ "$P" = traefik ] && grep -q "managed by landfall" ${TRAEFIK_DIR}/docker-compose.yml 2>/dev/null; then img traefik traefik traefik ${TRAEFIK_DIR}
 else img proxy "$P" "$P" ""; fi
 for f in ${SITES}/*/site.json; do
   [ -f "$f" ] || continue
   d=$(dirname "$f"); n=$(basename "$d")
-  if grep -q '"kind": *"dockerfile"' "$f"; then printf 'IMG\tbuilt\t%s\t${container("%s")}\t%s\t\t\n' "$n" "$n" "$d"; continue; fi
-  img site "$n" "${container("$n")}" "$d"
+  # Sites of landfall before Compose sites: one container, its compose file next to site.json.
+  if ! grep -q '"v": *2' "$f"; then img site "$n" "landfall-$n" "$d"; continue; fi
+  p=$(sed -n 's/^ *"project": *"\([^"]*\)".*/\1/p' "$f"); [ -n "$p" ] || p=$n
+  docker ps -a --filter "label=com.docker.compose.project=$p" --format '{{.Names}} {{.Label "com.docker.compose.service"}}' 2>/dev/null |
+    while read -r c svc; do img site "$n" "$c" "$d/current" "$svc"; done
 done
 exit 0
 `;
@@ -348,9 +354,10 @@ export async function imageStatus(s: Server): Promise<ImageStatus[]> {
     return t && withTag(ref, t);
   };
   return Promise.all(
-    rows.map(async ([, kind, name, ctr, dir, ref = "", local = ""]): Promise<ImageStatus> => {
-      const base = { name, container: ctr, dir, ref };
-      if (kind === "built") return { ...base, kind: "site", state: "rebuild", note: "built from its Dockerfile: redeploy to rebuild" };
+    rows.map(async ([, kind, name, ctr, dir, service = "", ref = "", local = ""]): Promise<ImageStatus> => {
+      const base = { name, container: ctr, dir, ref, ...(service ? { service } : {}) };
+      // Tagged per release by landfall's override: <site>-<service>:<release id>.
+      if (kind === "site" && ref.startsWith(`${name}-`) && /:\d{14}$/.test(ref)) return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
       if (!ref) return { ...base, kind: kind as ImageStatus["kind"], state: "missing", note: "no container" };
       if (kind === "proxy") return { ...base, kind: "proxy", state: "foreign", note: "not landfall's traefik: update it where it was set up" };
       if (ref.includes("@")) return { ...base, kind: kind as ImageStatus["kind"], state: "pinned", note: "pinned to a digest" };
@@ -377,13 +384,14 @@ export async function updateImages(s: Server, targets: ImageStatus[]) {
   for (const [ref, ts] of byRef) {
     lines.push(`log ${shq(`pulling ${ref}`)}`, `docker pull -q ${shq(ref)} >/dev/null`, `new=$(docker image inspect -f '{{.Id}}' ${shq(ref)})`);
     for (const t of ts) {
-      const undo = `docker tag $old ${shq(ref)} && cd ${shq(t.dir)} && dc up -d`;
+      const svc = t.service ? ` ${shq(t.service)}` : "";
+      const undo = `docker tag $old ${shq(ref)} && cd -P ${shq(t.dir)} && dc up -d${svc}`;
       lines.push(
         `old=$(docker inspect -f '{{.Image}}' ${shq(t.container)})`,
         `if [ "$old" = "$new" ]; then log ${shq(`${t.name} already runs the newest ${ref}`)}; else`,
         `  record ${shq(`updated ${t.name} to the newest ${ref}`)} "${undo.replace(/"/g, '\\"')}"`,
         `  log ${shq(`recreating ${t.container}`)}`,
-        `  (cd ${shq(t.dir)} && dc up -d --quiet-pull) && ensure_running ${shq(t.container)} || exit 1`,
+        `  (cd -P ${shq(t.dir)} && dc up -d --quiet-pull${svc}) && ensure_running ${shq(t.container)} || exit 1`,
         "fi",
       );
     }

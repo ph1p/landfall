@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end test against a throwaway "server" container (sshd + dockerd).
-# Exercises setup → traefik → static/dockerfile/image deploys → rollback → env → rm.
+# Exercises setup → traefik → static/dockerfile/image/compose deploys → rollback → env → adopt → rm.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -96,8 +96,7 @@ expect site.test / v1
 { lf ls | has site; } || die "sites list shows site"; pass "sites list shows site"
 lf deploy -d 'site.test`)' -y >/dev/null 2>&1 && die "deploy accepts a bad domain"
 lf deploy --keep abc -y >/dev/null 2>&1 && die "deploy accepts --keep abc"
-lf env site A=1 -y >/dev/null 2>&1 && die "env on a static site"
-pass "deploy and env reject bad input"
+pass "deploy rejects bad input"
 
 echo "== spa"
 mkdir -p "$WORK/spa/build" && cd "$WORK/spa"
@@ -121,8 +120,78 @@ echo "== image"
 cd "$WORK"
 lf deploy --no-save -n who --image traefik/whoami:v1.11 --port 80 -d who.test -y
 expect who.test / "Hostname"
-{ lf sites info who | has whoami; } || die "sites info"; pass "sites info"
+{ lf sites info who | has who-app-1; } || die "sites info"; pass "sites info"
 { lf logs who -n 5 >/dev/null; } || die "logs"; pass "logs"
+
+echo "== compose"
+# lf init writes the files; the same compose.yaml runs locally and on the server.
+mkdir -p "$WORK/stack" && cd "$WORK/stack"
+stack_app() { printf 'FROM busybox:1.37\nEXPOSE 8000\nCMD sh -c "mkdir -p /www && echo stack %s > /www/index.html && httpd -f -p 8000 -h /www"\n' "$1" > Dockerfile; }
+stack_app v1
+lf init --postgres >/dev/null || die "init"
+{ has "127.0.0.1:8000:8000" compose.override.yaml && has "x-landfall" compose.yaml; } || die "init writes compose files"
+lf init >/dev/null 2>&1 && die "init overwrites"
+pass "init writes compose.yaml and compose.override.yaml, never over existing ones"
+# compose.yaml requires POSTGRES_PASSWORD: -e on the first deploy must satisfy it.
+lf deploy -d stack.test -e POSTGRES_PASSWORD=pw1 -y >"$WORK/stack.log" 2>&1 || { cat "$WORK/stack.log"; die "deploy compose site"; }
+expect stack.test / "stack v1"
+srv() { docker exec "$NAME" "$@"; }
+[ -z "$(srv docker port stack-db-1)" ] && [ -z "$(srv docker port stack-app-1)" ] || die "compose.override.yaml ports stay local"
+{ ! srv docker inspect -f '{{json .NetworkSettings.Networks}}' stack-db-1 | has '"web"'; } || die "db stays off the proxy network"
+pass "only the routed service is on Traefik's network, nothing is published"
+psql() { srv docker exec stack-db-1 psql -U app -tAc "$1"; }
+for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
+psql "create table t (x int); insert into t values (42)" >/dev/null
+stack_app v2
+lf deploy -y >/dev/null 2>&1 || die "redeploy compose site"
+expect stack.test / "stack v2"
+lf rollback -y >/dev/null 2>&1 || die "rollback compose site"
+expect stack.test / "stack v1"
+[ "$(psql "select x from t")" = 42 ] || die "data survives deploys and rollbacks"; pass "data survives deploys and rollbacks"
+{ lf logs stack db -n 20 | has -i postgres; } || die "logs of one service"; pass "logs of one service"
+lf restart stack db -y >/dev/null 2>&1 || die "restart one service"
+lf sites rm stack -y >/dev/null 2>&1
+{ srv docker volume ls -q | has -x stack_db; } || die "rm keeps the volume"
+lf deploy -e POSTGRES_PASSWORD=pw1 -y >/dev/null 2>&1 || die "deploy again"
+for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
+[ "$(psql "select x from t")" = 42 ] || die "a site deployed again finds its data"
+lf sites rm stack --volumes -y >/dev/null 2>&1
+{ ! srv docker volume ls -q | has -x stack_db; } || die "rm --volumes deletes it"
+pass "sites rm keeps volumes, --volumes deletes them"
+# A port published on the server is refused before anything changes.
+mkdir -p "$WORK/leaky" && cd "$WORK/leaky"
+printf 'services:\n  db:\n    image: busybox:1.37\n    command: sleep 3600\n    ports: ["5433:5432"]\n  web:\n    image: traefik/whoami:v1.11\n    x-landfall: { port: 80 }\n' > compose.yaml
+out=$(lf deploy -d leaky.test --no-save -y 2>&1) && die "deploy publishes a port"
+{ has "publishes 5433:5432" <<<"$out" && ! srv test -e /opt/landfall/sites/leaky; } || { echo "$out"; die "published port refused"; }
+pass "a published port is refused before any change"
+# A Compose project started by hand behind landfall's Traefik, adopted.
+srv sh -c 'mkdir -p /srv/ext2 && cd /srv/ext2 && cat > compose.yaml <<"EOF"
+services:
+  web:
+    image: traefik/whoami:v1.11
+    networks: [web]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - traefik.http.routers.ext2.rule=Host(`ext2.test`)
+      - traefik.http.routers.ext2.entrypoints=websecure
+      - traefik.http.routers.ext2.tls=true
+networks:
+  web:
+    external: true
+EOF
+docker compose up -d >/dev/null 2>&1'
+expect ext2.test / Hostname
+{ lf ls | has "lf adopt"; } || die "ls offers adopt"
+lf adopt ext2 -y >/dev/null 2>&1 || die "adopt"
+{ lf ls | has -E 'ext2.*Up' && lf sites info ext2 | has /srv/ext2; } || die "adopted site listed"
+lf restart ext2 -y >/dev/null 2>&1 || die "restart adopted"
+expect ext2.test / Hostname
+lf deploy -n ext2 --no-save -y >/dev/null 2>&1 && die "deploy over an adopted site"
+lf sites rm ext2 -y >/dev/null 2>&1 || die "forget adopted"
+{ srv test -f /srv/ext2/compose.yaml && ! srv test -e /opt/landfall/sites/ext2; } || die "rm forgets, keeps its folder"
+pass "adopt makes a hand-run project a site; rm forgets it and keeps its folder"
+cd "$WORK"
 
 echo "== password, domains, free address"
 lf auth who -u bob -p secretpw1 >/dev/null
@@ -352,18 +421,45 @@ pass "undo --all leaves the server as it was, journal kept"
 echo "== server from when landfall was called srv"
 lf setup box --host 127.0.0.1 --port "$SSH_PORT" --key "$WORK/key" --email test@example.com --staging --no-firewall -y >/dev/null 2>&1 || die "setup again"
 trust_test_hosts
-mkdir -p "$WORK/mig" && cd "$WORK/mig" && echo '<h1>migrated</h1>' > index.html
-lf deploy -n mig -d mig.test -y >/dev/null 2>&1 || die "deploy mig"
-expect mig.test / migrated
+# A site as the landfall before Compose sites wrote it: one container from sites/<name>/docker-compose.yml.
+docker exec "$NAME" sh -c 'set -e; d=/opt/landfall/sites/mig; mkdir -p $d/releases && cd $d && touch .env
+  printf "%s\n" "{\"name\":\"mig\",\"kind\":\"image\",\"domains\":[\"mig.test\"],\"port\":80,\"current\":\"20250101000000\",\"releases\":[{\"id\":\"20250101000000\",\"at\":\"2025-01-01T00:00:00.000Z\",\"image\":\"traefik/whoami:v1.11\"}],\"createdAt\":\"2025-01-01T00:00:00.000Z\",\"updatedAt\":\"2025-01-01T00:00:00.000Z\"}" > site.json
+  cat > docker-compose.yml <<"EOF"
+# managed by landfall — do not edit, changes are overwritten on deploy
+name: landfall-mig
+services:
+  app:
+    image: "traefik/whoami:v1.11"
+    env_file:
+      - .env
+    container_name: landfall-mig
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.landfall-mig.rule=Host(`mig.test`)"
+      - "traefik.http.routers.landfall-mig.entrypoints=websecure"
+      - "traefik.http.routers.landfall-mig.tls.certresolver=le"
+      - "traefik.http.services.landfall-mig.loadbalancer.server.port=80"
+      - "landfall.managed=true"
+      - "landfall.site=mig"
+networks:
+  web:
+    external: true
+EOF
+  chown -R deploy $d && docker compose up -d >/dev/null 2>&1' || die "make old site"
+expect mig.test / Hostname
 # Turn it into the old layout: /opt/srv, srv-<site> containers and labels, 00-srv.conf.
 docker exec "$NAME" sh -c 'set -e
   cd /opt/landfall/sites/mig && docker compose down -t 1 >/dev/null 2>&1
   cd /opt/landfall/traefik && docker compose down -t 1 >/dev/null 2>&1
-  sed -i s/landfall/srv/g /opt/landfall/sites/mig/docker-compose.yml /opt/landfall/sites/mig/nginx.conf /opt/landfall/traefik/docker-compose.yml
+  sed -i s/landfall/srv/g /opt/landfall/sites/mig/docker-compose.yml /opt/landfall/traefik/docker-compose.yml
   cd / && mv /opt/landfall /opt/srv && mv /etc/ssh/sshd_config.d/00-landfall.conf /etc/ssh/sshd_config.d/00-srv.conf
   cd /opt/srv/traefik && docker compose up -d >/dev/null 2>&1
   cd /opt/srv/sites/mig && docker compose up -d >/dev/null 2>&1' || die "make old layout"
-expect mig.test / migrated
+expect mig.test / Hostname
 out=$(lf ls 2>&1) && die "old layout refused"
 { has "run 'lf setup' for it once" <<<"$out"; } || { echo "$out"; die "old layout refused"; }
 pass "commands ask to run setup on an old layout"
@@ -372,10 +468,17 @@ docker exec "$NAME" sh -c '[ ! -e /opt/srv ] && [ -f /opt/landfall/sites/mig/sit
   || die "setup moves /opt/srv"
 { docker exec "$NAME" docker inspect landfall-mig | has '"landfall.site": "mig"' && ! docker exec "$NAME" docker inspect srv-mig >/dev/null 2>&1; } \
   || die "container renamed"
-expect mig.test / migrated
+expect mig.test / Hostname
 { lf ls | has -E 'mig.*Up'; } || die "ls after migration"
 { lf log | has "landfall was called srv"; } || die "migration journaled"
 pass "setup moves an srv server to landfall, sites keep serving"
+# Deploying an old site makes it a Compose site: same domain, its old container gone.
+mkdir -p "$WORK/mig" && cd "$WORK/mig"
+lf deploy -n mig --image traefik/whoami:v1.11 --port 80 --no-save -y >"$WORK/mig2.log" 2>&1 || { cat "$WORK/mig2.log"; die "deploy takes over an old site"; }
+expect mig.test / Hostname
+{ docker exec "$NAME" grep -q '"v": 2' /opt/landfall/sites/mig/site.json && ! docker exec "$NAME" docker inspect landfall-mig >/dev/null 2>&1 \
+  && ! docker exec "$NAME" test -e /opt/landfall/sites/mig/docker-compose.yml; } || die "old site taken over"
+pass "deploy moves an old site to a Compose project"
 cd "$WORK"
 
 echo "== fresh server with password"

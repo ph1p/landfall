@@ -1,6 +1,22 @@
 import type { Server } from "./config";
+import { parse as parseYaml } from "yaml";
+import {
+  builtImage,
+  COMPOSE_FILES,
+  currentRelease,
+  isOld,
+  mainService,
+  OVERRIDE_FILES,
+  overrideYaml,
+  projectName,
+  routed,
+  ruleHosts,
+  siteDomains,
+  type Release,
+  type SiteMeta,
+} from "./compose";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { container, nginxConf, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, siteCompose, SITES, type Proxy, type Release, type SiteMeta } from "./templates";
+import { OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, type Proxy } from "./templates";
 import { fail, warn } from "./ui";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
@@ -34,21 +50,38 @@ export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMe
   return { meta, env, proxy: parseProxy(proxy) ?? OWN_PROXY, exists: exists.trim() === "1" };
 }
 
-export async function requireSite(s: Server, name: string): Promise<{ meta: SiteMeta; env: string; proxy: Proxy }> {
+/** A site that exists and is a Compose project; `deployed` also refuses adopted ones (no releases). */
+export async function requireSite(s: Server, name: string, o: { deployed?: string } = {}): Promise<{ meta: SiteMeta; env: string; proxy: Proxy }> {
   const site = await readSite(s, name);
   if (!site.meta) fail(`no site "${name}" on ${s.host}. See \`lf sites list\``);
+  const meta = site.meta!;
+  if (isOld(meta)) fail(`${name} was deployed by an older landfall: run \`lf deploy\` in its project once to move it to a Compose project`);
+  if (o.deployed && meta.adopted) fail(`${name} is adopted (${meta.adopted}): landfall does not ${o.deployed} it; change its compose files there`);
   return site as { meta: SiteMeta; env: string; proxy: Proxy };
 }
 
 /** Release ids are timestamps, so newest first is a reverse string sort. */
 export const newestFirst = (meta: SiteMeta) => [...meta.releases].sort((a, b) => b.id.localeCompare(a.id));
 
+/** Logs of one container (the proxy). */
 export const dockerLogs = (s: Server, ctr: string, o: { tail?: string; follow?: boolean }) =>
   sshExec(s, [`docker logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${ctr}`]);
+
+export interface ServiceStatus {
+  service: string;
+  container: string;
+  /** e.g. "Up 3 hours (healthy)", "Exited (1) 2 minutes ago". */
+  status: string;
+}
 
 export interface SiteStatus {
   meta: SiteMeta;
   status: string;
+  services: ServiceStatus[];
+  /** Every domain it answers on (siteDomains). */
+  domains: string[];
+  /** The service serving the site's own domains: `lf domains` changes them. None: fixed in compose.yaml. */
+  main?: string;
 }
 
 export interface Overview {
@@ -72,26 +105,41 @@ export interface External {
   containers: string[];
   /** Compose working directory on the server. */
   dir?: string;
+  /** Compose files it was started with, comma-separated (com.docker.compose.project.config_files). */
+  files?: string;
 }
 
-/** Hosts in a Traefik rule: Host(`a`) || Host(`b`, `c`). HostRegexp and HostSNI are not hosts. */
-export const ruleHosts = (rule: string) =>
-  [...rule.matchAll(/\bHost\(([^)]*)\)/g)].flatMap((m) => [...m[1].matchAll(/[`"]([^`"]+)[`"]/g)].map((h) => h[1].toLowerCase()));
+export { ruleHosts };
 
 /**
  * Group containers that carry Traefik router rules by compose project. Skips landfall's own
- * sites (and srv's, before the migration), the proxy itself, and traefik.enable=false.
+ * sites (and srv's, before the migration), projects landfall adopted, the proxy itself, and
+ * traefik.enable=false.
  */
-export function externals(ctrs: { name: string; labels: Record<string, string> }[], status: Map<string, string>, proxy: string): External[] {
+export function externals(
+  ctrs: { name: string; labels: Record<string, string> }[],
+  status: Map<string, string>,
+  proxy: string,
+  sites: Set<string> = new Set(),
+): External[] {
   const out = new Map<string, External>();
   for (const { name, labels } of ctrs) {
     if (name === proxy || labels["landfall.managed"] || labels["srv.managed"] || labels["traefik.enable"] === "false") continue;
+    const project = labels["com.docker.compose.project"];
+    if (project && sites.has(project)) continue;
     const hosts = Object.entries(labels)
       .filter(([k]) => /^traefik\.http\.routers\.[^.]+\.rule$/.test(k))
       .flatMap(([, v]) => ruleHosts(v));
     if (!hosts.length) continue;
-    const key = labels["com.docker.compose.project"] || name;
-    const e = out.get(key) ?? { name: key, domains: [], status: "", containers: [], dir: labels["com.docker.compose.project.working_dir"] };
+    const key = project || name;
+    const e = out.get(key) ?? {
+      name: key,
+      domains: [],
+      status: "",
+      containers: [],
+      dir: labels["com.docker.compose.project.working_dir"],
+      ...(labels["com.docker.compose.project.config_files"] ? { files: labels["com.docker.compose.project.config_files"] } : {}),
+    };
     e.domains = [...new Set([...e.domains, ...hosts])];
     e.containers.push(name);
     const st = status.get(name) ?? "not running";
@@ -102,6 +150,24 @@ export function externals(ctrs: { name: string; labels: Record<string, string> }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const isUp = (st: string) => /^up/i.test(st);
+
+/**
+ * One status for a site: the first routed service that is not up, else any other service that
+ * is neither up nor done (one-shot jobs exit 0), else the routed service's.
+ */
+export function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
+  if (!services.length) return "not running";
+  const r = isOld(meta) ? undefined : currentRelease(meta);
+  const names = new Set(r?.services.filter(routed).map((s) => s.name));
+  const main = services.filter((s) => names.has(s.service));
+  const bad = main.find((s) => !isUp(s.status)) ?? services.find((s) => !names.has(s.service) && !isUp(s.status) && !/^exited \(0\)/i.test(s.status));
+  return (bad ?? main[0] ?? services[0]).status;
+}
+
+/** Compose project of a site; sites of landfall before Compose sites ran as landfall-<name>. */
+const siteProject = (meta: SiteMeta) => (isOld(meta) ? `landfall-${meta.name}` : projectName(meta));
+
 export async function overview(s: Server): Promise<Overview> {
   const { stdout } = await runScript(
     s,
@@ -109,18 +175,19 @@ export async function overview(s: Server): Promise<Overview> {
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P"
 for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done
-docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}' 2>/dev/null || true
+docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}\\t{{.Label "com.docker.compose.project"}}\\t{{.Label "com.docker.compose.service"}}' 2>/dev/null || true
 ids=$(docker ps -aq 2>/dev/null || true)
 # inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
 [ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true`,
     { capture: true },
   );
   const status = new Map<string, string>();
+  const byProject = new Map<string, ServiceStatus[]>();
   const metas: SiteMeta[] = [];
   const labeled: { name: string; labels: Record<string, string> }[] = [];
   const o: Overview = { ready: false, traefik: "", proxy: "traefik", sites: [], others: [] };
   for (const line of stdout.split("\n")) {
-    const [kind, a = "", b] = line.split("\t");
+    const [kind, a = "", b = "", project = "", service = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
     if (kind === "TRAEFIK") {
       o.traefik = a;
@@ -134,67 +201,169 @@ ids=$(docker ps -aq 2>/dev/null || true)
         warn(`skipped a corrupt site.json on ${s.host}: ${line.slice(5, 80)}`);
       }
     }
-    if (kind === "CTR") status.set(a, b);
+    if (kind === "CTR") {
+      status.set(a, b);
+      if (project) byProject.set(project, [...(byProject.get(project) ?? []), { service: service || a, container: a, status: b }]);
+    }
     if (kind === "LABELS") {
       try {
         labeled.push({ name: a.replace(/^\//, ""), labels: JSON.parse(b ?? "null") ?? {} });
       } catch {}
     }
   }
-  o.others = externals(labeled, status, o.proxy);
-  o.sites = metas.map((meta) => ({ meta, status: status.get(container(meta.name)) ?? "not running" }));
+  o.others = externals(labeled, status, o.proxy, new Set(metas.map(siteProject)));
+  o.sites = metas.map((meta) => {
+    const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
+    const main = isOld(meta) || meta.adopted ? undefined : mainService(currentRelease(meta))?.name;
+    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), ...(main ? { main } : {}) };
+  });
   return o;
 }
 
+/**
+ * Round trip after the upload: give the release its .env link and one compose.yaml (renamed
+ * from `file`, or `generated`), drop override files (landfall writes its own), and return
+ * the release's real path and its `docker compose config`. A config that fails removes the
+ * release again, and the site's folder if this made it.
+ */
+export async function prepareRelease(
+  s: Server,
+  name: string,
+  id: string,
+  o: { file?: string; generated?: Record<string, string>; env?: string } = {},
+): Promise<{ dir: string; config: any }> {
+  const site = siteDir(name);
+  const rel = `${site}/releases/${id}`;
+  const others = [...COMPOSE_FILES, ...OVERRIDE_FILES].filter((f) => f !== "compose.yaml");
+  const script = [
+    PRELUDE,
+    // Older compose cannot read the optional env_file of generated sites or `up --wait`.
+    `v=$(dc version --short 2>/dev/null | sed 's/^v//'); case "$v" in 2.2[4-9]*|2.[3-9][0-9]*|[3-9]*) ;; *) echo "sites need docker compose 2.24 or newer, the server has \${v:-none}: run lf update --compose" >&2; exit 1 ;; esac`,
+    `[ -d ${shq(site)} ] || new=1`,
+    `mkdir -p ${shq(rel)} && cd -P ${shq(rel)}`,
+    `[ -e ../../.env ] || { touch ../../.env && chmod 600 ../../.env; }`,
+    "ln -sfn ../../.env .env",
+    ...Object.entries(o.generated ?? {}).map(([f, text]) => writeFileCmd(f, text)),
+    ...(o.file && o.file !== "compose.yaml" ? [`mv -f ${shq(o.file)} compose.yaml`] : []),
+    `rm -f ${others.map(shq).join(" ")}`,
+    // The .env this deploy is about to write, so a first deploy can set what compose.yaml requires.
+    ...(o.env !== undefined ? [writeFileCmd(".env.next", o.env, "600")] : []),
+    `[ -f compose.yaml ] || { echo "no compose.yaml in the upload" >&2; cfg=; false; } && cfg=$(dc ${o.env !== undefined ? "--env-file .env.next " : ""}-f compose.yaml config 2>&1) || {`,
+    `  printf '%s\\n' "$cfg" >&2; cd /`,
+    `  if [ -n "\${new:-}" ]; then rm -rf ${shq(site)}; else rm -rf ${shq(rel)}; fi`,
+    "  exit 1",
+    "}",
+    "rm -f .env.next",
+    `pwd -P; printf %s ${shq(SEP)}; printf '%s\\n' "$cfg"`,
+  ].join("\n");
+  const { stdout } = await runScript(s, script, { capture: true });
+  const [dir, text = ""] = stdout.split(SEP);
+  let config: any;
+  try {
+    config = parseYaml(text);
+  } catch (e: any) {
+    fail(`could not read \`docker compose config\` of ${name}: ${e?.message ?? e}`);
+  }
+  return { dir: dir.trim(), config };
+}
+
+/**
+ * Make a Compose project landfall did not deploy a site: sites/<name>/current points at its
+ * folder, so logs, restart and status work like for any site. Its files stay as they are.
+ */
+export async function adoptSite(s: Server, meta: SiteMeta) {
+  const dir = siteDir(meta.name);
+  await runScript(
+    s,
+    [
+      PRELUDE,
+      `[ -r ${shq(meta.adopted!)} ] && [ -x ${shq(meta.adopted!)} ] || { echo "$(id -un) cannot read ${meta.adopted}; adopt it as a user who can (lf server config)" >&2; exit 1; }`,
+      `[ ! -e ${shq(dir)} ] || { echo "${dir} exists already" >&2; exit 1; }`,
+      `mkdir -p ${shq(dir)} && cd ${shq(dir)}`,
+      `ln -s ${shq(meta.adopted!)} current`,
+      writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"),
+      `record ${shq(`adopted ${meta.project} as site ${meta.name}`)} ${shq(`rm -rf ${dir}`)}`,
+    ].join("\n"),
+  );
+}
+
+/** Remove a prepared release that never went live (and the site's folder if nothing else is in it). */
+export async function discardRelease(s: Server, name: string, id: string) {
+  const site = siteDir(name);
+  await runScript(
+    s,
+    `cd / && rm -rf ${shq(`${site}/releases/${id}`)}; [ -f ${shq(site + "/site.json")} ] || { rmdir ${shq(site + "/releases")} 2>/dev/null; rm -f ${shq(site + "/.env")}; rmdir ${shq(site)} 2>/dev/null; } || true`,
+  );
+}
 
 export interface ApplyOpts {
   env?: string;
-  /** docker build the current release (dockerfile sites). */
+  /** docker compose build the release's services that build (deploy). */
   build?: boolean;
-  /** docker pull before starting (image sites). */
+  /** docker compose pull its images first (deploy). */
   pull?: boolean;
   keep?: number;
   /** The site as it was before, so the journal can put it back; none = new site. */
   prev?: SiteMeta;
+  /** A site of landfall before Compose sites, replaced by this one: its old files and container go, without undo. */
+  takeover?: SiteMeta;
   /** Journal line, e.g. "deploy blog release 20250101-120000". */
   what: string;
   /** A new site whose dir was already there (leftovers, or someone's files): undo removes only what landfall wrote. */
   existed?: boolean;
 }
 
-/** Shell that writes a site's files for meta.current and (re)starts it, in its directory. */
+const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans --quiet-pull";
+
+/** Shell that starts the Compose project in `current`, printing its state and logs if it does not come up. */
+export const upLines = (name: string) => [
+  `log "starting ${name}"`,
+  `(cd -P current && ${UP}) || { log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; exit 1; }`,
+];
+
+/** Shell that writes a site's files for meta.current, points `current` at it and starts it. */
 function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: boolean; pull?: boolean } = {}): string[] {
   const dir = siteDir(meta.name);
-  const release = meta.releases.find((r) => r.id === meta.current)!;
+  const release = currentRelease(meta)!;
   const lines = [
     `mkdir -p ${shq(dir)} && cd ${shq(dir)}`,
     writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"),
-    writeFileCmd("docker-compose.yml", siteCompose(meta, proxy)),
-    o.env !== undefined ? writeFileCmd(".env", o.env, "600") : "touch .env && chmod 600 .env",
+    o.env !== undefined ? writeFileCmd(".env", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
+    `(cd -P ${shq("releases/" + meta.current)} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
   ];
-  if (meta.kind === "static") lines.push(writeFileCmd("nginx.conf", nginxConf(meta.current, !!meta.spa)));
-  if (meta.kind !== "image") lines.push(`ln -sfn ${shq("releases/" + meta.current)} current`);
-  if (o.build && meta.kind === "dockerfile") {
-    lines.push(`log "building image ${release.image}"`, `docker build -q -t ${shq(release.image!)} ${shq("releases/" + meta.current)} >/dev/null`);
+  if (o.build && release.services.some((s) => s.build)) {
+    lines.push(`log "building ${meta.name}"`, `(cd -P ${shq("releases/" + meta.current)} && dc build -q) || exit 1`);
   }
-  if (o.pull && meta.kind === "image") lines.push(`log "pulling ${release.image}"`, "dc pull -q");
-  lines.push(
-    `log "starting ${container(meta.name)}"`,
-    `{ dc up -d --remove-orphans --quiet-pull && ensure_running ${container(meta.name)}; } || exit 1`,
-  );
-  // A config-only change (new static release) does not recreate nginx; reload it.
-  if (meta.kind === "static") lines.push(`docker exec ${container(meta.name)} nginx -s reload >/dev/null 2>&1 || true`);
+  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${shq("releases/" + meta.current)} && dc pull -q --ignore-buildable) || exit 1`);
+  // Swapped in one rename, so `current` always points at a whole release.
+  lines.push(`ln -sfn ${shq("releases/" + meta.current)} current.new && mv -Tf current.new current`, ...upLines(meta.name));
   return lines;
 }
 
+const builtImages = (meta: SiteMeta, r: Release) => (r.services ?? []).filter((s) => s.build).map((s) => builtImage(meta.name, s.name, r.id));
+
 const dropRelease = (meta: SiteMeta, r: Release) => [
-  `rm -rf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
-  ...(meta.kind === "dockerfile" && r.image ? [`docker image rm ${shq(r.image)} >/dev/null 2>&1 || true`] : []),
+  `rm -rf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)} 2>/dev/null || $SUDO rm -rf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
+  ...builtImages(meta, r).map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
 ];
 
+/** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
+function takeoverLines(old: SiteMeta): string[] {
+  const dir = siteDir(old.name);
+  const images = (old.releases as any[]).map((r) => r.image).filter((i) => old.kind === "dockerfile" && i);
+  return [
+    `cd ${shq(dir)}`,
+    `log "removing the old container of ${old.name}"`,
+    `dc -p ${shq(`landfall-${old.name}`)} down --remove-orphans >/dev/null 2>&1 || docker rm -f ${shq(`landfall-${old.name}`)} >/dev/null 2>&1 || true`,
+    `rm -f docker-compose.yml nginx.conf`,
+    ...old.releases.map((r) => `rm -rf ${shq("releases/" + r.id)}`),
+    ...images.map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
+  ];
+}
+
 /**
- * Write site.json/compose/nginx.conf for meta.current and (re)start the site.
- * Used by deploy and rollback alike, so both go through the exact same path.
+ * Write site.json and the override for meta.current, switch `current` to it and start it.
+ * Used by deploy, rollback and domain changes alike, so all go through the exact same path.
  * Journaled with the shell that brings back o.prev (or removes a new site).
  */
 export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: ApplyOpts) {
@@ -207,6 +376,12 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
 
   const dir = siteDir(meta.name);
   const lines = [PRELUDE];
+  if (o.takeover) {
+    // The old layout's releases are not Compose projects: nothing to go back to.
+    lines.push(`record ${shq(`${o.what} (moved from landfall's old site layout, cannot be undone)`)}`, ...siteLines(meta, proxy, o), ...takeoverLines(o.takeover));
+    await runScript(s, lines.join("\n"));
+    return;
+  }
   // The undo shell is head + "$u" + tail: $u is what `saved` printed to put .env back.
   let head: string;
   let tail = "";
@@ -214,7 +389,7 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   if (saveEnv) lines.push(`u=$(saved ${shq(dir + "/.env")})`);
   if (!o.prev) {
     // `lf sites rm` may have removed it since.
-    head = `[ ! -d ${shq(dir)} ] || {\n${removeLines(meta, o.existed).join("\n")}\n`;
+    head = `[ ! -d ${shq(dir)} ] || {\n${removeLines(meta, { keepDir: o.existed }).join("\n")}\n`;
     tail = "\n}";
   } else {
     const old = o.prev;
@@ -231,29 +406,40 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   await runScript(s, lines.join("\n"));
 }
 
-/** Run `dc <args>` in a site's directory, after an optional setup snippet. */
+/** Run `dc <args>` in a site's live release, after an optional setup snippet in the site's folder. */
 export async function composeCmd(s: Server, name: string, args: string, before = "") {
-  await runScript(s, `${PRELUDE}\ncd ${shq(siteDir(name))}\n${before}\ndc ${args}`);
+  await runScript(s, `${PRELUDE}\ncd ${shq(siteDir(name))}\n${before}\ncd -P current && dc ${args}`);
 }
 
-function removeLines(meta: SiteMeta, keepDir = false): string[] {
+/** Logs of a site's services (or one of them), via its compose project. */
+export const siteLogs = (s: Server, name: string, o: { service?: string; tail?: string; follow?: boolean }) =>
+  sshExec(s, [
+    `cd -P ${shq(siteDir(name) + "/current")} && docker compose logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${o.service ? shq(o.service) : ""}`,
+  ]);
+
+function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: boolean } = {}): string[] {
   const dir = siteDir(meta.name);
-  const images = meta.kind === "dockerfile" ? (meta.releases.map((r) => r.image).filter(Boolean) as string[]) : [];
+  const v = o.volumes ? " -v" : "";
+  const images = meta.adopted ? [] : meta.releases.flatMap((r) => builtImages(meta, r));
   // keepDir: the dir was there before landfall used it, so take out only landfall's files (.env is the caller's).
-  const files = ["site.json", "docker-compose.yml", "nginx.conf", "current", ...meta.releases.map((r) => `releases/${r.id}`)].map(shq).join(" ");
+  const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`)].map(shq).join(" ");
   return [
     `cd ${shq(dir)}`,
-    `dc down --remove-orphans >/dev/null 2>&1 || docker rm -f ${container(meta.name)} >/dev/null 2>&1 || true`,
+    `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(siteProject(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
     ...images.map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
-    ...(keepDir
+    ...(o.keepDir
       ? [`rm -rf ${files} 2>/dev/null || $SUDO rm -rf ${files}`, "rmdir releases 2>/dev/null || true"]
       : ["cd /", `rm -rf ${shq(dir)} 2>/dev/null || $SUDO rm -rf ${shq(dir)}`]),
   ];
 }
 
-/** Deletes a site for good: its releases are gone, so this one cannot be undone. */
-export async function removeSite(s: Server, meta: SiteMeta) {
-  await runScript(s, [PRELUDE, ...removeLines(meta), `record ${shq(`removed site ${meta.name} (${meta.domains.join(", ")})`)}`].join("\n"));
+/**
+ * Deletes a site for good: its releases are gone, so this cannot be undone. Named volumes
+ * (databases, uploads) stay unless `volumes`. An adopted site's own folder is left alone.
+ */
+export async function removeSite(s: Server, meta: SiteMeta, o: { volumes?: boolean } = {}) {
+  const what = `removed site ${meta.name} (${siteDomains(meta).join(", ") || "no domains"})${o.volumes ? " and its volumes" : ""}`;
+  await runScript(s, [PRELUDE, ...removeLines(meta, o), `record ${shq(what)}`].join("\n"));
 }
 
 /** Merge KEY=VALUE pairs into dotenv text, preserving order and comments. */
