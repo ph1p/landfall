@@ -77,13 +77,17 @@ echo '<h1>v1</h1>' > dist/index.html
 lf deploy -d site.test -y
 expect site.test / v1
 { grep -q '"site.test"' srv.json; } || die "srv.json written"; pass "srv.json written"
-sleep 1; echo '<h1>v2</h1>' > dist/index.html
+echo '<h1>v2</h1>' > dist/index.html   # same second as v1 on purpose: release ids must not collide
 lf deploy -y
 expect site.test / v2
 { [ "$(curl -sk -o /dev/null -w '%{http_code}' --resolve site.test:$HTTPS_PORT:127.0.0.1 https://site.test:$HTTPS_PORT/nope)" = 404 ]; } || die "unknown path 404s"; pass "unknown path 404s"
 lf rollback -y
 expect site.test / v1
 { lf ls | has site; } || die "sites list shows site"; pass "sites list shows site"
+lf deploy -d 'site.test`)' -y >/dev/null 2>&1 && die "deploy accepts a bad domain"
+lf deploy --keep abc -y >/dev/null 2>&1 && die "deploy accepts --keep abc"
+lf env site A=1 -y >/dev/null 2>&1 && die "env on a static site"
+pass "deploy and env reject bad input"
 
 echo "== spa"
 mkdir -p "$WORK/spa/build" && cd "$WORK/spa"

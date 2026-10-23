@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
+import { checkImage, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dockerLogs } from "../remote";
 import { runScript, shq, writeFileCmd } from "../ssh";
@@ -41,6 +41,7 @@ export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
 /** Install traefik and remember its settings on the lf server entry `name` (if registered). */
 export async function installTraefik(name: string, server: Server, o: TraefikInstall) {
   const t = traefikSettings(server, o);
+  checkImage(t.image);
   const { email, staging } = t;
   step("installing traefik");
   // The dashboard stays as remembered unless --dashboard changes it ("off" removes it).
@@ -67,12 +68,12 @@ if [ -e docker-compose.yml ]; then
   else
     u=$(saved docker-compose.yml)
     mv .docker-compose.yml.new docker-compose.yml
-    record "reconfigured traefik (${describeTraefik(t)})" "cd ${TRAEFIK_DIR} && $u && dc up -d --remove-orphans"
+    record ${shq(`reconfigured traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && $u && dc up -d --remove-orphans"
   fi
 else
   ${writeFileCmd("docker-compose.yml", compose)}
   # Certificates in letsencrypt/ stay, a later install reuses them.
-  record "installed traefik (${describeTraefik(t)})" "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml"
+  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml"
 fi
 log "starting traefik"
 dc up -d --remove-orphans --quiet-pull

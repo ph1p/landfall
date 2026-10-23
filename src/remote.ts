@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { container, nginxConf, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, siteCompose, SITES, type Proxy, type Release, type SiteMeta } from "./templates";
-import { fail } from "./ui";
+import { fail, warn } from "./ui";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
@@ -81,7 +81,14 @@ docker ps -a --filter label=srv.managed=true --format 'CTR\\t{{.Names}}\\t{{.Sta
       o.traefik = a;
       o.proxy = b || "traefik";
     }
-    if (kind === "SITE") metas.push(JSON.parse(a));
+    if (kind === "SITE") {
+      // One broken site.json must not hide every other site.
+      try {
+        metas.push(JSON.parse(line.slice(kind.length + 1)));
+      } catch {
+        warn(`skipped a corrupt site.json on ${s.host}: ${line.slice(5, 80)}`);
+      }
+    }
     if (kind === "CTR") status.set(a, b);
   }
   o.sites = metas.map((meta) => ({ meta, status: status.get(container(meta.name)) ?? "not running" }));
@@ -141,7 +148,7 @@ const dropRelease = (meta: SiteMeta, r: Release) => [
  * Journaled with the shell that brings back o.prev (or removes a new site).
  */
 export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: ApplyOpts) {
-  const keep = Math.max(o.keep ?? 5, 2);
+  const keep = Math.max(Number.isInteger(o.keep) ? o.keep! : 5, 2);
   // Newest first; never prune the active release, nor the one undo goes back to.
   const sorted = newestFirst(meta);
   const kept = sorted.filter((r, i) => i < keep || r.id === meta.current || r.id === o.prev?.current);

@@ -164,6 +164,8 @@ export const firewallEnable = defineCommand({
       const why = `turning the firewall on would block ${fw.blocked.join(", ")}`;
       if (!(o.force || (await confirmRisky(`${why}. Turn it on anyway?`)))) fail(`${why}. Allow them first (lf firewall allow <port>), or --force`);
     }
+    // The ssh allow is appended, so a deny added while ufw was off would still win once it is on.
+    await guardSsh({ ...fw, ufw: "active" }, [...fw.rules, asRule(["allow", `${fw.sshPort}/tcp`])], o.force);
     await runScript(
       fw.login,
       `${PRELUDE}

@@ -120,6 +120,7 @@ export const sitesRollback = defineCommand({
     const { meta, proxy } = await requireSite(server, site);
     const sorted = newestFirst(meta);
     const idx = sorted.findIndex((r) => r.id === meta.current);
+    if (idx < 0 && !o.to) fail(`current release ${meta.current} is not in the release list; pick one with --to (see \`lf sites info\`)`);
     const to = o.to ? sorted.find((r) => r.id === o.to) : sorted[idx + 1];
     if (!to) fail(o.to ? `no release ${o.to}` : `no release older than ${meta.current}`);
     const prev = structuredClone(meta);
@@ -154,7 +155,8 @@ export const sitesEnv = defineCommand({
     const pairs = pos.filter((p) => p.includes("="));
     const [n] = pos.filter((p) => !p.includes("="));
     const { site, server } = target(n, o.server);
-    const { env } = await requireSite(server, site);
+    const { meta, env } = await requireSite(server, site);
+    if (meta.kind === "static") fail(`${site} is a static site; env vars only reach image and Dockerfile sites`);
     if (!pairs.length && !o.unset?.length) return void process.stdout.write(env || c.dim("(empty)\n"));
     const next = mergeEnv(env, parseEnvPairs(pairs), o.unset ?? []);
     const keys = [...pairs.map((p) => p.slice(0, p.indexOf("="))), ...(o.unset ?? []).map((k: string) => `-${k}`)];
