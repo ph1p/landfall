@@ -238,6 +238,8 @@ lf server domain vps example.com            # checks DNS for example.com and *.e
 lf deploy                                   # site "blog" → blog.example.com
 lf deploy -d shop                           # no dot → shop.example.com
 lf domains blog --add www                   # www.example.com
+lf deploy -d @                              # @ → example.com itself
+lf domains blog --add @                     # blog also serves example.com
 lf server domain vps --add other.org        # more main domains; the first stays primary
 lf server domain vps --primary other.org    # switch the primary
 lf server domain vps --rm other.org         # drop one; --clear drops all (back to sslip.io)
@@ -245,6 +247,10 @@ lf server domain vps --rm other.org         # drop one; --clear drops all (back 
 
 `server domain` prints the A records to add: one for the domain and a wildcard `*.example.com`. With those in
 place, every new site resolves without touching DNS again. For non-primary main domains, write the full name (`-d shop.other.org`).
+
+A domain belongs to one site. Giving it to another one (`lf deploy -d @`, `lf domains shop --add example.com`)
+asks, then moves it: the old site keeps its other domains. A move that would leave a site with none is refused,
+and so is a redeploy whose domain comes only from `.landfall.json` (pass `-d` to move it on purpose).
 
 ## Day-to-day
 
@@ -301,6 +307,12 @@ publishes 80/443 to it. Sites work the same in both modes:
 |---|---|---|
 | client IP in logs / `X-Forwarded-For` | real IPv4; IPv6 may show Docker's gateway | always real |
 | ufw | Docker's NAT bypasses ufw for 80/443 | ufw applies |
+
+Traefik only answers hosts it has a certificate for (`sniStrict`). A domain pointed at the server but served
+by no site fails the TLS handshake, as if nothing listened there, instead of showing a 404 or Traefik's own
+certificate; plain HTTP to it redirects to HTTPS and fails the same way. A new site's domain fails the same way
+for the seconds until Let's Encrypt issues its certificate. Your own certificates and Traefik config go into
+`/opt/landfall/traefik/dynamic/`: landfall rewrites only `landfall.yml` there.
 
 The dashboard password is generated and printed once (`--dashboard-password` sets your own). Image, network mode,
 e-mail, staging and dashboard are remembered per server.
@@ -419,6 +431,7 @@ Keys: `↵` connect/open, `d` deploy this folder, `u` check and set up, `a` add 
 `srv.json`, `~/.ssh/srv_<name>`, `# >>> srv:` blocks and `$SRV_*` variables keep working. A server set up by `srv`
 still has `/opt/srv`: other commands refuse it until `lf setup <name>` moves it to `/opt/landfall` and renames
 the site containers. Sites keep serving, Traefik restarts once, and older changes can no longer be undone.
+All of this lives in `src/legacy.ts`.
 
 On the server:
 
@@ -446,7 +459,7 @@ On the server:
 | `setup needs root or passwordless sudo` | use `-u root`, or give your user passwordless sudo |
 | certificate warning in the browser | you used `--staging`: `lf setup <name> --no-staging` |
 | no certificate at all | DNS must point at the server and 80/443 must be open; see `lf traefik logs` |
-| 404 from Traefik | the domain isn't in the site's list: `lf domains --add …` |
+| TLS handshake fails | no site serves the domain (`lf domains --add …`), or its certificate isn't issued yet: `lf traefik logs` |
 | site container keeps restarting | `lf logs`; for apps check `--port` and env |
 | `skipping firewall/ssh hardening: …` | setup protected something running there. Fix it, or re-run with `--force` |
 | `skipping traefik: port 80 is in use by …` | free the port, then `lf traefik setup`. If it's a Traefik, `lf traefik use` |

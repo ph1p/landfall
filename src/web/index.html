@@ -683,7 +683,7 @@ function deployDialog(det, o = {}) {
         name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "),
         placeholder: autoDomain(target, name) || "example.com www.example.com",
         hint: main
-          ? `Empty: <name>.${main}. A bare name like blog means blog.${main}. Other domains need an A record pointing at the server.`
+          ? `Empty: <name>.${main}. A bare name like blog means blog.${main}, @ means ${main} itself (another site serving it hands it over). Other domains need an A record pointing at the server.`
           : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
       },
       ...(det.kind === "static"
@@ -833,6 +833,8 @@ function copy(text) {
   navigator.clipboard?.writeText(text).then(() => toast(`Copied ${text}`), () => toast(text)) ?? toast(text);
 }
 
+const servedByOther = (n, site, d) => S.overview[n]?.data?.sites.find((s) => s.meta.name !== site && s.meta.domains.includes(d))?.meta.name;
+
 function domainsDialog(n, m) {
   const main = mainDomain(n);
   const free = autoDomain(n, m.name);
@@ -842,12 +844,14 @@ function domainsDialog(n, m) {
     text: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
     fields: [
       { name: "domains", label: "Domains (space separated)", value: m.domains.join(" ") },
+      ...(main && !m.domains.includes(main) ? [{ name: "apex", label: `Also serve ${main}`, type: "check", value: false, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }] : []),
       ...(free && !m.domains.includes(free) ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }] : []),
     ],
     ok: "Save",
     onOk: (v) => {
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
       if (v.free) domains.push(free);
+      if (v.apex) domains.push(main);
       if (!domains.length) return void toast("A site needs at least one domain"), false;
       run(["domains", m.name, ...sv(n), ...domains.flatMap((d) => ["--set", d]), "-y"], { server: n });
     },
@@ -1352,6 +1356,20 @@ function settingsView(n) {
     promptDlg(`Traefik dashboard on ${n}`, "Serves the dashboard behind a password (shown in the output). `off` removes it.\nRuns lf traefik setup, which reconfigures landfall's Traefik.", { label: "Domain", type: "text", value: x.traefik.dashboard ?? (x.domains[0] ? `traefik.${x.domains[0]}` : "") }, (d) => {
       if (d) run(["traefik", "setup", ...sv(n), "--dashboard", d], reload);
     }, "Apply");
+  const sites = S.overview[n]?.data?.sites ?? [];
+  const servedBy = (d) => sites.find((s) => s.meta.domains.includes(d))?.meta.name;
+  const serve = (d) => {
+    const cur = servedBy(d);
+    const pick = sites.filter((s) => s.meta.name !== cur);
+    if (!pick.length) return void toast(cur ? `${cur} is the only site on ${n}` : `No sites on ${n} yet: deploy one with @ as its domain`);
+    dialog({
+      title: `Serve a site on ${d}`,
+      text: cur ? `${cur} serves ${d} now; it moves to the site you pick, which keeps its other domains.` : `The site keeps its other domains. ${d} needs an A record pointing at the server.`,
+      fields: [{ name: "site", label: "Site", type: "select", options: pick.map((s) => ({ value: s.meta.name, label: `${s.meta.name} (${s.meta.domains.join(", ")})` })), value: pick[0].meta.name }],
+      ok: "Serve it",
+      onOk: (v) => run(["domains", v.site, ...sv(n), "--add", d, "-y"], { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), load(n, "sites", true), render()) : undefined) }),
+    });
+  };
   const P = S.state.paths;
   const ip = x.dns[0]?.ips[0] ?? "<server ip>";
   const records = x.dns.flatMap((r) => [r.apex, r.wildcard]).filter((d) => !d.ok).map((d) => `${esc(d.domain)}  A  ${esc(ip)}`);
@@ -1361,10 +1379,10 @@ function settingsView(n) {
       <h2>Main domains ${btn("Add…", addDomain, "sm")}</h2>
       <div class="body">${x.domains.length
         ? `<table><tbody>${x.domains.map((d, i) => `<tr>
-             <td>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge">primary</span>` : ""}<div class="faint">sites: ${dnsRow(x.dns[i].wildcard)}</div></td>
-             <td><div class="actions">${i ? btn("Make primary", () => run(["server", "domain", n, "--primary", d], reload), "ghost sm") : ""}${btn("Remove", () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }), "ghost sm")}</div></td>
+             <td>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge">primary</span>` : ""}<div class="faint">sites: ${dnsRow(x.dns[i].wildcard)}</div><div class="faint">${servedBy(d) ? `served by <b>${esc(servedBy(d))}</b>` : "no site serves it"}</div></td>
+             <td><div class="actions">${btn(servedBy(d) ? "Serve another site…" : "Serve a site…", () => serve(d), "ghost sm")}${i ? btn("Make primary", () => run(["server", "domain", n, "--primary", d], reload), "ghost sm") : ""}${btn("Remove", () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }), "ghost sm")}</div></td>
            </tr>`).join("")}</tbody></table>
-           <p class="faint">New sites get <span class="mono">&lt;site&gt;.${esc(x.domains[0])}</span>; a bare name like <span class="mono">blog</span> means <span class="mono">blog.${esc(x.domains[0])}</span>.</p>
+           <p class="faint">New sites get <span class="mono">&lt;site&gt;.${esc(x.domains[0])}</span>; a bare name like <span class="mono">blog</span> means <span class="mono">blog.${esc(x.domains[0])}</span>, and <span class="mono">@</span> means <span class="mono">${esc(x.domains[0])}</span> itself.</p>
            ${records.length ? `<div class="note">Add at your DNS provider:<div class="mono">${records.join("<br>")}</div></div>` : ""}`
         : `<p class="dim">No main domain set in landfall. New sites get a free <span class="mono">&lt;site&gt;.&lt;ip&gt;.sslip.io</span> address until you set one.</p>`}
         ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>

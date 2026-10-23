@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { envVar, expandHome, type Server } from "./config";
+import { OLD_BLOCK } from "./legacy";
 import { dest, targetArgs } from "./ssh";
 import { fail } from "./ui";
 
@@ -71,10 +72,10 @@ function glob(pattern: string): string[] {
 }
 
 const markers = (alias: string) => [`# >>> landfall:${alias}`, `# <<< landfall:${alias}`] as const;
-/** A managed block, also one written as `srv:` (landfall's old name). */
+/** A managed block, also one with the old tag. */
 const blockRe = (alias: string, trail: string) =>
-  new RegExp(`# >>> (?:landfall|srv):${escapeRe(alias)}\\n[\\s\\S]*?# <<< (?:landfall|srv):${escapeRe(alias)}${trail}`);
-const isStart = (line: string | undefined, alias: string) => line === `# >>> landfall:${alias}` || line === `# >>> srv:${alias}`;
+  new RegExp(`# >>> (?:landfall|${OLD_BLOCK}):${escapeRe(alias)}\\n[\\s\\S]*?# <<< (?:landfall|${OLD_BLOCK}):${escapeRe(alias)}${trail}`);
+const isStart = (line: string | undefined, alias: string) => line === `# >>> landfall:${alias}` || line === `# >>> ${OLD_BLOCK}:${alias}`;
 
 export interface HostBlock {
   alias: string;
@@ -135,7 +136,7 @@ export function findHostBlock(alias: string, file = SSH_CONFIG, seen = new Set<s
     const key = m[1].toLowerCase();
     if (key === "host" && m[2].split(/\s+/).includes(alias)) {
       let end = i + 1;
-      while (end < lines.length && !/^\s*(host|match)\b/i.test(lines[end]) && !/^# <<< (landfall|srv):/.test(lines[end])) end++;
+      while (end < lines.length && !/^\s*(host|match)\b/i.test(lines[end]) && !new RegExp(`^# <<< (landfall|${OLD_BLOCK}):`).test(lines[end])) end++;
       // Trailing blank lines and comments belong to whatever follows.
       while (end > i + 1 && /^\s*(#.*)?$/.test(lines[end - 1])) end--;
       return { file, start: i, end, lines: lines.slice(i, end), managed: isStart(lines[i - 1], alias) };

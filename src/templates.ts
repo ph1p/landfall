@@ -1,9 +1,9 @@
 /** Everything landfall puts on a server lives below this root. */
 export const ROOT = "/opt/landfall";
-/** Where landfall kept everything when it was called srv; `lf setup` moves it to ROOT. */
-export const OLD_ROOT = "/opt/srv";
 export const SITES = `${ROOT}/sites`;
 export const TRAEFIK_DIR = `${ROOT}/traefik`;
+/** Traefik's file provider reads every file here; landfall writes TLS_FILE, other files are yours (e.g. certificates). */
+export const DYNAMIC_DIR = `${TRAEFIK_DIR}/dynamic`;
 export const NETWORK = "web";
 /** The major tag: every deploy and `lf update` gets the newest v3 release; v4 needs a config review. */
 export const DEFAULT_TRAEFIK_IMAGE = "traefik:v3";
@@ -287,51 +287,6 @@ fi
 log "bootstrap done"
 `;
 
-/** Journal line of MIGRATE: steps before it reverted srv's paths and names, so they can no longer be undone. */
-export const MIGRATED = `moved ${OLD_ROOT} to ${ROOT} (landfall was called srv); older changes can no longer be undone`;
-
-/**
- * One-time move of a server set up when landfall was called srv: /opt/srv, srv-<site>
- * containers and their labels, 00-srv.conf. Each site's new container starts before
- * the old one goes, so only traefik restarts once. Needs root or passwordless sudo.
- */
-export const MIGRATE = String.raw`
-if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-  echo "moving ${OLD_ROOT} needs root or passwordless sudo for $(id -un) (try: lf setup <name> --user root)" >&2
-  exit 1
-fi
-[ ! -e ${ROOT} ] || { echo "both ${OLD_ROOT} and ${ROOT} exist; merge them by hand, then remove ${OLD_ROOT}" >&2; exit 1; }
-log "moving ${OLD_ROOT} to ${ROOT}"
-$SUDO mv ${OLD_ROOT} ${ROOT}
-# Only the older journal steps restored these backups; the .env copies hold secrets.
-$SUDO find ${ROOT} /etc/ssh -name '.*.srv-*' -type f -delete 2>/dev/null || true
-$SUDO rm -f ${COMPOSE_PLUGIN}.srv-*
-old_conf=/etc/ssh/sshd_config.d/00-srv.conf
-[ ! -f $old_conf ] || $SUDO mv $old_conf ${SSHD_CONF}
-# Rewrite a file in place, keeping its owner (deploy users must still write it).
-rewrite() { o=$($SUDO stat -c %u:%g "$1"); $SUDO sed -i -E "$2" "$1"; $SUDO chown "$o" "$1"; }
-dc version >/dev/null 2>&1 || true
-sdc() { $SUDO $DC "$@"; }
-f=${TRAEFIK_DIR}/docker-compose.yml
-if [ -f $f ] && grep -q "managed by srv" $f; then
-  rewrite $f 's/managed by srv/managed by landfall/'
-  log "restarting traefik from ${TRAEFIK_DIR}"
-  (cd ${TRAEFIK_DIR} && sdc up -d --force-recreate --quiet-pull)
-fi
-for d in ${SITES}/*; do
-  n=$(basename "$d"); f="$d/docker-compose.yml"
-  [ -f "$f" ] && grep -q "managed by srv" "$f" || continue
-  rewrite "$f" 's/managed by srv/managed by landfall/; s/^name: srv-/name: landfall-/; s/container_name: srv-/container_name: landfall-/; s/(routers|services|middlewares)\.srv-/\1.landfall-/g; s/middlewares=srv-/middlewares=landfall-/; s/"srv\.(managed|site)=/"landfall.\1=/'
-  [ ! -f "$d/nginx.conf" ] || rewrite "$d/nginx.conf" 's/managed by srv/managed by landfall/'
-  # A stopped site stays stopped.
-  if [ "$($SUDO docker inspect -f '{{.State.Running}}' "srv-$n" 2>/dev/null)" = true ]; then act="up -d"; else act=create; fi
-  log "moving srv-$n to landfall-$n"
-  if (cd "$d" && sdc $act --quiet-pull >/dev/null); then $SUDO docker rm -f "srv-$n" >/dev/null 2>&1 || true
-  else log "landfall-$n did not start, srv-$n keeps running; redeploy $n"; fi
-done
-record "${MIGRATED}"
-`;
-
 /**
  * Read-only inventory of what setup would touch, one `key=value` per line
  * (`listen=` repeats). Runs before bootstrap so setup can skip finished parts
@@ -373,7 +328,6 @@ kv network "$(yn S docker network inspect ${NETWORK})"
 kv proxy "$(grep -v '^#' ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
 if command -v ufw >/dev/null 2>&1; then kv ufw "$(S ufw status 2>/dev/null | awk 'NR == 1 {print $2}')"; else kv ufw missing; fi
 kv hardened "$(yn test -f ${SSHD_CONF})"
-kv old_root "$(yn test -d ${OLD_ROOT})"
 kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
 kv password_users "$(S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null)"
 f=${TRAEFIK_DIR}/docker-compose.yml
@@ -419,11 +373,21 @@ export interface TraefikOpts {
   dashboard?: { host: string; htpasswd: string };
 }
 
+/** dynamic/landfall.yml: hosts no router serves get no certificate, so they look like nothing is there. */
+export const TLS_FILE = `# managed by landfall — rewritten by \`lf traefik setup\`; other files in this folder are yours
+tls:
+  options:
+    default:
+      # Refuse the handshake for a name no certificate covers: no 404, no warning about a bad certificate.
+      sniStrict: true
+`;
+
 export function traefikCompose(o: TraefikOpts): string {
   const cmd = [
     "--providers.docker=true",
     "--providers.docker.exposedbydefault=false",
     `--providers.docker.network=${NETWORK}`,
+    "--providers.file.directory=/etc/traefik/dynamic",
     "--entrypoints.web.address=:80",
     "--entrypoints.web.http.redirections.entrypoint.to=websecure",
     "--entrypoints.web.http.redirections.entrypoint.scheme=https",
@@ -467,6 +431,7 @@ ${
 }    volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./letsencrypt:/letsencrypt
+      - ./dynamic:/etc/traefik/dynamic:ro
 ${o.hostNetwork ? "" : `    networks:\n      - ${NETWORK}\n`}${labels.length ? `    labels:\n${labels.map((l) => `      - ${yamlStr(l)}`).join("\n")}\n` : ""}${
   // Host mode still reaches sites by their IP on the web network (providers.docker.network).
   o.hostNetwork ? "" : `networks:\n  ${NETWORK}:\n    external: true\n`

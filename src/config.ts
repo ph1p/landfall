@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { adoptOldConfig, OLD_PROJECT_FILE, oldEnv } from "./legacy";
 import { fail } from "./ui";
 
 /**
@@ -32,18 +33,14 @@ export interface Config {
   servers: Record<string, Server>;
 }
 
-/** $LANDFALL_<name>, or $SRV_<name> from when landfall was called srv. */
-export const envVar = (name: string) => process.env[`LANDFALL_${name}`] ?? process.env[`SRV_${name}`];
+/** $LANDFALL_<name>. */
+export const envVar = (name: string) => process.env[`LANDFALL_${name}`] ?? oldEnv(name);
 
 const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
 export const configDir = envVar("CONFIG_DIR") ?? join(configHome, "landfall");
 export const CONFIG_PATH = join(configDir, "config.json");
 
-// ~/.config/srv is where landfall kept its config when it was called srv.
-{
-  const old = join(configHome, "srv");
-  if (!envVar("CONFIG_DIR") && !fs.existsSync(configDir) && fs.existsSync(join(old, "config.json"))) fs.renameSync(old, configDir);
-}
+if (!envVar("CONFIG_DIR")) adoptOldConfig(configHome, configDir);
 
 export const expandHome = (p: string) => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
@@ -118,9 +115,12 @@ export const withPrimary = (domains: string[] | undefined, d?: string) => (d ? [
 /** The primary main domain, if any. */
 export const mainDomain = (s: Server) => s.domains?.[0];
 
-/** `blog` → `blog.<primary main domain>`; anything with a dot stays as it is. */
-export const expandDomain = (d: string, server: Server) =>
-  !d.includes(".") && mainDomain(server) ? `${d.toLowerCase()}.${mainDomain(server)}` : d.toLowerCase();
+/** `@` → the primary main domain, `blog` → `blog.<primary main domain>`; anything with a dot stays as it is. */
+export function expandDomain(d: string, server: Server): string {
+  const main = mainDomain(server);
+  if (d === "@") return main ?? fail("`@` means the main domain, but none is set: lf server domain <server> <domain>");
+  return !d.includes(".") && main ? `${d.toLowerCase()}.${main}` : d.toLowerCase();
+}
 
 /** Free wildcard-DNS services: never a main domain. */
 const FREE_DNS = new Set(["sslip.io", "nip.io", "traefik.me", "localhost"]);
@@ -148,8 +148,6 @@ export function guessDomains(hosts: string[]): { domain: string; hosts: number }
 
 /** Project file that remembers how a directory was deployed, so `lf deploy` alone redeploys. */
 export const PROJECT_FILE = ".landfall.json";
-/** Its name from when landfall was called srv: still read, renamed on the next save. */
-export const OLD_PROJECT_FILE = "srv.json";
 
 export interface ProjectConfig {
   name: string;
@@ -163,7 +161,7 @@ export interface ProjectConfig {
   build?: string;
 }
 
-/** The project file in a directory: .landfall.json, or an older srv.json. */
+/** The project file in a directory: .landfall.json, or the older one. */
 export const projectFile = (cwd: string) => {
   const file = join(cwd, PROJECT_FILE);
   return fs.existsSync(file) || !fs.existsSync(join(cwd, OLD_PROJECT_FILE)) ? file : join(cwd, OLD_PROJECT_FILE);

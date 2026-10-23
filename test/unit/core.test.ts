@@ -19,7 +19,8 @@ import { isPublic4, parseFacts, pickIp, sslipDomain, support } from "../../src/f
 import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
-import { DEFAULT_TRAEFIK_IMAGE, MIGRATED, nginxConf, parseProxy, proxyFile, siteCompose, traefikCompose, traefikLabels, type SiteMeta } from "../../src/templates";
+import { MIGRATED } from "../../src/legacy";
+import { DEFAULT_TRAEFIK_IMAGE, nginxConf, parseProxy, proxyFile, siteCompose, TLS_FILE, traefikCompose, traefikLabels, type SiteMeta } from "../../src/templates";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -140,6 +141,13 @@ describe("templates", () => {
     expect(host).not.toContain("networks:");
     // still reaches sites by their IP on the web network
     expect(host).toContain("--providers.docker.network=web");
+  });
+
+  test("traefik refuses hosts no site serves", () => {
+    const y = traefikCompose({ image: "traefik:v3", staging: false });
+    expect(y).toContain("./dynamic:/etc/traefik/dynamic:ro");
+    expect(y).toContain("--providers.file.directory=/etc/traefik/dynamic");
+    expect(TLS_FILE).toMatch(/default:\n(\s+#.*\n)?\s+sniStrict: true/);
   });
 
   test("traefik settings: flags win over what the server remembers", () => {

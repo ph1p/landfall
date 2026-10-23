@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { envVar, expandHome, type Server } from "./config";
+import { OLD_LAYOUT, OLD_PROJECT_FILE } from "./legacy";
 import { fail } from "./ui";
 
 let quiet = false;
@@ -20,9 +21,6 @@ export interface SshOpts {
   /** Skip connection multiplexing (needed to honestly test key auth). */
   noMux?: boolean;
 }
-
-/** Stops every script on a server that `lf setup` has not moved from /opt/srv yet. */
-const OLD_LAYOUT = `[ ! -d /opt/srv ] || [ -e /opt/landfall ] || { echo "this server still uses /opt/srv from when landfall was called srv; run 'lf setup' for it once to move it" >&2; exit 3; }\n`;
 
 /** LANDFALL_SSH_CONFIG points landfall (and the ssh it runs) at another config file, e.g. in tests. */
 // ssh refuses a -F file that does not exist; until landfall writes the first Host block, there is nothing to read.
@@ -106,7 +104,7 @@ export const journal = {
 };
 
 export interface ScriptOpts {
-  /** Run even on a server still laid out as srv (landfall's old name): setup's probe and migration. */
+  /** Run even on a server srv (landfall's old name) set up: the migration. */
   oldLayout?: boolean;
   env?: Record<string, string | number | boolean | undefined>;
   capture?: boolean;
@@ -141,7 +139,8 @@ export async function canLogin(s: Server): Promise<boolean> {
   return code === 0;
 }
 
-const DEFAULT_EXCLUDES = [".git", "node_modules", ".DS_Store", ".landfall.json", "srv.json", ".env", ".env.*"];
+// A function: legacy.ts is still loading when this module runs (config → legacy → ssh).
+const defaultExcludes = () => [".git", "node_modules", ".DS_Store", ".landfall.json", OLD_PROJECT_FILE, ".env", ".env.*"];
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
@@ -154,7 +153,7 @@ async function bsdtarFlags(): Promise<string[]> {
 }
 
 /** Stream a local directory into a remote directory via tar over ssh. */
-export async function upload(s: Server, localDir: string, remoteDir: string, excludes = DEFAULT_EXCLUDES) {
+export async function upload(s: Server, localDir: string, remoteDir: string, excludes = defaultExcludes()) {
   if (!fs.existsSync(localDir)) fail(`directory not found: ${localDir}`);
   const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...excludes.flatMap((e) => ["--exclude", e]), "-C", localDir, "."];
   const remote = `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`;

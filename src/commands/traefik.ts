@@ -5,7 +5,7 @@ import { checkImage, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dockerLogs } from "../remote";
 import { runScript, shq, writeFileCmd } from "../ssh";
-import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, TRAEFIK_DIR, traefikCompose, type Proxy } from "../templates";
+import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "../templates";
 import { c, fail, info, ok, step } from "../ui";
 
 export interface TraefikInstall {
@@ -60,7 +60,8 @@ export async function installTraefik(name: string, server: Server, o: TraefikIns
     `${PRELUDE}
 ensure_network ${NETWORK}
 [ -w ${TRAEFIK_DIR} ] || { $SUDO install -d -o "$(id -un)" ${TRAEFIK_DIR}; }
-mkdir -p ${TRAEFIK_DIR}/letsencrypt && cd ${TRAEFIK_DIR}
+mkdir -p ${TRAEFIK_DIR}/letsencrypt ${DYNAMIC_DIR} && cd ${TRAEFIK_DIR}
+${writeFileCmd("dynamic/landfall.yml", TLS_FILE)}
 if [ -e docker-compose.yml ]; then
   ${writeFileCmd(".docker-compose.yml.new", compose)}
   # Same config again: nothing to journal.
@@ -73,7 +74,7 @@ if [ -e docker-compose.yml ]; then
 else
   ${writeFileCmd("docker-compose.yml", compose)}
   # Certificates in letsencrypt/ stay, a later install reuses them.
-  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml"
+  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
 fi
 log "starting traefik"
 dc up -d --remove-orphans --quiet-pull
