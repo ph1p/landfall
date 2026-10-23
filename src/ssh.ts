@@ -1,4 +1,4 @@
-import { spawn, type SpawnOptions } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import fs from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -161,11 +161,11 @@ export async function upload(s: Server, localDir: string, remoteDir: string, exc
     });
     const ssh = spawn("ssh", [...sshArgs(s), remote], { stdio: ["pipe", "inherit", "inherit"] });
     tar.stdout.pipe(ssh.stdin);
-    let tarCode = 0;
-    tar.on("close", (c) => (tarCode = c ?? 1));
     tar.on("error", reject);
     ssh.on("error", reject);
-    ssh.on("close", (code) => {
+    // Wait for both: ssh may exit 0 before tar reports that it failed halfway.
+    const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
+    Promise.all([exit(tar), exit(ssh)]).then(([tarCode, code]) => {
       if (tarCode !== 0) reject(new Error(`tar failed (exit ${tarCode})`));
       else if (code !== 0) reject(new Error(`upload failed (exit ${code})`));
       else resolve();

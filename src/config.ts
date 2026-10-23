@@ -91,6 +91,18 @@ export const checkDomain = (d: string) => {
   return domain;
 };
 
+/** A Docker image reference; nothing a shell or YAML would read specially. */
+export const IMAGE = /^[a-z0-9][a-z0-9._\-/:@]*$/i;
+
+export const checkImage = (image: string) => (IMAGE.test(image) ? image : fail(`not an image: ${image}`));
+
+/** A whole number from a flag or srv.json, within [min, max]; fails otherwise. */
+export function checkInt(v: unknown, what: string, min: number, max = Number.MAX_SAFE_INTEGER): number {
+  const n = typeof v === "number" ? v : /^\s*\d+\s*$/.test(String(v)) ? Number(v) : NaN;
+  if (!Number.isInteger(n) || n < min || n > max) fail(`${what} must be a whole number from ${min}${max < Number.MAX_SAFE_INTEGER ? ` to ${max}` : " up"}, got ${v}`);
+  return n;
+}
+
 /** The main domains with `d` (if given) first. */
 export const withPrimary = (domains: string[] | undefined, d?: string) => (d ? [...new Set([d, ...(domains ?? [])])] : domains);
 

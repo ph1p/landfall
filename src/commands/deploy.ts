@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { expandDomain, mainDomain, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
+import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { applySite, mergeEnv, parseEnvPairs, readSite, siteDir, validName } from "../remote";
 import { upload } from "../ssh";
 import { container, type Release, type SiteKind, type SiteMeta } from "../templates";
@@ -13,6 +13,13 @@ import { detectStaticDir, exposedPort, rememberProject, slug } from "../projects
 export { detectStaticDir, exposedPort, slug } from "../projects";
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+
+/** A release id not in `taken`: ids have one-second resolution, so a second deploy within it moves on a second. */
+export function nextReleaseId(taken: string[], now = new Date()): string {
+  let t = now.getTime();
+  while (taken.includes(releaseId(new Date(t)))) t += 1000;
+  return releaseId(new Date(t));
+}
 
 export const deploy = defineCommand({
   name: "deploy",
@@ -56,6 +63,9 @@ Settings are saved to ./srv.json, so later deploys are just \`lf deploy\`.`,
     }
     domains = domains.map((d) => expandDomain(d, server));
     if (!domains.length) fail("at least one --domain is required");
+    const bad = domains.filter((d) => !DOMAIN.test(d));
+    if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
+    const keep = checkInt(o.keep, "--keep", 1);
 
     const buildCmd: string | undefined = o.build ?? project.build;
     if (buildCmd) {
@@ -65,18 +75,21 @@ Settings are saved to ./srv.json, so later deploys are just \`lf deploy\`.`,
     }
 
     const forceStatic = o.static ?? project.static;
-    const image: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
+    const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
+    const image = imageArg && checkImage(imageArg);
     const dir = resolve(cwd, dirArg ?? project.dir ?? (image ? "." : detectStaticDir(cwd)));
     const kind: SiteKind = image ? "image" : !forceStatic && fs.existsSync(join(dir, "Dockerfile")) ? "dockerfile" : "static";
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) warn(`no index.html in ${relative(cwd, dir) || "."}`);
     const port =
-      kind === "static" ? 80 : Number(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000);
+      kind === "static"
+        ? 80
+        : checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535);
 
     step(`deploying ${c.bold(name)} (${kind}) to ${c.bold(serverName)}`);
     const { meta: prev, env: prevEnv, proxy, exists } = await readSite(server, name);
     if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
-    const id = releaseId();
+    const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id));
     const release: Release = { id, at: new Date().toISOString() };
     if (kind === "image") release.image = image;
     if (kind === "dockerfile") release.image = `${container(name)}:${id}`;
@@ -110,7 +123,7 @@ Settings are saved to ./srv.json, so later deploys are just \`lf deploy\`.`,
       env,
       build: kind === "dockerfile",
       pull: kind === "image",
-      keep: Number(o.keep),
+      keep,
       prev,
       existed: !prev && exists,
       what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${domains.join(", ")})`}`,

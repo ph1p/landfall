@@ -4,11 +4,11 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { detectStaticDir, releaseId, slug } from "../../src/commands/deploy";
-import { ruleArgs } from "../../src/commands/firewall";
+import { detectStaticDir, nextReleaseId, releaseId, slug } from "../../src/commands/deploy";
+import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
 import { journalCmd } from "../../src/cmd";
-import { baseDomain, expandDomain, guessDomains, withPrimary } from "../../src/config";
+import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, withPrimary } from "../../src/config";
 import { findRun, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
 import { mergeEnv, parseEnvPairs } from "../../src/remote";
@@ -63,6 +63,18 @@ describe("deploy helpers", () => {
   });
   test("release ids sort chronologically", () => {
     expect(releaseId(new Date("2026-01-02T03:04:05Z"))).toBe("20260102030405");
+  });
+  test("a second deploy in the same second gets the next id", () => {
+    const now = new Date("2026-01-02T03:04:05Z");
+    expect(nextReleaseId([], now)).toBe("20260102030405");
+    expect(nextReleaseId(["20260102030405", "20260102030406"], now)).toBe("20260102030407");
+  });
+  test("numbers and images from flags", () => {
+    expect(checkInt("8080", "--port", 1, 65535)).toBe(8080);
+    expect(checkInt(3000, "--port", 1, 65535)).toBe(3000);
+    for (const bad of ["abc", "", "80a", "0", "70000", "1.5"]) expect(() => checkInt(bad, "--port", 1, 65535)).toThrow(/--port/);
+    expect(checkImage("ghcr.io/me/app:1.2@sha256:abc")).toBe("ghcr.io/me/app:1.2@sha256:abc");
+    for (const bad of ['traefik"; rm -rf /', "x $(id)", "a\nb: c", "-x"]) expect(() => checkImage(bad)).toThrow(/not an image/);
   });
   test("slug", () => {
     expect(slug("My Site.com")).toBe("my-site-com");
@@ -336,6 +348,13 @@ describe("firewall", () => {
     });
     expect(parseRule("allow out 53").out).toBe(true);
     expect(parseRule("allow OpenSSH").port).toBeUndefined();
+  });
+
+  test("enabling refuses when an earlier deny would still block ssh", async () => {
+    const fw = { ufw: "active", sshPort: 22, rules: ["deny 22"].map(parseRule) } as FirewallState;
+    await expect(guardSsh(fw, [...fw.rules, parseRule("allow 22/tcp")])).rejects.toThrow(/blocks ssh port 22/);
+    await expect(guardSsh(fw, [parseRule("allow 22/tcp")])).resolves.toBeUndefined();
+    await expect(guardSsh(fw, [...fw.rules, parseRule("allow 22/tcp")], true)).resolves.toBeUndefined();
   });
 
   test("the first matching rule wins", () => {
