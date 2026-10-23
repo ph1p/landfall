@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+import { journalCmd, parse, usage, type Command } from "./cmd";
+import { auth, domains, open } from "./commands/access";
+import { deploy } from "./commands/deploy";
+import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUse } from "./commands/server";
+import { firewallAllow, firewallDeny, firewallDisable, firewallEnable, firewallRemove, firewallStatus, firewallUpdate } from "./commands/firewall";
+import { historyLog, historyUndo } from "./commands/history";
+import { keygen, setup } from "./commands/setup";
+import {
+  sitesEnv,
+  sitesInfo,
+  sitesList,
+  sitesLogs,
+  sitesRemove,
+  sitesRestart,
+  sitesRollback,
+  sitesStart,
+  sitesStop,
+} from "./commands/sites";
+import { ui } from "./commands/ui";
+import { update, updatesList } from "./commands/updates";
+import { traefikLogs, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
+import { journal } from "./ssh";
+import { c, CliError, fail, setAssumeYes } from "./ui";
+import pkg from "../package.json";
+
+const commands: Command[] = [
+  setup,
+  deploy,
+  sitesList,
+  sitesInfo,
+  sitesLogs,
+  sitesEnv,
+  sitesRollback,
+  sitesRestart,
+  sitesStop,
+  sitesStart,
+  sitesRemove,
+  domains,
+  auth,
+  open,
+  updatesList,
+  update,
+  serverAdd,
+  serverList,
+  serverInfo,
+  serverConfig,
+  serverDomain,
+  serverUse,
+  serverRemove,
+  serverSsh,
+  traefikSetup,
+  traefikUse,
+  traefikStatus,
+  traefikLogs,
+  traefikRestart,
+  firewallStatus,
+  firewallEnable,
+  firewallDisable,
+  firewallAllow,
+  firewallDeny,
+  firewallUpdate,
+  firewallRemove,
+  historyLog,
+  historyUndo,
+  keygen,
+  ui,
+];
+
+/** Shorthands → canonical command names. */
+const aliases: Record<string, string> = {
+  ls: "sites list",
+  sites: "sites list",
+  servers: "server list",
+  "server ls": "server list",
+  "server ssh": "ssh",
+  "sites logs": "logs",
+  "sites env": "env",
+  "sites rollback": "rollback",
+  "sites restart": "restart",
+  "sites stop": "stop",
+  "sites start": "start",
+  "sites ls": "sites list",
+  "sites remove": "sites rm",
+  "server remove": "server rm",
+  traefik: "traefik status",
+  firewall: "firewall status",
+  "firewall remove": "firewall rm",
+  log: "history",
+  revert: "undo",
+  web: "ui",
+  info: "server info",
+  "sites domains": "domains",
+  "sites auth": "auth",
+  "sites open": "open",
+  upgrade: "update",
+};
+
+const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));
+
+function find(argv: string[]): { cmd?: Command; rest: string[] } {
+  for (const n of [2, 1]) {
+    const key = argv.slice(0, n).join(" ");
+    const cmd = byName.get(aliases[key] ?? key);
+    if (cmd && argv.length >= n) return { cmd, rest: argv.slice(n) };
+  }
+  return { rest: argv };
+}
+
+function help() {
+  const groups: [string, string[]][] = [
+    ["Servers", ["setup", "server add", "server list", "server info", "server config", "server domain", "server use", "server rm", "ssh", "keygen"]],
+    ["Traefik", ["traefik setup", "traefik status", "traefik logs", "traefik restart"]],
+    ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
+    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
+    ["Updates", ["updates", "update"]],
+    ["History", ["history", "undo"]],
+    ["Dashboard", ["ui"]],
+  ];
+  const lines = [
+    `${c.bold("landfall")} ${c.dim(pkg.version)} — set up servers and deploy sites behind Traefik + HTTPS`,
+    "",
+    `${c.bold("Usage:")} lf                           ${c.dim("web dashboard in your browser (same as lf ui)")}`,
+    `       lf tui                       ${c.dim("the dashboard in the terminal instead")}`,
+    `       lf <command> [options]       ${c.dim("lf <command> --help for details")}`,
+  ];
+  for (const [title, names] of groups) {
+    lines.push("", c.bold(title));
+    for (const n of names) {
+      const cmd = byName.get(n)!;
+      lines.push(`  ${(n + (cmd.args ? " " + cmd.args : "")).padEnd(32)} ${cmd.summary.split("\n")[0]}`);
+    }
+  }
+  lines.push(
+    "",
+    c.bold("Quick start"),
+    `  lf setup vps --check                                 ${c.dim("# what is on vps, what setup would change")}`,
+    `  lf setup vps                                         ${c.dim("# docker + traefik on a server you reach with `ssh vps`")}`,
+    `  lf setup box --host 203.0.113.7                      ${c.dim("# fresh box (root password once) → `ssh box` works")}`,
+    `  lf deploy ./dist -d example.com -s vps               ${c.dim("# publish a static site with HTTPS")}`,
+    `  lf deploy                                            ${c.dim("# redeploy using ./srv.json")}`,
+    `  lf deploy ./dist -y                                  ${c.dim("# no domain yet: serve at <name>.<ip>.sslip.io")}`,
+    `  lf auth my-site --user anna                          ${c.dim("# put a password in front of a site")}`,
+    `  lf updates -s vps && lf update -s vps                ${c.dim("# pending OS/image updates, then apply them")}`,
+    `  lf ls                                                ${c.dim("# what runs where")}`,
+    `  lf history -s vps && lf undo -s vps                  ${c.dim("# what landfall changed, and revert the last of it")}`,
+    "",
+    c.dim("Servers are ssh targets: any ~/.ssh/config alias works as --server."),
+  );
+  console.log(lines.join("\n"));
+}
+
+async function main(argv: string[]): Promise<number> {
+  if (argv[0] === "tui" && argv.length === 1) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) fail("the terminal dashboard needs a terminal; `lf ui` opens the web one");
+    // React (loaded with the dashboard) skips its dev-only checks.
+    process.env.NODE_ENV ??= "production";
+    const { dashboard } = await import("./tui");
+    return dashboard(run);
+  }
+  if (!argv.length && process.stdin.isTTY && process.stdout.isTTY) argv = ["ui"];
+  if (!argv.length || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
+    help();
+    return 0;
+  }
+  if (argv[0] === "-v" || argv[0] === "--version" || argv[0] === "version") {
+    console.log(pkg.version);
+    return 0;
+  }
+  const { cmd, rest } = find(argv);
+  if (!cmd) {
+    console.error(`${c.red("error:")} unknown command "${argv.join(" ")}"\n`);
+    help();
+    return 2;
+  }
+  const { values, positionals, rest: passthrough } = parse(cmd, rest);
+  if (values.help) {
+    console.log(usage(cmd));
+    return 0;
+  }
+  setAssumeYes(!!values.yes);
+  journal.cmd = journalCmd(cmd, positionals, values);
+  const code = await cmd.run(positionals, values, passthrough);
+  return typeof code === "number" ? code : 0;
+}
+
+/** One command, errors printed; the dashboard runs its actions through this too. */
+async function run(argv: string[]): Promise<number> {
+  try {
+    return await main(argv);
+  } catch (e) {
+    if (e instanceof CliError) console.error(`${c.red("error:")} ${e.message}`);
+    else console.error(e);
+    return 1;
+  }
+}
+
+run(process.argv.slice(2)).then((code) => process.exit(code));
