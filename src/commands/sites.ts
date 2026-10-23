@@ -14,7 +14,7 @@ import {
 } from "../remote";
 import { runScript, shq, writeFileCmd } from "../ssh";
 import { container } from "../templates";
-import { ago, c, confirm, confirmRemoval, fail, ok, table } from "../ui";
+import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
 import { logOpts } from "./traefik";
 
 /** Site + server from args, falling back to ./.landfall.json. */

@@ -51,8 +51,8 @@ export function parseProbe(out: string): Probe {
   return p;
 }
 
-export async function probeServer(s: Server, env: { PUBKEY?: string; DEPLOY_USER?: string } = {}, oldLayout = false): Promise<Probe> {
-  const { stdout } = await runScript(s, PRELUDE + PROBE, { env: { PUBKEY: env.PUBKEY ?? "", DEPLOY_USER: env.DEPLOY_USER ?? "" }, capture: true, oldLayout });
+export async function probeServer(s: Server, env: { PUBKEY?: string; DEPLOY_USER?: string } = {}): Promise<Probe> {
+  const { stdout } = await runScript(s, PRELUDE + PROBE, { env: { PUBKEY: env.PUBKEY ?? "", DEPLOY_USER: env.DEPLOY_USER ?? "" }, capture: true });
   return parseProbe(stdout);
 }
 

@@ -1,9 +1,10 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, expandDomain, loadProject, saveProject } from "../config";
+import { DOMAIN, expandDomain, loadProject, saveProject, type Server } from "../config";
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
-import { applySite, requireSite } from "../remote";
-import { askSecret, c, confirmRemoval, fail, ok, openUrl, warn } from "../ui";
+import { applySite, listSites, requireSite } from "../remote";
+import type { Proxy } from "../templates";
+import { askSecret, c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
 import { htpasswd } from "./traefik";
 import { target } from "./sites";
 
@@ -19,6 +20,33 @@ export async function httpsStatus(domain: string): Promise<{ status?: number; er
   }
 }
 
+/**
+ * Domains other sites serve that `site` is about to: asks to move them, and returns what
+ * takes them away, to run right before `site` is applied (one host, one router).
+ * With `refuse`, fails instead of asking, giving it as the way out.
+ */
+export async function claimDomains(server: Server, serverName: string, site: string, domains: string[], proxy: Proxy, refuse?: string): Promise<() => Promise<void>> {
+  const others = (await listSites(server)).map((s) => s.meta).filter((m) => m.name !== site && m.domains.some((d) => domains.includes(d)));
+  for (const m of others) {
+    const taken = m.domains.filter((d) => domains.includes(d));
+    if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);
+    if (taken.length === m.domains.length) {
+      fail(`${taken.join(", ")} ${taken.length > 1 ? "are" : "is"} all ${m.name} serves: give it another domain first (lf domains ${m.name} --add <domain>) or remove it (lf sites rm ${m.name})`);
+    }
+    await confirmRemoval(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${site}?`);
+  }
+  return async () => {
+    for (const m of others) {
+      const prev = structuredClone(m);
+      m.domains = m.domains.filter((d) => !domains.includes(d));
+      m.updatedAt = new Date().toISOString();
+      await applySite(server, m, proxy, { keep: m.releases.length, prev, what: `moved ${prev.domains.filter((d) => domains.includes(d)).join(", ")} from ${m.name} to ${site}` });
+      updateProjectDomains(serverName, m.name, m.domains);
+      info(c.dim(`${m.name} keeps ${m.domains.join(", ")}`));
+    }
+  };
+}
+
 export const domains = defineCommand({
   name: "domains",
   args: "[site]",
@@ -28,7 +56,7 @@ Without flags it lists and checks; --add/--rm/--set change the site (undoable)
 and update .landfall.json of remembered projects.`,
   options: {
     server: serverOpt,
-    add: { type: "string", short: "a", multiple: true, desc: "add a domain (`blog` = blog.<main domain>)" },
+    add: { type: "string", short: "a", multiple: true, desc: "add a domain (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here" },
     rm: { type: "string", multiple: true, desc: "remove a domain" },
     set: { type: "string", multiple: true, desc: "replace all domains" },
     json: { type: "boolean", desc: "machine-readable output (listing)" },
@@ -60,10 +88,12 @@ and update .landfall.json of remembered projects.`,
     if (next.join() === meta.domains.join()) return ok("nothing to change");
     const dropped = meta.domains.filter((d) => !next.includes(d));
     if (dropped.length) await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.`);
+    const move = await claimDomains(server, serverName, site, next.filter((d) => !meta.domains.includes(d)), proxy);
 
     const prev = structuredClone(meta);
     meta.domains = next;
     meta.updatedAt = new Date().toISOString();
+    await move();
     await applySite(server, meta, proxy, { keep: meta.releases.length, prev, what: `domains of ${site}: ${next.join(", ")}` });
     updateProjectDomains(serverName, site, next);
     const here = loadProject(process.cwd());

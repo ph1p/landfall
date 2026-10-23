@@ -9,6 +9,7 @@ import { container, type Release, type SiteKind, type SiteMeta } from "../templa
 import { ask, c, fail, info, ok, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
 import { detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { claimDomains } from "./access";
 
 export { detectStaticDir, exposedPort, slug } from "../projects";
 
@@ -35,7 +36,7 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
   options: {
     server: serverOpt,
     name: { type: "string", short: "n", desc: "site name (default: folder name)" },
-    domain: { type: "string", short: "d", multiple: true, desc: "domain to serve (`blog` = blog.<main domain>)" },
+    domain: { type: "string", short: "d", multiple: true, desc: "domain to serve (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here" },
     spa: { type: "boolean", desc: "single-page app: unknown paths serve index.html" },
     image: { type: "string", desc: "deploy a docker image instead of files" },
     port: { type: "string", desc: "container port (image/dockerfile; default: EXPOSE or 3000)" },
@@ -53,6 +54,8 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
 
     const { name: serverName, server } = resolveServer(o.server ?? project.server);
     const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
+    // Domains from .landfall.json never move from another site: that takes a -d.
+    const fromFile = !o.domain?.length && !!project.domains?.length;
     let domains: string[] = o.domain?.length ? o.domain : project.domains ?? [];
     if (!domains.length) {
       // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
@@ -88,6 +91,7 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
     step(`deploying ${c.bold(name)} (${kind}) to ${c.bold(serverName)}`);
     const { meta: prev, env: prevEnv, proxy, exists } = await readSite(server, name);
     if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
+    const move = await claimDomains(server, serverName, name, domains, proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
 
     const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id));
     const release: Release = { id, at: new Date().toISOString() };
@@ -119,6 +123,7 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     };
+    await move();
     await applySite(server, meta, proxy, {
       env,
       build: kind === "dockerfile",

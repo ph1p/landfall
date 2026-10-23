@@ -1,7 +1,8 @@
 import type { Server } from "./config";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { JOURNAL, MIGRATED, PRELUDE } from "./templates";
+import { MIGRATED } from "./legacy";
+import { JOURNAL, PRELUDE } from "./templates";
 import { fail } from "./ui";
 
 /** One change landfall made on the server: a line of the journal. */

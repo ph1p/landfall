@@ -6,7 +6,8 @@ import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
 import { support } from "../facts";
 import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login";
-import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, MIGRATE, OLD_ROOT, PRELUDE, ROOT } from "../templates";
+import { migrateServer } from "../legacy";
+import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
 import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, step, warn } from "../ui";
 import { describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "./traefik";
@@ -130,16 +131,8 @@ dashboard unless given as flags.`,
     // 2. inspect before touching anything
     next("checking what is already set up");
     const probeEnv = { PUBKEY: pubkey, DEPLOY_USER: deployUser };
-    let [probe, dockerLatest, composeLatest] = await Promise.all([probeServer(login, probeEnv, true), latestDocker(), latestCompose()]);
-    if (probe.values.old_root === "1") {
-      warn(`${OLD_ROOT} is from when landfall was called srv: its sites, traefik and journal move to ${ROOT}`);
-      info(c.dim("sites keep running; traefik restarts once; changes made before the move can no longer be undone"));
-      if (o.check) return;
-      if (!(await confirm(`move ${OLD_ROOT} to ${ROOT}?`))) return;
-      await runScript(login, PRELUDE + MIGRATE, { oldLayout: true });
-      ok(`moved to ${ROOT}`);
-      probe = await probeServer(login, probeEnv);
-    }
+    if (!(await migrateServer(login, o))) return;
+    const [probe, dockerLatest, composeLatest] = await Promise.all([probeServer(login, probeEnv), latestDocker(), latestCompose()]);
     Object.assign(probe.values, { docker_latest: dockerLatest ?? "", compose_latest: composeLatest ?? "" });
     // The port sshd listens on, which differs from eff.port behind port forwarding.
     const sshPort = Number(probe.values.ssh_port) || eff.port;

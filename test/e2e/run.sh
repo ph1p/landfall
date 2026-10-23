@@ -25,6 +25,12 @@ has() { grep "$@" >/dev/null; }
 lf() { node "$ROOT/dist/cli.mjs" "$@"; }
 get() { curl -sk --max-time 10 --resolve "$1:$HTTPS_PORT:127.0.0.1" "https://$1:$HTTPS_PORT${2:-/}"; }
 code() { curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$1:$HTTPS_PORT:127.0.0.1" "${@:2}" "https://$1:$HTTPS_PORT/"; }
+# Traefik answers only hosts it has a certificate for, and Let's Encrypt cannot issue one for
+# *.test: give it a self-signed one, the way users drop their own certs into dynamic/.
+trust_test_hosts() {
+  docker exec "$NAME" sh -c 'd=/opt/landfall/traefik/dynamic && cp /e2e/cert.pem /e2e/key.pem $d/ &&
+    printf "tls:\n  certificates:\n    - certFile: /etc/traefik/dynamic/cert.pem\n      keyFile: /etc/traefik/dynamic/key.pem\n" > $d/e2e.yml'
+}
 expect() { # expect <host> <path> <needle>
   for _ in $(seq 1 20); do get "$1" "$2" | has "$3" && { pass "https://$1$2 contains '$3'"; return; }; sleep 1; done
   echo "got: $(get "$1" "$2" | head -c 300)"; die "https://$1$2 does not contain '$3'"
@@ -42,6 +48,8 @@ for _ in $(seq 1 30); do docker exec "$NAME" docker info >/dev/null 2>&1 && brea
 
 echo "== setup"
 lf setup box --host 127.0.0.1 --port "$SSH_PORT" --key "$WORK/key" --email test@example.com --staging --no-firewall -y
+trust_test_hosts
+{ docker exec "$NAME" grep -q "sniStrict: true" /opt/landfall/traefik/dynamic/landfall.yml; } || die "strict tls written"; pass "strict tls written"
 [ "$(ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes box "id -un")" = deploy ] || die "ssh box not deploy"; pass "ssh box logs in as deploy"
 { lf setup box --no-firewall -y 2>&1 | has "already bootstrapped"; } || die "setup re-run skips bootstrap"; pass "setup re-run skips bootstrap"
 { ! lf setup box --no-firewall --check 2>&1 | grep -E '→|!'; } || die "check shows nothing to do"; pass "check shows nothing to do"
@@ -83,6 +91,8 @@ expect site.test / v2
 { [ "$(curl -sk -o /dev/null -w '%{http_code}' --resolve site.test:$HTTPS_PORT:127.0.0.1 https://site.test:$HTTPS_PORT/nope)" = 404 ]; } || die "unknown path 404s"; pass "unknown path 404s"
 lf rollback -y
 expect site.test / v1
+# A host no site serves has no certificate: the handshake fails, no 404 and no wrong certificate.
+[ "$(code nope.invalid)" = 000 ] || die "unknown host answered"; pass "unknown host fails the handshake"
 { lf ls | has site; } || die "sites list shows site"; pass "sites list shows site"
 lf deploy -d 'site.test`)' -y >/dev/null 2>&1 && die "deploy accepts a bad domain"
 lf deploy --keep abc -y >/dev/null 2>&1 && die "deploy accepts --keep abc"
@@ -147,6 +157,25 @@ mkdir -p "$WORK/main" && cd "$WORK/main" && echo '<h1>main</h1>' > index.html
 lf deploy -y >/dev/null
 expect main.box.test / main
 pass "deploy with a main domain serves <site>.<domain>"
+lf domains main --add @ -y >/dev/null 2>&1 || die "domains --add @"
+expect box.test / main
+pass "domains --add @ serves the main domain"
+mkdir -p "$WORK/apex" && cd "$WORK/apex" && echo '<h1>apex</h1>' > index.html
+lf deploy -d @ -y >/dev/null 2>&1 || die "deploy -d @ takes the main domain"
+expect box.test / apex
+{ ! lf domains main --json | has '"box.test"' && lf domains main --json | has '"main.box.test"'; } || die "main hands box.test over"
+pass "deploy -d @ moves the main domain, the old site keeps its others"
+out=$(lf domains main --add @ -y 2>&1) && die "move that leaves a site without domains"
+{ has "lf sites rm apex" <<<"$out"; } || { echo "$out"; die "move hint"; }; pass "a site keeps at least one domain"
+lf domains apex --add apex2.test >/dev/null 2>&1 && lf domains main --add @ -y >/dev/null 2>&1 || die "move back"
+expect box.test / main
+{ ! grep -q '"box.test"' .landfall.json; } || die "move updates the old site's .landfall.json"
+# A checkout that still lists it (a teammate's, an old commit) must not take it back.
+sed -i.bak 's/"apex2.test"/"apex2.test", "box.test"/' .landfall.json
+out=$(lf deploy -y 2>&1) && die "redeploy from .landfall.json takes the domain back"
+{ has "deploy with -d" <<<"$out"; } || { echo "$out"; die "redeploy hint"; }; pass ".landfall.json domains never move"
+lf sites rm apex -y >/dev/null
+cd "$WORK/main"
 lf domains main --add extra >/dev/null 2>&1
 { lf domains main --json | has '"extra.box.test"'; } || die "domains --add extra"; pass "domains --add extra means extra.box.test"
 lf traefik setup --dashboard traefik --dashboard-password dashpw1 >/dev/null 2>&1 || die "traefik dashboard"
@@ -313,6 +342,7 @@ pass "undo --all leaves the server as it was, journal kept"
 
 echo "== server from when landfall was called srv"
 lf setup box --host 127.0.0.1 --port "$SSH_PORT" --key "$WORK/key" --email test@example.com --staging --no-firewall -y >/dev/null 2>&1 || die "setup again"
+trust_test_hosts
 mkdir -p "$WORK/mig" && cd "$WORK/mig" && echo '<h1>migrated</h1>' > index.html
 lf deploy -n mig -d mig.test -y >/dev/null 2>&1 || die "deploy mig"
 expect mig.test / migrated
