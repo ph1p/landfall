@@ -459,3 +459,7 @@ pnpm typecheck
 pnpm build             # tsdown → dist/cli.mjs, copies the web page next to it
 pnpm e2e               # full run against a throwaway sshd+dockerd container (needs Docker)
 ```
+
+## License
+
+MIT
