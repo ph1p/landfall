@@ -11,7 +11,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - **Servers are ssh targets.** Any `~/.ssh/config` alias works. If `ssh vps` works, `lf deploy -s vps` works.
 - **No agent on the server.** Everything is plain Docker Compose under `/opt/landfall`, so you can read and fix it by hand.
 - **Every change is journaled** on the server and can be undone with `lf undo`.
-- **Three ways in:** plain commands for scripts, CI and agents; a web dashboard (`lf`); a terminal dashboard (`lf tui`).
+- **Three ways in:** plain commands for scripts, CI and agents; a web dashboard (`lf ui`); a terminal dashboard (`lf tui`).
 
 `lf` is short for `landfall`. Both commands are installed.
 
@@ -143,7 +143,7 @@ lf undo -s box -y                           # revert the last run
 
 | command | what it does |
 |---|---|
-| `lf` / `lf ui [--port 4777] [--no-open]` | Starts the web dashboard on 127.0.0.1 and prints a login link. |
+| `lf ui [--port 4777] [--no-open]` | Starts the web dashboard on 127.0.0.1 and prints a login link. |
 | `lf tui` | Starts the terminal dashboard. |
 
 ## Prepare a server
@@ -390,12 +390,12 @@ gone, and keeps a backup as `~/.ssh/config.landfall-bak`.
 
 ## Dashboards
 
-**Web (`lf` or `lf ui`).** The dashboard listens on `127.0.0.1` and opens your browser. Servers are on the left
+**Web (`lf ui`).** The dashboard listens on `127.0.0.1` and opens your browser. Servers are on the left
 (★ marks the default). A server tab has Sites, Updates, Firewall, History and Settings. **Deploy folder…** browses
 local folders or takes a dropped folder or `.zip`. Every action streams the output of its plain command into a side
 panel. Destructive actions ask first. Login works through the printed `/login?t=…` link. The token is kept in
 `~/.config/landfall/ui-token`, and you can delete that file to rotate it. Requests with a foreign `Host` or `Origin`
-are refused. Running `lf` again while the dashboard is running just opens the page.
+are refused. Running `lf ui` again while the dashboard is running just opens the page.
 
 **Terminal (`lf tui`).**
 

@@ -120,9 +120,9 @@ function help() {
   const lines = [
     `${c.bold("landfall")} ${c.dim(pkg.version)} — set up servers and deploy sites behind Traefik + HTTPS`,
     "",
-    `${c.bold("Usage:")} lf                           ${c.dim("web dashboard in your browser (same as lf ui)")}`,
-    `       lf tui                       ${c.dim("the dashboard in the terminal instead")}`,
-    `       lf <command> [options]       ${c.dim("lf <command> --help for details")}`,
+    `${c.bold("Usage:")} lf <command> [options]       ${c.dim("lf <command> --help for details")}`,
+    `       lf ui                        ${c.dim("web dashboard in your browser")}`,
+    `       lf tui                       ${c.dim("the dashboard in the terminal")}`,
   ];
   for (const [title, names] of groups) {
     lines.push("", c.bold(title));
@@ -158,7 +158,6 @@ async function main(argv: string[]): Promise<number> {
     const { dashboard } = await import("./tui");
     return dashboard(run);
   }
-  if (!argv.length && process.stdin.isTTY && process.stdout.isTTY) argv = ["ui"];
   if (!argv.length || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
     help();
     return 0;
