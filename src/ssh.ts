@@ -2,7 +2,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 import fs from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import { expandHome, type Server } from "./config";
+import { envVar, expandHome, type Server } from "./config";
 import { fail } from "./ui";
 
 let quiet = false;
@@ -21,9 +21,12 @@ export interface SshOpts {
   noMux?: boolean;
 }
 
-/** SRV_SSH_CONFIG points landfall (and the ssh it runs) at another config file, e.g. in tests. */
+/** Stops every script on a server that `lf setup` has not moved from /opt/srv yet. */
+const OLD_LAYOUT = `[ ! -d /opt/srv ] || [ -e /opt/landfall ] || { echo "this server still uses /opt/srv from when landfall was called srv; run 'lf setup' for it once to move it" >&2; exit 3; }\n`;
+
+/** LANDFALL_SSH_CONFIG points landfall (and the ssh it runs) at another config file, e.g. in tests. */
 // ssh refuses a -F file that does not exist; until landfall writes the first Host block, there is nothing to read.
-export const sshConfigFlag = (f = process.env.SRV_SSH_CONFIG) => (f ? ["-F", fs.existsSync(f) ? f : "/dev/null"] : []);
+export const sshConfigFlag = (f = envVar("SSH_CONFIG")) => (f ? ["-F", fs.existsSync(f) ? f : "/dev/null"] : []);
 
 /** `user@host`, or just the host/alias when ssh config supplies the user. */
 export const dest = (s: Server) => (s.user ? `${s.user}@${s.host}` : s.host);
@@ -40,7 +43,7 @@ let muxDir: string | undefined;
 /** Short, per-user socket dir: unix sockets cap at 104 bytes, which a long $HOME/.ssh can exceed. */
 function controlDir() {
   if (!muxDir) {
-    muxDir = join(process.platform === "darwin" ? "/tmp" : tmpdir(), `srv-${userInfo().uid}`);
+    muxDir = join(process.platform === "darwin" ? "/tmp" : tmpdir(), `landfall-${userInfo().uid}`);
     fs.mkdirSync(muxDir, { recursive: true, mode: 0o700 });
   }
   return muxDir;
@@ -94,15 +97,17 @@ export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
 
 /**
  * What the server journal credits a change to. One landfall invocation is one run;
- * the dashboard passes SRV_RUN to its jobs so it can offer to undo them.
+ * the dashboard passes LANDFALL_RUN to its jobs so it can offer to undo them.
  */
 export const journal = {
-  run: process.env.SRV_RUN || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+  run: process.env.LANDFALL_RUN || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
   actor: `${userInfo().username}@${hostname().split(".")[0]}`,
   cmd: "",
 };
 
 export interface ScriptOpts {
+  /** Run even on a server still laid out as srv (landfall's old name): setup's probe and migration. */
+  oldLayout?: boolean;
   env?: Record<string, string | number | boolean | undefined>;
   capture?: boolean;
   /** Run the script as root through passwordless sudo. */
@@ -114,13 +119,13 @@ export interface ScriptOpts {
  * prepended as shell-quoted assignments so no value is ever interpolated raw.
  */
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
-  const env = { SRV_RUN: journal.run, SRV_ACTOR: journal.actor, SRV_CMD: journal.cmd, ...o.env };
+  const env = { LANDFALL_RUN: journal.run, LANDFALL_ACTOR: journal.actor, LANDFALL_CMD: journal.cmd, ...o.env };
   const header = Object.entries(env)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
     .join("\n");
   const res = await spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-    input: `set -euo pipefail\n${header}\n${script}\n`,
+    input: `set -euo pipefail\n${header}\n${o.oldLayout ? "" : OLD_LAYOUT}${script}\n`,
     capture: o.capture,
   });
   if (res.code !== 0) {
@@ -136,7 +141,7 @@ export async function canLogin(s: Server): Promise<boolean> {
   return code === 0;
 }
 
-const DEFAULT_EXCLUDES = [".git", "node_modules", ".DS_Store", "srv.json", ".env", ".env.*"];
+const DEFAULT_EXCLUDES = [".git", "node_modules", ".DS_Store", ".landfall.json", "srv.json", ".env", ".env.*"];
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */

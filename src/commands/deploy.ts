@@ -31,7 +31,7 @@ Kinds:
   dockerfile  the folder has a Dockerfile: uploaded and built on the server
   image       --image: run a prebuilt image (e.g. ghcr.io/me/app:1.2)
 
-Settings are saved to ./srv.json, so later deploys are just \`lf deploy\`.`,
+Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.`,
   options: {
     server: serverOpt,
     name: { type: "string", short: "n", desc: "site name (default: folder name)" },
@@ -44,7 +44,7 @@ Settings are saved to ./srv.json, so later deploys are just \`lf deploy\`.`,
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env" },
     build: { type: "string", short: "b", desc: "run this command locally first (e.g. 'npm run build')" },
     keep: { type: "string", desc: "releases to keep for rollback", default: "5" },
-    save: { type: "boolean", desc: "write srv.json (--no-save to skip)", default: true },
+    save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
   },
   async run([dirArg], o) {
     const cwd = process.cwd();

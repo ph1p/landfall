@@ -17,11 +17,11 @@ import { container } from "../templates";
 import { ago, c, confirm, confirmRemoval, fail, ok, table } from "../ui";
 import { logOpts } from "./traefik";
 
-/** Site + server from args, falling back to ./srv.json. */
+/** Site + server from args, falling back to ./.landfall.json. */
 export function target(name: string | undefined, server: string | undefined) {
   const project = loadProject(process.cwd());
   const site = name ?? project?.name;
-  if (!site) fail("which site? pass a name or run inside a folder with srv.json");
+  if (!site) fail("which site? pass a name or run inside a folder with .landfall.json");
   return { site: site!, ...resolveServer(server ?? project?.server) };
 }
 

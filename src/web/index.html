@@ -617,7 +617,7 @@ function addServer() {
         fields: [
           { name: "user", label: "User", placeholder: "root" },
           { name: "port", label: "SSH port", placeholder: "22" },
-          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", hint: "Without one, landfall creates ~/.ssh/srv_<name> and installs it with the password." },
+          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", hint: "Without one, landfall creates ~/.ssh/landfall_<name> and installs it with the password." },
           { name: "password", label: "Password (optional)", type: "password", hint: "Used once to install the key, never stored. Leave empty if the key already works." },
         ],
       },
@@ -656,7 +656,7 @@ const tilde = (p) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
 function describe(d) {
   const built = d.build ? ` · builds with <code>${esc(d.build)}</code> first` : "";
   const what =
-    d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from srv.json)`
+    d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from .landfall.json)`
     : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${esc(d.port)}`
     : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.spa ? " (single-page app)" : ""}${built}`
     : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
@@ -665,7 +665,7 @@ function describe(d) {
   return what + before;
 }
 
-/** Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no srv.json. */
+/** Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json. */
 function deployDialog(det, o = {}) {
   const p = det.project;
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
@@ -674,7 +674,7 @@ function deployDialog(det, o = {}) {
   const main = mainDomain(target);
   dialog({
     title: `Deploy ${name}`,
-    text: o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from srv.json)" : ""}`,
+    text: o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`,
     extra: `<div class="detected">${describe(det)}</div>`,
     fields: [
       { name: "name", label: "Site name", value: name },
@@ -952,7 +952,7 @@ function renderHeader() {
   $("#project").innerHTML = `
     <span class="path" title="${esc(st.cwd)}">${p ? `<b>${esc(p.name)}</b> · ${esc(p.domains.join(", "))}` : esc(st.cwd.replace(/^\/(Users|home)\/[^/]+/, "~"))}</span>
     ${btn("Deploy folder…", () => folderDialog(st.cwd), "", "Pick a folder, a recent project, or drop one here")}
-    ${btn(p ? "Deploy" : "Deploy this folder", deployHere, "primary", p ? `lf deploy (srv.json in ${st.cwd})` : `lf deploy from ${st.cwd}`)}`;
+    ${btn(p ? "Deploy" : "Deploy this folder", deployHere, "primary", p ? `lf deploy (.landfall.json in ${st.cwd})` : `lf deploy from ${st.cwd}`)}`;
 }
 
 function errorHint(error) {
@@ -1086,10 +1086,10 @@ function sitesView(n, o) {
       const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
       const detail = open
         ? `<tr class="detail"><td colspan="5"><dl class="kv">
-            <dt>Container</dt><dd class="mono">srv-${esc(name)} · ${esc(status)}</dd>
+            <dt>Container</dt><dd class="mono">landfall-${esc(name)} · ${esc(status)}</dd>
             <dt>On ${esc(n)}</dt><dd>${siteFiles(m, cur)}</dd>
             <dt>Source</dt><dd>${proj
-              ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· settings in</span> <span class="mono">srv.json</span> <span class="dim">· redeploy runs there</span>`
+              ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· settings in</span> <span class="mono">.landfall.json</span> <span class="dim">· redeploy runs there</span>`
               : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved)"}</span>`}</dd>
             <dt>Kind</dt><dd>${esc(m.kind)}${m.spa ? " (single-page app)" : ""} · port ${esc(m.port)}</dd>
             <dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>
@@ -1442,7 +1442,7 @@ function historyView(n) {
     .join("");
   return `
     <div class="card">
-      <h2>Journal <span class="dim" style="font-weight:400">/opt/srv/journal.log · newest first</span>
+      <h2>Journal <span class="dim" style="font-weight:400">/opt/landfall/journal.log · newest first</span>
         <span class="actions">${total ? btn("Undo everything", () => confirmDlg({ title: `Undo everything landfall did on ${n}?`, text: `${plural(total, "change")}, newest first. Sites, Traefik, the deploy user and landfall's firewall rules go away.`, ok: "Revert everything", danger: true, onOk: () => undo(["--all"]) }), "sm danger") : ""}</span></h2>
       ${items}
     </div>`;

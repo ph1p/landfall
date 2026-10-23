@@ -10,7 +10,7 @@ export function validName(name: string) {
   return name;
 }
 
-const SEP = "\n--8<--srv--8<--\n";
+const SEP = "\n--8<--landfall--8<--\n";
 
 /** Fetch site.json and .env of a site, and the Traefik it goes through, in one round trip. */
 export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMeta; env: string; proxy: Proxy; exists: boolean }> {
@@ -52,7 +52,7 @@ export interface SiteStatus {
 }
 
 export interface Overview {
-  /** docker and /opt/srv/sites exist, i.e. `lf setup` ran. */
+  /** docker and /opt/landfall/sites exist, i.e. `lf setup` ran. */
   ready: boolean;
   /** traefik container status, empty if not installed. */
   traefik: string;
@@ -68,7 +68,7 @@ export async function overview(s: Server): Promise<Overview> {
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P"
 for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done
-docker ps -a --filter label=srv.managed=true --format 'CTR\\t{{.Names}}\\t{{.Status}}' 2>/dev/null || true`,
+docker ps -a --filter label=landfall.managed=true --format 'CTR\\t{{.Names}}\\t{{.Status}}' 2>/dev/null || true`,
     { capture: true },
   );
   const status = new Map<string, string>();

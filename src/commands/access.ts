@@ -25,7 +25,7 @@ export const domains = defineCommand({
   summary: `Show a site's domains with their DNS and HTTPS state, or change them.
 
 Without flags it lists and checks; --add/--rm/--set change the site (undoable)
-and update srv.json of remembered projects.`,
+and update .landfall.json of remembered projects.`,
   options: {
     server: serverOpt,
     add: { type: "string", short: "a", multiple: true, desc: "add a domain (`blog` = blog.<main domain>)" },

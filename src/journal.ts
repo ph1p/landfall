@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { JOURNAL, PRELUDE } from "./templates";
+import { JOURNAL, MIGRATED, PRELUDE } from "./templates";
 import { fail } from "./ui";
 
 /** One change landfall made on the server: a line of the journal. */
@@ -48,6 +48,9 @@ export function parseJournal(text: string): Run[] {
       if (target) target.undone = true;
       step.reverts = Number(what);
       step.what = `undid: ${target?.what ?? `line ${what}`}`;
+    } else if (what === MIGRATED) {
+      // Their undo shells name srv's paths and containers, which the move renamed.
+      for (const s of byLine.values()) delete s.undo;
     } else if (undo64) step.undo = Buffer.from(undo64, "base64").toString();
     byLine.set(step.line, step);
     run.steps.push(step);

@@ -61,7 +61,7 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   // The journal credits what the job changes to this id, so it can be undone as one.
   const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const listeners = new Set<() => void>();
-  const job = startJob(argv, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, env: { SRV_RUN: id } });
+  const job = startJob(argv, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, env: { LANDFALL_RUN: id } });
   const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), undoable: changes(argv), job, listeners };
   jobs.set(id, w);
   for (const [old, j] of jobs) {
@@ -232,8 +232,8 @@ const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(
 const cookieToken = (req: Request) =>
   (req.headers.get("cookie") ?? "")
     .split(/;\s*/)
-    .find((p) => p.startsWith("srv="))
-    ?.slice(4) ?? "";
+    .find((p) => p.startsWith("landfall="))
+    ?.slice("landfall=".length) ?? "";
 
 /**
  * The web dashboard: a local page that does what the terminal dashboard does.
@@ -255,7 +255,7 @@ export async function webUi(o: { port: number; open: boolean }): Promise<number>
       if (!same(url.searchParams.get("t") ?? "", secret)) return new Response("wrong or missing token, use the link lf ui printed", { status: 403 });
       return new Response(null, {
         status: 303,
-        headers: { location: "/", "set-cookie": `srv=${secret}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` },
+        headers: { location: "/", "set-cookie": `landfall=${secret}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` },
       });
     }
     if (!same(cookieToken(req), secret)) {
@@ -283,7 +283,7 @@ export async function webUi(o: { port: number; open: boolean }): Promise<number>
     if (err.code !== "EADDRINUSE") throw err;
     // Most likely lf ui already runs there: same token, so just open it.
     const link = `http://127.0.0.1:${o.port}/login?t=${secret}`;
-    const alive = await fetch(`http://127.0.0.1:${o.port}/api/state`, { headers: { cookie: `srv=${secret}` } }).then((r) => r.ok, () => false);
+    const alive = await fetch(`http://127.0.0.1:${o.port}/api/state`, { headers: { cookie: `landfall=${secret}` } }).then((r) => r.ok, () => false);
     if (!alive) {
       console.error(`${c.red("error:")} port ${o.port} is in use; pick another with --port`);
       return 1;

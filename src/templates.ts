@@ -1,5 +1,7 @@
 /** Everything landfall puts on a server lives below this root. */
-export const ROOT = "/opt/srv";
+export const ROOT = "/opt/landfall";
+/** Where landfall kept everything when it was called srv; `lf setup` moves it to ROOT. */
+export const OLD_ROOT = "/opt/srv";
 export const SITES = `${ROOT}/sites`;
 export const TRAEFIK_DIR = `${ROOT}/traefik`;
 export const NETWORK = "web";
@@ -11,6 +13,8 @@ export const PROXY_FILE = `${ROOT}/proxy.env`;
 export const JOURNAL = `${ROOT}/journal.log`;
 /** Backups `saved` keeps per file; undo of an older change leaves that file as it is. */
 export const KEEP_BACKUPS = 10;
+/** sshd drop-in written by setup's hardening. */
+export const SSHD_CONF = "/etc/ssh/sshd_config.d/00-landfall.conf";
 
 /** The Traefik that routes landfall's sites. */
 export interface Proxy {
@@ -37,7 +41,7 @@ export function parseProxy(text: string): Proxy | undefined {
 }
 
 export const proxyFile = (p: Proxy) =>
-  `# srv routes its sites through this existing traefik; delete the file to let srv run its own\n` +
+  `# landfall routes its sites through this existing traefik; delete the file to let landfall run its own\n` +
   `container=${p.container}\nnetwork=${p.network}\nentrypoint=${p.entrypoint}\nresolver=${p.resolver}\n`;
 
 /** Shared shell helpers prepended to every remote script. */
@@ -92,10 +96,10 @@ ensure_running() {
 }
 sshd_reload() { $SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd 2>/dev/null || $SUDO service ssh reload 2>/dev/null || true; }
 
-# Journal. SRV_RUN/SRV_ACTOR/SRV_CMD come from runScript. Writing it never fails a script.
+# Journal. LANDFALL_RUN/LANDFALL_ACTOR/LANDFALL_CMD come from runScript. Writing it never fails a script.
 _clean() { printf %s "$1" | tr '\t\n' '  '; }
 _journal() { # _journal <do|undo> <what> <undo shell>
-  line=$(printf '%s\t' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SRV_RUN" "$(_clean "$SRV_ACTOR")" "$(id -un)" "$(_clean "$SRV_CMD")" "$1" "$(_clean "$2")")
+  line=$(printf '%s\t' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$LANDFALL_RUN" "$(_clean "$LANDFALL_ACTOR")" "$(id -un)" "$(_clean "$LANDFALL_CMD")" "$1" "$(_clean "$2")")
   line="$line$(printf %s "$3" | base64 | tr -d '\n')"
   if [ -w ${JOURNAL} ] || { [ ! -e ${JOURNAL} ] && [ -w ${ROOT} ]; }; then
     printf '%s\n' "$line" >> ${JOURNAL}
@@ -113,13 +117,13 @@ record() { _journal do "$1" "$(shift; printf %s "$*")"; }
 _as() { if [ -w "$1" ]; then shift; "$@"; else shift; $SUDO "$@"; fi; }
 # saved <file>: back the file up, print the shell that puts it back (or removes it if it was new).
 saved() {
-  d=$(dirname "$1"); b="$d/.$(basename "$1").srv-$SRV_RUN-$RANDOM"
+  d=$(dirname "$1"); b="$d/.$(basename "$1").landfall-$LANDFALL_RUN-$RANDOM"
   # $(saved ...) does not inherit set -e: fail explicitly so callers stop instead of journaling a missing backup.
   if _as "$d" test -e "$1"; then _as "$d" cp -p "$1" "$b" || return 1; printf 'restore_file %q %q' "$b" "$1"
   else printf '_as %q rm -f %q' "$d" "$1"; fi
   # Keep the newest ${KEEP_BACKUPS} backups per file: old ones pile up (and .env copies hold secrets).
   # By ctime: cp -p keeps the original's mtime, so mtime says nothing about when the backup was made.
-  _as "$d" ls -1Atc "$d" 2>/dev/null | awk -v p=".$(basename "$1").srv-" 'index($0, p) == 1' | tail -n +$((${KEEP_BACKUPS} + 1)) \
+  _as "$d" ls -1Atc "$d" 2>/dev/null | awk -v p=".$(basename "$1").landfall-" 'index($0, p) == 1' | tail -n +$((${KEEP_BACKUPS} + 1)) \
     | while IFS= read -r f; do _as "$d" rm -f "$d/$f"; done || true
 }
 restore_file() { # restore_file <backup> <file>
@@ -166,7 +170,7 @@ compose_install() {
   $SUDO mkdir -p "$(dirname $f)" || return 1
   $SUDO curl -fsSL -o $f.new "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch" || { $SUDO rm -f $f.new; return 1; }
   $SUDO chmod 755 $f.new
-  if [ -f $f ]; then $SUDO mv $f $f.srv-$SRV_RUN; undo="\$SUDO mv $f.srv-$SRV_RUN $f"; else undo="\$SUDO rm -f $f"; fi
+  if [ -f $f ]; then $SUDO mv $f $f.landfall-$LANDFALL_RUN; undo="\$SUDO mv $f.landfall-$LANDFALL_RUN $f"; else undo="\$SUDO rm -f $f"; fi
   $SUDO mv $f.new $f
   record "installed docker compose $(docker compose version --short 2>/dev/null) to $f" "$undo"
 }
@@ -215,7 +219,7 @@ if [ -n "$DEPLOY_USER" ]; then
     $SUDO useradd -m -s /bin/bash "$DEPLOY_USER"
     # '*' = no password but not locked; sshd without PAM refuses locked accounts even for keys.
     $SUDO usermod -p '*' "$DEPLOY_USER"
-    # userdel refuses while the user has processes (a lingering ssh session of srv's own).
+    # userdel refuses while the user has processes (a lingering ssh session of landfall's own).
     record "created user $DEPLOY_USER" "[ \"\$(id -un)\" = $DEPLOY_USER ] || \$SUDO pkill -u $DEPLOY_USER 2>/dev/null || true; for i in 1 2 3 4 5; do \$SUDO userdel -r $DEPLOY_USER 2>/dev/null && break; ! id $DEPLOY_USER >/dev/null 2>&1 && break; sleep 1; done; ! id $DEPLOY_USER >/dev/null 2>&1 || \$SUDO deluser --remove-home $DEPLOY_USER"
   fi
   case " $(id -nG "$DEPLOY_USER") " in
@@ -228,7 +232,7 @@ if [ -n "$DEPLOY_USER" ]; then
   $SUDO touch "$home/.ssh/authorized_keys"
   if ! $SUDO grep -qxF "$PUBKEY" "$home/.ssh/authorized_keys"; then
     printf '%s\n' "$PUBKEY" | $SUDO tee -a "$home/.ssh/authorized_keys" >/dev/null
-    record "authorized srv's key for $DEPLOY_USER" "drop_line $(printf %q "$home/.ssh/authorized_keys") $(printf %q "$PUBKEY")"
+    record "authorized landfall's key for $DEPLOY_USER" "drop_line $(printf %q "$home/.ssh/authorized_keys") $(printf %q "$PUBKEY")"
   fi
   $SUDO chown "$DEPLOY_USER:$DEPLOY_USER" "$home/.ssh/authorized_keys"
   $SUDO chmod 600 "$home/.ssh/authorized_keys"
@@ -263,10 +267,10 @@ if [ "$HARDEN" = 1 ] && [ -d /etc/ssh ]; then
   if [ "$($SUDO sshd -T 2>/dev/null | awk '$1 == "permitrootlogin" {print $2}')" = no ]; then root_login=no; fi
   # 00- so it wins over cloud-init's 50-cloud-init.conf: sshd keeps the first value it reads.
   want=$(printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login")
-  if [ "$($SUDO cat /etc/ssh/sshd_config.d/00-srv.conf 2>/dev/null || true)" != "$want" ]; then
+  if [ "$($SUDO cat ${SSHD_CONF} 2>/dev/null || true)" != "$want" ]; then
     $SUDO install -d /etc/ssh/sshd_config.d
-    undo=$(saved /etc/ssh/sshd_config.d/00-srv.conf)
-    printf '%s\n' "$want" | $SUDO tee /etc/ssh/sshd_config.d/00-srv.conf >/dev/null
+    undo=$(saved ${SSHD_CONF})
+    printf '%s\n' "$want" | $SUDO tee ${SSHD_CONF} >/dev/null
     if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
       undo="$undo; $(saved /etc/ssh/sshd_config)"
       printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
@@ -281,6 +285,51 @@ if [ "$HARDEN" = 1 ] && [ -d /etc/ssh ]; then
   fi
 fi
 log "bootstrap done"
+`;
+
+/** Journal line of MIGRATE: steps before it reverted srv's paths and names, so they can no longer be undone. */
+export const MIGRATED = `moved ${OLD_ROOT} to ${ROOT} (landfall was called srv); older changes can no longer be undone`;
+
+/**
+ * One-time move of a server set up when landfall was called srv: /opt/srv, srv-<site>
+ * containers and their labels, 00-srv.conf. Each site's new container starts before
+ * the old one goes, so only traefik restarts once. Needs root or passwordless sudo.
+ */
+export const MIGRATE = String.raw`
+if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
+  echo "moving ${OLD_ROOT} needs root or passwordless sudo for $(id -un) (try: lf setup <name> --user root)" >&2
+  exit 1
+fi
+[ ! -e ${ROOT} ] || { echo "both ${OLD_ROOT} and ${ROOT} exist; merge them by hand, then remove ${OLD_ROOT}" >&2; exit 1; }
+log "moving ${OLD_ROOT} to ${ROOT}"
+$SUDO mv ${OLD_ROOT} ${ROOT}
+# Only the older journal steps restored these backups; the .env copies hold secrets.
+$SUDO find ${ROOT} /etc/ssh -name '.*.srv-*' -type f -delete 2>/dev/null || true
+$SUDO rm -f ${COMPOSE_PLUGIN}.srv-*
+old_conf=/etc/ssh/sshd_config.d/00-srv.conf
+[ ! -f $old_conf ] || $SUDO mv $old_conf ${SSHD_CONF}
+# Rewrite a file in place, keeping its owner (deploy users must still write it).
+rewrite() { o=$($SUDO stat -c %u:%g "$1"); $SUDO sed -i -E "$2" "$1"; $SUDO chown "$o" "$1"; }
+dc version >/dev/null 2>&1 || true
+sdc() { $SUDO $DC "$@"; }
+f=${TRAEFIK_DIR}/docker-compose.yml
+if [ -f $f ] && grep -q "managed by srv" $f; then
+  rewrite $f 's/managed by srv/managed by landfall/'
+  log "restarting traefik from ${TRAEFIK_DIR}"
+  (cd ${TRAEFIK_DIR} && sdc up -d --force-recreate --quiet-pull)
+fi
+for d in ${SITES}/*; do
+  n=$(basename "$d"); f="$d/docker-compose.yml"
+  [ -f "$f" ] && grep -q "managed by srv" "$f" || continue
+  rewrite "$f" 's/managed by srv/managed by landfall/; s/^name: srv-/name: landfall-/; s/container_name: srv-/container_name: landfall-/; s/(routers|services|middlewares)\.srv-/\1.landfall-/g; s/middlewares=srv-/middlewares=landfall-/; s/"srv\.(managed|site)=/"landfall.\1=/'
+  [ ! -f "$d/nginx.conf" ] || rewrite "$d/nginx.conf" 's/managed by srv/managed by landfall/'
+  # A stopped site stays stopped.
+  if [ "$($SUDO docker inspect -f '{{.State.Running}}' "srv-$n" 2>/dev/null)" = true ]; then act="up -d"; else act=create; fi
+  log "moving srv-$n to landfall-$n"
+  if (cd "$d" && sdc $act --quiet-pull >/dev/null); then $SUDO docker rm -f "srv-$n" >/dev/null 2>&1 || true
+  else log "landfall-$n did not start, srv-$n keeps running; redeploy $n"; fi
+done
+record "${MIGRATED}"
 `;
 
 /**
@@ -323,12 +372,13 @@ kv sites "$(ls ${SITES} 2>/dev/null | wc -l | tr -d ' ')"
 kv network "$(yn S docker network inspect ${NETWORK})"
 kv proxy "$(grep -v '^#' ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
 if command -v ufw >/dev/null 2>&1; then kv ufw "$(S ufw status 2>/dev/null | awk 'NR == 1 {print $2}')"; else kv ufw missing; fi
-kv hardened "$(yn test -f /etc/ssh/sshd_config.d/00-srv.conf)"
+kv hardened "$(yn test -f ${SSHD_CONF})"
+kv old_root "$(yn test -d ${OLD_ROOT})"
 kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
 kv password_users "$(S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null)"
 f=${TRAEFIK_DIR}/docker-compose.yml
 if [ ! -f "$f" ]; then kv traefik_compose none
-elif grep -q "managed by srv" "$f"; then kv traefik_compose srv
+elif grep -q "managed by landfall" "$f"; then kv traefik_compose landfall
 else kv traefik_compose foreign; fi
 kv traefik_container "$(S docker inspect -f '{{.State.Status}} {{index .Config.Labels "com.docker.compose.project.working_dir"}}' traefik 2>/dev/null)"
 kv publish_80 "$(S docker ps --filter publish=80 --format '{{.Names}}' 2>/dev/null | tr '
@@ -399,7 +449,7 @@ export function traefikCompose(o: TraefikOpts): string {
       `traefik.http.middlewares.dashboard-auth.basicauth.users=${composeEscape(o.dashboard.htpasswd)}`,
     );
   }
-  return `# managed by srv — regenerate with \`lf traefik setup\`
+  return `# managed by landfall — regenerate with \`lf traefik setup\`
 services:
   traefik:
     image: ${o.image}
@@ -446,10 +496,10 @@ export interface SiteMeta {
   updatedAt: string;
 }
 
-export const container = (name: string) => `srv-${name}`;
+export const container = (name: string) => `landfall-${name}`;
 
 export function traefikLabels(name: string, domains: string[], port: number, proxy = OWN_PROXY, auth: string[] = []): string[] {
-  const r = `srv-${name}`;
+  const r = container(name);
   const rule = domains.map((d) => `Host(\`${d}\`)`).join(" || ");
   const login = auth.length
     ? [`traefik.http.middlewares.${r}-auth.basicauth.users=${auth.join(",")}`, `traefik.http.routers.${r}.middlewares=${r}-auth`]
@@ -462,8 +512,8 @@ export function traefikLabels(name: string, domains: string[], port: number, pro
     `traefik.http.routers.${r}.tls.certresolver=${proxy.resolver}`,
     `traefik.http.services.${r}.loadbalancer.server.port=${port}`,
     ...login,
-    "srv.managed=true",
-    `srv.site=${name}`,
+    "landfall.managed=true",
+    `landfall.site=${name}`,
   ];
 }
 
@@ -483,7 +533,7 @@ export function siteCompose(meta: SiteMeta, proxy = OWN_PROXY): string {
     env_file:
       - .env`;
   }
-  return `# managed by srv — do not edit, changes are overwritten on deploy
+  return `# managed by landfall — do not edit, changes are overwritten on deploy
 name: ${container(meta.name)}
 services:
   app:
@@ -501,7 +551,7 @@ networks:
 }
 
 export function nginxConf(release: string, spa: boolean): string {
-  return `# managed by srv
+  return `# managed by landfall
 server {
   listen 80;
   server_name _;

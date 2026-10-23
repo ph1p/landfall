@@ -18,9 +18,9 @@ Without --host, <name> is used as an ssh alias from ~/.ssh/config,
 so \`lf server add vps\` works whenever \`ssh vps\` works.
 
 With --host lf logs in with --key, or installs its own key
-(~/.ssh/srv_<name>) using the password once, and writes \`Host <name>\`
+(~/.ssh/landfall_<name>) using the password once, and writes \`Host <name>\`
 to ~/.ssh/config (created if missing), so \`ssh <name>\` works afterwards.
-The password comes from the prompt, --password-stdin or $SRV_PASSWORD.`,
+The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
   options: {
     host: { type: "string", desc: "hostname or IP (default: <name> as ssh alias)" },
     user: { type: "string", short: "u", desc: "login user (default: root for --host, else ssh config)" },
@@ -94,7 +94,7 @@ export const serverRemove = defineCommand({
   name: "server rm",
   args: "<name>",
   summary: "Forget a server (nothing is changed on the server itself).",
-  options: { "ssh-config": { type: "boolean", desc: "also remove the srv-managed Host block from ~/.ssh/config" } },
+  options: { "ssh-config": { type: "boolean", desc: "also remove the landfall-managed Host block from ~/.ssh/config" } },
   async run([name], o) {
     if (!name) fail("usage: lf server rm <name>");
     const cfg = loadConfig();
@@ -222,7 +222,7 @@ and the Host block in ~/.ssh/config. Nothing connects to the server.`,
 /** Where the main domain and a name below it resolve to: both should point at the server. */
 export async function domainDns(server: Server, domain: string) {
   const ips = await serverIps(server);
-  const probe = `srv-${randomBytes(4).toString("hex")}.${domain}`;
+  const probe = `landfall-${randomBytes(4).toString("hex")}.${domain}`;
   const [apex, wildcard] = await checkDns([domain, probe], ips);
   return { ips, apex, wildcard: { ...wildcard, domain: `*.${domain}` } };
 }

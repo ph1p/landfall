@@ -6,7 +6,7 @@ import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
 import { support } from "../facts";
 import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login";
-import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
+import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, MIGRATE, OLD_ROOT, PRELUDE, ROOT } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
 import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, step, warn } from "../ui";
 import { describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "./traefik";
@@ -14,7 +14,7 @@ import { describeTraefik, installTraefik, traefikSettings, useProxy, type Traefi
 export const keygen = defineCommand({
   name: "keygen",
   args: "<name>",
-  summary: "Create an ed25519 key pair at ~/.ssh/srv_<name> (skips if it exists) and print the public key.",
+  summary: "Create an ed25519 key pair at ~/.ssh/landfall_<name> (skips if it exists) and print the public key.",
   async run([name]) {
     if (!name) fail("usage: lf keygen <name>");
     const { path, created } = ensureKey(name);
@@ -56,7 +56,7 @@ export const setup = defineCommand({
   summary: `Prepare a server: SSH key, Docker, firewall, deploy user, Traefik.
 
 Turns a fresh box into a deploy target (safe to re-run):
-  1. create a dedicated SSH key (~/.ssh/srv_<name>) and install it (asks for the password once)
+  1. create a dedicated SSH key (~/.ssh/landfall_<name>) and install it (asks for the password once)
   2. install Docker, firewall (ufw: ssh/80/443), fail2ban, unattended-upgrades
   3. create a deploy user with docker access, disable SSH password login
   4. write \`Host <name>\` to ~/.ssh/config so \`ssh <name>\` just works
@@ -93,7 +93,7 @@ dashboard unless given as flags.`,
     check: { type: "boolean", desc: "only report what is set up and what setup would change" },
     force: { type: "boolean", desc: "apply firewall/ssh hardening despite conflicts" },
     "key-only": { type: "boolean", desc: "only install the ssh key, change nothing else" },
-    "password-stdin": { type: "boolean", desc: "read the login password from stdin instead of asking (also: $SRV_PASSWORD)" },
+    "password-stdin": { type: "boolean", desc: "read the login password from stdin instead of asking (also: $LANDFALL_PASSWORD)" },
   },
   async run([name], o) {
     if (!name) fail("usage: lf setup <name> [--host <ip>]");
@@ -129,11 +129,17 @@ dashboard unless given as flags.`,
 
     // 2. inspect before touching anything
     next("checking what is already set up");
-    const [probe, dockerLatest, composeLatest] = await Promise.all([
-      probeServer(login, { PUBKEY: pubkey, DEPLOY_USER: deployUser }),
-      latestDocker(),
-      latestCompose(),
-    ]);
+    const probeEnv = { PUBKEY: pubkey, DEPLOY_USER: deployUser };
+    let [probe, dockerLatest, composeLatest] = await Promise.all([probeServer(login, probeEnv, true), latestDocker(), latestCompose()]);
+    if (probe.values.old_root === "1") {
+      warn(`${OLD_ROOT} is from when landfall was called srv: its sites, traefik and journal move to ${ROOT}`);
+      info(c.dim("sites keep running; traefik restarts once; changes made before the move can no longer be undone"));
+      if (o.check) return;
+      if (!(await confirm(`move ${OLD_ROOT} to ${ROOT}?`))) return;
+      await runScript(login, PRELUDE + MIGRATE, { oldLayout: true });
+      ok(`moved to ${ROOT}`);
+      probe = await probeServer(login, probeEnv);
+    }
     Object.assign(probe.values, { docker_latest: dockerLatest ?? "", compose_latest: composeLatest ?? "" });
     // The port sshd listens on, which differs from eff.port behind port forwarding.
     const sshPort = Number(probe.values.ssh_port) || eff.port;

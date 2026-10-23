@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { configDir, loadProject, type ProjectConfig } from "./config";
+import { configDir, loadProject, saveProject, type ProjectConfig } from "./config";
 import type { SiteKind } from "./templates";
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
@@ -28,7 +28,7 @@ export interface Detected {
   port?: number;
   /** A build script found in package.json, run with the project's package manager. */
   build?: string;
-  /** Its srv.json, when it was deployed before. */
+  /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
 }
 
@@ -85,14 +85,13 @@ export function rememberProject(p: Omit<Remembered, "at">) {
   fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
 }
 
-/** Keep remembered projects and their srv.json in step after a site's domains changed on the server. */
+/** Keep remembered projects and their .landfall.json in step after a site's domains changed on the server. */
 export function updateProjectDomains(server: string, name: string, domains: string[]) {
   const list = loadProjects();
   for (const p of list.filter((p) => p.server === server && p.name === name)) {
     p.domains = domains;
-    const file = join(p.path, "srv.json");
     const cfg = loadProject(p.path);
-    if (cfg?.name === name) fs.writeFileSync(file, JSON.stringify({ ...cfg, domains }, null, 2) + "\n");
+    if (cfg?.name === name) saveProject(p.path, { ...cfg, domains });
   }
   if (list.length) fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
 }
