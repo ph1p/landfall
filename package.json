@@ -1,0 +1,49 @@
+{
+  "name": "landfall",
+  "version": "0.1.0",
+  "description": "Set up servers and deploy sites behind Traefik with automatic HTTPS",
+  "author": "ph1p <me@ph1p.dev>",
+  "keywords": [
+    "deploy",
+    "traefik",
+    "docker",
+    "self-hosted",
+    "vps",
+    "https",
+    "cli"
+  ],
+  "type": "module",
+  "bin": {
+    "landfall": "./dist/cli.mjs",
+    "lf": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsdown",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run test/unit",
+    "typecheck": "tsc --noEmit",
+    "e2e": "pnpm build && bash test/e2e/run.sh"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "ink": "^8.0.0",
+    "react": "^19.3.1",
+    "string-width": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "tsdown": "^0.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,1493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>landfall</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232563eb'/><path d='M4 5h8M4 8h8M4 11h5' stroke='white' stroke-width='1.6' stroke-linecap='round'/></svg>">
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #fff; --line: #e3e6eb; --text: #1b1f24; --dim: #6a7280; --faint: #9aa1ad;
+  --accent: #2563eb; --accent-bg: #e8effd; --ok: #15803d; --ok-bg: #e5f5ea; --warn: #b45309; --warn-bg: #fdf3e2;
+  --bad: #c0262d; --bad-bg: #fbe9ea; --term: #11151b; --term-text: #d7dce3; --shadow: 0 1px 2px rgb(0 0 0 / .05), 0 4px 16px rgb(0 0 0 / .06);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116; --panel: #161a21; --line: #262c36; --text: #e4e7ec; --dim: #8b93a1; --faint: #5f6775;
+    --accent: #5b8cff; --accent-bg: #1a2540; --ok: #4ade80; --ok-bg: #12291b; --warn: #f5b34a; --warn-bg: #2d2412;
+    --bad: #ff6b6b; --bad-bg: #331719; --term: #0a0d11; --term-text: #d7dce3; --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 6px 20px rgb(0 0 0 / .35);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+button {
+  font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 5px 11px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+}
+button:hover { border-color: var(--faint); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--bad); }
+button.danger.solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.ghost { border-color: transparent; background: transparent; color: var(--dim); }
+button.ghost:hover { color: var(--text); background: var(--bg); }
+button.sm { padding: 2px 8px; font-size: 12px; }
+input, select, textarea {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; width: 100%;
+}
+input.secret { -webkit-text-security: disc; text-security: disc; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
+textarea { font-family: var(--mono); font-size: 12.5px; min-height: 90px; }
+
+.app { display: grid; grid-template-columns: 250px 1fr; grid-template-rows: 52px 1fr; height: 100vh; }
+.app.with-job { grid-template-columns: 250px 1fr minmax(380px, 40%); }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.brand small { font-weight: 400; color: var(--faint); font-size: 12px; }
+.project { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; min-width: 0; }
+.project .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36vw; }
+nav.servers { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 10px 8px; }
+nav h3 { margin: 6px 8px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; }
+.srv { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 7px; }
+.srv:hover { background: var(--bg); }
+.srv.on { background: var(--accent-bg); }
+.srv .n { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.srv .t { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.star { color: var(--warn); font-size: 11px; }
+main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: inline-size; }
+/* By main's own width, so an open job panel squeezes the tables like a small screen does. */
+@container (max-width: 720px) {
+  td, th { padding: 8px; }
+  .hide-sm { display: none; }
+}
+.empty { color: var(--dim); text-align: center; padding: 60px 20px; }
+.empty h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
+.head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 20px; margin-bottom: 16px; }
+.head h1 { margin: 0; font-size: 22px; }
+.head .sub { color: var(--dim); font-size: 13px; margin-top: 2px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--dim); }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.card + .card { margin-top: 16px; }
+.card > h2 { margin: 0; padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.card > h2 .actions { font-weight: 400; }
+.card .body { padding: 12px 16px; }
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--bg); }
+td.acts { text-align: right; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+td.acts button { margin-left: 4px; }
+.scroll { overflow-x: auto; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); margin-right: 6px; vertical-align: 1px; }
+.dot.up { background: var(--ok); } .dot.down { background: var(--bad); } .dot.warn { background: var(--warn); }
+.badge { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--bg); color: var(--dim); border: 1px solid var(--line); }
+.badge.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.badge.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.badge.accent { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
+.dim { color: var(--dim); } .faint { color: var(--faint); }
+.note { padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); margin-bottom: 14px; }
+.note.bad { background: var(--bad-bg); color: var(--bad); }
+.note.info { background: var(--accent-bg); color: var(--accent); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+.kv dt { color: var(--dim); } .kv dd { margin: 0; }
+pre.block { background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
+.detail td { background: var(--bg); }
+.releases { margin: 8px 0 0; padding: 0; list-style: none; }
+.releases li { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.run { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.run:last-child { border-bottom: 0; }
+.run .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.run .cmd { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.steps { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; }
+.steps li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; font-size: 13px; }
+.steps li .ico { width: 16px; text-align: center; flex: none; }
+.steps li.undone, .steps li.fixed { color: var(--faint); }
+.steps li.undone .what { text-decoration: line-through; }
+.steps li button { opacity: 0; }
+.steps li:hover button { opacity: 1; }
+.form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.form-row label { flex: 1 1 140px; }
+label { display: block; font-size: 12.5px; color: var(--dim); }
+label > input, label > select, label > textarea { margin-top: 4px; }
+.check { display: flex; gap: 8px; align-items: flex-start; color: var(--text); font-size: 13.5px; }
+.check input { width: auto; margin-top: 3px; }
+.hint { font-size: 12px; color: var(--faint); margin-top: 3px; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading { color: var(--dim); padding: 30px 0; text-align: center; }
+
+[hidden] { display: none !important; }
+aside.job { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
+.job-head { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+.job-head .title { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.job-out { flex: 1; overflow: auto; background: var(--term); color: var(--term-text); font: 12.5px/1.5 var(--mono); padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
+.job-out .c-cyan { color: #67d3e8; } .job-out .c-green { color: #6ee7a0; } .job-out .c-yellow { color: #f5c76a; } .job-out .c-red { color: #ff8a8a; } .job-out .c-dim { color: #7b8494; }
+.job-foot { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.job-foot .status { margin-right: auto; font-size: 13px; }
+.joblist { border-top: 1px solid var(--line); max-height: 28%; overflow: auto; }
+.joblist button { display: flex; width: 100%; gap: 8px; border: 0; border-radius: 0; text-align: left; background: none; padding: 6px 12px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.joblist button span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.joblist button.on { background: var(--accent-bg); color: var(--text); }
+
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow); width: min(520px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+dialog form { padding: 18px 20px; display: grid; gap: 12px; }
+dialog h2 { margin: 0; font-size: 16px; }
+dialog .text { color: var(--dim); white-space: pre-wrap; font-size: 13.5px; }
+dialog .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; display: grid; gap: 8px; }
+legend { font-size: 12.5px; font-weight: 600; padding: 0 4px; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 10; }
+.server-pick { display: none; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--dim); font-size: 12.5px; margin-top: 4px; }
+.facts b { color: var(--text); font-weight: 500; }
+.chips { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
+.chip a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip button { padding: 0 5px; font-size: 12px; opacity: .55; }
+.chip button:hover { opacity: 1; }
+.lock { font-size: 11px; margin-left: 4px; }
+dialog.wide { width: min(680px, calc(100vw - 32px)); }
+.list { display: grid; border: 1px solid var(--line); border-radius: 8px; max-height: 260px; overflow: auto; }
+.list .row { display: flex; gap: 10px; align-items: baseline; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); text-align: left; background: none; padding: 6px 10px; min-width: 0; }
+.list .row:last-child { border-bottom: 0; }
+.list .row:hover { background: var(--bg); }
+.list .row .mono { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-size: 12.5px; }
+.crumbs button { padding: 1px 4px; }
+.detected { font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
+.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 12px; text-align: center; color: var(--dim); font-size: 13px; }
+.drop label { display: inline; color: var(--accent); cursor: pointer; font-size: 13px; }
+body.dragging::after {
+  content: "Drop a folder or .zip to deploy it"; position: fixed; inset: 12px; z-index: 20; display: grid; place-items: center;
+  border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--bg) 85%, transparent); color: var(--accent); font-size: 18px; font-weight: 600; pointer-events: none;
+}
+
+@media (max-width: 1100px) {
+  .app.with-job { grid-template-columns: 220px 1fr; }
+  aside.job { position: fixed; inset: 52px 0 0 auto; width: min(560px, 100vw); z-index: 5; box-shadow: var(--shadow); }
+}
+@media (max-width: 760px) {
+  .app, .app.with-job { grid-template-columns: 1fr; grid-template-rows: 52px auto 1fr; }
+  nav.servers { display: none; }
+  .server-pick { display: block; padding: 10px 16px 0; }
+  main { padding: 14px 16px 40px; }
+  .project .path { display: none; }
+  aside.job { inset: 52px 0 0 0; width: 100vw; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div class="brand">landfall <small id="version"></small></div>
+    <div class="project" id="project"></div>
+  </header>
+  <nav class="servers" id="nav"></nav>
+  <div class="server-pick" id="pick"></div>
+  <main id="main"></main>
+  <aside class="job" id="job" hidden></aside>
+</div>
+<dialog id="dlg"></dialog>
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function ago(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!isFinite(s)) return "";
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 86400 * 30) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+// ---- state ---------------------------------------------------------------
+
+const S = {
+  state: null,           // /api/state
+  sel: null,             // selected server name
+  tab: "sites",
+  overview: {},          // name -> {data} | {error} | {loading}
+  firewall: {},
+  history: {},
+  updates: {},
+  facts: {},
+  settings: {},          // name -> {data: lf server config --json + dns of the main domain}
+  dns: {},               // name -> {data: {ips, domains: [{domain, ips, ok, https}]}}
+  open: new Set(),       // expanded site rows
+  jobs: new Map(),       // id -> {info, lines, after, actions, es}
+  job: null,             // shown job id
+};
+
+async function http(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) throw new Error("This browser is not logged in. Open the link `lf ui` printed.");
+  const data = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+let toastTimer;
+function toast(msg) {
+  let t = $(".toast");
+  if (!t) document.body.append((t = Object.assign(document.createElement("div"), { className: "toast" })));
+  t.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), 3500);
+}
+
+// Buttons call functions registered per render: data-k="<id>".
+let handlers = new Map();
+let hid = 0;
+function on(fn) {
+  const k = String(++hid);
+  handlers.set(k, fn);
+  return `data-k="${k}"`;
+}
+function btn(label, fn, cls = "", title = "") {
+  return `<button type="button" class="${cls}" ${on(fn)}${title ? ` title="${esc(title)}"` : ""}>${label}</button>`;
+}
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-k]");
+  if (!el || el.disabled) return;
+  const fn = handlers.get(el.dataset.k);
+  if (fn) {
+    e.preventDefault();
+    e.stopPropagation();
+    fn(e);
+  }
+});
+
+// ---- routing: #/<server>/<tab> ---------------------------------------------
+
+function go(sel, tab = S.tab) {
+  const hash = sel ? `#/${encodeURIComponent(sel)}/${tab}` : "#/";
+  if (location.hash !== hash) location.hash = hash;
+  else route();
+}
+function route() {
+  const [, name, tab] = location.hash.split("/");
+  S.sel = name ? decodeURIComponent(name) : null;
+  S.tab = tab in STORE ? tab : "sites";
+  if (S.sel) load(S.sel, S.tab);
+  render();
+}
+window.addEventListener("hashchange", route);
+
+// ---- loading -------------------------------------------------------------
+
+const STORE = { sites: "overview", facts: "facts", updates: "updates", firewall: "firewall", history: "history", settings: "settings" };
+const URLS = { sites: "", facts: "/facts", updates: "/updates", firewall: "/firewall", history: "/history", settings: "/config" };
+
+function load(name, tab, force = false) {
+  // The overview and facts drive the header, so every tab needs them.
+  const needed = tab === "sites" ? ["sites", "facts"] : ["sites", "facts", tab];
+  for (const t of needed) {
+    const store = S[STORE[t]];
+    if (store[name] && !force) continue;
+    store[name] = { loading: true };
+    http(`/api/servers/${encodeURIComponent(name)}${URLS[t]}`).then(
+      (data) => ((store[name] = { data }), render()),
+      (e) => ((store[name] = { error: e.message }), render()),
+    );
+  }
+}
+function invalidate(name) {
+  for (const k of [...Object.values(STORE), "dns"]) delete S[k][name];
+  if (S.sel === name) load(name, S.tab);
+}
+async function refreshState() {
+  S.state = await http("/api/state");
+  render();
+}
+
+// ---- jobs ----------------------------------------------------------------
+
+/**
+ * Run `lf <argv>` on the machine running lf ui; output streams into the side panel.
+ * after(job) may return follow-up actions [{label, run, cls}] once it ends.
+ */
+async function run(argv, o = {}) {
+  let info;
+  try {
+    info = await http("/api/jobs", { argv, server: o.server ?? S.sel ?? undefined, password: o.password, cwd: o.cwd });
+  } catch (e) {
+    return toast(e.message);
+  }
+  const j = { info, lines: [], after: o.after, actions: [] };
+  S.jobs.set(info.id, j);
+  S.job = info.id;
+  stream(j);
+  render();
+}
+
+function stream(j) {
+  const es = new EventSource(`/api/jobs/${j.info.id}/events?from=${j.lines.length}`);
+  j.es = es;
+  es.onmessage = (e) => {
+    const { from, lines } = JSON.parse(e.data);
+    j.lines.length = Math.min(j.lines.length, from);
+    j.lines.push(...lines);
+    if (S.job === j.info.id) appendOutput(j);
+  };
+  es.addEventListener("done", (e) => {
+    es.close();
+    j.info = JSON.parse(e.data);
+    finished(j);
+  });
+  // Dropped connection while it still runs: pick up where it left off.
+  es.onerror = () => {
+    es.close();
+    if (j.info.code === undefined) setTimeout(() => stream(j), 1000);
+  };
+}
+
+function finished(j) {
+  const { info } = j;
+  const failed = info.code !== 0 && info.code !== null;
+  j.actions = (j.after && j.after(j)) || [];
+  // Safety checks refuse what would lock out ssh or break running services; --force overrides after reading why.
+  if (failed && !info.argv.includes("--force") && j.lines.some((l) => l.includes("--force"))) {
+    j.actions.push({ label: "Do it anyway (--force)", cls: "danger", run: () => run([...info.argv, "--force"], { server: info.server }) });
+  }
+  if (info.undoable && info.server && info.code !== null) {
+    j.actions.push({
+      label: "Undo this",
+      run: () =>
+        confirmDlg({
+          title: `Undo \`lf ${info.argv.join(" ")}\`?`,
+          text: `Reverts the changes this command recorded in the journal on ${info.server}.`,
+          ok: "Undo it",
+          onOk: () => run(["undo", info.id, "-s", info.server, "-y"], { server: info.server }),
+        }),
+    });
+  }
+  if (info.server) invalidate(info.server);
+  refreshState().catch(() => {});
+  render();
+}
+
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+function lineClass(l) {
+  if (/^==> /.test(l)) return "c-cyan";
+  if (/^\s*✓/.test(l)) return "c-green";
+  if (/^\s*!/.test(l)) return "c-yellow";
+  if (/^\s*(error|✗|FAIL)/i.test(l)) return "c-red";
+  if (/^\$ /.test(l)) return "c-dim";
+  return "";
+}
+function appendOutput(j) {
+  const out = $("#job .job-out");
+  if (!out) return;
+  const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+  const shown = Number(out.dataset.n || 0);
+  if (shown > j.lines.length) out.textContent = "";
+  const frag = document.createDocumentFragment();
+  for (const l of j.lines.slice(out.textContent ? shown : 0)) {
+    const div = document.createElement("div");
+    div.textContent = l.replace(ANSI, "") || " ";
+    const c = lineClass(div.textContent);
+    if (c) div.className = c;
+    frag.append(div);
+  }
+  out.append(frag);
+  out.dataset.n = j.lines.length;
+  if (atBottom) out.scrollTop = out.scrollHeight;
+}
+
+function renderJob() {
+  const el = $("#job");
+  const j = S.jobs.get(S.job);
+  $("#app").classList.toggle("with-job", !!j);
+  el.hidden = !j;
+  if (!j) return;
+  const { info } = j;
+  const running = info.code === undefined;
+  const status = running
+    ? `<span class="spin"></span> running`
+    : info.code === null
+      ? `<span class="dim">stopped</span>`
+      : info.code === 0
+        ? `<span style="color:var(--ok)">✓ done</span>`
+        : `<span style="color:var(--bad)">✗ failed (exit ${info.code})</span>`;
+  const others = [...S.jobs.values()].reverse();
+  el.innerHTML = `
+    <div class="job-head">
+      <span class="title" title="${esc("lf " + info.argv.join(" "))}">$ lf ${esc(info.argv.join(" "))}</span>
+      ${btn("✕", () => ((S.job = null), render()), "ghost sm", "Close (Esc)")}
+    </div>
+    <div class="job-out"></div>
+    <div class="job-foot">
+      <span class="status">${status}</span>
+      ${running ? btn("Stop", () => http(`/api/jobs/${info.id}/stop`, {}).catch((e) => toast(e.message)), "danger") : ""}
+      ${(running ? [] : j.actions).map((a, i) => btn(esc(a.label), a.run, a.cls ?? (i === 0 ? "primary" : ""))).join("")}
+    </div>
+    ${others.length > 1 ? `<div class="joblist">${others
+      .map((o) => `<button type="button" class="${o.info.id === S.job ? "on" : ""}" ${on(() => ((S.job = o.info.id), render()))}>
+        <span>${o.info.code === undefined ? "…" : o.info.code === 0 ? "✓" : o.info.code === null ? "■" : "✗"}</span><span>lf ${esc(o.info.argv.join(" "))}</span></button>`)
+      .join("")}</div>` : ""}`;
+  appendOutput(j);
+  const out = $("#job .job-out");
+  out.scrollTop = out.scrollHeight;
+}
+
+// ---- dialogs -------------------------------------------------------------
+
+/**
+ * A modal form. fields: [{name, label, value, type: text|password|textarea|select|check, options, hint, placeholder}].
+ * onOk(values) runs on submit; return false to keep it open.
+ */
+function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk, extra = "" }) {
+  const dlg = openDlg();
+  const field = (f) => {
+    const id = `f-${f.name}`;
+    const hint = f.hint ? `<div class="hint">${esc(f.hint)}</div>` : "";
+    if (f.type === "check") {
+      return `<label class="check"><input type="checkbox" id="${id}" name="${f.name}" ${f.value ? "checked" : ""}><span>${esc(f.label)}${hint}</span></label>`;
+    }
+    if (f.type === "select") {
+      return `<label>${esc(f.label)}<select id="${id}" name="${f.name}">${f.options
+        .map((o) => `<option value="${esc(o.value)}" ${o.value === f.value ? "selected" : ""}>${esc(o.label)}</option>`)
+        .join("")}</select>${hint}</label>`;
+    }
+    if (f.type === "password") return `<label>${esc(f.label)}${secretInput(id, f)}${hint}</label>`;
+    if (f.type === "textarea") return `<label>${esc(f.label)}<textarea id="${id}" name="${f.name}" placeholder="${esc(f.placeholder)}">${esc(f.value)}</textarea>${hint}</label>`;
+    return `<label>${esc(f.label)}<input id="${id}" name="${f.name}" type="${f.type || "text"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="off" spellcheck="false">${hint}</label>`;
+  };
+  const group = (f) => (f.legend ? `<fieldset><legend>${esc(f.legend)}</legend>${f.fields.map(field).join("")}</fieldset>` : field(f));
+  dlg.innerHTML = `<form method="dialog">
+    <h2>${esc(title)}</h2>
+    ${text ? `<div class="text">${esc(text)}</div>` : ""}
+    ${extra}
+    ${fields.map(group).join("")}
+    <div class="btns">
+      <button type="button" value="cancel" class="ghost" id="dlg-cancel">Cancel</button>
+      <button type="submit" value="ok" class="${danger ? "danger solid" : "primary"}">${esc(ok)}</button>
+    </div>
+  </form>`;
+  const form = $("form", dlg);
+  $("#dlg-cancel", dlg).onclick = () => dlg.close();
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const values = {};
+    for (const f of fields.flatMap((f) => f.fields ?? [f])) {
+      const el = form.elements[f.name];
+      values[f.name] = f.type === "check" ? el.checked : el.value;
+    }
+    if (onOk(values) === false) return;
+    // Empty before closing: browsers offer to save a password they still see when the form goes away.
+    for (const el of form.querySelectorAll(".secret")) el.value = "";
+    dlg.close();
+  };
+  dlg.showModal();
+  const first = $("input:not([type=checkbox]), textarea, select", form);
+  (first || $("button[type=submit]", form)).focus();
+}
+/**
+ * Passwords here are for servers and sites, not for this page: a masked text field, so browsers
+ * and password managers do not offer to save them. Browsers without text masking get a password field.
+ */
+const MASK = CSS.supports("-webkit-text-security", "disc");
+const secretInput = (id, f) =>
+  `<input id="${id}" name="${f.name}" class="secret" type="${MASK ? "text" : "password"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="${MASK ? "off" : "new-password"}" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">`;
+/** The shared <dialog>, closed and reset so a new one can take its place. */
+function openDlg(cls = "") {
+  const dlg = $("#dlg");
+  if (dlg.open) dlg.close();
+  dlg.className = cls;
+  return dlg;
+}
+const confirmDlg = (o) => dialog({ ...o, onOk: () => o.onOk() });
+const promptDlg = (title, text, field, onOk, ok = "OK") => dialog({ title, text, fields: [{ name: "v", ...field }], ok, onOk: (v) => onOk(v.v.trim()) });
+
+// ---- server flows (mirror the terminal dashboard) -------------------------
+
+const sv = (n) => ["-s", n];
+const server = () => S.state?.servers.find((s) => s.name === S.sel);
+
+function setupFlow(args, base = args) {
+  run(["setup", ...args, "--check"], {
+    server: args[0],
+    after: (j) => {
+      if (j.info.code !== 0) return;
+      if (j.lines.some((l) => l.includes("no key login yet"))) {
+        return [{ label: "Enter the password to install a key", run: () => passwordFor(args, base) }];
+      }
+      const todo = j.lines.filter((l) => /^\s+→ /.test(l)).length;
+      return [
+        { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0] }) },
+        { label: "Change options", run: () => setupWizard(base) },
+      ];
+    },
+  });
+}
+
+function setupWizard(base) {
+  const saved = S.state.servers.find((s) => s.name === base[0])?.saved ?? {};
+  dialog({
+    title: `Set up ${base[0]}`,
+    text: "landfall first shows what it finds and what it would change. Nothing is applied before you confirm.",
+    ok: "Check",
+    fields: [
+      {
+        legend: "Traefik (reverse proxy, automatic HTTPS)",
+        fields: [
+          {
+            name: "traefik", label: "Mode", type: "select", value: saved.hostNetwork ? "host" : "docker",
+            options: [
+              { value: "docker", label: "Own Traefik, ports published by Docker" },
+              { value: "host", label: "Own Traefik on the host network (real client IPs, ufw guards 80/443)" },
+              { value: "none", label: "No Traefik (add later with traefik setup)" },
+            ],
+            hint: "If the server already runs a Traefik on 80/443, setup routes sites through it instead.",
+          },
+          { name: "image", label: "Image", value: saved.traefikImage ?? S.state.defaultImage },
+          { name: "email", label: "Let's Encrypt e-mail (optional)", value: saved.email ?? "" },
+          { name: "dashboard", label: "Dashboard domain (optional)", value: "", placeholder: "traefik.example.com", hint: "Behind basic auth; the password is shown after setup." },
+        ],
+      },
+      { name: "firewall", label: "Enable ufw: deny incoming except ssh, 80 and 443", type: "check", value: true, hint: "Skipped automatically if it would block ports in use." },
+      { name: "harden", label: "Key login only (turn off ssh passwords)", type: "check", value: true, hint: "Skipped automatically if other users still log in with a password." },
+      { name: "user", label: "Deploy user", value: "deploy", hint: "landfall deploys as this user (docker group, your key). Empty keeps the login user." },
+    ],
+    onOk: (v) => {
+      const f = [];
+      if (v.traefik === "none") f.push("--no-traefik");
+      else {
+        f.push(v.traefik === "host" ? "--host-network" : "--no-host-network");
+        if (v.image.trim()) f.push(`--image=${v.image.trim()}`);
+        if (v.email.trim()) f.push(`--email=${v.email.trim()}`);
+        if (v.dashboard.trim()) f.push(`--dashboard=${v.dashboard.trim()}`);
+      }
+      if (!v.firewall) f.push("--no-firewall");
+      if (!v.harden) f.push("--no-harden");
+      f.push(`--deploy-user=${v.user.trim()}`);
+      setupFlow([...base, ...f], base);
+    },
+  });
+}
+
+function passwordFor(args, base) {
+  const host = args.includes("--host") ? `root@${args[args.indexOf("--host") + 1]}` : S.state.servers.find((s) => s.name === args[0])?.target ?? args[0];
+  promptDlg(
+    `Password for ${host}`,
+    "Used once to install landfall's ssh key (ssh-copy-id). It is not stored; afterwards only the key is used.",
+    { type: "password", label: "Password" },
+    (pw) => {
+      if (!pw) return;
+      run(["setup", ...args, "--key-only", "-y"], {
+        password: pw,
+        server: args[0],
+        after: (j) => {
+          if (j.info.code === 0) return void setTimeout(() => setupFlow(args, base));
+          return [{ label: "Try the password again", run: () => passwordFor(args, base) }];
+        },
+      });
+    },
+    "Install key",
+  );
+}
+
+function addServer() {
+  dialog({
+    title: "Add a server",
+    text: "Use an alias from ~/.ssh/config (like vps), or pick a new name and give the machine's address, fresh or already in use. landfall writes the ssh config entry for it.",
+    fields: [
+      { name: "name", label: "Name", placeholder: "vps" },
+      { name: "host", label: "IP or hostname (not needed for an ssh alias)", placeholder: "203.0.113.7" },
+      {
+        legend: "Login (for a new address)",
+        fields: [
+          { name: "user", label: "User", placeholder: "root" },
+          { name: "port", label: "SSH port", placeholder: "22" },
+          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", hint: "Without one, landfall creates ~/.ssh/srv_<name> and installs it with the password." },
+          { name: "password", label: "Password (optional)", type: "password", hint: "Used once to install the key, never stored. Leave empty if the key already works." },
+        ],
+      },
+      { name: "setup", label: "Set it up now (shows what it would change first)", type: "check", value: true },
+    ],
+    ok: "Add",
+    onOk: (v) => {
+      const [name, host, user, port, key] = [v.name, v.host, v.user, v.port, v.key].map((x) => x.trim());
+      if (!name) return false;
+      const known = S.state.servers.some((s) => s.name === name);
+      if (!known && !host) return void toast(`${name} is not in your ssh config: give its IP or hostname`), false;
+      if (port && !/^\d+$/.test(port)) return void toast("The port is a number"), false;
+      const args = [name, ...(host ? ["--host", host] : []), ...(user ? ["-u", user] : []), ...(port ? ["-p", port] : []), ...(key ? ["-i", key] : [])];
+      // With a password: install the key now, then the setup wizard needs nothing but the alias.
+      const then = (j) => (j.info.code === 0 ? void (v.setup ? setupWizard([name]) : go(name)) : undefined);
+      if (v.password) run(["server", "add", ...args], { server: name, password: v.password, after: then });
+      else if (v.setup) setupWizard(args);
+      else run(["server", "add", ...args], { server: name, after: () => void go(name) });
+    },
+  });
+}
+
+const defaultServer = () => S.sel ?? S.state.servers.find((s) => s.isDefault)?.name;
+const sslip = (name, ip) => `${name}.${ip.replace(/\./g, "-")}.sslip.io`;
+const mainDomain = (n) => S.state.servers.find((s) => s.name === n)?.saved?.domains?.[0];
+/** What `lf deploy` picks without a domain: <site>.<main domain>, else the free sslip.io address. */
+function autoDomain(n, name) {
+  const main = mainDomain(n);
+  if (main) return `${name}.${main}`;
+  const ip = S.facts[n]?.data?.sslipIp;
+  return ip ? sslip(name, ip) : "";
+}
+const slugify = (s) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
+const tilde = (p) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
+
+function describe(d) {
+  const built = d.build ? ` · builds with <code>${esc(d.build)}</code> first` : "";
+  const what =
+    d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from srv.json)`
+    : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${esc(d.port)}`
+    : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.spa ? " (single-page app)" : ""}${built}`
+    : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
+    : `<span style="color:var(--warn)">No index.html, Dockerfile or build script here.</span>`;
+  const before = d.project?.server ? ` <span class="dim">· deployed before to ${esc(d.project.server)}</span>` : "";
+  return what + before;
+}
+
+/** Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no srv.json. */
+function deployDialog(det, o = {}) {
+  const p = det.project;
+  const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
+  const target = p?.server ?? defaultServer();
+  const name = o.name ?? det.name;
+  const main = mainDomain(target);
+  dialog({
+    title: `Deploy ${name}`,
+    text: o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from srv.json)" : ""}`,
+    extra: `<div class="detected">${describe(det)}</div>`,
+    fields: [
+      { name: "name", label: "Site name", value: name },
+      { name: "server", label: "Server", type: "select", options: servers, value: target },
+      {
+        name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "),
+        placeholder: autoDomain(target, name) || "example.com www.example.com",
+        hint: main
+          ? `Empty: <name>.${main}. A bare name like blog means blog.${main}. Other domains need an A record pointing at the server.`
+          : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
+      },
+      ...(det.kind === "static"
+        ? [
+            { name: "build", label: "Build command (runs here, before upload)", value: det.build ?? "", placeholder: "none" },
+            { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
+          ]
+        : []),
+    ],
+    ok: "Deploy",
+    onOk: (v) => {
+      const n = v.name.trim();
+      if (!n || !v.server) return false;
+      const domains = v.domains.split(/[\s,]+/).filter(Boolean);
+      const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...domains.flatMap((d) => ["-d", d])];
+      if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
+      if (v.spa && !p?.spa) argv.push("--spa");
+      if (o.upload) argv.push("--no-save");
+      run(argv, { server: v.server, cwd: det.path, after: openAfter });
+    },
+  });
+}
+
+/** After a deploy: offer the address it printed. */
+function openAfter(j) {
+  if (j.info.code !== 0) return;
+  const url = j.lines.map((l) => l.replace(ANSI, "").match(/https:\/\/[^\s)]+/)?.[0]).filter(Boolean).pop();
+  if (url) return [{ label: `Open ${url.replace("https://", "")}`, run: () => window.open(url, "_blank", "noopener") }];
+}
+
+async function browse(path) {
+  return http(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`);
+}
+
+function deployHere() {
+  browse(S.state.cwd).then((b) => deployDialog(b.detected), (e) => toast(e.message));
+}
+
+/** Pick a folder on this machine: recent projects, a folder browser, or drop/choose files to upload. */
+async function folderDialog(path) {
+  let b;
+  try {
+    b = await browse(path);
+  } catch (e) {
+    return toast(e.message);
+  }
+  const dlg = openDlg("wide");
+  const recent = (S.state.projects ?? []).slice(0, 8);
+  const parts = b.path.split("/").filter(Boolean);
+  const crumbs = `<button type="button" class="ghost sm" data-path="/">/</button>` + parts.map((x, i) =>
+    `<button type="button" class="ghost sm" data-path="${esc("/" + parts.slice(0, i + 1).join("/"))}">${esc(x)}</button>`).join(`<span class="faint">/</span>`);
+  dlg.innerHTML = `<form method="dialog">
+    <h2>Deploy a folder</h2>
+    ${recent.length ? `<fieldset><legend>Recent</legend><div class="list">${recent
+      .map((r, i) => `<button type="button" class="row" data-recent="${i}" title="Deploy again"><b>${esc(r.name)}</b><span class="dim">→ ${esc(r.server)}${r.domains[0] ? ` · ${esc(r.domains[0])}` : ""}</span><span class="faint mono">${esc(tilde(r.path))}</span></button>`)
+      .join("")}</div></fieldset>` : ""}
+    <div class="crumbs mono">${crumbs} <button type="button" class="ghost sm" data-path="${esc(b.home)}" title="Home">~</button></div>
+    <div class="list">${b.parent ? `<button type="button" class="row" data-path="${esc(b.parent)}">↑ ..</button>` : ""}${b.dirs
+      .map((d) => `<button type="button" class="row" data-path="${esc(b.path.replace(/\/$/, "") + "/" + d)}">📁 ${esc(d)}</button>`)
+      .join("") || `<div class="row faint">no subfolders</div>`}</div>
+    <div class="detected"><b>${esc(b.detected.name)}</b>: ${describe(b.detected)}</div>
+    <div class="drop">Or drop a folder or .zip anywhere ·
+      <label>choose a folder<input type="file" id="pick-dir" webkitdirectory multiple hidden></label> ·
+      <label>choose a .zip<input type="file" id="pick-zip" accept=".zip,.tar,.tgz,.gz" hidden></label></div>
+    <div class="btns">
+      <button type="button" class="ghost" id="dlg-cancel">Cancel</button>
+      <button type="submit" class="primary">Deploy this folder…</button>
+    </div>
+  </form>`;
+  $("#dlg-cancel", dlg).onclick = () => dlg.close();
+  $("form", dlg).onsubmit = (e) => (e.preventDefault(), deployDialog(b.detected));
+  $("form", dlg).onclick = (e) => {
+    const el = e.target.closest("[data-path],[data-recent]");
+    if (!el) return;
+    if (el.dataset.path) return void folderDialog(el.dataset.path);
+    browse(recent[el.dataset.recent].path).then((x) => deployDialog(x.detected), (err) => toast(err.message));
+  };
+  $("#pick-dir", dlg).onchange = (e) => {
+    const files = [...e.target.files];
+    upload(files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]), files[0]?.webkitRelativePath.split("/")[0]);
+  };
+  $("#pick-zip", dlg).onchange = (e) => {
+    const f = e.target.files[0];
+    if (f) upload([[f, f.name]], f.name);
+  };
+  if (!dlg.open) dlg.showModal();
+}
+
+// Dropped folders: walk the entries (skipping dependencies and VCS data), then upload with relative paths.
+const SKIP = new Set(["node_modules", ".git", ".DS_Store", "__MACOSX"]);
+const skipped = (rel) => rel.split("/").some((x) => SKIP.has(x));
+async function droppedFiles(roots) {
+  const out = [];
+  const walk = async (entry, prefix) => {
+    if (SKIP.has(entry.name)) return;
+    if (entry.isFile) out.push([await new Promise((res, rej) => entry.file(res, rej)), prefix + entry.name]);
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (let batch; (batch = await new Promise((res, rej) => reader.readEntries(res, rej))).length; ) {
+        for (const e of batch) await walk(e, `${prefix}${entry.name}/`);
+      }
+    }
+  };
+  for (const r of roots) await walk(r, "");
+  return out;
+}
+
+async function upload(pairs, label = "site") {
+  if (!pairs.length) return toast("Nothing to upload");
+  const fd = new FormData();
+  for (const [f, path] of pairs) fd.append("file", f), fd.append("path", path);
+  toast(`Uploading ${plural(pairs.length, "file")}…`);
+  try {
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+    if (!r.ok) throw new Error(data.error);
+    toast(`Uploaded ${plural(data.files, "file")}`);
+    deployDialog(data.detected, { upload: true, files: data.files, name: slugify(label) });
+  } catch (e) {
+    toast(`Upload failed: ${e.message}`);
+  }
+}
+
+const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes("Files");
+window.addEventListener("dragover", (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  document.body.classList.add("dragging");
+});
+window.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget) document.body.classList.remove("dragging");
+});
+window.addEventListener("drop", (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  document.body.classList.remove("dragging");
+  // Entries must be taken while the event is live.
+  const roots = [...e.dataTransfer.items].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  const label = roots[0]?.name ?? e.dataTransfer.files[0]?.name;
+  const files = roots.length ? droppedFiles(roots) : Promise.resolve([...e.dataTransfer.files].map((f) => [f, f.name]));
+  files.then((pairs) => upload(pairs, label), (err) => toast(err.message));
+});
+
+// ---- domains & login ---------------------------------------------------------
+
+function copy(text) {
+  navigator.clipboard?.writeText(text).then(() => toast(`Copied ${text}`), () => toast(text)) ?? toast(text);
+}
+
+function domainsDialog(n, m) {
+  const main = mainDomain(n);
+  const free = autoDomain(n, m.name);
+  const ips = S.dns[n]?.data?.ips ?? [];
+  dialog({
+    title: `Domains of ${m.name}`,
+    text: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
+    fields: [
+      { name: "domains", label: "Domains (space separated)", value: m.domains.join(" ") },
+      ...(free && !m.domains.includes(free) ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }] : []),
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      const domains = v.domains.split(/[\s,]+/).filter(Boolean);
+      if (v.free) domains.push(free);
+      if (!domains.length) return void toast("A site needs at least one domain"), false;
+      run(["domains", m.name, ...sv(n), ...domains.flatMap((d) => ["--set", d]), "-y"], { server: n });
+    },
+  });
+}
+
+function authDialog(n, m) {
+  const users = (m.auth ?? []).map((a) => a.split(":")[0]);
+  dialog({
+    title: `Password for ${m.name}`,
+    text: users.length
+      ? `Visitors log in as ${users.join(", ")}. Saving an existing user changes their password.`
+      : "Visitors have to log in (HTTP basic auth) before they see the site.",
+    fields: [
+      { name: "user", label: "User", value: users[0] ?? "admin" },
+      { name: "password", label: "Password (at least 8 characters)", type: "password", auto: "new-password" },
+      ...(users.length ? [{ name: "off", label: "Remove the login: the site is public again", type: "check", value: false }] : []),
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      if (v.off) return void run(["auth", m.name, ...sv(n), "--off", "-y"], { server: n });
+      if (!v.user.trim()) return void toast("Give a user name"), false;
+      if (v.password.length < 8) return void toast("The password needs at least 8 characters"), false;
+      run(["auth", m.name, ...sv(n), "-u", v.user.trim(), "-p", v.password], { server: n });
+    },
+  });
+}
+
+function ensureDns(n, o) {
+  if (S.dns[n] || !o?.sites.length) return;
+  const domains = [...new Set(o.sites.flatMap((x) => x.meta.domains))];
+  S.dns[n] = { loading: true };
+  http(`/api/servers/${encodeURIComponent(n)}/dns?domains=${encodeURIComponent(domains.join(","))}`).then(
+    (data) => ((S.dns[n] = { data }), render()),
+    (e) => ((S.dns[n] = { error: e.message }), render()),
+  );
+}
+
+function domainChip(n, d) {
+  const c = S.dns[n]?.data?.domains.find((x) => x.domain === d);
+  const url = `https://${d}`;
+  let dot = "", title = "checking…";
+  if (c) {
+    const st = c.https.status;
+    if (!c.ips.length) (dot = "down"), (title = "DNS: does not resolve");
+    else if (!c.ok) (dot = "warn"), (title = `DNS points at ${c.ips.join(", ")}, not this server`);
+    else if (st && st < 500) (dot = "up"), (title = `HTTPS ${st}${st === 401 ? " (login required)" : ""}`);
+    else (dot = "down"), (title = `HTTPS: ${st ?? c.https.error}`);
+  }
+  return `<span class="chip"><span class="dot ${dot}" title="${esc(title)}"></span><a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}" onclick="event.stopPropagation()">${esc(d)}</a>${btn("⧉", () => copy(url), "ghost", "Copy the address")}</span>`;
+}
+
+function runCommand(n) {
+  promptDlg(`Run a command on ${n}`, "Runs through ssh as the server's login; output shows on the right.", { label: "Command", placeholder: "df -h", type: "text" }, (cmd) => {
+    if (cmd) run(["ssh", n, "--", cmd], { server: n });
+  }, "Run");
+}
+
+function forget(n) {
+  confirmDlg({
+    title: `Forget ${n}?`,
+    text: "Removes it from landfall (and the Host block landfall wrote to ~/.ssh/config).\nNothing on the server is changed.",
+    ok: `Forget ${n}`,
+    danger: true,
+    onOk: () => run(["server", "rm", n, "-y"], { server: n, after: (j) => (j.info.code === 0 ? void go(null) : undefined) }),
+  });
+}
+
+async function makeDefault(n) {
+  try {
+    await http(`/api/servers/${encodeURIComponent(n)}/default`, {});
+    await refreshState();
+    toast(`${n} is now the default server`);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// ---- views ---------------------------------------------------------------
+
+function renderNav() {
+  const st = S.state;
+  const list = st.servers;
+  const own = list.filter((s) => s.registered);
+  const aliases = list.filter((s) => !s.registered);
+  const item = (s) => `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
+      <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
+      <div class="t">${esc(s.target)}</div></button>`;
+  $("#nav").innerHTML = `
+    ${own.length ? `<h3>Servers</h3>${own.map(item).join("")}` : ""}
+    ${aliases.length ? `<h3>From ~/.ssh/config</h3>${aliases.map(item).join("")}` : ""}
+    <div style="padding:10px 8px">${btn("+ Add server", addServer, "", "Register an ssh alias or set up a fresh machine")}</div>`;
+  $("#pick").innerHTML = `<select onchange="go(this.value || null)">
+    <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}</option>`).join("")}
+  </select>`;
+}
+
+function renderHeader() {
+  const st = S.state;
+  $("#version").textContent = st.version;
+  const p = st.project;
+  $("#project").innerHTML = `
+    <span class="path" title="${esc(st.cwd)}">${p ? `<b>${esc(p.name)}</b> · ${esc(p.domains.join(", "))}` : esc(st.cwd.replace(/^\/(Users|home)\/[^/]+/, "~"))}</span>
+    ${btn("Deploy folder…", () => folderDialog(st.cwd), "", "Pick a folder, a recent project, or drop one here")}
+    ${btn(p ? "Deploy" : "Deploy this folder", deployHere, "primary", p ? `lf deploy (srv.json in ${st.cwd})` : `lf deploy from ${st.cwd}`)}`;
+}
+
+function errorHint(error) {
+  if (/permission denied/i.test(error)) return "No key login yet. Use Set up: landfall asks for the password once and installs a key.";
+  if (/resolve|not known|nodename/i.test(error)) return "Host name not found. Check the entry in ~/.ssh/config.";
+  if (/timed out|refused|no route|unreachable/i.test(error)) return "Server not reachable. Is it running, and is the ssh port right?";
+  return "";
+}
+
+const isUp = (status) => /^up/i.test(status);
+const statusDot = (status) => `<span class="dot ${isUp(status) ? (/unhealthy|restarting/i.test(status) ? "warn" : "up") : "down"}"></span>`;
+
+const size = (b) => {
+  const u = ["B", "K", "M", "G", "T"];
+  let i = 0;
+  while (b >= 1024 && i < u.length - 1) (b /= 1024), i++;
+  return `${b < 10 && i ? b.toFixed(1) : Math.round(b)}${u[i]}`;
+};
+const uptime = (s) => {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  return d ? `${d}d ${h}h` : h ? `${h}h` : `${Math.floor(s / 60)}m`;
+};
+
+function factsLine(n) {
+  const f = S.facts[n]?.data;
+  if (!f) return "";
+  const pct = (used, total) => (total ? Math.round((used / total) * 100) : 0);
+  const disk = pct(f.disk.used, f.disk.total);
+  const items = [
+    `<b>${esc(f.os)}</b> ${esc(f.arch)}`,
+    `<span title="kernel ${esc(f.kernel)}">up ${uptime(f.uptime)}</span>`,
+    f.cpus ? `${f.cpus} CPU · load ${esc(f.load.split(" ")[0])}` : "",
+    f.mem.total ? `RAM ${size(f.mem.total - f.mem.available)} / ${size(f.mem.total)}` : "",
+    f.disk.total ? `<span ${disk > 85 ? `style="color:var(--warn)"` : ""}>disk ${disk}% of ${size(f.disk.total)}</span>` : "",
+    f.docker ? `docker ${esc(f.docker)}` : `<span class="faint">no docker</span>`,
+    f.reboot ? `<span class="badge warn">reboot required</span>` : "",
+  ];
+  return `<div class="facts">${items.filter(Boolean).map((x) => `<span>${x}</span>`).join("")}</div>`;
+}
+
+function factsNote(n) {
+  const sup = S.facts[n]?.data?.support;
+  if (!sup?.note) return "";
+  return `<div class="note ${sup.level === "ok" ? "" : "bad"}">${esc(sup.note)}</div>`;
+}
+
+function renderMain() {
+  const main = $("#main");
+  if (!S.sel) {
+    main.innerHTML = `<div class="empty"><h2>Pick a server</h2>
+      <p>landfall connects only when you open one. Servers are ssh targets: any ~/.ssh/config alias works.</p>
+      <p>${btn("+ Add server", addServer, "primary")}</p></div>`;
+    return;
+  }
+  const n = S.sel;
+  const s = server();
+  const ov = S.overview[n] ?? { loading: true };
+  const o = ov.data;
+  const traefik = o
+    ? o.traefik
+      ? `${statusDot(o.traefik)}${esc(o.proxy)} ${esc(o.traefik.toLowerCase())}`
+      : o.ready ? `<span class="dot down"></span>no traefik` : ""
+    : "";
+  const sub = [esc(s?.target ?? ""), s && !s.registered ? "from ~/.ssh/config" : "", traefik].filter(Boolean).join(" · ");
+  const tab = (t, label) => `<button type="button" class="${S.tab === t ? "on" : ""}" ${on(() => go(n, t))}>${label}</button>`;
+  main.innerHTML = `
+    <div class="head">
+      <div><h1>${esc(n)}${s?.isDefault ? ` <span class="star" title="default server">★</span>` : ""}</h1><div class="sub">${sub}</div>${factsLine(n)}</div>
+      <div class="actions">
+        ${btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying")}
+        ${btn("Traefik", () => run(["traefik", "status", ...sv(n)]), "", "lf traefik status")}
+        ${btn("Info", () => run(["server", "info", n]), "", "lf server info")}
+        ${btn("Run…", () => runCommand(n), "", "Run a shell command over ssh")}
+        ${s?.isDefault ? "" : btn("Make default", () => makeDefault(n), "ghost")}
+        ${s?.registered ? btn("Forget", () => forget(n), "ghost danger") : ""}
+        ${btn("↻", () => load(n, S.tab, true) || render(), "ghost", "Reload")}
+      </div>
+    </div>
+    ${factsNote(n)}
+    <div class="tabs">${tab("sites", `Sites${o ? ` <span class="badge">${o.sites.length}</span>` : ""}`)}${tab("updates", `Updates${updatesBadge(n)}`)}${tab("firewall", "Firewall")}${tab("history", "History")}${tab("settings", "Settings")}</div>
+    <div id="view"></div>`;
+  const view = $("#view");
+  if (ov.loading) view.innerHTML = `<div class="loading"><span class="spin"></span> connecting to ${esc(n)}…</div>`;
+  else if (ov.error) {
+    const hint = errorHint(ov.error);
+    view.innerHTML = `<div class="note bad"><b>Cannot reach ${esc(n)}.</b> ${esc(hint)}<div class="mono" style="margin-top:6px">${esc(ov.error)}</div></div>
+      <div class="actions" style="margin:0">${btn("Set up", () => setupFlow([n]), "primary")} ${btn("Retry", () => (load(n, S.tab, true), render()))}</div>`;
+  } else if (S.tab === "sites") view.innerHTML = sitesView(n, o);
+  else if (S.tab === "updates") view.innerHTML = updatesView(n);
+  else if (S.tab === "firewall") view.innerHTML = firewallView(n);
+  else if (S.tab === "settings") view.innerHTML = settingsView(n);
+  else view.innerHTML = historyView(n);
+}
+
+function sitesView(n, o) {
+  ensureDns(n, o);
+  if (!o.ready) {
+    return `<div class="card"><div class="body empty"><h2>Not set up for landfall yet</h2>
+      <p>Setup installs Docker and Traefik, a deploy user and (if you want) a firewall. It shows what it would change first.</p>
+      <p>${btn("Check & set up", () => setupFlow([n]), "primary")}</p></div></div>`;
+  }
+  if (!o.sites.length) {
+    return `<div class="card"><div class="body empty"><h2>No sites yet</h2>
+      <p>Deploy a static folder, a Dockerfile project or an image. It gets HTTPS automatically.</p>
+      <p>${btn("Deploy a folder…", () => folderDialog(S.state.cwd), "primary")} <span class="dim">or drop one here</span></p>
+      <p class="faint mono">lf deploy ./dist -d example.com -s ${esc(n)}</p></div></div>`;
+  }
+  const rows = o.sites
+    .map(({ meta: m, status }) => {
+      const cur = m.releases.find((r) => r.id === m.current);
+      const name = m.name;
+      const open = S.open.has(`${n}/${name}`);
+      const up = isUp(status);
+      const older = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1)).filter((r) => r.at < (cur?.at ?? ""));
+      const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
+      const acts = [
+        proj
+          ? btn("Redeploy", () => confirmDlg({ title: `Redeploy ${name}?`, text: `From ${tilde(proj.path)}${proj.kind === "static" ? " (runs its build first, if it has one)" : ""}.`, ok: "Deploy", onOk: () => run(["deploy", "-y", ...sv(n)], { server: n, cwd: proj.path, after: openAfter }) }), "sm primary", `lf deploy in ${proj.path}`)
+          : "",
+        btn("Logs", () => run(["logs", name, ...sv(n), "-f"]), "sm", "Follow the container logs"),
+        btn("Restart", () => run(["restart", name, ...sv(n)]), "sm"),
+        btn(up ? "Stop" : "Start", () => run([up ? "stop" : "start", name, ...sv(n)]), "sm"),
+        older.length
+          ? btn("Roll back", () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)})`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }), "sm")
+          : "",
+        btn("Domains", () => domainsDialog(n, m), "sm", "Add, change or remove domains"),
+        btn(m.auth?.length ? "Login" : "Password", () => authDialog(n, m), "sm", "Protect the site with a user and password"),
+        m.kind === "static" ? "" : btn("Env", () => envDialog(n, name), "sm", "Environment variables"),
+        btn("Delete", () => confirmDlg({ title: `Delete ${name} from ${n}?`, text: "Stops it and removes all its files and releases.\nThis cannot be undone.", ok: `Delete ${name}`, danger: true, onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]) }), "sm danger"),
+      ].join("");
+      const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
+      const detail = open
+        ? `<tr class="detail"><td colspan="5"><dl class="kv">
+            <dt>Container</dt><dd class="mono">srv-${esc(name)} · ${esc(status)}</dd>
+            <dt>On ${esc(n)}</dt><dd>${siteFiles(m, cur)}</dd>
+            <dt>Source</dt><dd>${proj
+              ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· settings in</span> <span class="mono">srv.json</span> <span class="dim">· redeploy runs there</span>`
+              : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved)"}</span>`}</dd>
+            <dt>Kind</dt><dd>${esc(m.kind)}${m.spa ? " (single-page app)" : ""} · port ${esc(m.port)}</dd>
+            <dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>
+            <dt>Created</dt><dd>${esc(ago(m.createdAt))} · updated ${esc(ago(m.updatedAt))}</dd>
+            <dt>Releases</dt><dd><ul class="releases">${[...m.releases]
+              .sort((a, b) => (a.at < b.at ? 1 : -1))
+              .map((r) => `<li><span class="mono">${esc(r.id)}</span><span class="dim">${esc(ago(r.at))}</span>${r.image && m.kind === "image" ? `<span class="mono faint">${esc(r.image)}</span>` : ""}
+                ${r.id === m.current ? `<span class="badge ok">live</span>` : btn("Switch to this", () => confirmDlg({ title: `Switch ${name} to ${r.id}?`, text: `Release from ${ago(r.at)} goes live instead of ${m.current}.`, ok: "Switch", onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]) }), "sm")}</li>`)
+              .join("")}</ul></dd>
+          </dl></td></tr>`
+        : "";
+      return `<tr class="click" ${on(toggle)}>
+        <td class="nowrap">${statusDot(status)}<b>${esc(name)}</b>${m.auth?.length ? `<span class="lock" title="password protected">🔒</span>` : ""} <span class="faint">${open ? "▾" : "▸"}</span></td>
+        <td class="hide-sm"><div class="chips">${m.domains.map((d) => domainChip(n, d)).join("")}</div></td>
+        <td class="hide-sm"><span class="badge">${esc(m.kind)}</span></td>
+        <td class="hide-sm dim">${cur ? esc(ago(cur.at)) : ""}</td>
+        <td class="acts">${acts}</td></tr>${detail}`;
+    })
+    .join("");
+  return `<div class="card scroll"><table>
+    <thead><tr><th>Site</th><th class="hide-sm">Domains</th><th class="hide-sm">Kind</th><th class="hide-sm">Deployed</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+/** Where a site lives on the server, and which of its files are live. */
+function siteFiles(m, cur) {
+  const dir = `${S.state.paths.sites}/${m.name}`;
+  const live =
+    m.kind === "image" ? `image <span class="mono">${esc(cur?.image ?? "?")}</span>`
+    : m.kind === "static" ? `files <span class="mono">${esc(`${dir}/releases/${m.current}`)}</span>`
+    : `built from <span class="mono">${esc(`${dir}/releases/${m.current}`)}</span>${cur?.image ? ` as <span class="mono">${esc(cur.image)}</span>` : ""}`;
+  return `<span class="mono">${esc(dir)}</span><div class="dim">live: ${live}</div>
+    <div class="faint mono">site.json · docker-compose.yml · .env (mode 600)${m.kind === "image" ? "" : " · releases/"}</div>`;
+}
+
+function envDialog(n, name) {
+  dialog({
+    title: `Environment of ${name}`,
+    text: "Changes recreate the container. Leave both empty to only show the current values.",
+    fields: [
+      { name: "set", label: "Set (KEY=VALUE, one per line)", type: "textarea", value: "", placeholder: "DATABASE_URL=postgres://…\nLOG_LEVEL=info" },
+      { name: "unset", label: "Remove (names, space separated)", value: "", placeholder: "OLD_KEY" },
+    ],
+    ok: "Apply",
+    onOk: (v) => {
+      const pairs = v.set.split("\n").map((l) => l.trim()).filter((l) => l && l.includes("="));
+      const unset = v.unset.split(/[\s,]+/).filter(Boolean).flatMap((k) => ["-u", k]);
+      run(["env", name, ...sv(n), ...pairs, ...unset]);
+    },
+  });
+}
+
+// ---- updates ---------------------------------------------------------------
+
+const IMG = { current: ["ok", "up to date"], update: ["warn", "newer image"], unknown: ["", "unknown"], pinned: ["", "pinned"], rebuild: ["", "rebuild"], foreign: ["", "not landfall's"], missing: ["bad", "missing"] };
+
+function updatesBadge(n) {
+  const d = S.updates[n]?.data;
+  if (!d) return "";
+  const k = d.packages.updates.length + d.images.filter((i) => i.state === "update").length;
+  const sec = d.packages.updates.some((u) => u.security);
+  return k ? ` <span class="badge ${sec ? "warn" : ""}">${k}</span>` : "";
+}
+
+function refreshUpdates(n) {
+  S.updates[n] = { loading: true, refreshing: true };
+  render();
+  http(`/api/servers/${encodeURIComponent(n)}/updates?refresh=1`).then(
+    (data) => ((S.updates[n] = { data }), render()),
+    (e) => ((S.updates[n] = { error: e.message }), render()),
+  );
+}
+
+function updatesView(n) {
+  const st = S.updates[n] ?? { loading: true };
+  if (st.loading) return `<div class="loading"><span class="spin"></span> ${st.refreshing ? "refreshing package lists…" : "checking packages and images…"}</div>`;
+  if (st.error) return `<div class="note bad">${esc(st.error)}</div><div class="actions" style="margin:0">${btn("Retry", () => (load(n, "updates", true), render()))}</div>`;
+  const { packages: p, images, engine: e } = st.data;
+  const s = sv(n);
+  const sec = p.updates.filter((u) => u.security);
+  const upgrade = (flags, what, k) =>
+    confirmDlg({
+      title: `Upgrade ${what} on ${n}?`,
+      text: `${plural(k, "package")} through ${p.mgr}, as root. Package upgrades cannot be undone.${flags.includes("--reboot") ? "\nReboots afterwards if the upgrade needs it: sites are offline for a minute or two." : ""}`,
+      ok: "Upgrade",
+      danger: flags.includes("--reboot"),
+      onOk: () => run(["update", "--packages", ...flags, ...s, "-y"], { server: n }),
+    });
+  const pkgActs = [
+    btn("Refresh lists", () => refreshUpdates(n), "sm", "Fetch the newest package lists first (apt update)"),
+    sec.length && p.mgr !== "apk" ? btn(`Security only (${sec.length})`, () => upgrade(["--security"], "security updates", sec.length), "sm") : "",
+    p.updates.length ? btn("Upgrade all", () => upgrade([], "all packages", p.updates.length), "sm primary") : "",
+    p.updates.length ? btn("Upgrade + reboot", () => upgrade(["--reboot"], "all packages", p.updates.length), "sm danger") : "",
+  ].join("");
+  const shown = p.updates.slice(0, 200);
+  const pkgRows = shown
+    .map((u) => `<tr><td class="mono">${esc(u.name)}</td><td class="mono dim hide-sm">${esc(u.from ?? "")}</td><td class="mono">${esc(u.to)}</td><td>${u.security ? `<span class="badge warn">security</span>` : ""}</td></tr>`)
+    .join("");
+  const imgUpdates = images.filter((i) => i.state === "update");
+  const updImg = (names) =>
+    confirmDlg({
+      title: `Update ${names.join(", ")}?`,
+      text: "Pulls the newer image and recreates the container (a few seconds offline). Undo puts the old image back.",
+      ok: "Update",
+      onOk: () => run(["update", ...names, "--images", ...s, "-y"], { server: n }),
+    });
+  const imgRows = images
+    .map((i) => {
+      const [cls, label] = IMG[i.state] ?? ["", i.state];
+      const can = i.state === "update" || i.state === "unknown";
+      return `<tr><td><b>${esc(i.name)}</b> <span class="faint">${esc(i.kind)}</span></td><td class="mono dim hide-sm">${esc(i.ref || "-")}</td>
+        <td><span class="badge ${cls}">${esc(label)}</span></td><td class="dim hide-sm">${esc(i.note ?? "")}</td>
+        <td class="acts">${can ? btn(i.state === "update" ? "Update" : "Pull anyway", () => updImg([i.name]), i.state === "update" ? "sm primary" : "sm") : ""}</td></tr>`;
+    })
+    .join("");
+  const head = p.mgr === "none"
+    ? `<span class="dim" style="font-weight:400">no supported package manager</span>`
+    : p.updates.length
+      ? `<span class="badge">${p.updates.length}</span>${sec.length ? ` <span class="badge warn">${sec.length} security</span>` : ""}`
+      : `<span class="badge ok">up to date</span>`;
+  return `
+    <div class="card">
+      <h2>Packages ${head}${p.reboot ? ` <span class="badge warn">reboot required</span>` : ""}
+        <span class="dim hide-sm" style="font-weight:400">${esc(p.mgr)}${p.refreshed ? "" : " · lists not refreshed"}</span>
+        <span class="actions">${pkgActs}</span></h2>
+      ${pkgRows ? `<div class="scroll"><table>
+        <thead><tr><th>Package</th><th class="hide-sm">Installed</th><th>New</th><th></th></tr></thead>
+        <tbody>${pkgRows}${p.updates.length > shown.length ? `<tr><td colspan="4" class="dim">… ${p.updates.length - shown.length} more</td></tr>` : ""}</tbody>
+      </table></div>` : ""}
+    </div>
+    <div class="card">
+      <h2>Docker <span class="badge ${!e.docker || e.dockerNote || e.composeNote ? "warn" : "ok"}">${e.docker ? `${esc(e.docker)} · compose ${esc(e.compose || "missing")}` : "not installed"}</span>
+        <span class="actions">${e.composeUpdate ? btn("Update compose", () => run(["update", "--compose", ...s, "-y"], { server: n }), "sm primary") : ""}</span></h2>
+      ${[e.dockerNote, e.composeNote].filter(Boolean).map((t) => `<p class="dim">${esc(t)}</p>`).join("")}
+    </div>
+    <div class="card">
+      <h2>Images <span class="dim" style="font-weight:400">Traefik and sites</span>
+        <span class="actions">${imgUpdates.length ? btn(`Update all (${imgUpdates.length})`, () => updImg(imgUpdates.map((i) => i.name)), "sm primary") : ""}</span></h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Name</th><th class="hide-sm">Image</th><th>State</th><th class="hide-sm">Note</th><th></th></tr></thead>
+        <tbody>${imgRows || `<tr><td colspan="5" class="dim">no containers</td></tr>`}</tbody>
+      </table></div>
+    </div>`;
+}
+
+// ---- firewall --------------------------------------------------------------
+
+const REACH = { open: "ok", limited: "accent", blocked: "bad", local: "" };
+
+function firewallView(n) {
+  const st = S.firewall[n] ?? { loading: true };
+  if (st.loading) return `<div class="loading"><span class="spin"></span> reading the firewall…</div>`;
+  if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
+  const fw = st.data;
+  const s = sv(n);
+  const fwRun = (argv) => run(argv, { server: n });
+  const active = fw.ufw === "active";
+  const toggle =
+    fw.ufw === "missing"
+      ? btn("Install & enable ufw", () => fwRun(["firewall", "enable", ...s]), "primary")
+      : active
+        ? btn("Turn off", () => confirmDlg({ title: `Turn the firewall on ${n} off?`, text: "Every listening port becomes reachable from anywhere.", ok: "Turn it off", danger: true, onOk: () => fwRun(["firewall", "disable", ...s, "-y"]) }), "danger")
+        : btn("Turn on", () => fwRun(["firewall", "enable", ...s]), "primary");
+  const badge = active ? `<span class="badge ok">on</span>` : fw.ufw === "missing" ? `<span class="badge warn">ufw not installed</span>` : `<span class="badge bad">off</span>`;
+  const blocked = !active && fw.blocked.length
+    ? `<div class="note">Turning it on would cut off ${esc(fw.blocked.join(", "))}: add rules for them first, or landfall refuses (with a way to do it anyway).</div>`
+    : "";
+  const ruleRows = fw.rules
+    .map((r, i) => {
+      const num = String(i + 1);
+      const flip = r.action === "deny" || r.action === "reject" ? "allow" : "deny";
+      const cls = r.action === "allow" ? "ok" : r.action === "limit" ? "accent" : "bad";
+      const port = r.port ? `${r.port}${r.proto ? `/${r.proto}` : ""}` : "";
+      return `<tr>
+        <td class="faint">${num}</td>
+        <td>${btn(`<span class="badge ${cls}">${esc(r.action)}${r.out ? " out" : ""}</span>`, () => fwRun(["firewall", "update", num, "--action", flip, ...s]), "ghost sm", `Switch to ${flip}`)}</td>
+        <td class="mono">${esc(port || r.spec)}</td>
+        <td>${r.from ? `<span class="mono">${esc(r.from)}</span>` : `<span class="dim">anywhere</span>`}</td>
+        <td class="dim hide-sm">${esc(r.comment ?? "")}</td>
+        <td class="acts">${btn("Edit", () => editRule(n, num, r), "sm")}${btn("Remove", () => confirmDlg({ title: `Remove rule ${num}?`, text: r.spec, ok: "Remove it", danger: true, onOk: () => fwRun(["firewall", "rm", num, ...s, "-y"]) }), "sm danger")}</td>
+      </tr>`;
+    })
+    .join("");
+  const portRows = fw.ports
+    .map((p) => `<tr><td class="mono">${esc(p.port)}</td><td>${esc(p.proc)}</td><td><span class="badge ${REACH[p.state] ?? ""}">${esc(p.state)}</span></td><td class="dim">${esc(p.why)}</td></tr>`)
+    .join("");
+  return `
+    ${blocked}
+    <div class="card">
+      <h2>ufw ${badge} <span class="dim" style="font-weight:400">incoming default: ${esc(fw.policy.toLowerCase())} · ssh on ${esc(fw.sshPort)}${fw.asRoot ? " · as root" : ""}</span>
+        <span class="actions">${toggle}</span></h2>
+      <div class="scroll"><table>
+        <thead><tr><th>#</th><th>Action</th><th>Port</th><th>From</th><th class="hide-sm">Comment</th><th></th></tr></thead>
+        <tbody>${ruleRows || `<tr><td colspan="6" class="dim">no rules</td></tr>`}</tbody>
+      </table></div>
+      <div class="body" style="border-top:1px solid var(--line)">
+        <form class="form-row" id="addrule">
+          <label>Port <input name="port" placeholder="5432, 51820/udp, 6000:6007/tcp" required></label>
+          <label>From <input name="from" placeholder="anywhere, or 10.0.0.0/8"></label>
+          <label style="flex:0 0 110px">Action <select name="action"><option value="allow">allow</option><option value="deny">deny</option></select></label>
+          <button type="submit" class="primary">Add rule</button>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Listening ports <span class="dim" style="font-weight:400">and whether the internet reaches them</span></h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Port</th><th>Process</th><th>Reach</th><th>Why</th></tr></thead>
+        <tbody>${portRows || `<tr><td colspan="4" class="dim">nothing listening</td></tr>`}</tbody>
+      </table></div>
+    </div>`;
+}
+
+document.addEventListener("submit", (e) => {
+  if (e.target.id !== "addrule") return;
+  e.preventDefault();
+  const f = e.target.elements;
+  const port = f.port.value.trim();
+  if (!port) return;
+  const from = f.from.value.trim();
+  run(["firewall", f.action.value, port, ...sv(S.sel), ...(from && from !== "anywhere" ? ["--from", from] : [])], { server: S.sel });
+});
+
+function editRule(n, num, r) {
+  const port = r.port ? `${r.port}${r.proto ? `/${r.proto}` : ""}` : "";
+  dialog({
+    title: `Edit rule ${num}`,
+    text: r.spec,
+    fields: [
+      { name: "port", label: "Port", value: port, placeholder: "port[/proto]" },
+      { name: "from", label: "From", value: r.from ?? "", placeholder: "anywhere", hint: "An address or network like 10.0.0.0/8. Empty = anyone." },
+      { name: "action", label: "Action", type: "select", value: r.action, options: ["allow", "deny", "reject", "limit"].map((a) => ({ value: a, label: a })) },
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      const argv = ["firewall", "update", num, ...sv(n)];
+      if (v.port.trim() && v.port.trim() !== port) argv.push("--port", v.port.trim());
+      argv.push("--from", v.from.trim() || "any");
+      if (v.action !== r.action) argv.push("--action", v.action);
+      run(argv, { server: n });
+    },
+  });
+}
+
+// ---- history ---------------------------------------------------------------
+
+function settingsView(n) {
+  const st = S.settings[n] ?? { loading: true };
+  if (st.loading) return `<div class="loading"><span class="spin"></span> reading the settings…</div>`;
+  if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
+  const x = st.data;
+  const reload = { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), render()) : undefined) };
+  const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  const dnsRow = (d) => `${esc(d.domain)} ${d.ok ? `<span class="badge ok">dns ok</span>` : d.ips.length ? `<span class="badge warn">dns → ${esc(d.ips.join(", "))}</span>` : `<span class="badge bad">no dns</span>`}`;
+  const addDomain = () =>
+    promptDlg(`Add a main domain to ${n}`, `${x.domains.length ? "The first main domain stays the primary." : "The first main domain is the primary: new sites get <site>.<domain>, and a bare name like blog means blog.<domain>."}\nPoint <domain> and *.<domain> (A records) at the server once.`, { label: "Domain", placeholder: "example.com", type: "text", value: "" }, (d) => {
+      if (d) run(["server", "domain", n, "--add", d], reload);
+    }, "Add");
+  const dashboard = () =>
+    promptDlg(`Traefik dashboard on ${n}`, "Serves the dashboard behind a password (shown in the output). `off` removes it.\nRuns lf traefik setup, which reconfigures landfall's Traefik.", { label: "Domain", type: "text", value: x.traefik.dashboard ?? (x.domains[0] ? `traefik.${x.domains[0]}` : "") }, (d) => {
+      if (d) run(["traefik", "setup", ...sv(n), "--dashboard", d], reload);
+    }, "Apply");
+  const P = S.state.paths;
+  const ip = x.dns[0]?.ips[0] ?? "<server ip>";
+  const records = x.dns.flatMap((r) => [r.apex, r.wildcard]).filter((d) => !d.ok).map((d) => `${esc(d.domain)}  A  ${esc(ip)}`);
+  const saved = x.saved ? Object.entries(x.saved).filter(([k, v]) => v !== undefined && k !== "dashboard").map(([k, v]) => [k, `<span class="mono">${esc(String(v))}</span>`]) : [];
+  return `
+    <div class="card">
+      <h2>Main domains ${btn("Add…", addDomain, "sm")}</h2>
+      <div class="body">${x.domains.length
+        ? `<table><tbody>${x.domains.map((d, i) => `<tr>
+             <td>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge">primary</span>` : ""}<div class="faint">sites: ${dnsRow(x.dns[i].wildcard)}</div></td>
+             <td><div class="actions">${i ? btn("Make primary", () => run(["server", "domain", n, "--primary", d], reload), "ghost sm") : ""}${btn("Remove", () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }), "ghost sm")}</div></td>
+           </tr>`).join("")}</tbody></table>
+           <p class="faint">New sites get <span class="mono">&lt;site&gt;.${esc(x.domains[0])}</span>; a bare name like <span class="mono">blog</span> means <span class="mono">blog.${esc(x.domains[0])}</span>.</p>
+           ${records.length ? `<div class="note">Add at your DNS provider:<div class="mono">${records.join("<br>")}</div></div>` : ""}`
+        : `<p class="dim">No main domain set in landfall. New sites get a free <span class="mono">&lt;site&gt;.&lt;ip&gt;.sslip.io</span> address until you set one.</p>`}
+        ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>
+    </div>
+    <div class="card">
+      <h2>Traefik ${btn("Dashboard…", dashboard, "sm")}</h2>
+      <div class="body">${rows([
+        ["image", esc(x.traefik.summary)],
+        ["e-mail", esc(x.traefik.email ?? "none")],
+        ["dashboard", x.traefik.dashboard ? `<a href="https://${esc(x.traefik.dashboard)}" target="_blank" rel="noopener">${esc(x.traefik.dashboard)}</a>` : "off"],
+        ["files", `<span class="mono">${esc(P.traefik)}/docker-compose.yml</span>`],
+        ["certificates", `<span class="mono">${esc(P.traefik)}/letsencrypt/</span> <span class="dim">(kept on reinstall)</span>`],
+      ])}<p class="faint">Used when landfall installs or reconfigures its own Traefik. With a Traefik that was already there, landfall only writes <span class="mono">${esc(P.proxy)}</span>.</p></div>
+    </div>
+    <div class="card">
+      <h2>On the server <span class="dim mono" style="font-weight:400">${esc(P.root)}</span></h2>
+      <div class="body">${rows([
+        ["sites", `<span class="mono">${esc(P.sites)}/&lt;site&gt;/</span> <span class="dim">one folder per site: releases, compose file, .env</span>`],
+        ["traefik", `<span class="mono">${esc(P.traefik)}/</span>`],
+        ["history", `<span class="mono">${esc(P.journal)}</span> <span class="dim">every change with its undo</span>`],
+      ])}</div>
+    </div>
+    <div class="card">
+      <h2>landfall config <span class="dim mono" style="font-weight:400">${esc(x.configFile)}</span></h2>
+      <div class="body">${saved.length ? rows(saved) : `<p class="dim">Not registered — an ssh alias landfall reads from ~/.ssh/config.</p>`}</div>
+    </div>
+    <div class="card">
+      <h2>SSH <span class="dim mono" style="font-weight:400">ssh -G ${esc(x.saved?.host ?? n)}</span></h2>
+      <div class="body">${rows([
+        ["login", `<span class="mono">${esc(`${x.ssh.user}@${x.ssh.hostname}:${x.ssh.port}`)}</span>`],
+        ...x.ssh.keys.map((k) => ["key", `<span class="mono">${esc(k.file)}</span>${k.exists ? "" : ` <span class="badge bad">missing</span>`}`]),
+      ])}
+      ${x.ssh.block
+        ? `<p class="dim">${esc(x.ssh.block.file)}:${x.ssh.block.line} · ${x.ssh.block.managed ? "written by landfall" : "your own"}</p><pre class="mono block">${esc(x.ssh.block.text)}</pre>`
+        : `<p class="dim">No Host block; ssh uses its defaults.</p>`}</div>
+    </div>`;
+}
+
+function historyView(n) {
+  const st = S.history[n] ?? { loading: true };
+  if (st.loading) return `<div class="loading"><span class="spin"></span> reading the journal…</div>`;
+  if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
+  const runs = st.data;
+  if (!runs.length) return `<div class="card"><div class="body empty"><h2>Nothing yet</h2><p>Every change landfall makes on ${esc(n)} is logged here, with a way to undo it.</p></div></div>`;
+  const s = sv(n);
+  const undo = (argv) => run(["undo", ...argv, ...s, "-y"], { server: n });
+  const total = runs.reduce((a, r) => a + r.pending, 0);
+  const items = runs
+    .map((r) => {
+      const todo = r.steps.filter((x) => x.undo && !x.undone);
+      const later = runs.filter((x) => x.n > r.n && x.pending);
+      const undoRun = () =>
+        dialog({
+          title: `Undo #${r.n} ${r.cmd} on ${n}?`,
+          text: [...todo.map((x) => `↺ ${x.what}`).reverse(), ...(later.length ? ["", `Later runs build on it and stay: ${later.map((x) => `#${x.n}`).join(", ")}`] : [])].join("\n"),
+          ok: `Revert ${plural(todo.length, "change")}`,
+          danger: true,
+          onOk: () => undo([String(r.n)]),
+        });
+      const steps = r.steps
+        .map((x, i) => {
+          const [cls, ico] = x.reverts ? ["fixed", "↩"] : x.undone ? ["undone", "✓"] : x.undo ? ["", "↺"] : ["fixed", "·"];
+          const one = x.undo && !x.undone
+            ? btn("undo", () => confirmDlg({ title: `Undo step ${r.n}.${i + 1}?`, text: x.what, ok: "Undo it", danger: true, onOk: () => undo([`${r.n}.${i + 1}`]) }), "ghost sm")
+            : "";
+          return `<li class="${cls}"><span class="ico">${ico}</span><span class="what">${esc(x.what)}</span>${!x.undo && !x.reverts ? `<span class="faint">(not reversible)</span>` : ""}${x.undone ? `<span class="faint">(undone)</span>` : ""}${one}</li>`;
+        })
+        .join("");
+      return `<div class="run">
+        <div class="top"><b>#${r.n}</b><span class="cmd">${esc(r.cmd || "?")}</span><span class="dim">${esc(ago(r.time))}</span>
+          <span class="faint mono hide-sm">${esc(r.actor)} · ${esc(r.id)}</span>
+          <span class="actions">${r.pending ? btn(`Undo ${plural(r.pending, "change")}`, undoRun, "sm") : `<span class="faint">nothing to undo</span>`}</span></div>
+        <ul class="steps">${steps}</ul></div>`;
+    })
+    .join("");
+  return `
+    <div class="card">
+      <h2>Journal <span class="dim" style="font-weight:400">/opt/srv/journal.log · newest first</span>
+        <span class="actions">${total ? btn("Undo everything", () => confirmDlg({ title: `Undo everything landfall did on ${n}?`, text: `${plural(total, "change")}, newest first. Sites, Traefik, the deploy user and landfall's firewall rules go away.`, ok: "Revert everything", danger: true, onOk: () => undo(["--all"]) }), "sm danger") : ""}</span></h2>
+      ${items}
+    </div>`;
+}
+
+// ---- top level -----------------------------------------------------------
+
+function render() {
+  if (!S.state) return;
+  // Every render re-registers the buttons it draws (dialogs wire their own buttons).
+  handlers = new Map();
+  const scroll = $("#main").scrollTop;
+  renderHeader();
+  renderNav();
+  renderMain();
+  renderJob();
+  $("#main").scrollTop = scroll;
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#dlg").open && S.job) {
+    S.job = null;
+    render();
+  }
+});
+
+(async () => {
+  try {
+    await refreshState();
+    // Jobs started before a reload keep running on the server: list them, and show one still running.
+    for (const info of S.state.jobs.slice().reverse()) {
+      const j = { info, lines: [], actions: [] };
+      S.jobs.set(info.id, j);
+      if (info.code === undefined) stream(j);
+      else {
+        const full = await http(`/api/jobs/${info.id}`);
+        j.lines = full.lines;
+      }
+    }
+    S.job = S.state.jobs.find((j) => j.code === undefined)?.id ?? null;
+    route();
+  } catch (e) {
+    $("#main").innerHTML = `<div class="empty"><h2>lf ui</h2><p>${esc(e.message)}</p></div>`;
+  }
+})();
+</script>
+</body>
+</html>
