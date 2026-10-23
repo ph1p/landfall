@@ -6,8 +6,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import pkg from "../../package.json";
 import { firewallState, type FirewallState } from "../commands/firewall";
 import { loadConfig, loadProject, resolveServer, saveConfig } from "../config";
-import { kindOf } from "../commands/sites";
-import { siteDomains } from "../compose";
+import { isDone, isUp, kindOf, siteDomains } from "../compose";
 import { newestFirst, overview, siteDir, type Overview, type SiteStatus } from "../remote";
 import { pending, readJournal, type Run } from "../journal";
 import { effectiveSsh, sshAliases } from "../sshconfig";
@@ -69,7 +68,6 @@ function errorHint(error: string): string {
   return "Press R to retry.";
 }
 
-const isUp = (status: string) => status.startsWith("Up");
 
 function Dot({ load }: { load?: Load }) {
   if (!load) return <Text dimColor>○</Text>;
@@ -1055,7 +1053,7 @@ function SiteDetail({ s, height }: { s: SiteStatus; height: number }) {
       {s.services.map((v) => (
         <Text key={v.container}>
           {"  "}
-          {v.service} <Text color={isUp(v.status) ? "green" : /^exited \(0\)/i.test(v.status) ? undefined : "red"} dimColor={/^exited \(0\)/i.test(v.status)}>{v.status}</Text>
+          {v.service} <Text color={isUp(v.status) ? "green" : isDone(v.status) ? undefined : "red"} dimColor={isDone(v.status)}>{v.status}</Text>
         </Text>
       ))}
       {!s.services.length && <Text dimColor>  none running</Text>}

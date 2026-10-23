@@ -320,20 +320,23 @@ set +e
 P=${PROXY_CTR}
 img() { # img <kind> <name> <container> <dir> [service]
   svc=; [ $# -lt 5 ] || svc=$5
-  ref=$(docker inspect -f '{{.Config.Image}}' "$3" 2>/dev/null) || { printf 'IMG\t%s\t%s\t%s\t%s\t%s\t\t\n' "$1" "$2" "$3" "$4" "$svc"; return 0; }
-  id=$(docker inspect -f '{{.Image}}' "$3" 2>/dev/null)
+  x=$(docker inspect -f '{{.Config.Image}} {{.Image}}' "$3" 2>/dev/null) || { printf 'IMG\t%s\t%s\t%s\t%s\t%s\t\t\n' "$1" "$2" "$3" "$4" "$svc"; return 0; }
+  read -r ref id <<EOF
+$x
+EOF
   printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$svc" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)"
 }
 if [ "$P" = traefik ] && grep -q "managed by landfall" ${TRAEFIK_DIR}/docker-compose.yml 2>/dev/null; then img traefik traefik traefik ${TRAEFIK_DIR}
 else img proxy "$P" "$P" ""; fi
+# All containers at once: <name> <service> <project>, the last two empty outside Compose.
+PS=$(docker ps -a --format '{{.Names}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.project"}}' 2>/dev/null)
 for f in ${SITES}/*/site.json; do
   [ -f "$f" ] || continue
   d=$(dirname "$f"); n=$(basename "$d")
   # Sites of landfall before Compose sites: one container, its compose file next to site.json.
   if ! grep -q '"v": *2' "$f"; then img site "$n" "landfall-$n" "$d"; continue; fi
   p=$(sed -n 's/^ *"project": *"\([^"]*\)".*/\1/p' "$f"); [ -n "$p" ] || p=$n
-  docker ps -a --filter "label=com.docker.compose.project=$p" --format '{{.Names}} {{.Label "com.docker.compose.service"}}' 2>/dev/null |
-    while read -r c svc; do img site "$n" "$c" "$d/current" "$svc"; done
+  printf '%s\n' "$PS" | while read -r c svc pr; do [ "$pr" != "$p" ] || img site "$n" "$c" "$d/current" "$svc"; done
 done
 exit 0
 `;
@@ -355,7 +358,7 @@ export async function imageStatus(s: Server): Promise<ImageStatus[]> {
   };
   return Promise.all(
     rows.map(async ([, kind, name, ctr, dir, service = "", ref = "", local = ""]): Promise<ImageStatus> => {
-      const base = { name, container: ctr, dir, ref, ...(service ? { service } : {}) };
+      const base = { name, container: ctr, dir, ref, service: service || undefined };
       // Tagged per release by landfall's override: <site>-<service>:<release id>.
       if (kind === "site" && ref.startsWith(`${name}-`) && /:\d{14}$/.test(ref)) return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
       if (!ref) return { ...base, kind: kind as ImageStatus["kind"], state: "missing", note: "no container" };

@@ -4,14 +4,18 @@ import {
   builtImage,
   COMPOSE_FILES,
   currentRelease,
+  isDone,
   isOld,
-  mainService,
+  isUp,
+  oldProject,
   OVERRIDE_FILES,
   overrideYaml,
   projectName,
   routed,
+  ROUTER_RULE,
   ruleHosts,
   siteDomains,
+  siteMain,
   type Release,
   type SiteMeta,
 } from "./compose";
@@ -109,8 +113,6 @@ export interface External {
   files?: string;
 }
 
-export { ruleHosts };
-
 /**
  * Group containers that carry Traefik router rules by compose project. Skips landfall's own
  * sites (and srv's, before the migration), projects landfall adopted, the proxy itself, and
@@ -128,7 +130,7 @@ export function externals(
     const project = labels["com.docker.compose.project"];
     if (project && sites.has(project)) continue;
     const hosts = Object.entries(labels)
-      .filter(([k]) => /^traefik\.http\.routers\.[^.]+\.rule$/.test(k))
+      .filter(([k]) => ROUTER_RULE.test(k))
       .flatMap(([, v]) => ruleHosts(v));
     if (!hosts.length) continue;
     const key = project || name;
@@ -138,19 +140,17 @@ export function externals(
       status: "",
       containers: [],
       dir: labels["com.docker.compose.project.working_dir"],
-      ...(labels["com.docker.compose.project.config_files"] ? { files: labels["com.docker.compose.project.config_files"] } : {}),
+      files: labels["com.docker.compose.project.config_files"],
     };
     e.domains = [...new Set([...e.domains, ...hosts])];
     e.containers.push(name);
     const st = status.get(name) ?? "not running";
     // A group is up only if all its routed containers are.
-    if (!e.status || !/^up/i.test(st)) e.status = st;
+    if (!e.status || !isUp(st)) e.status = st;
     out.set(key, e);
   }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
-
-const isUp = (st: string) => /^up/i.test(st);
 
 /**
  * One status for a site: the first routed service that is not up, else any other service that
@@ -158,15 +158,15 @@ const isUp = (st: string) => /^up/i.test(st);
  */
 export function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
   if (!services.length) return "not running";
-  const r = isOld(meta) ? undefined : currentRelease(meta);
+  const r = currentRelease(meta);
   const names = new Set(r?.services.filter(routed).map((s) => s.name));
   const main = services.filter((s) => names.has(s.service));
-  const bad = main.find((s) => !isUp(s.status)) ?? services.find((s) => !names.has(s.service) && !isUp(s.status) && !/^exited \(0\)/i.test(s.status));
+  const bad = main.find((s) => !isUp(s.status)) ?? services.find((s) => !names.has(s.service) && !isUp(s.status) && !isDone(s.status));
   return (bad ?? main[0] ?? services[0]).status;
 }
 
 /** Compose project of a site; sites of landfall before Compose sites ran as landfall-<name>. */
-const siteProject = (meta: SiteMeta) => (isOld(meta) ? `landfall-${meta.name}` : projectName(meta));
+const siteProject = (meta: SiteMeta) => (isOld(meta) ? oldProject(meta.name) : projectName(meta));
 
 export async function overview(s: Server): Promise<Overview> {
   const { stdout } = await runScript(
@@ -214,8 +214,7 @@ ids=$(docker ps -aq 2>/dev/null || true)
   o.others = externals(labeled, status, o.proxy, new Set(metas.map(siteProject)));
   o.sites = metas.map((meta) => {
     const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
-    const main = isOld(meta) || meta.adopted ? undefined : mainService(currentRelease(meta))?.name;
-    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), ...(main ? { main } : {}) };
+    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name };
   });
   return o;
 }
@@ -223,8 +222,8 @@ ids=$(docker ps -aq 2>/dev/null || true)
 /**
  * Round trip after the upload: give the release its .env link and one compose.yaml (renamed
  * from `file`, or `generated`), drop override files (landfall writes its own), and return
- * the release's real path and its `docker compose config`. A config that fails removes the
- * release again, and the site's folder if this made it.
+ * the release's real path and its `docker compose config`. On failure the caller discards
+ * the release (discardRelease).
  */
 export async function prepareRelease(
   s: Server,
@@ -239,7 +238,6 @@ export async function prepareRelease(
     PRELUDE,
     // Older compose cannot read the optional env_file of generated sites or `up --wait`.
     `v=$(dc version --short 2>/dev/null | sed 's/^v//'); case "$v" in 2.2[4-9]*|2.[3-9][0-9]*|[3-9]*) ;; *) echo "sites need docker compose 2.24 or newer, the server has \${v:-none}: run lf update --compose" >&2; exit 1 ;; esac`,
-    `[ -d ${shq(site)} ] || new=1`,
     `mkdir -p ${shq(rel)} && cd -P ${shq(rel)}`,
     `[ -e ../../.env ] || { touch ../../.env && chmod 600 ../../.env; }`,
     "ln -sfn ../../.env .env",
@@ -249,9 +247,7 @@ export async function prepareRelease(
     // The .env this deploy is about to write, so a first deploy can set what compose.yaml requires.
     ...(o.env !== undefined ? [writeFileCmd(".env.next", o.env, "600")] : []),
     `[ -f compose.yaml ] || { echo "no compose.yaml in the upload" >&2; cfg=; false; } && cfg=$(dc ${o.env !== undefined ? "--env-file .env.next " : ""}-f compose.yaml config 2>&1) || {`,
-    `  printf '%s\\n' "$cfg" >&2; cd /`,
-    `  if [ -n "\${new:-}" ]; then rm -rf ${shq(site)}; else rm -rf ${shq(rel)}; fi`,
-    "  exit 1",
+    `  printf '%s\\n' "$cfg" >&2; exit 1`,
     "}",
     "rm -f .env.next",
     `pwd -P; printf %s ${shq(SEP)}; printf '%s\\n' "$cfg"`,
@@ -350,11 +346,11 @@ const dropRelease = (meta: SiteMeta, r: Release) => [
 /** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
 function takeoverLines(old: SiteMeta): string[] {
   const dir = siteDir(old.name);
-  const images = (old.releases as any[]).map((r) => r.image).filter((i) => old.kind === "dockerfile" && i);
+  const images = old.kind === "dockerfile" ? (old.releases as any[]).map((r) => r.image).filter(Boolean) : [];
   return [
     `cd ${shq(dir)}`,
     `log "removing the old container of ${old.name}"`,
-    `dc -p ${shq(`landfall-${old.name}`)} down --remove-orphans >/dev/null 2>&1 || docker rm -f ${shq(`landfall-${old.name}`)} >/dev/null 2>&1 || true`,
+    `dc -p ${shq(oldProject(old.name))} down --remove-orphans >/dev/null 2>&1 || docker rm -f ${shq(oldProject(old.name))} >/dev/null 2>&1 || true`,
     `rm -f docker-compose.yml nginx.conf`,
     ...old.releases.map((r) => `rm -rf ${shq("releases/" + r.id)}`),
     ...images.map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),

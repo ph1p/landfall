@@ -1,9 +1,10 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { loadProject, resolveServer } from "../config";
-import { COMPOSE_FILES, isOld, OVERRIDE_FILES, siteDomains, type SiteMeta } from "../compose";
+import { COMPOSE_FILES, isDone, isOld, isUp, kindOf, OVERRIDE_FILES, projectName, siteDomains, type SiteMeta } from "../compose";
 import { adoptSite, applySite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
+import { slug } from "../projects";
 import { logOpts } from "./traefik";
 
 /** Site + server from args, falling back to ./.landfall.json. */
@@ -14,10 +15,7 @@ export function target(name: string | undefined, server: string | undefined) {
   return { site: site!, ...resolveServer(server ?? project?.server) };
 }
 
-const paint = (status: string) => (status.startsWith("Up") ? c.green(status) : /^exited \(0\)/i.test(status) ? c.dim(status) : c.red(status));
-
-/** compose, static, … ; adopted, or deployed by landfall before Compose sites. */
-export const kindOf = (meta: { kind: string; adopted?: string; v?: number }) => (meta.adopted ? "adopted" : isOld(meta) ? `${meta.kind} (old)` : meta.kind);
+const paint = (status: string) => (isUp(status) ? c.green(status) : isDone(status) ? c.dim(status) : c.red(status));
 
 export const sitesList = defineCommand({
   name: "sites list",
@@ -62,8 +60,10 @@ export const sitesInfo = defineCommand({
   options: { server: serverOpt },
   async run([n], o) {
     const { site, server } = target(n, o.server);
-    const { meta } = await requireSite(server, site);
+    // One round trip: the overview has the site's meta and its containers.
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
+    if (!st) fail(`no site "${site}" on ${server.host}. See \`lf sites list\``);
+    const meta = st!.meta;
     console.log(`${c.bold(meta.name)}  ${kindOf(meta)}  ${paint(st?.status ?? "not running")}`);
     for (const d of siteDomains(meta)) console.log(`  ${c.cyan("https://" + d)}`);
     console.log(c.dim(`  ${meta.adopted ?? siteDir(site) + "/current"}  (docker compose works there)`));
@@ -71,7 +71,8 @@ export const sitesInfo = defineCommand({
       console.log(`\n${c.bold("Services")}`);
       table(st.services.map((x) => [`  ${x.service}`, c.dim(x.container), paint(x.status)]));
     }
-    if (!meta.releases.length) return;
+    // Sites of the old layout list no services per release.
+    if (!meta.releases.length || isOld(meta)) return;
     console.log(`\n${c.bold("Releases")}`);
     for (const r of newestFirst(meta)) {
       const mark = r.id === meta.current ? c.green("● ") : "  ";
@@ -155,12 +156,12 @@ stops it and forgets it again. The projects you can adopt are listed under \`lf 
     const ov = await overview(server);
     const ext = ov.others.find((e) => e.name === project);
     if (!ext) {
-      const known = ov.sites.find((x) => (x.meta.project ?? x.meta.name) === project);
+      const known = ov.sites.find((x) => projectName(x.meta) === project);
       fail(known ? `${project} is already the site ${known.meta.name}` : `no Compose project "${project}" with Traefik routes on ${name}. See \`lf sites\``);
     }
     const e = ext!;
     if (!e.dir) fail(`${project} is a single container, not a Compose project: only Compose projects can be adopted`);
-    const site = validName(o.name ?? project.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, ""));
+    const site = validName(o.name ?? slug(project));
     if (ov.sites.some((x) => x.meta.name === site)) fail(`there is a site "${site}" already: pick another name with --name`);
     // Commands run `docker compose` in its folder, which finds only the standard file names.
     const defaults = new Set([...COMPOSE_FILES, ...OVERRIDE_FILES].map((f) => `${e.dir}/${f}`));
