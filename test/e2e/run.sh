@@ -94,7 +94,8 @@ expect site.test / v1
 # A host no site serves has no certificate: the handshake fails, no 404 and no wrong certificate.
 [ "$(code nope.invalid)" = 000 ] || die "unknown host answered"; pass "unknown host fails the handshake"
 { lf ls | has site; } || die "sites list shows site"; pass "sites list shows site"
-lf deploy -d 'site.test`)' -y >/dev/null 2>&1 && die "deploy accepts a bad domain"
+out=$(lf deploy -d 'site.test`)' -y 2>&1) && die "deploy accepts a bad domain"
+echo "$out" | has uploading && die "deploy uploads before checking the domain"
 lf deploy --keep abc -y >/dev/null 2>&1 && die "deploy accepts --keep abc"
 pass "deploy rejects bad input"
 

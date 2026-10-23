@@ -68,6 +68,9 @@ so \`docker compose\` works there without landfall. Settings are saved to
     const { name: serverName, server } = resolveServer(o.server ?? project.server);
     const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
     const keep = checkInt(o.keep, "--keep", 1);
+    // Domains given up front fail on a typo before the build and the upload.
+    const typos = (o.domain?.length ? o.domain : (project.domains ?? [])).map((d: string) => expandDomain(d, server)).filter((d: string) => !DOMAIN.test(d));
+    if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
 
     const buildCmd: string | undefined = o.build ?? project.build;
     if (buildCmd) {
