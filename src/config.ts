@@ -32,9 +32,18 @@ export interface Config {
   servers: Record<string, Server>;
 }
 
-export const configDir =
-  process.env.SRV_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "srv");
+/** $LANDFALL_<name>, or $SRV_<name> from when landfall was called srv. */
+export const envVar = (name: string) => process.env[`LANDFALL_${name}`] ?? process.env[`SRV_${name}`];
+
+const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+export const configDir = envVar("CONFIG_DIR") ?? join(configHome, "landfall");
 export const CONFIG_PATH = join(configDir, "config.json");
+
+// ~/.config/srv is where landfall kept its config when it was called srv.
+{
+  const old = join(configHome, "srv");
+  if (!envVar("CONFIG_DIR") && !fs.existsSync(configDir) && fs.existsSync(join(old, "config.json"))) fs.renameSync(old, configDir);
+}
 
 export const expandHome = (p: string) => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
@@ -96,7 +105,7 @@ export const IMAGE = /^[a-z0-9][a-z0-9._\-/:@]*$/i;
 
 export const checkImage = (image: string) => (IMAGE.test(image) ? image : fail(`not an image: ${image}`));
 
-/** A whole number from a flag or srv.json, within [min, max]; fails otherwise. */
+/** A whole number from a flag or .landfall.json, within [min, max]; fails otherwise. */
 export function checkInt(v: unknown, what: string, min: number, max = Number.MAX_SAFE_INTEGER): number {
   const n = typeof v === "number" ? v : /^\s*\d+\s*$/.test(String(v)) ? Number(v) : NaN;
   if (!Number.isInteger(n) || n < min || n > max) fail(`${what} must be a whole number from ${min}${max < Number.MAX_SAFE_INTEGER ? ` to ${max}` : " up"}, got ${v}`);
@@ -138,7 +147,9 @@ export function guessDomains(hosts: string[]): { domain: string; hosts: number }
 }
 
 /** Project file that remembers how a directory was deployed, so `lf deploy` alone redeploys. */
-export const PROJECT_FILE = "srv.json";
+export const PROJECT_FILE = ".landfall.json";
+/** Its name from when landfall was called srv: still read, renamed on the next save. */
+export const OLD_PROJECT_FILE = "srv.json";
 
 export interface ProjectConfig {
   name: string;
@@ -152,9 +163,15 @@ export interface ProjectConfig {
   build?: string;
 }
 
+/** The project file in a directory: .landfall.json, or an older srv.json. */
+export const projectFile = (cwd: string) => {
+  const file = join(cwd, PROJECT_FILE);
+  return fs.existsSync(file) || !fs.existsSync(join(cwd, OLD_PROJECT_FILE)) ? file : join(cwd, OLD_PROJECT_FILE);
+};
+
 export function loadProject(cwd: string): ProjectConfig | undefined {
   try {
-    return JSON.parse(fs.readFileSync(join(cwd, PROJECT_FILE), "utf8"));
+    return JSON.parse(fs.readFileSync(projectFile(cwd), "utf8"));
   } catch {
     return undefined;
   }
@@ -162,4 +179,5 @@ export function loadProject(cwd: string): ProjectConfig | undefined {
 
 export function saveProject(cwd: string, p: ProjectConfig) {
   fs.writeFileSync(join(cwd, PROJECT_FILE), JSON.stringify(p, null, 2) + "\n");
+  fs.rmSync(join(cwd, OLD_PROJECT_FILE), { force: true });
 }

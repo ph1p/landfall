@@ -2,11 +2,11 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { expandHome, type Server } from "./config";
+import { envVar, expandHome, type Server } from "./config";
 import { dest, targetArgs } from "./ssh";
 import { fail } from "./ui";
 
-export const SSH_CONFIG = process.env.SRV_SSH_CONFIG ?? join(homedir(), ".ssh", "config");
+export const SSH_CONFIG = envVar("SSH_CONFIG") ?? join(homedir(), ".ssh", "config");
 
 export interface EffectiveSsh {
   hostname: string;
@@ -70,7 +70,11 @@ function glob(pattern: string): string[] {
   return fs.globSync(basename(pattern), { cwd: dir }).map((f) => join(dir, f));
 }
 
-const markers = (alias: string) => [`# >>> srv:${alias}`, `# <<< srv:${alias}`] as const;
+const markers = (alias: string) => [`# >>> landfall:${alias}`, `# <<< landfall:${alias}`] as const;
+/** A managed block, also one written as `srv:` (landfall's old name). */
+const blockRe = (alias: string, trail: string) =>
+  new RegExp(`# >>> (?:landfall|srv):${escapeRe(alias)}\\n[\\s\\S]*?# <<< (?:landfall|srv):${escapeRe(alias)}${trail}`);
+const isStart = (line: string | undefined, alias: string) => line === `# >>> landfall:${alias}` || line === `# >>> srv:${alias}`;
 
 export interface HostBlock {
   alias: string;
@@ -96,15 +100,14 @@ export function renderHostBlock(b: HostBlock): string {
 }
 
 /**
- * Insert or replace a srv-managed Host block. Blocks go at the top so they take
+ * Insert or replace a landfall-managed Host block. Blocks go at the top so they take
  * precedence over any `Host *` defaults further down (ssh uses first match).
  */
 export function upsertHostBlock(b: HostBlock, file = SSH_CONFIG): { created: boolean; block: string } {
-  const [start, end] = markers(b.alias);
   const created = !fs.existsSync(file);
   const current = created ? "" : fs.readFileSync(file, "utf8");
   const block = renderHostBlock(b);
-  const re = new RegExp(`${escapeRe(start)}[\\s\\S]*?${escapeRe(end)}\\n?`);
+  const re = blockRe(b.alias, "\\n?");
   const next = re.test(current) ? current.replace(re, block + "\n") : `${block}\n\n${current}`;
   fs.mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, next, { mode: 0o600 });
@@ -132,10 +135,10 @@ export function findHostBlock(alias: string, file = SSH_CONFIG, seen = new Set<s
     const key = m[1].toLowerCase();
     if (key === "host" && m[2].split(/\s+/).includes(alias)) {
       let end = i + 1;
-      while (end < lines.length && !/^\s*(host|match)\b/i.test(lines[end]) && !lines[end].startsWith("# <<< srv:")) end++;
+      while (end < lines.length && !/^\s*(host|match)\b/i.test(lines[end]) && !/^# <<< (landfall|srv):/.test(lines[end])) end++;
       // Trailing blank lines and comments belong to whatever follows.
       while (end > i + 1 && /^\s*(#.*)?$/.test(lines[end - 1])) end--;
-      return { file, start: i, end, lines: lines.slice(i, end), managed: lines[i - 1] === markers(alias)[0] };
+      return { file, start: i, end, lines: lines.slice(i, end), managed: isStart(lines[i - 1], alias) };
     }
     if (key === "include") {
       for (const pattern of m[2].split(/\s+/)) {
@@ -160,7 +163,7 @@ export interface KeyEdit {
 /**
  * Point the user's own `Host <alias>` block at a key: IdentityFile lines whose
  * file is gone are dropped, the key goes first (ssh tries them in order).
- * The file is backed up to <file>.srv-bak before the first edit.
+ * The file is backed up to <file>.landfall-bak before the first edit.
  */
 export function setIdentityFile(alias: string, key: string): KeyEdit | undefined {
   const b = findHostBlock(alias);
@@ -176,7 +179,7 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
   const added = `${indent}IdentityFile ${key}`;
   const kept = block.filter((l) => !removed.includes(l));
   lines.splice(b.start + 1, block.length, added, ...kept);
-  const backup = `${b.file}.srv-bak`;
+  const backup = `${b.file}.landfall-bak`;
   if (!fs.existsSync(backup)) fs.copyFileSync(b.file, backup);
   fs.writeFileSync(b.file, lines.join("\n"));
   resolved.clear();
@@ -185,15 +188,14 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
 
 export function removeHostBlock(alias: string, file = SSH_CONFIG): boolean {
   if (!fs.existsSync(file)) return false;
-  const [start, end] = markers(alias);
   const current = fs.readFileSync(file, "utf8");
-  const re = new RegExp(`${escapeRe(start)}[\\s\\S]*?${escapeRe(end)}\\n*`);
+  const re = blockRe(alias, "\\n*");
   if (!re.test(current)) return false;
   fs.writeFileSync(file, current.replace(re, ""));
   return true;
 }
 
 export const hasManagedBlock = (alias: string, file = SSH_CONFIG) =>
-  fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(markers(alias)[0]);
+  fs.existsSync(file) && fs.readFileSync(file, "utf8").split("\n").some((l) => isStart(l, alias));
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

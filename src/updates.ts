@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { canLogin, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { COMPOSE_INSTALL, COMPOSE_PLUGIN, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
+import { COMPOSE_INSTALL, COMPOSE_PLUGIN, container, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 import { fail } from "./ui";
 
 /** The login that may run root commands: the server's own if it is root or has sudo, else root's key login. */
@@ -321,13 +321,13 @@ img() { # img <kind> <name> <container> <dir>
   id=$(docker inspect -f '{{.Image}}' "$3" 2>/dev/null)
   printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)"
 }
-if [ "$P" = traefik ] && grep -q "managed by srv" ${TRAEFIK_DIR}/docker-compose.yml 2>/dev/null; then img traefik traefik traefik ${TRAEFIK_DIR}
+if [ "$P" = traefik ] && grep -q "managed by landfall" ${TRAEFIK_DIR}/docker-compose.yml 2>/dev/null; then img traefik traefik traefik ${TRAEFIK_DIR}
 else img proxy "$P" "$P" ""; fi
 for f in ${SITES}/*/site.json; do
   [ -f "$f" ] || continue
   d=$(dirname "$f"); n=$(basename "$d")
-  if grep -q '"kind": *"dockerfile"' "$f"; then printf 'IMG\tbuilt\t%s\tsrv-%s\t%s\t\t\n' "$n" "$n" "$d"; continue; fi
-  img site "$n" "srv-$n" "$d"
+  if grep -q '"kind": *"dockerfile"' "$f"; then printf 'IMG\tbuilt\t%s\t${container("%s")}\t%s\t\t\n' "$n" "$n" "$d"; continue; fi
+  img site "$n" "${container("$n")}" "$d"
 done
 exit 0
 `;

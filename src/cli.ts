@@ -138,7 +138,7 @@ function help() {
     `  lf setup vps                                         ${c.dim("# docker + traefik on a server you reach with `ssh vps`")}`,
     `  lf setup box --host 203.0.113.7                      ${c.dim("# fresh box (root password once) → `ssh box` works")}`,
     `  lf deploy ./dist -d example.com -s vps               ${c.dim("# publish a static site with HTTPS")}`,
-    `  lf deploy                                            ${c.dim("# redeploy using ./srv.json")}`,
+    `  lf deploy                                            ${c.dim("# redeploy using ./.landfall.json")}`,
     `  lf deploy ./dist -y                                  ${c.dim("# no domain yet: serve at <name>.<ip>.sslip.io")}`,
     `  lf auth my-site --user anna                          ${c.dim("# put a password in front of a site")}`,
     `  lf updates -s vps && lf update -s vps                ${c.dim("# pending OS/image updates, then apply them")}`,

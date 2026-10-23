@@ -8,20 +8,20 @@ import { detectStaticDir, nextReleaseId, releaseId, slug } from "../../src/comma
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
 import { journalCmd } from "../../src/cmd";
-import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, withPrimary } from "../../src/config";
+import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
 import { findRun, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
 import { mergeEnv, parseEnvPairs } from "../../src/remote";
 import { shq, writeFileCmd } from "../../src/ssh";
-import { removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
+import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
 import { isPublic4, parseFacts, pickIp, sslipDomain, support } from "../../src/facts";
 import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
-import { DEFAULT_TRAEFIK_IMAGE, nginxConf, parseProxy, proxyFile, siteCompose, traefikCompose, traefikLabels, type SiteMeta } from "../../src/templates";
+import { DEFAULT_TRAEFIK_IMAGE, MIGRATED, nginxConf, parseProxy, proxyFile, siteCompose, traefikCompose, traefikLabels, type SiteMeta } from "../../src/templates";
 
-const tmp = () => fs.mkdtempSync(join(tmpdir(), "srv-test-"));
+const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
 describe("shell quoting", () => {
   test("shq survives single quotes", async () => {
@@ -95,15 +95,15 @@ describe("templates", () => {
 
   test("labels route all domains over TLS", () => {
     const l = traefikLabels("blog", meta.domains, 80);
-    expect(l).toContain("traefik.http.routers.srv-blog.rule=Host(`a.com`) || Host(`www.a.com`)");
-    expect(l).toContain("traefik.http.routers.srv-blog.tls.certresolver=le");
+    expect(l).toContain("traefik.http.routers.landfall-blog.rule=Host(`a.com`) || Host(`www.a.com`)");
+    expect(l).toContain("traefik.http.routers.landfall-blog.tls.certresolver=le");
   });
 
   test("site labels follow the proxy", () => {
     const p = { container: "x", network: "proxy", entrypoint: "https", resolver: "acme" };
     expect(parseProxy(proxyFile(p))).toEqual(p);
     const y = siteCompose(meta, p);
-    expect(y).toContain('"traefik.http.routers.srv-blog.tls.certresolver=acme"');
+    expect(y).toContain('"traefik.http.routers.landfall-blog.tls.certresolver=acme"');
     expect(y).toContain("  proxy:\n    external: true");
   });
 
@@ -158,12 +158,25 @@ describe("ssh config", () => {
     upsertHostBlock(b, f);
     upsertHostBlock({ ...b, hostname: "9.9.9.9" }, f);
     const text = fs.readFileSync(f, "utf8");
-    expect(text.match(/srv:vps/g)?.length).toBe(2);
+    expect(text.match(/landfall:vps/g)?.length).toBe(2);
     expect(text.indexOf("Host vps")).toBeLessThan(text.indexOf("Host *"));
     expect(text).toContain("HostName 9.9.9.9");
     expect(sshAliases(f).sort()).toEqual(["vps", "mine"]);
     expect(removeHostBlock("vps", f)).toBe(true);
     expect(fs.readFileSync(f, "utf8")).toBe("Host mine\n  HostName 1.2.3.4\n\nHost *\n  ServerAliveInterval 30\n");
+  });
+
+  test("blocks written as srv: (landfall's old name) are still managed", () => {
+    const f = join(tmp(), "config");
+    const old = "# >>> srv:vps\nHost vps\n  HostName 1.1.1.1\n# <<< srv:vps\n\nHost hetzner\n  User x\n";
+    fs.writeFileSync(f, old);
+    expect(hasManagedBlock("vps", f)).toBe(true);
+    expect(hasManagedBlock("hetzner", f)).toBe(false);
+    upsertHostBlock({ alias: "vps", hostname: "2.2.2.2", user: "u", port: 22, key: "/k" }, f);
+    const text = fs.readFileSync(f, "utf8");
+    expect(text).not.toContain("srv:vps");
+    expect(text).toContain("# >>> landfall:vps\nHost vps\n  HostName 2.2.2.2");
+    expect(text).toContain("Host hetzner");
   });
 
   test("non-default port rendered", () => {
@@ -212,13 +225,13 @@ describe("server inventory", () => {
   test("own traefik on the host network listening on 80/443 is done, not a conflict", () => {
     const own = [
       fresh,
-      "traefik_compose=srv",
-      "traefik_container=running /opt/srv/traefik",
+      "traefik_compose=landfall",
+      "traefik_container=running /opt/landfall/traefik",
       'listen=tcp 0.0.0.0:80 users:(("traefik",pid=7,fd=3))',
       'listen=tcp 0.0.0.0:443 users:(("traefik",pid=7,fd=4))',
     ].join("\n");
     expect(status(own).traefik).toBe("done");
-    expect(status(own.replace("/opt/srv/traefik", "/elsewhere")).traefik).toBe("conflict");
+    expect(status(own.replace("/opt/landfall/traefik", "/elsewhere")).traefik).toBe("conflict");
   });
 
   test("parses ss and netstat listeners", () => {
@@ -283,7 +296,7 @@ describe("server inventory", () => {
   });
 
   test("own running traefik is done, foreign container conflicts", () => {
-    const ours = `${fresh}\ntraefik_compose=landfall\ntraefik_container=running /opt/srv/traefik\npublish_80=traefik \nlisten=0.0.0.0:80 5/docker-proxy`;
+    const ours = `${fresh}\ntraefik_compose=landfall\ntraefik_container=running /opt/landfall/traefik\npublish_80=traefik \nlisten=0.0.0.0:80 5/docker-proxy`;
     expect(status(ours).traefik).toBe("done");
     expect(status(`${fresh}\ntraefik_container=running /home/me/proxy`).traefik).toBe("conflict");
     expect(status(`${fresh}\npublish_443=caddy `).traefik).toBe("conflict");
@@ -328,8 +341,8 @@ describe("server inventory", () => {
       "user_key=1",
       "ufw=active",
       "hardened=1",
-      "traefik_compose=srv",
-      "traefik_container=running /opt/srv/traefik",
+      "traefik_compose=landfall",
+      "traefik_container=running /opt/landfall/traefik",
     ].join("\n");
     expect(new Set(Object.values(status(done)))).toEqual(new Set(["done"]));
     expect(status(done, { ...want, firewall: false }).firewall).toBe("off");
@@ -429,6 +442,12 @@ describe("journal", () => {
     expect(findRun(runs, "a").steps.length).toBe(2);
     expect(findRun(runs, "1.2").steps.map((s) => s.what)).toEqual(["installed docker"]);
   });
+
+  test("steps before the move from srv cannot be undone, later ones can", () => {
+    const runs = parseJournal([text, line("d", "do", MIGRATED), line("e", "do", "ufw allow 8000", b64("ufw delete allow 8000"))].join("\n"));
+    expect(runs.slice(0, 4).flatMap(pending)).toEqual([]);
+    expect(pending(runs[4]).map((s) => s.undo)).toEqual(["ufw delete allow 8000"]);
+  });
 });
 
 test("journalCmd keeps flags but not defaults or secrets", () => {
@@ -499,8 +518,8 @@ describe("folders and access", () => {
   });
   test("basic auth labels", () => {
     const l = traefikLabels("blog", ["blog.test"], 80, undefined, ["bob:$apr1$x"]);
-    expect(l).toContain("traefik.http.middlewares.srv-blog-auth.basicauth.users=bob:$apr1$x");
-    expect(l).toContain("traefik.http.routers.srv-blog.middlewares=srv-blog-auth");
+    expect(l).toContain("traefik.http.middlewares.landfall-blog-auth.basicauth.users=bob:$apr1$x");
+    expect(l).toContain("traefik.http.routers.landfall-blog.middlewares=landfall-blog-auth");
     expect(traefikLabels("blog", ["blog.test"], 80).some((x) => x.includes("basicauth"))).toBe(false);
   });
   test("which dashboard commands change a server", () => {
@@ -537,6 +556,15 @@ describe("versions", () => {
     expect(engineNotes({ ...e, docker: "26.1.5" }).dockerNote).toContain("29.9.2 is current");
     expect(engineNotes({ ...e, latestDocker: undefined, latestCompose: undefined })).toMatchObject({ dockerNote: undefined, composeNote: undefined, composeUpdate: false });
   });
+});
+
+test("srv.json (the old project file) is read, and replaced by .landfall.json on save", () => {
+  const d = tmp();
+  fs.writeFileSync(join(d, "srv.json"), JSON.stringify({ name: "blog", domains: ["a.com"] }));
+  expect(loadProject(d)?.name).toBe("blog");
+  saveProject(d, { name: "blog", domains: ["b.com"] });
+  expect(fs.readdirSync(d)).toEqual([".landfall.json"]);
+  expect(loadProject(d)?.domains).toEqual(["b.com"]);
 });
 
 describe("main domains", () => {

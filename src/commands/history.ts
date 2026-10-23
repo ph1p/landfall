@@ -61,7 +61,7 @@ export const historyLog = defineCommand({
       r.steps.forEach((x, i) => console.log(stepLine(x, i)));
     }
     const open = runs.find((r) => pending(r).length);
-    if (open) console.log(c.dim(`\nsrv undo reverts #${open.n}; lf undo <n> picks a run, <n>.<step> one step`));
+    if (open) console.log(c.dim(`\nlf undo reverts #${open.n}; lf undo <n> picks a run, <n>.<step> one step`));
   },
 });
 

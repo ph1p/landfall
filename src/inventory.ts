@@ -1,6 +1,6 @@
 import type { Server } from "./config";
 import { runScript } from "./ssh";
-import { parseProxy, PRELUDE, PROBE, TRAEFIK_DIR, type Proxy } from "./templates";
+import { parseProxy, PRELUDE, PROBE, ROOT, TRAEFIK_DIR, type Proxy } from "./templates";
 import { cmpVersion } from "./updates";
 import { c, info } from "./ui";
 
@@ -51,8 +51,8 @@ export function parseProbe(out: string): Probe {
   return p;
 }
 
-export async function probeServer(s: Server, env: { PUBKEY?: string; DEPLOY_USER?: string } = {}): Promise<Probe> {
-  const { stdout } = await runScript(s, PRELUDE + PROBE, { env: { PUBKEY: env.PUBKEY ?? "", DEPLOY_USER: env.DEPLOY_USER ?? "" }, capture: true });
+export async function probeServer(s: Server, env: { PUBKEY?: string; DEPLOY_USER?: string } = {}, oldLayout = false): Promise<Probe> {
+  const { stdout } = await runScript(s, PRELUDE + PROBE, { env: { PUBKEY: env.PUBKEY ?? "", DEPLOY_USER: env.DEPLOY_USER ?? "" }, capture: true, oldLayout });
   return parseProbe(stdout);
 }
 
@@ -258,7 +258,7 @@ export function assess(p: Probe, w: Wanted): Check[] {
   const layout = v.root_dir === "1" && v.network === "1";
   const sites = Number(v.sites || 0);
   checks.push(
-    check("layout", "/opt/srv", layout ? "done" : "todo", layout ? `${sites} site${sites === 1 ? "" : "s"} (never touched by setup)` : "create dir and network"),
+    check("layout", ROOT, layout ? "done" : "todo", layout ? `${sites} site${sites === 1 ? "" : "s"} (never touched by setup)` : "create dir and network"),
   );
 
   if (w.deployUser) {

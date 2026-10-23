@@ -9,7 +9,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 ```
 
 - **Servers are ssh targets.** Any `~/.ssh/config` alias works. If `ssh vps` works, `lf deploy -s vps` works.
-- **No agent on the server.** Everything is plain Docker Compose under `/opt/srv`, so you can read and fix it by hand.
+- **No agent on the server.** Everything is plain Docker Compose under `/opt/landfall`, so you can read and fix it by hand.
 - **Every change is journaled** on the server and can be undone with `lf undo`.
 - **Three ways in:** plain commands for scripts, CI and agents; a web dashboard (`lf`); a terminal dashboard (`lf tui`).
 
@@ -50,16 +50,16 @@ lf <command> --help          # every option of one command
 | term | meaning |
 |---|---|
 | **server** | An ssh target: a `~/.ssh/config` alias, or one landfall registered with `lf server add`/`lf setup`. Pass it as `-s <name>`. The first server you add becomes the default. |
-| **site** | One deployed thing on a server: a static folder, a Dockerfile app or a prebuilt image. It runs as container `srv-<name>` and Traefik routes its domains to it. |
-| **project file** | `./srv.json`, written by the first `lf deploy`: `{ "name", "server", "domains" }`. Commands that take `[name]` default to this site, and `-s` defaults to its server. |
+| **site** | One deployed thing on a server: a static folder, a Dockerfile app or a prebuilt image. It runs as container `landfall-<name>` and Traefik routes its domains to it. |
+| **project file** | `./.landfall.json`, written by the first `lf deploy`: `{ "name", "server", "domains" }`. Commands that take `[name]` default to this site, and `-s` defaults to its server. |
 | **main domain** | Optional per-server domain (`lf server domain vps example.com`). Sites then default to `<site>.example.com`, and a bare name like `shop` means `shop.example.com`. Without one, sites get `<site>.<ip-with-dashes>.sslip.io` (e.g. `blog.203-0-113-7.sslip.io`), which resolves without any DNS setup. |
 | **release** | Every deploy creates one, with an id like `20260122143005`. The last 5 are kept. `lf rollback` switches between them. |
 | **run** | One landfall invocation that changed something on a server. Runs are listed by `lf history` and reverted by `lf undo`. |
 
 How defaults resolve, for every command:
 
-- **site** `[name]`: the argument, else `name` from `./srv.json`.
-- **server** `-s`: the flag, else `server` from `./srv.json`, else the default server (`lf server use`).
+- **site** `[name]`: the argument, else `name` from `./.landfall.json`.
+- **server** `-s`: the flag, else `server` from `./.landfall.json`, else the default server (`lf server use`).
 
 ## Using landfall from scripts and agents
 
@@ -67,7 +67,7 @@ Every dashboard action is a plain command, and both dashboards print the command
 
 - **No prompts:** `-y` accepts confirmations and takes defaults. Without a terminal, prompts are never shown. A
   command that would ask then **fails** and tells you to pass `-y`. It never silently goes ahead.
-- **Passwords:** pass them with `--password-stdin` or `$SRV_PASSWORD` (`setup`, `server add`). For `lf auth`, use `-p`.
+- **Passwords:** pass them with `--password-stdin` or `$LANDFALL_PASSWORD` (`setup`, `server add`). For `lf auth`, use `-p`.
 - **JSON output:** `--json` works on `ls`, `info`, `server config`, `server domain`, `domains`, `firewall`,
   `updates` and `history`.
 - **Dry runs:** `lf setup <name> --check` changes nothing. `lf updates` only reports.
@@ -105,7 +105,7 @@ lf undo -s box -y                           # revert the last run
 | `lf server use <name>` | Sets the default server. |
 | `lf server rm <name>` | Forgets a server locally. The server is untouched. |
 | `lf ssh [name] [-- cmd]` | Opens a shell or runs a one-off command. |
-| `lf keygen <name>` | Creates `~/.ssh/srv_<name>` and prints the public key. |
+| `lf keygen <name>` | Creates `~/.ssh/landfall_<name>` and prints the public key. |
 
 **Sites**
 
@@ -154,7 +154,7 @@ lf undo -s box -y                           # revert the last run
 lf setup vps --host 203.0.113.7
 ```
 
-1. Creates `~/.ssh/srv_vps` and installs it with `ssh-copy-id`. You type the root password once.
+1. Creates `~/.ssh/landfall_vps` and installs it with `ssh-copy-id`. You type the root password once.
 2. Installs Docker, ufw (allowing ssh, 80 and 443), fail2ban and unattended-upgrades.
 3. Creates the user `deploy` in the docker group and disables ssh password login. Root keeps key-only access.
 4. Writes `Host vps` to `~/.ssh/config`, creating the file if needed. `ssh vps` now logs in as `deploy`.
@@ -189,7 +189,7 @@ with the newest release. An existing Docker is never reinstalled. In a terminal,
 |---|---|
 | `-u admin` / `-p 2222` | log in as `admin` (needs passwordless sudo) / ssh port |
 | `-i ~/.ssh/id_ed25519` | use an existing key instead of generating one |
-| `--password-stdin` | read the login password from stdin (or set `$SRV_PASSWORD`) |
+| `--password-stdin` | read the login password from stdin (or set `$LANDFALL_PASSWORD`) |
 | `--deploy-user ""` | deploy as the login user instead of creating `deploy` |
 | `--domain example.com` | primary main domain |
 | `--staging` / `--no-staging` | use Let's Encrypt's staging CA while testing (remembered) |
@@ -219,10 +219,10 @@ lf deploy -d example.com -d www.example.com -s vps      # static, name = folder 
 lf deploy -b "npm run build"                            # build locally first
 lf deploy -d app.example.com -e DATABASE_URL=postgres://… --env-file .env.production   # Dockerfile app
 lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com            # image
-lf deploy                                               # later: redeploy using ./srv.json
+lf deploy                                               # later: redeploy using ./.landfall.json
 ```
 
-The first deploy writes `srv.json`. Commit it:
+The first deploy writes `.landfall.json`. Commit it:
 
 ```json
 { "name": "my-site", "server": "vps", "domains": ["example.com", "www.example.com"] }
@@ -256,7 +256,7 @@ lf rollback                        # previous release (--to <id> for a specific 
 lf env API_KEY=abc                 # set env (container is recreated); -u KEY removes one
 lf restart | stop | start
 lf domains                         # where DNS points, whether HTTPS answers
-lf domains --add www.example.com   # also --rm, --set (updates srv.json)
+lf domains --add www.example.com   # also --rm, --set (updates .landfall.json)
 lf auth -u anna                    # login in front of the site (asks for the password, -p passes it)
 lf auth --rm-user anna | --off
 lf open
@@ -294,7 +294,7 @@ lf traefik setup --dashboard traefik           # dashboard at traefik.<main doma
 lf traefik setup --host-network                # bind 80/443 on the host
 ```
 
-landfall's Traefik is the container `traefik` from `/opt/srv/traefik/docker-compose.yml`. By default Docker
+landfall's Traefik is the container `traefik` from `/opt/landfall/traefik/docker-compose.yml`. By default Docker
 publishes 80/443 to it. Sites work the same in both modes:
 
 | | ports published (default) | `--host-network` |
@@ -314,7 +314,7 @@ lf traefik use traefik-reverseproxy-1 -s vps   # or name it
 
 landfall reads the network, HTTPS entrypoint and cert resolver from the container's flags. If your Traefik is
 configured by a file, pass `--network proxy --entrypoint websecure --resolver letsencrypt`. The choice is stored
-in `/opt/srv/proxy.env`. landfall never changes that Traefik.
+in `/opt/landfall/proxy.env`. landfall never changes that Traefik.
 
 ## Firewall
 
@@ -335,7 +335,7 @@ lf firewall enable | disable             # enable installs ufw if needed and all
 
 ## History and undo
 
-Every change landfall makes is appended to `/opt/srv/journal.log` on the server: when, which local user and
+Every change landfall makes is appended to `/opt/landfall/journal.log` on the server: when, which local user and
 command, what changed and the shell that reverts it.
 
 ```sh
@@ -351,15 +351,15 @@ lf undo --all           # everything, newest first
   compose updates.
 - **Not undoable:** `sites rm`, restarts, package upgrades, and a firewall rule that replaced an existing one.
 - Steps revert newest first, each as the user that made it. The first failure stops the rest.
-- Undo changes the server only. Local `~/.config/srv` and `srv.json` stay as they are.
-- Overwritten files are backed up as `.<name>.srv-<run>-<n>`, and the newest 10 are kept per file.
+- Undo changes the server only. Local `~/.config/landfall` and `.landfall.json` stay as they are.
+- Overwritten files are backed up as `.<name>.landfall-<run>-<n>`, and the newest 10 are kept per file.
 
 ## Managing servers
 
 ```sh
 lf server add vps                                       # register an existing ssh alias
 lf server add box --host 1.2.3.4 -u ubuntu -i ~/.ssh/box --default
-lf server add web --host 1.2.3.4 -u admin               # asks the password once, installs ~/.ssh/srv_web
+lf server add web --host 1.2.3.4 -u admin               # asks the password once, installs ~/.ssh/landfall_web
 lf server config vps                                    # landfall entry, Traefik settings, ssh login, keys, Host block
 lf server list --all
 lf server use vps
@@ -367,10 +367,10 @@ lf server rm vps                                        # forget locally
 lf ssh vps -- docker ps
 ```
 
-`server add` installs nothing on the server. It writes a `Host <name>` block between `# >>> srv:<name>` markers
+`server add` installs nothing on the server. It writes a `Host <name>` block between `# >>> landfall:<name>` markers
 (`--no-ssh-config` keeps the details in landfall's config instead). In a Host block you wrote yourself, landfall
 only steps in when the key does not work. It then puts the working `IdentityFile` first, drops lines whose file is
-gone, and keeps a backup as `~/.ssh/config.srv-bak`.
+gone, and keeps a backup as `~/.ssh/config.landfall-bak`.
 
 ## Dashboards
 
@@ -378,7 +378,7 @@ gone, and keeps a backup as `~/.ssh/config.srv-bak`.
 (★ marks the default). A server tab has Sites, Updates, Firewall, History and Settings. **Deploy folder…** browses
 local folders or takes a dropped folder or `.zip`. Every action streams the output of its plain command into a side
 panel. Destructive actions ask first. Login works through the printed `/login?t=…` link. The token is kept in
-`~/.config/srv/ui-token`, and you can delete that file to rotate it. Requests with a foreign `Host` or `Origin`
+`~/.config/landfall/ui-token`, and you can delete that file to rotate it. Requests with a foreign `Host` or `Origin`
 are refused. Running `lf` again while the dashboard is running just opens the page.
 
 **Terminal (`lf tui`).**
@@ -401,30 +401,35 @@ Keys: `↵` connect/open, `d` deploy this folder, `u` check and set up, `a` add 
 
 | local file | content |
 |---|---|
-| `~/.config/srv/config.json` | registered servers, default server, per-server settings |
-| `~/.config/srv/projects.json` | folders deployed from this machine (dashboard *Recent*/*Redeploy*) |
-| `~/.config/srv/ui-token` | web dashboard login token |
-| `~/.config/srv/uploads/` | folders dropped into the dashboard, removed after a day |
-| `~/.ssh/srv_<name>` | generated keys |
-| `~/.ssh/config` | `Host <name>` blocks between `# >>> srv:<name>` markers |
-| `./srv.json` | per-project deploy settings |
+| `~/.config/landfall/config.json` | registered servers, default server, per-server settings |
+| `~/.config/landfall/projects.json` | folders deployed from this machine (dashboard *Recent*/*Redeploy*) |
+| `~/.config/landfall/ui-token` | web dashboard login token |
+| `~/.config/landfall/uploads/` | folders dropped into the dashboard, removed after a day |
+| `~/.ssh/landfall_<name>` | generated keys |
+| `~/.ssh/config` | `Host <name>` blocks between `# >>> landfall:<name>` markers |
+| `./.landfall.json` | per-project deploy settings |
 
 | env var | effect |
 |---|---|
-| `SRV_CONFIG_DIR` | use another directory than `~/.config/srv` |
-| `SRV_SSH_CONFIG` | use another ssh config file (`ssh -F`) |
-| `SRV_PASSWORD` | login password for `setup`/`server add` |
+| `LANDFALL_CONFIG_DIR` | use another directory than `~/.config/landfall` |
+| `LANDFALL_SSH_CONFIG` | use another ssh config file (`ssh -F`) |
+| `LANDFALL_PASSWORD` | login password for `setup`/`server add` |
+
+**Coming from `srv`** (landfall's old name): `~/.config/srv` moves to `~/.config/landfall` on the first run, and
+`srv.json`, `~/.ssh/srv_<name>`, `# >>> srv:` blocks and `$SRV_*` variables keep working. A server set up by `srv`
+still has `/opt/srv`: other commands refuse it until `lf setup <name>` moves it to `/opt/landfall` and renames
+the site containers. Sites keep serving, Traefik restarts once, and older changes can no longer be undone.
 
 On the server:
 
 ```
-/opt/srv/
+/opt/landfall/
   traefik/docker-compose.yml        Traefik, ports 80/443, Let's Encrypt (HTTP-01)
   traefik/letsencrypt/acme.json
   proxy.env                         only with `lf traefik use`
   sites/<name>/
     site.json                       metadata + release history
-    docker-compose.yml              container srv-<name> on network "web" with Traefik labels
+    docker-compose.yml              container landfall-<name> on network "web" with Traefik labels
     nginx.conf                      static sites
     .env                            app sites (0600)
     releases/<id>/                  last 5 kept
@@ -432,7 +437,7 @@ On the server:
   journal.log                       every change, with the shell that reverts it
 ```
 
-`cd /opt/srv/sites/blog && docker compose ps` works as usual.
+`cd /opt/landfall/sites/blog && docker compose ps` works as usual.
 
 ## Troubleshooting
 

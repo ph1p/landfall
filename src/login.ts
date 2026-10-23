@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { expandHome, tildify, type Server } from "./config";
+import { envVar, expandHome, tildify, type Server } from "./config";
 import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, step, warn } from "./ui";
@@ -16,45 +16,50 @@ const text = async (s: NodeJS.ReadableStream) => {
 let askpass: string | undefined;
 
 /**
- * An SSH_ASKPASS helper that answers with $SRV_PASSWORD, so ssh/ssh-copy-id can
+ * An SSH_ASKPASS helper that answers with $LANDFALL_PASSWORD, so ssh/ssh-copy-id can
  * log in with a password typed into the dashboard or piped in. The password itself
  * only lives in the child's environment, never on disk.
  */
 function askpassScript(): string {
   if (askpass) return askpass;
-  const dir = fs.mkdtempSync(join(tmpdir(), "srv-"));
+  const dir = fs.mkdtempSync(join(tmpdir(), "landfall-"));
   askpass = join(dir, "askpass");
-  fs.writeFileSync(askpass, `#!/bin/sh\nprintf '%s\\n' "$SRV_PASSWORD"\n`, { mode: 0o700 });
+  fs.writeFileSync(askpass, `#!/bin/sh\nprintf '%s\\n' "$LANDFALL_PASSWORD"\n`, { mode: 0o700 });
   process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
   return askpass;
 }
 
-export const askpassEnv = (password: string) => ({ SSH_ASKPASS: askpassScript(), SSH_ASKPASS_REQUIRE: "force", SRV_PASSWORD: password });
+export const askpassEnv = (password: string) => ({ SSH_ASKPASS: askpassScript(), SSH_ASKPASS_REQUIRE: "force", LANDFALL_PASSWORD: password });
 
-/** The login password from --password-stdin or $SRV_PASSWORD; undefined means ssh asks itself. */
+/** The login password from --password-stdin or $LANDFALL_PASSWORD; undefined means ssh asks itself. */
 export async function loginPassword(fromStdin?: boolean): Promise<string | undefined> {
   if (fromStdin) {
     const pw = (await text(process.stdin)).replace(/\r?\n$/, "");
     if (!pw) fail("--password-stdin: nothing on stdin");
     return pw;
   }
-  return process.env.SRV_PASSWORD || undefined;
+  return envVar("PASSWORD") || undefined;
 }
 
-export const keyFile = (name: string) => join(homedir(), ".ssh", `srv_${name}`);
+export const keyFile = (name: string) => {
+  const file = join(homedir(), ".ssh", `landfall_${name}`);
+  // Keys made when landfall was called srv stay where they are: ssh configs point at them.
+  const old = join(homedir(), ".ssh", `srv_${name}`);
+  return fs.existsSync(file) || !fs.existsSync(old) ? file : old;
+};
 
 export function ensureKey(name: string): { path: string; created: boolean } {
   const path = keyFile(name);
   if (fs.existsSync(path)) return { path, created: false };
   fs.mkdirSync(join(homedir(), ".ssh"), { recursive: true, mode: 0o700 });
-  const r = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-f", path, "-N", "", "-C", `srv-${name}`], { stdio: "inherit" });
+  const r = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-f", path, "-N", "", "-C", `landfall-${name}`], { stdio: "inherit" });
   if (r.status !== 0) fail("ssh-keygen failed");
   return { path, created: true };
 }
 
 /**
  * Key login for <login>, mutating login.key to the key that works:
- * a given --key, the server's ssh config key, or ~/.ssh/srv_<name> (generated and
+ * a given --key, the server's ssh config key, or ~/.ssh/landfall_<name> (generated and
  * installed with the password once). Returns undefined when check-only and no key works yet.
  */
 export async function ensureKeyLogin(name: string, login: Server, o: { check?: boolean; password?: string }): Promise<string | undefined> {

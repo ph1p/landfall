@@ -208,7 +208,7 @@ export function App({ state, onAction }: { state: UiState; onAction: (a: Action)
         }
         setTick((t) => t + 1);
       },
-      { password: opts.password, env: { SRV_RUN: id } },
+      { password: opts.password, env: { LANDFALL_RUN: id } },
     );
     setMode({ kind: "run", job });
   };
@@ -350,7 +350,7 @@ export function App({ state, onAction }: { state: UiState; onAction: (a: Action)
     if (project) {
       return confirm(
         `Deploy ${project.name} to ${server}?`,
-        `From ${process.cwd()}\nServed on ${project.domains.join(", ")} (settings from srv.json)`,
+        `From ${process.cwd()}\nServed on ${project.domains.join(", ")} (settings from .landfall.json)`,
         "Deploy",
         () => run(["deploy", "-y", ...(project.server ? [] : ["-s", server])], { server }),
       );
@@ -1085,8 +1085,8 @@ const HELP_SITES: [string, string][] = [
 ];
 const HELP_TEXT = [
   "Servers are machines you reach with ssh (anything in ~/.ssh/config works). Set up installs Docker and Traefik there; Traefik gets HTTPS certificates from Let's Encrypt for every site automatically.",
-  "Sites are deployed from a project folder: static files, a Dockerfile, or an image. Each deploy is a release you can roll back to. srv.json in the folder remembers where it goes.",
-  "Every change landfall makes is written to /opt/srv/journal.log on the server. h shows it; z reverts a run, also right after a command finished.",
+  "Sites are deployed from a project folder: static files, a Dockerfile, or an image. Each deploy is a release you can roll back to. .landfall.json in the folder remembers where it goes.",
+  "Every change landfall makes is written to /opt/landfall/journal.log on the server. h shows it; z reverts a run, also right after a command finished.",
 ];
 const HELP_FOOT = "Commands run inside the dashboard and show their output; esc stops or goes back. Each is a normal landfall command, shown as `$ lf …`, so the same thing works without the dashboard.";
 
@@ -1166,7 +1166,7 @@ function Help({ height, width, top }: { height: number; width: number; top: numb
 function HistoryView({ mode, height, top }: { mode: Extract<Mode, { kind: "history" }>; height: number; top: RefObject<number> }) {
   const title = (
     <Text bold>
-      History <Text dimColor>on</Text> {mode.server} <Text dimColor>· /opt/srv/journal.log</Text>
+      History <Text dimColor>on</Text> {mode.server} <Text dimColor>· /opt/landfall/journal.log</Text>
     </Text>
   );
   const { runs } = mode;
