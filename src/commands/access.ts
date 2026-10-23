@@ -2,6 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, expandDomain, loadProject, saveProject, type Server } from "../config";
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
+import { currentRelease, isOld, mainService, siteDomains } from "../compose";
 import { applySite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
 import { askSecret, c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
@@ -31,9 +32,14 @@ export async function claimDomains(server: Server, serverName: string, site: str
     const both = e.domains.filter((d) => domains.includes(d));
     if (both.length) warn(`${both.join(", ")} ${both.length > 1 ? "are" : "is"} also routed to ${e.name}${e.dir ? ` (${e.dir})` : ""}, which landfall did not deploy: Traefik sends visitors to only one of them. Remove the labels there to hand ${both.length > 1 ? "them" : "it"} over.`);
   }
-  const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && m.domains.some((d) => domains.includes(d)));
+  const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && siteDomains(m).some((d) => domains.includes(d)));
   for (const m of others) {
-    const taken = m.domains.filter((d) => domains.includes(d));
+    const taken = siteDomains(m).filter((d) => domains.includes(d));
+    const fixed = isOld(m) || m.adopted || !mainService(currentRelease(m)) ? taken : taken.filter((d) => !m.domains.includes(d));
+    if (fixed.length) {
+      const where = isOld(m) ? "redeploy it first (lf deploy) so it can hand them over" : m.adopted ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}` : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
+      fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
+    }
     if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);
     if (taken.length === m.domains.length) {
       fail(`${taken.join(", ")} ${taken.length > 1 ? "are" : "is"} all ${m.name} serves: give it another domain first (lf domains ${m.name} --add <domain>) or remove it (lf sites rm ${m.name})`);
@@ -68,10 +74,12 @@ and update .landfall.json of remembered projects.`,
   },
   async run([n], o) {
     const { site, name: serverName, server } = target(n, o.server);
-    const { meta, proxy } = await requireSite(server, site);
-    if (!o.add && !o.rm && !o.set) {
+    const changing = !!(o.add || o.rm || o.set);
+    const { meta, proxy } = await requireSite(server, site, changing ? { deployed: "change the domains of" } : {});
+    if (!changing) {
+      const all = siteDomains(meta);
       const ips = await serverIps(server);
-      const [dns, https] = await Promise.all([checkDns(meta.domains, ips), Promise.all(meta.domains.map(httpsStatus))]);
+      const [dns, https] = await Promise.all([checkDns(all, ips), Promise.all(all.map(httpsStatus))]);
       const rows = dns.map((d, i) => ({ ...d, https: https[i] }));
       if (o.json) return void console.log(JSON.stringify({ site, serverIps: ips, domains: rows }, null, 2));
       for (const r of rows) {
@@ -82,6 +90,8 @@ and update .landfall.json of remembered projects.`,
       if (rows.some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));
       return;
     }
+    const main = mainService(currentRelease(meta));
+    if (!main) fail(`no service of ${site} serves the site's domains: its compose.yaml sets them (x-landfall.domains)`);
     const lower = (l?: string[]) => (l ?? []).map((d) => expandDomain(d.trim(), server)).filter(Boolean);
     let next = o.set ? lower(o.set) : [...meta.domains];
     next = [...new Set([...next, ...lower(o.add)])].filter((d) => !lower(o.rm).includes(d));
@@ -129,7 +139,7 @@ export const auth = defineCommand({
   },
   async run([n], o) {
     const { site, server } = target(n, o.server);
-    const { meta, proxy } = await requireSite(server, site);
+    const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
     const users = (meta.auth ?? []).map((l) => l.slice(0, l.indexOf(":")));
     if (!o.user && !o["rm-user"] && !o.off) {
       if (!users.length) return void console.log(`${site} is public ${c.dim("(add a login with --user)")}`);
@@ -172,7 +182,9 @@ export const open = defineCommand({
   async run([n], o) {
     const { site, server } = target(n, o.server);
     const { meta } = await requireSite(server, site);
-    const url = `https://${meta.domains[0]}`;
+    const domain = siteDomains(meta)[0];
+    if (!domain) fail(`${site} serves no domain`);
+    const url = `https://${domain}`;
     console.log(c.cyan(url));
     openUrl(url);
   },

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, loadProject, saveProject, type ProjectConfig } from "./config";
-import type { SiteKind } from "./templates";
+import { COMPOSE_FILES, type SiteKind } from "./compose";
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
 
@@ -23,6 +23,8 @@ export interface Detected {
   path: string;
   name: string;
   kind: SiteKind;
+  /** Compose: its compose file. */
+  compose?: string;
   /** Static: the folder with index.html, relative; undefined until a build makes it. */
   dir?: string;
   port?: number;
@@ -32,10 +34,19 @@ export interface Detected {
   project?: ProjectConfig;
 }
 
+/** The project's compose file: set in .landfall.json, or the one `docker compose` would pick. */
+export function composeFile(path: string, project?: Partial<ProjectConfig>): string | undefined {
+  if (project?.compose) return project.compose;
+  if (project?.image || project?.static) return undefined;
+  return COMPOSE_FILES.find((f) => fs.existsSync(join(path, f)));
+}
+
 /** What `lf deploy` would do with a folder, without running anything. */
 export function detectProject(path: string): Detected {
   const project = loadProject(path);
   const name = project?.name ?? slug(basename(path));
+  const compose = composeFile(path, project);
+  if (compose) return { path, name, kind: "compose", compose, project };
   if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, project };
   const has = (f: string) => fs.existsSync(join(path, f));
   let build = project?.build;

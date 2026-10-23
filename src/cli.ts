@@ -2,6 +2,7 @@
 import { journalCmd, parse, usage, type Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { deploy } from "./commands/deploy";
+import { init } from "./commands/init";
 import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUse } from "./commands/server";
 import { firewallAllow, firewallDeny, firewallDisable, firewallEnable, firewallRemove, firewallStatus, firewallUpdate } from "./commands/firewall";
 import { historyLog, historyUndo } from "./commands/history";
@@ -12,6 +13,7 @@ import {
   sitesList,
   sitesLogs,
   sitesRemove,
+  sitesAdopt,
   sitesRestart,
   sitesRollback,
   sitesStart,
@@ -26,6 +28,7 @@ import pkg from "../package.json";
 
 const commands: Command[] = [
   setup,
+  init,
   deploy,
   sitesList,
   sitesInfo,
@@ -36,6 +39,7 @@ const commands: Command[] = [
   sitesStop,
   sitesStart,
   sitesRemove,
+  sitesAdopt,
   domains,
   auth,
   open,
@@ -194,4 +198,5 @@ async function run(argv: string[]): Promise<number> {
   }
 }
 
-run(process.argv.slice(2)).then((code) => process.exit(code));
+// Exit once stdout drained: a pipe takes writes asynchronously, so exiting at once cuts long output (e.g. --json) at 64 KiB.
+run(process.argv.slice(2)).then((code) => process.stdout.write("", () => process.exit(code)));

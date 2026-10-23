@@ -41,5 +41,5 @@ export function changes(argv: string[]): boolean {
   if (cmd === "domains") return argv.some((a) => ["-a", "--add", "--rm", "--set"].includes(a));
   if (cmd === "auth") return argv.some((a) => ["-u", "--user", "--rm-user", "--off"].includes(a));
   if (cmd === "update" || cmd === "upgrade") return true;
-  return ["setup", "deploy", "rollback", "stop", "start"].includes(cmd);
+  return ["setup", "deploy", "rollback", "stop", "start", "restart", "adopt"].includes(cmd);
 }

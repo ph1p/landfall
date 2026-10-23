@@ -152,7 +152,8 @@ td.acts button { margin-left: 4px; }
 .kv dt { color: var(--dim); } .kv dd { margin: 0; }
 pre.block { background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
 .detail td { background: var(--bg); }
-.releases { margin: 8px 0 0; padding: 0; list-style: none; }
+.releases, .services { margin: 0; padding: 0; list-style: none; }
+.services li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .releases li { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
 .run { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .run:last-child { border-bottom: 0; }
@@ -759,11 +760,12 @@ const tilde = (p) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
 function describe(d) {
   const built = d.build ? ` · builds with <code>${esc(d.build)}</code> first` : "";
   const what =
-    d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from .landfall.json)`
+    d.kind === "compose" ? `Compose project <code>${esc(d.compose ?? "compose.yaml")}</code>: built and started on the server; x-landfall picks the routed service`
+    : d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from .landfall.json)`
     : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${esc(d.port)}`
     : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.spa ? " (single-page app)" : ""}${built}`
     : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
-    : `<span style="color:var(--warn)">No index.html, Dockerfile or build script here.</span>`;
+    : `<span style="color:var(--warn)">No compose.yaml, Dockerfile, index.html or build script here.</span>`;
   const before = d.project?.server ? ` <span class="dim">· deployed before to ${esc(d.project.server)}</span>` : "";
   return what + before;
 }
@@ -936,7 +938,7 @@ function copy(text) {
   navigator.clipboard?.writeText(text).then(() => toast(`Copied ${text}`), () => toast(text)) ?? toast(text);
 }
 
-const servedByOther = (n, site, d) => S.overview[n]?.data?.sites.find((s) => s.meta.name !== site && s.meta.domains.includes(d))?.meta.name;
+const servedByOther = (n, site, d) => S.overview[n]?.data?.sites.find((s) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
 
 function domainsDialog(n, m) {
   const main = mainDomain(n);
@@ -985,7 +987,7 @@ function authDialog(n, m) {
 
 function ensureDns(n, o) {
   if (S.dns[n] || !o?.sites.length) return;
-  const domains = [...new Set(o.sites.flatMap((x) => x.meta.domains))];
+  const domains = [...new Set(o.sites.flatMap((x) => x.domains))];
   S.dns[n] = { loading: true };
   http(`/api/servers/${encodeURIComponent(n)}/dns?domains=${encodeURIComponent(domains.join(","))}`).then(
     (data) => ((S.dns[n] = { data }), render()),
@@ -1076,7 +1078,8 @@ function errorHint(error) {
 }
 
 const isUp = (status) => /^up/i.test(status);
-const statusDot = (status) => `<span class="dot ${isUp(status) ? (/unhealthy|restarting/i.test(status) ? "warn" : "up") : "down"}"></span>`;
+// A one-off service that finished (Exited (0)) is not down: grey, not red.
+const statusDot = (status) => `<span class="dot ${isUp(status) ? (/unhealthy|restarting/i.test(status) ? "warn" : "up") : /^exited \(0\)/i.test(status) ? "" : "down"}"></span>`;
 
 const size = (b) => {
   const u = ["B", "K", "M", "G", "T"];
@@ -1179,17 +1182,18 @@ lf help                  <span># every command</span></pre></div>
   </div>`;
 }
 
-/** Containers Traefik routes that landfall did not deploy: shown, never touched. */
-function othersCard(o) {
+/** Containers Traefik routes that landfall did not deploy: shown; Compose projects can be adopted. */
+function othersCard(n, o) {
   if (!o.others?.length) return "";
   const links = (e) => e.domains.map((d) => `<span class="chip"><a href="https://${esc(d)}" target="_blank" rel="noopener">${esc(d)}</a></span>`).join("");
   return `<div class="card scroll"><h2>Not deployed by landfall <span class="badge">${o.others.length}</span></h2>
-    <div class="lede">Containers your Traefik routes, e.g. your own compose projects. landfall only shows them; deploying one of their domains warns.</div>
-    <table><thead><tr><th>Name</th><th class="hide-sm">Domains</th><th class="hide-sm">Folder</th></tr></thead><tbody>${o.others
+    <div class="lede">Containers your Traefik routes, e.g. your own compose projects. Adopting one lists it as a site with logs, restart and stop; it keeps running from its folder.</div>
+    <table><thead><tr><th>Name</th><th class="hide-sm">Domains</th><th class="hide-sm">Folder</th><th></th></tr></thead><tbody>${o.others
       .map((e) => `<tr><td><div class="site-name">${statusDot(e.status)}<b>${esc(e.name)}</b>&nbsp;<span class="faint">${esc(e.status.toLowerCase())}</span></div>
           <div class="chips show-sm">${links(e)}</div></td>
         <td class="hide-sm"><div class="chips">${links(e)}</div></td>
-        <td class="hide-sm mono dim">${esc(e.dir ?? e.containers.join(", "))}</td></tr>`)
+        <td class="hide-sm mono dim">${esc(e.dir ?? e.containers.join(", "))}</td>
+        <td class="acts">${e.dir ? btn("Adopt…", () => adoptDialog(n, e), "sm", "lf adopt") : ""}</td></tr>`)
       .join("")}</tbody></table></div>`;
 }
 
@@ -1202,79 +1206,112 @@ function sitesView(n, o) {
   }
   if (!o.sites.length) {
     return `<div class="card"><div class="body empty"><h2>No sites yet</h2>
-      <p>Deploy a static folder, a Dockerfile project or an image. It gets HTTPS automatically.</p>
+      <p>Deploy a folder with a compose.yaml, a Dockerfile, static files, or an image. It gets HTTPS automatically.</p>
       <p>${btn("Deploy a folder…", () => folderDialog(S.state.cwd), "primary")} <span class="dim">or drop one here</span></p>
-      <p class="faint mono">lf deploy ./dist -d example.com -s ${esc(n)}</p></div></div>${othersCard(o)}`;
+      <p class="faint mono">lf deploy ./dist -d example.com -s ${esc(n)}</p></div></div>${othersCard(n, o)}`;
   }
   const rows = o.sites
-    .map(({ meta: m, status }) => {
+    .map(({ meta: m, status, services, domains, main }) => {
       const cur = m.releases.find((r) => r.id === m.current);
       const name = m.name;
       const open = S.open.has(`${n}/${name}`);
       const up = isUp(status);
+      const old = m.v !== 2;
+      // Adopted and pre-Compose sites: landfall runs them, it does not deploy them.
+      const managed = !old && !m.adopted;
       const older = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1)).filter((r) => r.at < (cur?.at ?? ""));
       const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
-      const deleteSite = () => confirmDlg({ title: `Delete ${name} from ${n}?`, text: "Stops it and removes all its files and releases.\nThis cannot be undone.", ok: `Delete ${name}`, danger: true, onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]) });
+      const deleteSite = () =>
+        confirmDlg({
+          title: m.adopted ? `Stop and forget ${name}?` : `Delete ${name} from ${n}?`,
+          text: m.adopted
+            ? `Runs docker compose down in ${m.adopted}; its files and volumes stay.`
+            : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay.\nThis cannot be undone.",
+          ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
+          danger: true,
+          onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]),
+        });
+      const svcMenu = (x) =>
+        menuBtn([
+          { label: "Logs", hint: `lf logs ${name} ${x.service}`, run: () => run(["logs", name, x.service, ...sv(n), "-f"]) },
+          { label: "Restart", hint: "lf restart", run: () => run(["restart", name, x.service, ...sv(n)]) },
+          { label: isUp(x.status) ? "Stop" : "Start", hint: `lf ${isUp(x.status) ? "stop" : "start"}`, run: () => run([isUp(x.status) ? "stop" : "start", name, x.service, ...sv(n)]) },
+        ], `${x.service} of ${name}`, "sm ghost");
       const acts = [
-        proj
+        proj && !m.adopted
           ? btn("Redeploy", () => confirmDlg({ title: `Redeploy ${name}?`, text: `From ${tilde(proj.path)}${proj.kind === "static" ? " (runs its build first, if it has one)" : ""}.`, ok: "Deploy", onOk: () => run(["deploy", "-y", ...sv(n)], { server: n, cwd: proj.path, after: openAfter }) }), "sm primary", `lf deploy in ${proj.path}`)
           : "",
-        btn("Logs", () => run(["logs", name, ...sv(n), "-f"]), "sm", "Follow the container logs"),
+        old ? "" : btn("Logs", () => run(["logs", name, ...sv(n), "-f"]), "sm", "Follow the logs of all its services"),
         menuBtn([
-          { label: "Restart", hint: "lf restart", run: () => run(["restart", name, ...sv(n)]) },
-          { label: up ? "Stop" : "Start", hint: `lf ${up ? "stop" : "start"}`, run: () => run([up ? "stop" : "start", name, ...sv(n)]) },
-          older.length
-            ? { label: "Roll back…", hint: "lf rollback", title: `To ${older[0].id} (${ago(older[0].at)})`, run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)})`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }) }
+          old ? null : { label: "Restart", hint: "lf restart", run: () => run(["restart", name, ...sv(n)]) },
+          old ? null : { label: up ? "Stop" : "Start", hint: `lf ${up ? "stop" : "start"}`, run: () => run([up ? "stop" : "start", name, ...sv(n)]) },
+          managed && older.length
+            ? { label: "Roll back…", hint: "lf rollback", title: `To ${older[0].id} (${ago(older[0].at)})`, run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }) }
             : null,
           "-",
-          { label: "Domains…", hint: "lf domains", run: () => domainsDialog(n, m) },
-          { label: m.auth?.length ? "Login…" : "Password…", hint: "lf auth", title: "Protect the site with a user and password", run: () => authDialog(n, m) },
-          m.kind === "static" ? null : { label: "Environment…", hint: "lf env", run: () => envDialog(n, name) },
+          main ? { label: "Domains…", hint: "lf domains", run: () => domainsDialog(n, m) } : null,
+          managed ? { label: m.auth?.length ? "Login…" : "Password…", hint: "lf auth", title: "Protect the site with a user and password", run: () => authDialog(n, m) } : null,
+          managed ? { label: "Environment…", hint: "lf env", run: () => envDialog(n, name) } : null,
           "-",
-          { label: `Delete ${name}…`, cls: "danger", hint: "lf sites rm", run: deleteSite },
+          { label: m.adopted ? `Forget ${name}…` : `Delete ${name}…`, cls: "danger", hint: "lf sites rm", run: deleteSite },
         ], `More for ${name}`),
       ].join("");
       const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
+      const live = m.releases?.find((r) => r.id === m.current);
+      const svcDomains = (svc) => (svc === main ? m.domains : (live?.services?.find((x) => x.name === svc)?.domains ?? []));
+      const kind = m.adopted ? "adopted" : old ? `${m.kind} (old)` : m.kind;
       const detail = open
         ? `<tr class="detail"><td colspan="5"><dl class="kv">
-            <dt>Container</dt><dd class="mono">landfall-${esc(name)} · ${esc(status)}</dd>
-            <dt>On ${esc(n)}</dt><dd>${siteFiles(m, cur)}</dd>
-            <dt>Source</dt><dd>${proj
-              ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· settings in</span> <span class="mono">.landfall.json</span> <span class="dim">· redeploy runs there</span>`
-              : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved)"}</span>`}</dd>
-            <dt>Kind</dt><dd>${esc(m.kind)}${m.spa ? " (single-page app)" : ""} · port ${esc(m.port)}</dd>
-            <dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>
+            ${old ? `<dt>Old site</dt><dd class="dim">Deployed before sites were Compose projects: ${proj ? "redeploy it" : `run <span class="mono">lf deploy</span> for it`} once to manage it again.</dd>` : ""}
+            <dt>Services</dt><dd>${services.length
+              ? `<ul class="services">${services.map((x) => `<li>${statusDot(x.status)}<b>${esc(x.service)}</b>${svcDomains(x.service).length ? ` <span class="badge">${esc(svcDomains(x.service).join(" "))}</span>` : ""} <span class="faint">${esc(x.status.toLowerCase())}</span>${old ? "" : svcMenu(x)}</li>`).join("")}</ul>`
+              : `<span class="dim">none running</span>`}</dd>
+            <dt>On ${esc(n)}</dt><dd>${siteFiles(m)}</dd>
+            ${m.adopted ? "" : `<dt>Source</dt><dd>${proj
+              ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· redeploy runs there</span>`
+              : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved)"}</span>`}</dd>`}
+            <dt>Kind</dt><dd>${esc(kind)}${main || old || m.adopted ? "" : ` <span class="dim">· domains set in compose.yaml</span>`}</dd>
+            ${managed ? `<dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>` : ""}
             <dt>Created</dt><dd>${esc(ago(m.createdAt))} · updated ${esc(ago(m.updatedAt))}</dd>
-            <dt>Releases</dt><dd><ul class="releases">${[...m.releases]
+            ${m.releases.length ? `<dt>Releases</dt><dd><ul class="releases">${[...m.releases]
               .sort((a, b) => (a.at < b.at ? 1 : -1))
-              .map((r) => `<li><span class="mono">${esc(r.id)}</span><span class="dim">${esc(ago(r.at))}</span>${r.image && m.kind === "image" ? `<span class="mono faint">${esc(r.image)}</span>` : ""}
-                ${r.id === m.current ? `<span class="badge ok">live</span>` : btn("Switch to this", () => confirmDlg({ title: `Switch ${name} to ${r.id}?`, text: `Release from ${ago(r.at)} goes live instead of ${m.current}.`, ok: "Switch", onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]) }), "sm")}</li>`)
-              .join("")}</ul></dd>
+              .map((r) => `<li><span class="mono">${esc(r.id)}</span><span class="dim">${esc(ago(r.at))}</span>${r.services ? `<span class="faint">${esc(r.services.map((x) => x.name).join(", "))}</span>` : ""}
+                ${r.id === m.current ? `<span class="badge ok">live</span>` : managed ? btn("Switch to this", () => confirmDlg({ title: `Switch ${name} to ${r.id}?`, text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`, ok: "Switch", onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]) }), "sm") : ""}</li>`)
+              .join("")}</ul></dd>` : ""}
           </dl></td></tr>`
         : "";
       return `<tr class="click" ${on(toggle)}>
         <td><div class="site-name">${statusDot(status)}<b>${esc(name)}</b>${m.auth?.length ? `<span class="lock" title="password protected">🔒</span>` : ""} <span class="faint">${open ? "▾" : "▸"}</span></div>
-          <div class="chips show-sm">${m.domains.map((d) => domainChip(n, d)).join("")}</div></td>
-        <td class="hide-sm"><div class="chips">${m.domains.map((d) => domainChip(n, d)).join("")}</div></td>
-        <td class="hide-sm"><span class="badge">${esc(m.kind)}</span></td>
+          <div class="chips show-sm">${domains.map((d) => domainChip(n, d)).join("")}</div></td>
+        <td class="hide-sm"><div class="chips">${domains.map((d) => domainChip(n, d)).join("")}</div></td>
+        <td class="hide-sm"><span class="badge" title="${esc(services.map((x) => x.service).join(", "))}">${esc(kind)}</span>${services.length > 1 ? ` <span class="faint">${services.length} services</span>` : ""}</td>
         <td class="hide-sm dim">${cur ? esc(ago(cur.at)) : ""}</td>
         <td class="acts">${acts}</td></tr>${detail}`;
     })
     .join("");
   return `<div class="card scroll"><table>
     <thead><tr><th>Site</th><th class="hide-sm">Domains</th><th class="hide-sm">Kind</th><th class="hide-sm">Deployed</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>${othersCard(o)}`;
+    <tbody>${rows}</tbody></table></div>${othersCard(n, o)}`;
 }
 
-/** Where a site lives on the server, and which of its files are live. */
-function siteFiles(m, cur) {
+/** Where a site lives on the server: docker compose works in its current folder. */
+function siteFiles(m) {
   const dir = `${S.state.paths.sites}/${m.name}`;
-  const live =
-    m.kind === "image" ? `image <span class="mono">${esc(cur?.image ?? "?")}</span>`
-    : m.kind === "static" ? `files <span class="mono">${esc(`${dir}/releases/${m.current}`)}</span>`
-    : `built from <span class="mono">${esc(`${dir}/releases/${m.current}`)}</span>${cur?.image ? ` as <span class="mono">${esc(cur.image)}</span>` : ""}`;
-  return `<span class="mono">${esc(dir)}</span><div class="dim">live: ${live}</div>
-    <div class="faint mono">site.json · docker-compose.yml · .env (mode 600)${m.kind === "image" ? "" : " · releases/"}</div>`;
+  if (m.adopted) return `<span class="mono">${esc(m.adopted)}</span><div class="dim">its own folder; project <span class="mono">${esc(m.project ?? m.name)}</span></div>`;
+  if (m.v !== 2) return `<span class="mono">${esc(dir)}</span>`;
+  return `<span class="mono">${esc(dir)}/current</span> <span class="dim">→ releases/${esc(m.current)}</span>
+    <div class="faint mono">compose.yaml · compose.override.yaml (landfall's) · .env (mode 600)</div>
+    <div class="faint">run it by hand: <span class="mono">cd ${esc(dir)}/current && docker compose ps</span></div>`;
+}
+
+function adoptDialog(n, e) {
+  dialog({
+    title: `Adopt ${e.name}?`,
+    text: `${e.name} keeps running from ${e.dir} with its own files and Traefik labels. landfall lists it as a site with logs, restart, stop and start; it does not deploy it or change its domains.`,
+    fields: [{ name: "name", label: "Site name", value: e.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, "") }],
+    ok: "Adopt",
+    onOk: (v) => run(["adopt", e.name, ...sv(n), "--name", v.name.trim()], { server: n }),
+  });
 }
 
 function envDialog(n, name) {
@@ -1506,15 +1543,16 @@ function settingsView(n) {
     }, "Apply");
   const sites = S.overview[n]?.data?.sites ?? [];
   const external = (d) => S.overview[n]?.data?.others?.find((e) => e.domains.includes(d))?.name;
-  const servedBy = (d) => sites.find((s) => s.meta.domains.includes(d))?.meta.name;
+  const servedBy = (d) => sites.find((s) => s.domains.includes(d))?.meta.name;
   const serve = (d) => {
     const cur = servedBy(d);
-    const pick = sites.filter((s) => s.meta.name !== cur);
+    // Only sites whose domains landfall sets; the others name theirs in compose.yaml.
+    const pick = sites.filter((s) => s.main && s.meta.name !== cur);
     if (!pick.length) return void toast(cur ? `${cur} is the only site on ${n}` : `No sites on ${n} yet: deploy one with @ as its domain`);
     dialog({
       title: `Serve a site on ${d}`,
       text: cur ? `${cur} serves ${d} now; it moves to the site you pick, which keeps its other domains.` : `The site keeps its other domains. ${d} needs an A record pointing at the server.`,
-      fields: [{ name: "site", label: "Site", type: "select", options: pick.map((s) => ({ value: s.meta.name, label: `${s.meta.name} (${s.meta.domains.join(", ")})` })), value: pick[0].meta.name }],
+      fields: [{ name: "site", label: "Site", type: "select", options: pick.map((s) => ({ value: s.meta.name, label: `${s.meta.name} (${s.domains.join(", ")})` })), value: pick[0].meta.name }],
       ok: "Serve it",
       onOk: (v) => run(["domains", v.site, ...sv(n), "--add", d, "-y"], { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), load(n, "sites", true), render()) : undefined) }),
     });

@@ -3,12 +3,12 @@ import fs from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
-import { applySite, mergeEnv, parseEnvPairs, readSite, siteDir, validName } from "../remote";
+import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, type Release, type SiteKind, type SiteMeta } from "../compose";
+import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readSite, siteDir, validName } from "../remote";
 import { upload } from "../ssh";
-import { container, type Release, type SiteKind, type SiteMeta } from "../templates";
 import { ask, c, fail, info, ok, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { composeFile, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 
 export { detectStaticDir, exposedPort, slug } from "../projects";
@@ -25,22 +25,27 @@ export function nextReleaseId(taken: string[], now = new Date()): string {
 export const deploy = defineCommand({
   name: "deploy",
   args: "[dir]",
-  summary: `Deploy a static folder, Dockerfile or image with HTTPS.
+  summary: `Deploy a Compose project, static folder, Dockerfile or image with HTTPS.
 
 Kinds:
-  static      a folder of files (default; auto-detects dist/, build/, out/, public/)
+  compose     the folder has a compose.yaml: its services run on the server as one
+              project; x-landfall: { port: 3000 } on a service routes it through Traefik
   dockerfile  the folder has a Dockerfile: uploaded and built on the server
+  static      a folder of files (auto-detects dist/, build/, out/, public/)
   image       --image: run a prebuilt image (e.g. ghcr.io/me/app:1.2)
 
-Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.`,
+Every site is a Compose project on the server (/opt/landfall/sites/<name>/current),
+so \`docker compose\` works there without landfall. Settings are saved to
+./.landfall.json, so later deploys are just \`lf deploy\`.`,
   options: {
     server: serverOpt,
     name: { type: "string", short: "n", desc: "site name (default: folder name)" },
     domain: { type: "string", short: "d", multiple: true, desc: "domain to serve (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here" },
+    file: { type: "string", short: "f", desc: "compose file to deploy (default: compose.yaml)" },
     spa: { type: "boolean", desc: "single-page app: unknown paths serve index.html" },
     image: { type: "string", desc: "deploy a docker image instead of files" },
     port: { type: "string", desc: "container port (image/dockerfile; default: EXPOSE or 3000)" },
-    static: { type: "boolean", desc: "force static even if a Dockerfile exists" },
+    static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env" },
     build: { type: "string", short: "b", desc: "run this command locally first (e.g. 'npm run build')" },
@@ -54,20 +59,6 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
 
     const { name: serverName, server } = resolveServer(o.server ?? project.server);
     const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
-    // Domains from .landfall.json never move from another site: that takes a -d.
-    const fromFile = !o.domain?.length && !!project.domains?.length;
-    let domains: string[] = o.domain?.length ? o.domain : project.domains ?? [];
-    if (!domains.length) {
-      // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
-      const main = mainDomain(server);
-      const ip = main ? undefined : pickIp(await serverIps(server));
-      const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
-      domains = (await ask("Domain(s) to serve (comma separated):", auto)).split(/[\s,]+/).filter(Boolean);
-    }
-    domains = domains.map((d) => expandDomain(d, server));
-    if (!domains.length) fail("at least one --domain is required");
-    const bad = domains.filter((d) => !DOMAIN.test(d));
-    if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
     const keep = checkInt(o.keep, "--keep", 1);
 
     const buildCmd: string | undefined = o.build ?? project.build;
@@ -80,28 +71,26 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
     const forceStatic = o.static ?? project.static;
     const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
     const image = imageArg && checkImage(imageArg);
-    const dir = resolve(cwd, dirArg ?? project.dir ?? (image ? "." : detectStaticDir(cwd)));
-    const kind: SiteKind = image ? "image" : !forceStatic && fs.existsSync(join(dir, "Dockerfile")) ? "dockerfile" : "static";
+    const root = resolve(cwd, dirArg ?? project.dir ?? ".");
+    const compose = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
+    if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
+    const dir = compose || image ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd));
+    const kind: SiteKind = compose ? "compose" : image ? "image" : !forceStatic && fs.existsSync(join(dir, "Dockerfile")) ? "dockerfile" : "static";
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) warn(`no index.html in ${relative(cwd, dir) || "."}`);
     const port =
-      kind === "static"
-        ? 80
-        : checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535);
+      kind === "dockerfile" || kind === "image"
+        ? checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
+        : undefined;
+    const spa = kind === "static" && !!(o.spa ?? project.spa);
 
     step(`deploying ${c.bold(name)} (${kind}) to ${c.bold(serverName)}`);
-    const { meta: prev, env: prevEnv, proxy, exists } = await readSite(server, name);
-    if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
-    const move = await claimDomains(server, serverName, name, domains, proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
-
-    const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id));
-    const release: Release = { id, at: new Date().toISOString() };
-    if (kind === "image") release.image = image;
-    if (kind === "dockerfile") release.image = `${container(name)}:${id}`;
-
-    if (kind !== "image") {
-      step(`uploading ${relative(cwd, dir) || "."}`);
-      await upload(server, dir, `${siteDir(name)}/releases/${id}`);
-    }
+    const site = await readSite(server, name);
+    const { env: prevEnv, proxy, exists } = site;
+    const old = site.meta && isOld(site.meta) ? site.meta : undefined;
+    const prev = old ? undefined : site.meta;
+    if (prev?.adopted) fail(`${name} is adopted (${prev.adopted}): deploy it there with docker compose, or pick another --name`);
+    if (old) warn(`${name} was deployed by an older landfall: this moves it to a Compose project (its old releases go, so it cannot be undone)`);
+    else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
     let env: string | undefined;
     if (o.env?.length || o["env-file"]) {
@@ -110,48 +99,103 @@ Settings are saved to ./.landfall.json, so later deploys are just \`lf deploy\`.
       if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env));
     }
 
+    const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id));
+    const releaseDir = `${siteDir(name)}/releases/${id}`;
+    const generated: Record<string, string> = {};
+    if (kind === "static") Object.assign(generated, { "compose.yaml": generatedCompose("static"), "nginx.conf": nginxConf(spa) });
+    if (kind === "dockerfile" || kind === "image") generated["compose.yaml"] = generatedCompose(kind, { port, image });
+    if (kind !== "image") {
+      step(`uploading ${relative(cwd, dir) || "."}`);
+      await upload(server, dir, kind === "static" ? `${releaseDir}/public` : releaseDir);
+    }
+    const prepared = await prepareRelease(server, name, id, { file: compose, generated, env });
+    const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
+    for (const w of a.warnings) warn(w);
+    if (a.errors.length) {
+      await discardRelease(server, name, id);
+      fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
+    }
+    const release: Release = { id, at: new Date().toISOString(), services: a.services };
+    const fixed = a.services.flatMap((s) => s.domains ?? []);
+
+    // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.
+    // Those from .landfall.json never move from another site: that takes a -d.
+    let domains: string[] = [];
+    let fromFile = false;
+    if (mainService(release)) {
+      fromFile = !o.domain?.length && !!project.domains?.length;
+      domains = o.domain?.length ? o.domain : project.domains?.length ? project.domains : (prev?.domains.length ? prev.domains : (old?.domains ?? []));
+      if (!domains.length) {
+        // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
+        const main = mainDomain(server);
+        const ip = main ? undefined : pickIp(await serverIps(server));
+        const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
+        domains = (await ask("Domain(s) to serve (comma separated):", auto)).split(/[\s,]+/).filter(Boolean);
+      }
+      domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
+      const bad = domains.filter((d) => !DOMAIN.test(d));
+      const clash = domains.filter((d) => fixed.includes(d));
+      const why = !domains.length ? "at least one --domain is required" : bad.length ? `not a domain: ${bad.join(", ")}` : clash.length ? `${clash.join(", ")} is already routed by x-landfall.domains` : "";
+      if (why) {
+        await discardRelease(server, name, id);
+        fail(why);
+      }
+    } else if (o.domain?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
+
+    let move: () => Promise<void>;
+    try {
+      move = await claimDomains(server, serverName, name, [...domains, ...fixed], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
+    } catch (e) {
+      await discardRelease(server, name, id);
+      throw e;
+    }
+
     const now = new Date().toISOString();
     const meta: SiteMeta = {
+      v: 2,
       name,
       kind,
       domains,
-      port,
-      spa: kind === "static" ? !!(o.spa ?? project.spa) : undefined,
-      auth: prev?.auth,
+      auth: prev?.auth ?? old?.auth,
       current: id,
       releases: [...(prev?.releases ?? []), release],
-      createdAt: prev?.createdAt ?? now,
+      createdAt: prev?.createdAt ?? old?.createdAt ?? now,
       updatedAt: now,
     };
     await move();
     await applySite(server, meta, proxy, {
       env,
-      build: kind === "dockerfile",
-      pull: kind === "image",
+      build: true,
+      pull: true,
       keep,
       prev,
-      existed: !prev && exists,
-      what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${domains.join(", ")})`}`,
+      takeover: old,
+      existed: !prev && !old && exists,
+      what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${siteDomains(meta).join(", ")})`}`,
     });
 
+    const all = siteDomains(meta);
     if (o.save) {
       const saved: ProjectConfig = { name, server: serverName, domains };
       if (kind === "image") Object.assign(saved, { image, port });
       else {
         const rel = relative(cwd, dir) || ".";
-        if (rel !== detectStaticDir(cwd)) saved.dir = rel;
+        if (kind === "compose") {
+          if (rel !== ".") saved.dir = rel;
+          if (o.file || project.compose) saved.compose = compose;
+        } else if (rel !== detectStaticDir(cwd)) saved.dir = rel;
         if (kind === "dockerfile") saved.port = port;
-        if (meta.spa) saved.spa = true;
+        if (spa) saved.spa = true;
         if (forceStatic && kind === "static") saved.static = true;
       }
       if (buildCmd) saved.build = buildCmd;
       saveProject(cwd, saved);
-      rememberProject({ path: cwd, name, server: serverName, domains, kind });
+      rememberProject({ path: cwd, name, server: serverName, domains: all, kind });
     }
 
     ok(`release ${c.bold(id)} live`);
-    for (const d of domains) console.log(`  ${c.cyan(`https://${d}`)}`);
-    await checkLive(domains[0]);
+    for (const d of all) console.log(`  ${c.cyan(`https://${d}`)}`);
+    if (all[0]) await checkLive(all[0]);
   },
 });
 

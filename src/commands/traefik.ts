@@ -17,6 +17,8 @@ export interface TraefikInstall {
   dashboard?: string;
   dashboardUser: string;
   dashboardPassword?: string;
+  /** Overwrite a docker-compose.yml edited by hand. */
+  force?: boolean;
 }
 
 /** Traefik expects bcrypt as $2y$; bcryptjs emits $2b$ which is the same algorithm. */
@@ -64,22 +66,29 @@ mkdir -p ${TRAEFIK_DIR}/letsencrypt ${DYNAMIC_DIR} && cd ${TRAEFIK_DIR}
 ${writeFileCmd("dynamic/landfall.yml", TLS_FILE)}
 if [ -e docker-compose.yml ]; then
   ${writeFileCmd(".docker-compose.yml.new", compose)}
+  # .landfall.sha256: what landfall wrote last. A different file was edited by hand.
+  if [ -f .landfall.sha256 ] && ! sha256sum -c --status .landfall.sha256 2>/dev/null && ! cmp -s .docker-compose.yml.new docker-compose.yml && [ -z "${o.force ? "1" : ""}" ]; then
+    diff -u docker-compose.yml .docker-compose.yml.new >&2; rm -f .docker-compose.yml.new
+    echo "${TRAEFIK_DIR}/docker-compose.yml was edited by hand; the diff above is what landfall would change. Keep your edits: change dynamic/ or the flags instead; overwrite them: lf traefik setup --force" >&2
+    exit 1
+  fi
   # Same config again: nothing to journal.
   if cmp -s .docker-compose.yml.new docker-compose.yml; then rm -f .docker-compose.yml.new
   else
     u=$(saved docker-compose.yml)
     mv .docker-compose.yml.new docker-compose.yml
-    record ${shq(`reconfigured traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && $u && dc up -d --remove-orphans"
+    record ${shq(`reconfigured traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && $u && sha256sum docker-compose.yml > .landfall.sha256 && dc up -d --remove-orphans"
   fi
 else
   ${writeFileCmd("docker-compose.yml", compose)}
   # Certificates in letsencrypt/ stay, a later install reuses them.
-  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
+  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml .landfall.sha256 dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
 fi
 log "starting traefik"
 dc up -d --remove-orphans --quiet-pull
 sleep 2 # traefik exits shortly after start on a bad config
-ensure_running traefik`,
+ensure_running traefik
+sha256sum docker-compose.yml > .landfall.sha256`,
   );
   const cfg = loadConfig();
   if (cfg.servers[name]) {
@@ -135,6 +144,7 @@ export const traefikSetup = defineCommand({
     dashboard: { type: "string", desc: "serve the traefik dashboard on this domain (basic auth), remembered; `traefik` = traefik.<main domain>, `off` removes it" },
     "dashboard-user": { type: "string", desc: "dashboard user", default: "admin" },
     "dashboard-password": { type: "string", desc: "dashboard password (default: generated)" },
+    force: { type: "boolean", desc: "overwrite a docker-compose.yml that was edited by hand" },
   },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
@@ -149,6 +159,7 @@ export const traefikSetup = defineCommand({
       dashboard: o.dashboard,
       dashboardUser: o["dashboard-user"],
       dashboardPassword: o["dashboard-password"],
+      force: o.force,
     });
   },
 });

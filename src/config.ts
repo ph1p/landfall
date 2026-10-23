@@ -153,6 +153,9 @@ export interface ProjectConfig {
   name: string;
   server?: string;
   domains: string[];
+  /** The compose file to deploy (default: compose.yaml, or the one `docker compose` would pick). */
+  compose?: string;
+  /** Without a compose file: the static folder or Dockerfile folder to deploy. */
   dir?: string;
   spa?: boolean;
   static?: boolean;

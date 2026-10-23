@@ -140,7 +140,8 @@ export async function canLogin(s: Server): Promise<boolean> {
 }
 
 // A function: legacy.ts is still loading when this module runs (config → legacy → ssh).
-const defaultExcludes = () => [".git", "node_modules", ".DS_Store", ".landfall.json", OLD_PROJECT_FILE, ".env", ".env.*"];
+/** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
+const defaultExcludes = () => [".git", "node_modules", ".DS_Store", ".landfall.json", OLD_PROJECT_FILE, ".env", ".env.*", "compose.override.*", "docker-compose.override.*"];
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
