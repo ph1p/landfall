@@ -243,7 +243,7 @@ export async function prepareRelease(
   const script = [
     PRELUDE,
     // Older compose cannot read the optional env_file of generated sites or `up --wait`.
-    `v=$(dc version --short 2>/dev/null | sed 's/^v//'); case "$v" in 2.2[4-9]*|2.[3-9][0-9]*|[3-9]*) ;; *) echo "sites need docker compose 2.24 or newer, the server has \${v:-none}: run lf update --compose" >&2; exit 1 ;; esac`,
+    `v=$(dc version --short 2>/dev/null | sed 's/^v//'); compose_ok "$v" || { echo "sites need docker compose 2.24 or newer, the server has \${v:-none}: run lf update --compose" >&2; exit 1; }`,
     `mkdir -p ${shq(rel)} && cd -P ${shq(rel)}`,
     `[ -e ../../.env ] || { touch ../../.env && chmod 600 ../../.env; }`,
     "ln -sfn ../../.env .env",
@@ -345,7 +345,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: bool
 const builtImages = (meta: SiteMeta, r: Release) => (r.services ?? []).filter((s) => s.build).map((s) => builtImage(meta.name, s.name, r.id));
 
 const dropRelease = (meta: SiteMeta, r: Release) => [
-  `rm -rf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)} 2>/dev/null || $SUDO rm -rf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
+  `rmf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
   ...builtImages(meta, r).map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
 ];
 
@@ -430,8 +430,8 @@ function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: boolean }
     `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(siteProject(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
     ...images.map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
     ...(o.keepDir
-      ? [`rm -rf ${files} 2>/dev/null || $SUDO rm -rf ${files}`, "rmdir releases 2>/dev/null || true"]
-      : ["cd /", `rm -rf ${shq(dir)} 2>/dev/null || $SUDO rm -rf ${shq(dir)}`]),
+      ? [`rmf ${files}`, "rmdir releases 2>/dev/null || true"]
+      : ["cd /", `rmf ${shq(dir)}`]),
   ];
 }
 

@@ -268,7 +268,7 @@ set +e
 printf 'docker=%s
 ' "$(docker version --format '{{.Server.Version}}' 2>/dev/null)"
 printf 'compose=%s
-' "$(docker compose version --short 2>/dev/null | sed 's/^v//')"
+' "$(compose_v)"
 printf 'path=%s
 ' "$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "compose"}}{{.Path}}{{end}}{{end}}' 2>/dev/null)"
 printf 'ce=%s

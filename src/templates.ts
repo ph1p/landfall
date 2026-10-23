@@ -48,6 +48,8 @@ export const proxyFile = (p: Proxy) =>
 export const PRELUDE = String.raw`
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
 SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+# Files a container wrote may be root's.
+rmf() { rm -rf "$@" 2>/dev/null || $SUDO rm -rf "$@"; }
 # The distro's package manager, and installing with it.
 pkg_mgr() { for m in apt-get dnf yum apk zypper; do command -v $m >/dev/null 2>&1 && { echo $m; return 0; }; done; echo none; }
 pkg_has() {
@@ -83,6 +85,9 @@ dc() {
   [ -n "$DC" ] || DC=$(docker compose version >/dev/null 2>&1 && echo "docker compose" || echo docker-compose)
   $DC "$@"
 }
+# The compose plugin's version, and whether a version has what sites need (2.24+: optional env_file, up --wait).
+compose_v() { docker compose version --short 2>/dev/null | sed 's/^v//'; }
+compose_ok() { case "$1" in 2.2[4-9]*|2.[3-9][0-9]*|2.[1-9][0-9][0-9]*|[3-9]*|[1-9][0-9]*) ;; *) return 1 ;; esac; }
 # Deploy users reach docker via the docker group; bootstrap sets DOCKER="$SUDO docker".
 DOCKER=docker
 ensure_network() {
@@ -226,14 +231,12 @@ if ! command -v docker >/dev/null 2>&1; then
   record "installed docker"
 fi
 $SUDO systemctl enable --now docker >/dev/null 2>&1 || $SUDO service docker start >/dev/null 2>&1 || true
-# Sites need compose 2.24+ (optional env_file, up --wait). Distro docker packages (docker.io, moby)
-# often lack it or ship older: Docker's own repo has the newest plugin, everyone else gets the release binary.
-v=$(docker compose version --short 2>/dev/null | sed 's/^v//' || true)
-case "$v" in ""|0.*|1.*|2.[0-9].*|2.1[0-9].*|2.2[0-3].*)
+# Distro docker packages (docker.io, moby) often lack compose 2.24+ or ship older: Docker's own repo has the newest plugin, everyone else gets the release binary.
+if ! compose_ok "$(compose_v)"; then
   log "installing the newest docker compose"
   if pkg_has docker-ce && pkg_install docker-compose-plugin; then record "installed docker-compose-plugin"
-  else compose_install || log "could not install docker compose; install it, then re-run setup"; fi ;;
-esac
+  else compose_install || log "could not install docker compose; install it, then re-run setup"; fi
+fi
 
 if [ -n "$DEPLOY_USER" ]; then
   if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
@@ -334,7 +337,7 @@ kv pkgs_missing "$missing"
 kv docker "$(docker --version 2>/dev/null | sed 's/,.*//')"
 kv docker_podman "$(docker --version 2>/dev/null | grep -qi podman && echo 1)"
 kv docker_running "$(yn S docker info)"
-kv compose "$(docker compose version --short 2>/dev/null | sed 's/^v//')"
+kv compose "$(compose_v)"
 kv compose_v1 "$(docker-compose version --short 2>/dev/null)"
 kv docker_ce "$(pkg_has docker-ce && echo 1)"
 if [ -n "$DEPLOY_USER" ] && id "$DEPLOY_USER" >/dev/null 2>&1; then
