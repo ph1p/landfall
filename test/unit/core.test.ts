@@ -20,7 +20,7 @@ import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { MIGRATED } from "../../src/legacy";
-import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
+import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
 import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, type Release, type SiteMeta } from "../../src/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -37,6 +37,12 @@ describe("shell quoting", () => {
     const content = "a $b `c` 'd'\n\\e\n";
     spawnSync("sh", ["-c", writeFileCmd(join(dir, "f"), content)]);
     expect(fs.readFileSync(join(dir, "f"), "utf8")).toBe(content);
+  });
+
+  test("compose_ok wants compose 2.24 or newer", () => {
+    const ok = (v: string) => spawnSync("sh", ["-c", `${PRELUDE}\ncompose_ok ${shq(v)}`]).status === 0;
+    expect(["2.24.0", "2.30.1", "2.100.0", "3.0", "10.1"].filter(ok)).toHaveLength(5);
+    expect(["", "1.29.2", "2.9.0", "2.19.1", "2.23.9"].filter(ok)).toEqual([]);
   });
 });
 
