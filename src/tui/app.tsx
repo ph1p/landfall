@@ -804,6 +804,7 @@ function describeServer(e: Entry, load?: Load): string {
   if (!e.registered) parts.push("from ~/.ssh/config");
   if (load?.kind === "ok") {
     parts.push(load.data.ready ? `${load.data.sites.length} site${load.data.sites.length === 1 ? "" : "s"}` : "not set up for landfall yet");
+    if (load.data.others.length) parts.push(`${load.data.others.length} not by landfall`);
   }
   return parts.join(" · ");
 }

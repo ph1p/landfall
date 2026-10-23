@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, expandDomain, loadProject, saveProject, type Server } from "../config";
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
-import { applySite, listSites, requireSite } from "../remote";
+import { applySite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
 import { askSecret, c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
 import { htpasswd } from "./traefik";
@@ -26,7 +26,12 @@ export async function httpsStatus(domain: string): Promise<{ status?: number; er
  * With `refuse`, fails instead of asking, giving it as the way out.
  */
 export async function claimDomains(server: Server, serverName: string, site: string, domains: string[], proxy: Proxy, refuse?: string): Promise<() => Promise<void>> {
-  const others = (await listSites(server)).map((s) => s.meta).filter((m) => m.name !== site && m.domains.some((d) => domains.includes(d)));
+  const all = await overview(server);
+  for (const e of all.others) {
+    const both = e.domains.filter((d) => domains.includes(d));
+    if (both.length) warn(`${both.join(", ")} ${both.length > 1 ? "are" : "is"} also routed to ${e.name}${e.dir ? ` (${e.dir})` : ""}, which landfall did not deploy: Traefik sends visitors to only one of them. Remove the labels there to hand ${both.length > 1 ? "them" : "it"} over.`);
+  }
+  const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && m.domains.some((d) => domains.includes(d)));
   for (const m of others) {
     const taken = m.domains.filter((d) => domains.includes(d));
     if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);

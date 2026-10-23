@@ -1051,6 +1051,18 @@ function renderMain() {
   else view.innerHTML = historyView(n);
 }
 
+/** Containers Traefik routes that landfall did not deploy: shown, never touched. */
+function othersCard(o) {
+  if (!o.others?.length) return "";
+  return `<div class="card scroll"><h2>Not deployed by landfall <span class="badge">${o.others.length}</span></h2>
+    <div class="body faint">Containers your Traefik routes, e.g. your own compose projects. landfall only shows them; deploying one of their domains warns.</div>
+    <table><thead><tr><th>Name</th><th class="hide-sm">Domains</th><th class="hide-sm">Folder</th></tr></thead><tbody>${o.others
+      .map((e) => `<tr><td class="nowrap">${statusDot(e.status)}<b>${esc(e.name)}</b> <span class="faint">${esc(e.status.toLowerCase())}</span></td>
+        <td class="hide-sm"><div class="chips">${e.domains.map((d) => `<span class="chip"><a href="https://${esc(d)}" target="_blank" rel="noopener">${esc(d)}</a></span>`).join("")}</div></td>
+        <td class="hide-sm mono dim">${esc(e.dir ?? e.containers.join(", "))}</td></tr>`)
+      .join("")}</tbody></table></div>`;
+}
+
 function sitesView(n, o) {
   ensureDns(n, o);
   if (!o.ready) {
@@ -1062,7 +1074,7 @@ function sitesView(n, o) {
     return `<div class="card"><div class="body empty"><h2>No sites yet</h2>
       <p>Deploy a static folder, a Dockerfile project or an image. It gets HTTPS automatically.</p>
       <p>${btn("Deploy a folder…", () => folderDialog(S.state.cwd), "primary")} <span class="dim">or drop one here</span></p>
-      <p class="faint mono">lf deploy ./dist -d example.com -s ${esc(n)}</p></div></div>`;
+      <p class="faint mono">lf deploy ./dist -d example.com -s ${esc(n)}</p></div></div>${othersCard(o)}`;
   }
   const rows = o.sites
     .map(({ meta: m, status }) => {
@@ -1115,7 +1127,7 @@ function sitesView(n, o) {
     .join("");
   return `<div class="card scroll"><table>
     <thead><tr><th>Site</th><th class="hide-sm">Domains</th><th class="hide-sm">Kind</th><th class="hide-sm">Deployed</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    <tbody>${rows}</tbody></table></div>${othersCard(o)}`;
 }
 
 /** Where a site lives on the server, and which of its files are live. */
@@ -1357,6 +1369,7 @@ function settingsView(n) {
       if (d) run(["traefik", "setup", ...sv(n), "--dashboard", d], reload);
     }, "Apply");
   const sites = S.overview[n]?.data?.sites ?? [];
+  const external = (d) => S.overview[n]?.data?.others?.find((e) => e.domains.includes(d))?.name;
   const servedBy = (d) => sites.find((s) => s.meta.domains.includes(d))?.meta.name;
   const serve = (d) => {
     const cur = servedBy(d);
@@ -1379,7 +1392,7 @@ function settingsView(n) {
       <h2>Main domains ${btn("Add…", addDomain, "sm")}</h2>
       <div class="body">${x.domains.length
         ? `<table><tbody>${x.domains.map((d, i) => `<tr>
-             <td>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge">primary</span>` : ""}<div class="faint">sites: ${dnsRow(x.dns[i].wildcard)}</div><div class="faint">${servedBy(d) ? `served by <b>${esc(servedBy(d))}</b>` : "no site serves it"}</div></td>
+             <td>${dnsRow(x.dns[i].apex)}${i === 0 ? ` <span class="badge">primary</span>` : ""}<div class="faint">sites: ${dnsRow(x.dns[i].wildcard)}</div><div class="faint">${servedBy(d) ? `served by <b>${esc(servedBy(d))}</b>` : external(d) ? `served by <b>${esc(external(d))}</b> (not landfall)` : "no site serves it"}</div></td>
              <td><div class="actions">${btn(servedBy(d) ? "Serve another site…" : "Serve a site…", () => serve(d), "ghost sm")}${i ? btn("Make primary", () => run(["server", "domain", n, "--primary", d], reload), "ghost sm") : ""}${btn("Remove", () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }), "ghost sm")}</div></td>
            </tr>`).join("")}</tbody></table>
            <p class="faint">New sites get <span class="mono">&lt;site&gt;.${esc(x.domains[0])}</span>; a bare name like <span class="mono">blog</span> means <span class="mono">blog.${esc(x.domains[0])}</span>, and <span class="mono">@</span> means <span class="mono">${esc(x.domains[0])}</span> itself.</p>
