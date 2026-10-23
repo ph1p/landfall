@@ -104,49 +104,46 @@ so \`docker compose\` works there without landfall. Settings are saved to
     const generated: Record<string, string> = {};
     if (kind === "static") Object.assign(generated, { "compose.yaml": generatedCompose("static"), "nginx.conf": nginxConf(spa) });
     if (kind === "dockerfile" || kind === "image") generated["compose.yaml"] = generatedCompose(kind, { port, image });
-    if (kind !== "image") {
-      step(`uploading ${relative(cwd, dir) || "."}`);
-      await upload(server, dir, kind === "static" ? `${releaseDir}/public` : releaseDir);
-    }
-    const prepared = await prepareRelease(server, name, id, { file: compose, generated, env });
-    const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
-    for (const w of a.warnings) warn(w);
-    if (a.errors.length) {
-      await discardRelease(server, name, id);
-      fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
-    }
-    const release: Release = { id, at: new Date().toISOString(), services: a.services };
-    const fixed = a.services.flatMap((s) => s.domains ?? []);
 
-    // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.
-    // Those from .landfall.json never move from another site: that takes a -d.
-    let domains: string[] = [];
-    let fromFile = false;
-    if (mainService(release)) {
-      fromFile = !o.domain?.length && !!project.domains?.length;
-      domains = o.domain?.length ? o.domain : project.domains?.length ? project.domains : (prev?.domains.length ? prev.domains : (old?.domains ?? []));
-      if (!domains.length) {
-        // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
-        const main = mainDomain(server);
-        const ip = main ? undefined : pickIp(await serverIps(server));
-        const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
-        domains = (await ask("Domain(s) to serve (comma separated):", auto)).split(/[\s,]+/).filter(Boolean);
-      }
-      domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
-      const bad = domains.filter((d) => !DOMAIN.test(d));
-      const clash = domains.filter((d) => fixed.includes(d));
-      const why = !domains.length ? "at least one --domain is required" : bad.length ? `not a domain: ${bad.join(", ")}` : clash.length ? `${clash.join(", ")} is already routed by x-landfall.domains` : "";
-      if (why) {
-        await discardRelease(server, name, id);
-        fail(why);
-      }
-    } else if (o.domain?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
-
-    let move: () => Promise<void>;
+    // Anything that fails from the upload until the site switches takes the half-made release away again.
+    let release: Release, domains: string[], move: () => Promise<void>;
     try {
+      if (kind !== "image") {
+        step(`uploading ${relative(cwd, dir) || "."}`);
+        await upload(server, dir, kind === "static" ? `${releaseDir}/public` : releaseDir);
+      }
+      const prepared = await prepareRelease(server, name, id, { file: compose, generated, env });
+      const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
+      for (const w of a.warnings) warn(w);
+      if (a.errors.length) fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
+      release = { id, at: new Date().toISOString(), services: a.services };
+      const fixed = a.services.flatMap((s) => s.domains ?? []);
+
+      // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.
+      // Those from .landfall.json never move from another site: that takes a -d.
+      domains = [];
+      let fromFile = false;
+      if (mainService(release)) {
+        fromFile = !o.domain?.length && !!project.domains?.length;
+        domains = [o.domain, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? [];
+        if (!domains.length) {
+          // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
+          const main = mainDomain(server);
+          const ip = main ? undefined : pickIp(await serverIps(server));
+          const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
+          domains = (await ask("Domain(s) to serve (comma separated):", auto)).split(/[\s,]+/).filter(Boolean);
+        }
+        domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
+        const bad = domains.filter((d) => !DOMAIN.test(d));
+        const clash = domains.filter((d) => fixed.includes(d));
+        if (!domains.length) fail("at least one --domain is required");
+        if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
+        if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
+      } else if (o.domain?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
+
       move = await claimDomains(server, serverName, name, [...domains, ...fixed], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
     } catch (e) {
-      await discardRelease(server, name, id);
+      await discardRelease(server, name, id).catch(() => {});
       throw e;
     }
 

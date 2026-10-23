@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, expandDomain, loadProject, saveProject, type Server } from "../config";
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
-import { currentRelease, isOld, mainService, siteDomains } from "../compose";
+import { isOld, siteDomains, siteMain } from "../compose";
 import { applySite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
 import { askSecret, c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
@@ -35,7 +35,7 @@ export async function claimDomains(server: Server, serverName: string, site: str
   const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && siteDomains(m).some((d) => domains.includes(d)));
   for (const m of others) {
     const taken = siteDomains(m).filter((d) => domains.includes(d));
-    const fixed = isOld(m) || m.adopted || !mainService(currentRelease(m)) ? taken : taken.filter((d) => !m.domains.includes(d));
+    const fixed = !siteMain(m) ? taken : taken.filter((d) => !m.domains.includes(d));
     if (fixed.length) {
       const where = isOld(m) ? "redeploy it first (lf deploy) so it can hand them over" : m.adopted ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}` : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
       fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
@@ -90,7 +90,7 @@ and update .landfall.json of remembered projects.`,
       if (rows.some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));
       return;
     }
-    const main = mainService(currentRelease(meta));
+    const main = siteMain(meta);
     if (!main) fail(`no service of ${site} serves the site's domains: its compose.yaml sets them (x-landfall.domains)`);
     const lower = (l?: string[]) => (l ?? []).map((d) => expandDomain(d.trim(), server)).filter(Boolean);
     let next = o.set ? lower(o.set) : [...meta.domains];

@@ -57,16 +57,29 @@ export const isOld = (meta: { v?: number }) => meta.v !== 2;
 
 export const projectName = (meta: SiteMeta) => meta.project ?? meta.name;
 
-export const currentRelease = (meta: SiteMeta) => meta.releases.find((r) => r.id === meta.current);
+/** The live release; none for a site of the old layout, whose releases have no services. */
+export const currentRelease = (meta: SiteMeta) => (isOld(meta) ? undefined : meta.releases.find((r) => r.id === meta.current));
 
 export const routed = (s: Service) => !!(s.port || s.own);
 
 /** The routed service serving the site's own domains, if any. */
-export const mainService = (r?: Release) => r?.services.find((s) => s.port && !s.domains && !s.own);
+const isMain = (s: Service) => !!s.port && !s.domains && !s.own;
+export const mainService = (r?: Release) => r?.services.find(isMain);
+/** The service that serves the site's own domains; none for old or adopted sites. */
+export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainService(currentRelease(meta)));
+
+/** Sites of landfall before Compose sites ran as one container in the project landfall-<name>. */
+export const oldProject = (name: string) => `landfall-${name}`;
+/** compose, static, … ; adopted, or deployed by landfall before Compose sites. */
+export const kindOf = (meta: { kind: string; adopted?: string; v?: number }) => (meta.adopted ? "adopted" : isOld(meta) ? `${meta.kind} (old)` : meta.kind);
+
+export const isUp = (status: string) => /^up/i.test(status);
+/** A one-shot service that finished fine: not down. */
+export const isDone = (status: string) => /^exited \(0\)/i.test(status);
 
 /** Every domain a site answers on now. */
 export function siteDomains(meta: SiteMeta): string[] {
-  const r = isOld(meta) ? undefined : currentRelease(meta);
+  const r = currentRelease(meta);
   if (!r) return meta.domains;
   const own = r.services.flatMap((s) => s.domains ?? []);
   return [...new Set([...(mainService(r) ? meta.domains : []), ...own])];
@@ -83,7 +96,7 @@ export const OVERRIDE_FILES = ["compose.override.yaml", "compose.override.yml", 
 export const ruleHosts = (rule: string) =>
   [...rule.matchAll(/\bHost\(([^)]*)\)/g)].flatMap((m) => [...m[1].matchAll(/[`"]([^`"]+)[`"]/g)].map((h) => h[1].toLowerCase()));
 
-const ROUTER_RULE = /^traefik\.http\.routers\.[^.]+\.rule$/;
+export const ROUTER_RULE = /^traefik\.http\.routers\.[^.]+\.rule$/;
 
 export interface Analysis {
   services: Service[];
@@ -153,7 +166,7 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
     services.push(s);
   }
   if (!services.some(routed)) errors.push("no service is routed: add x-landfall: { port: <port> } to the one Traefik should serve");
-  const mains = services.filter((s) => s.port && !s.domains && !s.own);
+  const mains = services.filter(isMain);
   if (mains.length > 1) errors.push(`${mains.map((s) => s.name).join(" and ")} both serve the site's domains: give all but one their own x-landfall.domains`);
   const seen = new Map<string, string>();
   for (const s of services) {
