@@ -274,6 +274,8 @@ echo "== os and updates"
 out=$(lf updates --no-refresh --json) || die "updates"
 { echo "$out" | has '"mgr": "apk"' && echo "$out" | has '"name": "traefik"'; } || { echo "$out" | head -40; die "updates lists packages and images"; }
 pass "updates lists apk packages and images"
+{ echo "$out" | has 'built on the server: redeploy to rebuild'; } || { echo "$out" | head -60; die "updates marks images built on the server"; }
+pass "updates marks images built on the server"
 
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"

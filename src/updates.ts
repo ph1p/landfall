@@ -1,3 +1,4 @@
+import { builtImage } from "./compose";
 import type { Server } from "./config";
 import { canLogin, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
@@ -359,8 +360,8 @@ export async function imageStatus(s: Server): Promise<ImageStatus[]> {
   return Promise.all(
     rows.map(async ([, kind, name, ctr, dir, service = "", ref = "", local = ""]): Promise<ImageStatus> => {
       const base = { name, container: ctr, dir, ref, service: service || undefined };
-      // Tagged per release by landfall's override: <site>-<service>:<release id>.
-      if (kind === "site" && ref.startsWith(`${name}-`) && /:\d{14}$/.test(ref)) return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
+      // Built on the server: landfall's override tags it per release (builtImage).
+      if (kind === "site" && service && ref.startsWith(builtImage(name, service, ""))) return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
       if (!ref) return { ...base, kind: kind as ImageStatus["kind"], state: "missing", note: "no container" };
       if (kind === "proxy") return { ...base, kind: "proxy", state: "foreign", note: "not landfall's traefik: update it where it was set up" };
       if (ref.includes("@")) return { ...base, kind: kind as ImageStatus["kind"], state: "pinned", note: "pinned to a digest" };
