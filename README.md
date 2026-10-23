@@ -20,8 +20,6 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 
 - [Install](#install)
 - [Concepts](#concepts)
-- [Using landfall from scripts and agents](#using-landfall-from-scripts-and-agents)
-- [Command reference](#command-reference)
 - [Prepare a server](#prepare-a-server)
 - [Deploy a site](#deploy-a-site)
 - [Day-to-day](#day-to-day)
@@ -31,6 +29,8 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [History and undo](#history-and-undo)
 - [Managing servers](#managing-servers)
 - [Dashboards](#dashboards)
+- [Using landfall from scripts and agents](#using-landfall-from-scripts-and-agents)
+- [Command reference](#command-reference)
 - [Files and config](#files-and-config)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -61,93 +61,6 @@ How defaults resolve, for every command:
 
 - **site** `[name]`: the argument, else `name` from `./.landfall.json`.
 - **server** `-s`: the flag, else `server` from `./.landfall.json`, else the default server (`lf server use`).
-
-## Using landfall from scripts and agents
-
-Every dashboard action is a plain command, and both dashboards print the command they run (`$ lf logs blog -s vps -f`).
-
-- **No prompts:** `-y` accepts confirmations and takes defaults. Without a terminal, prompts are never shown. A
-  command that would ask then **fails** and tells you to pass `-y`. It never silently goes ahead.
-- **Passwords:** pass them with `--password-stdin` or `$LANDFALL_PASSWORD` (`setup`, `server add`). For `lf auth`, use `-p`.
-- **JSON output:** `--json` works on `ls`, `info`, `server config`, `server domain`, `domains`, `firewall`,
-  `updates` and `history`.
-- **Dry runs:** `lf setup <name> --check` changes nothing. `lf updates` only reports.
-- **Exit codes:** `0` means success, `1` means error (the message starts with `error:` on stderr), and `2` means unknown command.
-- **Safety rails:** `-y` never overrides a safety refusal, for example a firewall change that would lock out ssh, or
-  setup steps that would break running services. Only `--force` does.
-
-A typical unattended flow:
-
-```sh
-printf '%s' "$ROOT_PW" | lf setup box --host 203.0.113.7 --password-stdin -y
-lf server domain box example.com -y
-lf deploy ./dist -n blog -s box -y          # → https://blog.example.com
-lf ls -s box --json
-lf history -s box --json
-lf undo -s box -y                           # revert the last run
-```
-
-## Command reference
-
-`[name]` is a site or server and is optional (see [Concepts](#concepts)). Most site and server commands take `-s <server>`. Every command takes `-y` and `--help`.
-
-**Servers**
-
-| command | what it does |
-|---|---|
-| `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, fail2ban, deploy user, ssh hardening and Traefik. Idempotent. |
-| `lf setup <name> --check` | Reports what is set up and what setup would change. Changes nothing. |
-| `lf setup <name> --key-only` | Only installs landfall's ssh key. |
-| `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
-| `lf server list [--all]` | Lists registered servers. `--all` adds every ssh alias. Alias: `servers`. |
-| `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
-| `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
-| `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--json]` | Manages main domains (the first is primary) and checks their DNS. |
-| `lf server use <name>` | Sets the default server. |
-| `lf server rm <name>` | Forgets a server locally. The server is untouched. |
-| `lf ssh [name] [-- cmd]` | Opens a shell or runs a one-off command. |
-| `lf keygen <name>` | Creates `~/.ssh/landfall_<name>` and prints the public key. |
-
-**Sites**
-
-| command | what it does |
-|---|---|
-| `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n]` | Deploys a Compose project, static folder, Dockerfile app or image. |
-| `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
-| `lf sites info [name]` | Shows services, domains and release history. |
-| `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. |
-| `lf auth [name] -u user [-p pw]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
-| `lf open [name]` | Opens the site in the browser. |
-| `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
-| `lf env [name] [K=V...] [-u K]` | Shows or changes the site's `.env`. Recreates the services. |
-| `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
-| `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
-| `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes stay unless `--volumes`. |
-| `lf adopt <project> [--name n]` | Makes a Compose project you started yourself a site, so `ls`, logs, restart and rm work for it. |
-
-**Traefik, firewall, updates, history**
-
-| command | what it does |
-|---|---|
-| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--staging] [--image img] [--host-network] [--force]` | Installs or reconfigures landfall's Traefik. `--force` overwrites hand edits. |
-| `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Routes sites through a Traefik you already run. |
-| `lf traefik status` / `logs [-f]` / `restart` | Inspects or restarts Traefik. `lf traefik` alone means `status`. |
-| `lf firewall [--json]` | Lists ufw rules and, for each listening port, whether it is reachable. |
-| `lf firewall allow` / `deny <port[/proto]> [--from ip] [--comment c]` | Adds a rule. A deny goes first, so it wins. |
-| `lf firewall update <n> [--port p] [--from ip] [--action allow\|deny\|limit]` | Changes a rule. |
-| `lf firewall rm <n>` / `enable` / `disable` | Removes a rule, or turns ufw on or off. |
-| `lf updates [--no-refresh] [--all] [--json]` | Shows pending OS packages, newer images, and Docker/compose versions. Changes nothing. |
-| `lf update [site...] [--packages] [--security] [--reboot] [--images] [--compose]` | Applies updates. Image and compose updates can be undone. |
-| `lf history [-n 20] [--json]` | Lists what landfall changed on the server, run by run. Alias: `log`. |
-| `lf undo [n \| n.m] [--all] [--force]` | Reverts the latest run, run `n`, step `n.m`, or everything. Alias: `revert`. |
-
-**Dashboards**
-
-| command | what it does |
-|---|---|
-| `lf ui [--port 4777] [--no-open]` | Starts the web dashboard on 127.0.0.1 and prints a login link. |
-| `lf tui` | Starts the terminal dashboard. |
 
 ## Prepare a server
 
@@ -360,7 +273,7 @@ lf update --compose                # newest compose, where landfall installed it
 ```
 
 Package upgrades (apt-get, dnf/yum, apk) cannot be undone. Image and compose updates record the previous version,
-so `lf undo` restores it. Landfall never touches images pinned by digest, Dockerfile sites or foreign containers.
+so `lf undo` restores it. landfall never touches images pinned by digest, Dockerfile sites or foreign containers.
 Version-pinned tags show the newest tag of the same shape (`traefik:v3.6` → `traefik:v3.7`).
 
 ## Traefik
@@ -395,7 +308,7 @@ e-mail, staging and dashboard are remembered per server.
 
 ```sh
 lf traefik use -s vps                          # finds the container on :80/:443
-lf traefik use traefik-reverseproxy-1 -s vps   # or name it
+lf traefik use proxy-traefik-1 -s vps   # or name it
 ```
 
 Containers you run yourself behind that Traefik (compose projects with `traefik.http.routers.*.rule` labels)
@@ -449,8 +362,8 @@ lf undo --all           # everything, newest first
 
 ```sh
 lf server add vps                                       # register an existing ssh alias
-lf server add box --host 1.2.3.4 -u ubuntu -i ~/.ssh/box --default
-lf server add web --host 1.2.3.4 -u admin               # asks the password once, installs ~/.ssh/landfall_web
+lf server add box --host 198.51.100.4 -u ubuntu -i ~/.ssh/box --default
+lf server add web --host 198.51.100.5 -u admin               # asks the password once, installs ~/.ssh/landfall_web
 lf server config vps                                    # landfall entry, Traefik settings, ssh login, keys, Host block
 lf server list --all
 lf server use vps
@@ -475,7 +388,7 @@ are refused. Running `lf ui` again while the dashboard is running just opens the
 **Terminal (`lf tui`).**
 
 ```
-landfall 0.1.0                              this folder: blog → vps · blog.example.com
+landfall                                    this folder: blog → vps · blog.example.com
 ╭ Servers ──────────╮╭ Sites on vps  traefik Up 3 days ─────────────────────╮
 │ › ● vps  default  │ │ › ● blog   static      blog.example.com      2h ago │
 │   ● box           │ │   ● api    dockerfile  api.example.com       5d ago │
@@ -487,6 +400,93 @@ landfall 0.1.0                              this folder: blog → vps · blog.ex
 
 Keys: `↵` connect/open, `d` deploy this folder, `u` check and set up, `a` add a server, `f` firewall, `h` history,
 `z` undo, `x` shell, `esc` stop/back, `?` all keys. Dot colors: green ready, yellow not set up, red unreachable, ○ not connected.
+
+## Using landfall from scripts and agents
+
+Every dashboard action is a plain command, and both dashboards print the command they run (`$ lf logs blog -s vps -f`).
+
+- **No prompts:** `-y` accepts confirmations and takes defaults. Without a terminal, prompts are never shown. A
+  command that would ask then **fails** and tells you to pass `-y`. It never silently goes ahead.
+- **Passwords:** pass them with `--password-stdin` or `$LANDFALL_PASSWORD` (`setup`, `server add`). For `lf auth`, use `-p`.
+- **JSON output:** `--json` works on `ls`, `info`, `server config`, `server domain`, `domains`, `firewall`,
+  `updates` and `history`.
+- **Dry runs:** `lf setup <name> --check` changes nothing. `lf updates` only reports.
+- **Exit codes:** `0` means success, `1` means error (the message starts with `error:` on stderr), and `2` means unknown command.
+- **Safety rails:** `-y` never overrides a safety refusal, for example a firewall change that would lock out ssh, or
+  setup steps that would break running services. Only `--force` does.
+
+A typical unattended flow:
+
+```sh
+printf '%s' "$ROOT_PW" | lf setup box --host 203.0.113.7 --password-stdin -y
+lf server domain box example.com -y
+lf deploy ./dist -n blog -s box -y          # → https://blog.example.com
+lf ls -s box --json
+lf history -s box --json
+lf undo -s box -y                           # revert the last run
+```
+
+## Command reference
+
+`[name]` is a site or server and is optional (see [Concepts](#concepts)). Most site and server commands take `-s <server>`. Every command takes `-y` and `--help`.
+
+**Servers**
+
+| command | what it does |
+|---|---|
+| `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, fail2ban, deploy user, ssh hardening and Traefik. Idempotent. |
+| `lf setup <name> --check` | Reports what is set up and what setup would change. Changes nothing. |
+| `lf setup <name> --key-only` | Only installs landfall's ssh key. |
+| `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
+| `lf server list [--all]` | Lists registered servers. `--all` adds every ssh alias. Alias: `servers`. |
+| `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
+| `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
+| `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--json]` | Manages main domains (the first is primary) and checks their DNS. |
+| `lf server use <name>` | Sets the default server. |
+| `lf server rm <name>` | Forgets a server locally. The server is untouched. |
+| `lf ssh [name] [-- cmd]` | Opens a shell or runs a one-off command. |
+| `lf keygen <name>` | Creates `~/.ssh/landfall_<name>` and prints the public key. |
+
+**Sites**
+
+| command | what it does |
+|---|---|
+| `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n]` | Deploys a Compose project, static folder, Dockerfile app or image. |
+| `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
+| `lf sites info [name]` | Shows services, domains and release history. |
+| `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. |
+| `lf auth [name] -u user [-p pw]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
+| `lf open [name]` | Opens the site in the browser. |
+| `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
+| `lf env [name] [K=V...] [-u K]` | Shows or changes the site's `.env`. Recreates the services. |
+| `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
+| `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
+| `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes stay unless `--volumes`. |
+| `lf adopt <project> [--name n]` | Makes a Compose project you started yourself a site, so `ls`, logs, restart and rm work for it. |
+
+**Traefik, firewall, updates, history**
+
+| command | what it does |
+|---|---|
+| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--staging] [--image img] [--host-network] [--force]` | Installs or reconfigures landfall's Traefik. `--force` overwrites hand edits. |
+| `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Routes sites through a Traefik you already run. |
+| `lf traefik status` / `logs [-f]` / `restart` | Inspects or restarts Traefik. `lf traefik` alone means `status`. |
+| `lf firewall [--json]` | Lists ufw rules and, for each listening port, whether it is reachable. |
+| `lf firewall allow` / `deny <port[/proto]> [--from ip] [--comment c]` | Adds a rule. A deny goes first, so it wins. |
+| `lf firewall update <n> [--port p] [--from ip] [--action allow\|deny\|limit]` | Changes a rule. |
+| `lf firewall rm <n>` / `enable` / `disable` | Removes a rule, or turns ufw on or off. |
+| `lf updates [--no-refresh] [--all] [--json]` | Shows pending OS packages, newer images, and Docker/compose versions. Changes nothing. |
+| `lf update [site...] [--packages] [--security] [--reboot] [--images] [--compose]` | Applies updates. Image and compose updates can be undone. |
+| `lf history [-n 20] [--json]` | Lists what landfall changed on the server, run by run. Alias: `log`. |
+| `lf undo [n \| n.m] [--all] [--force]` | Reverts the latest run, run `n`, step `n.m`, or everything. Alias: `revert`. |
+
+**Dashboards**
+
+| command | what it does |
+|---|---|
+| `lf ui [--port 4777] [--no-open]` | Starts the web dashboard on 127.0.0.1 and prints a login link. |
+| `lf tui` | Starts the terminal dashboard. |
 
 ## Files and config
 
@@ -505,12 +505,6 @@ Keys: `↵` connect/open, `d` deploy this folder, `u` check and set up, `a` add 
 | `LANDFALL_CONFIG_DIR` | use another directory than `~/.config/landfall` |
 | `LANDFALL_SSH_CONFIG` | use another ssh config file (`ssh -F`) |
 | `LANDFALL_PASSWORD` | login password for `setup`/`server add` |
-
-**Coming from `srv`** (landfall's old name): `~/.config/srv` moves to `~/.config/landfall` on the first run, and
-`srv.json`, `~/.ssh/srv_<name>`, `# >>> srv:` blocks and `$SRV_*` variables keep working. A server set up by `srv`
-still has `/opt/srv`: other commands refuse it until `lf setup <name>` moves it to `/opt/landfall` and renames
-the site containers. Sites keep serving, Traefik restarts once, and older changes can no longer be undone.
-All of this lives in `src/legacy.ts`.
 
 On the server:
 

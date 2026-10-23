@@ -217,7 +217,7 @@ describe("templates", () => {
 describe("ssh config", () => {
   test("upsert/replace/remove managed host block", () => {
     const f = join(tmp(), "config");
-    fs.writeFileSync(f, "Host mine\n  HostName 1.2.3.4\n\nHost *\n  ServerAliveInterval 30\n");
+    fs.writeFileSync(f, "Host mine\n  HostName 192.0.2.4\n\nHost *\n  ServerAliveInterval 30\n");
     const b = { alias: "vps", hostname: "5.6.7.8", user: "deploy", port: 22, key: "/k" };
     upsertHostBlock(b, f);
     upsertHostBlock({ ...b, hostname: "9.9.9.9" }, f);
@@ -225,22 +225,22 @@ describe("ssh config", () => {
     expect(text.match(/landfall:vps/g)?.length).toBe(2);
     expect(text.indexOf("Host vps")).toBeLessThan(text.indexOf("Host *"));
     expect(text).toContain("HostName 9.9.9.9");
-    expect(sshAliases(f).sort()).toEqual(["vps", "mine"]);
+    expect(sshAliases(f).sort()).toEqual(["mine", "vps"]);
     expect(removeHostBlock("vps", f)).toBe(true);
-    expect(fs.readFileSync(f, "utf8")).toBe("Host mine\n  HostName 1.2.3.4\n\nHost *\n  ServerAliveInterval 30\n");
+    expect(fs.readFileSync(f, "utf8")).toBe("Host mine\n  HostName 192.0.2.4\n\nHost *\n  ServerAliveInterval 30\n");
   });
 
   test("blocks written as srv: (landfall's old name) are still managed", () => {
     const f = join(tmp(), "config");
-    const old = "# >>> srv:vps\nHost vps\n  HostName 1.1.1.1\n# <<< srv:vps\n\nHost hetzner\n  User x\n";
+    const old = "# >>> srv:vps\nHost vps\n  HostName 1.1.1.1\n# <<< srv:vps\n\nHost vps2\n  User x\n";
     fs.writeFileSync(f, old);
     expect(hasManagedBlock("vps", f)).toBe(true);
-    expect(hasManagedBlock("hetzner", f)).toBe(false);
+    expect(hasManagedBlock("vps2", f)).toBe(false);
     upsertHostBlock({ alias: "vps", hostname: "2.2.2.2", user: "u", port: 22, key: "/k" }, f);
     const text = fs.readFileSync(f, "utf8");
     expect(text).not.toContain("srv:vps");
     expect(text).toContain("# >>> landfall:vps\nHost vps\n  HostName 2.2.2.2");
-    expect(text).toContain("Host hetzner");
+    expect(text).toContain("Host vps2");
   });
 
   test("non-default port rendered", () => {
@@ -320,7 +320,7 @@ describe("server inventory", () => {
     "published=tcp 127.0.0.1:8080 docker",
     'listen=tcp 0.0.0.0:25 users:(("docker-proxy",pid=5,fd=8))',
     'listen=udp 127.0.0.53%lo:53 users:(("systemd-resolve",pid=2,fd=14))',
-    'listen=udp 203.0.113.161%eth0:68 users:(("systemd-network",pid=3,fd=23))',
+    'listen=udp 203.0.113.9%eth0:68 users:(("systemd-network",pid=3,fd=23))',
   ];
 
   test("ufw keeps container ports open while docker manages NAT", () => {
@@ -366,21 +366,21 @@ describe("server inventory", () => {
     expect(status(`${fresh}\npublish_443=caddy `).traefik).toBe("conflict");
   });
 
-  // vps: a traefik from its own compose project owns 80/443.
-  const vps = [
-    "publish_80=traefik-reverseproxy-1 ",
-    "publish_443=traefik-reverseproxy-1 ",
-    "foreign_proxy=/traefik-reverseproxy-1|traefik:v3.7.5|proxy,|--providers.docker.network=proxy --providers.docker=true " +
+  // A traefik from its own compose project owns 80/443.
+  const foreign = [
+    "publish_80=proxy-traefik-1 ",
+    "publish_443=proxy-traefik-1 ",
+    "foreign_proxy=/proxy-traefik-1|traefik:v3.7.5|proxy,|--providers.docker.network=proxy --providers.docker=true " +
       "--entrypoints.web.address=:80 --entrypoints.websecure.address=:443 --entrypoints.websecure.http3 " +
       "--certificatesresolvers.letsencryptresolver.acme.httpchallenge.entrypoint=web",
   ];
   const traefik = (extra: string[]) => assess(parseProbe([fresh, ...extra].join("\n")), want).find((c) => c.part === "traefik")!;
 
   test("an existing traefik is used instead of a conflict", () => {
-    const t = traefik(vps);
+    const t = traefik(foreign);
     expect(t.status).toBe("todo");
-    expect(t.proxy).toEqual({ container: "traefik-reverseproxy-1", network: "proxy", entrypoint: "websecure", resolver: "letsencryptresolver" });
-    const adopted = traefik([...vps, "proxy=container=traefik-reverseproxy-1 network=proxy entrypoint=websecure resolver=r "]);
+    expect(t.proxy).toEqual({ container: "proxy-traefik-1", network: "proxy", entrypoint: "websecure", resolver: "letsencryptresolver" });
+    const adopted = traefik([...foreign, "proxy=container=proxy-traefik-1 network=proxy entrypoint=websecure resolver=r "]);
     expect(adopted).toMatchObject({ status: "done", proxy: { resolver: "r" } });
   });
 
@@ -539,10 +539,10 @@ describe("server facts", () => {
   test("addresses", () => {
     expect(isPublic4("10.0.0.1")).toBe(false);
     expect(isPublic4("172.20.1.1")).toBe(false);
-    expect(isPublic4("49.12.1.1")).toBe(true);
-    expect(pickIp(["192.168.1.2", "49.12.1.1"])).toBe("49.12.1.1");
+    expect(isPublic4("198.51.100.1")).toBe(true);
+    expect(pickIp(["192.168.1.2", "198.51.100.1"])).toBe("198.51.100.1");
     expect(pickIp(["192.168.1.2"])).toBe("192.168.1.2");
-    expect(sslipDomain("blog", "49.12.1.1")).toBe("blog.49-12-1-1.sslip.io");
+    expect(sslipDomain("blog", "198.51.100.1")).toBe("blog.198-51-100-1.sslip.io");
   });
 });
 
