@@ -15,8 +15,8 @@
   ],
   "type": "module",
   "bin": {
-    "landfall": "./dist/cli.mjs",
-    "lf": "./dist/cli.mjs"
+    "landfall": "dist/cli.mjs",
+    "lf": "dist/cli.mjs"
   },
   "files": [
     "dist"
