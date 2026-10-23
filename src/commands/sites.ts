@@ -1,6 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { loadProject, resolveServer } from "../config";
-import { COMPOSE_FILES, isDone, isOld, isUp, kindOf, OVERRIDE_FILES, projectName, siteDomains, type SiteMeta } from "../compose";
+import { COMPOSE_FILES, isDone, isUp, OVERRIDE_FILES, projectName, siteDomains, type SiteMeta } from "../compose";
 import { adoptSite, applySite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
@@ -40,10 +40,10 @@ export const sitesList = defineCommand({
     if (!sites.length) return console.log(`no landfall sites on ${name} yet — ${c.bold("lf deploy --domain example.com")}`);
     table([
       [c.dim("NAME"), c.dim("KIND"), c.dim("DOMAINS"), c.dim("SERVICES"), c.dim("RELEASE"), c.dim("UPDATED"), c.dim("STATUS")],
-      ...sites.map(({ meta, status, services }) => [
+      ...sites.map(({ meta, status, services, kind, domains }) => [
         c.bold(meta.name),
-        kindOf(meta),
-        siteDomains(meta).join(", "),
+        kind,
+        domains.join(", "),
         services.map((x) => x.service).join(", ") || c.dim("-"),
         meta.current || c.dim("-"),
         ago(meta.updatedAt),
@@ -64,15 +64,15 @@ export const sitesInfo = defineCommand({
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
     if (!st) fail(`no site "${site}" on ${server.host}. See \`lf sites list\``);
     const meta = st!.meta;
-    console.log(`${c.bold(meta.name)}  ${kindOf(meta)}  ${paint(st?.status ?? "not running")}`);
-    for (const d of siteDomains(meta)) console.log(`  ${c.cyan("https://" + d)}`);
+    console.log(`${c.bold(meta.name)}  ${st!.kind}  ${paint(st!.status)}`);
+    for (const d of st!.domains) console.log(`  ${c.cyan("https://" + d)}`);
     console.log(c.dim(`  ${meta.adopted ?? siteDir(site) + "/current"}  (docker compose works there)`));
-    if (st?.services.length) {
+    if (st!.services.length) {
       console.log(`\n${c.bold("Services")}`);
-      table(st.services.map((x) => [`  ${x.service}`, c.dim(x.container), paint(x.status)]));
+      table(st!.services.map((x) => [`  ${x.service}`, c.dim(x.container), paint(x.status)]));
     }
     // Sites of the old layout list no services per release.
-    if (!meta.releases.length || isOld(meta)) return;
+    if (!meta.releases.length || st!.state === "old") return;
     console.log(`\n${c.bold("Releases")}`);
     for (const r of newestFirst(meta)) {
       const mark = r.id === meta.current ? c.green("● ") : "  ";

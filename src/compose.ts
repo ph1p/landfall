@@ -70,8 +70,11 @@ export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainServ
 
 /** Sites of landfall before Compose sites ran as one container in the project landfall-<name>. */
 export const oldProject = (name: string) => `landfall-${name}`;
+/** managed: landfall deploys it; adopted: run where it is; old: deployed before Compose sites. */
+export type SiteState = "managed" | "adopted" | "old";
+export const siteState = (meta: { adopted?: string; v?: number }): SiteState => (meta.adopted ? "adopted" : isOld(meta) ? "old" : "managed");
 /** compose, static, … ; adopted, or deployed by landfall before Compose sites. */
-export const kindOf = (meta: { kind: string; adopted?: string; v?: number }) => (meta.adopted ? "adopted" : isOld(meta) ? `${meta.kind} (old)` : meta.kind);
+export const kindOf = (meta: { kind: string; adopted?: string; v?: number }) => ({ managed: meta.kind, adopted: "adopted", old: `${meta.kind} (old)` })[siteState(meta)];
 
 export const isUp = (status: string) => /^up/i.test(status);
 /** A one-shot service that finished fine: not down. */
