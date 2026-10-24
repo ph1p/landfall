@@ -60,6 +60,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     server: serverOpt,
     name: { type: "string", short: "n", desc: "site name (default: folder name)" },
     domain: { type: "string", short: "d", multiple: true, desc: "domain to serve (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here" },
+    "no-domain": { type: "boolean", desc: "serve no domain: reach it with lf tunnel until lf domains --add gives it one" },
     file: { type: "string", short: "f", desc: "compose file to deploy (default: compose.yaml)" },
     spa: { type: "boolean", desc: "single-page app: unknown paths serve index.html" },
     image: { type: "string", desc: "deploy a docker image instead of files" },
@@ -95,8 +96,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     }
     const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
     const keep = checkInt(o.keep, "--keep", 1);
+    // parseArgs reads --no-domain as the negation of --domain: a false among its values.
+    const noDomain = !!o["no-domain"] || ((o.domain as unknown[] | undefined)?.includes(false) ?? false);
+    const domainArgs: string[] | undefined = o.domain?.filter((d: unknown) => typeof d === "string");
+    if (noDomain && domainArgs?.length) fail("--no-domain and --domain exclude each other");
     // Domains given up front fail on a typo before the build and the upload.
-    const typos = (o.domain?.length ? o.domain : (project.domains ?? [])).map((d: string) => expandDomain(d, server)).filter((d: string) => !DOMAIN.test(d));
+    const typos = (domainArgs?.length ? domainArgs : (project.domains ?? [])).map((d: string) => expandDomain(d, server)).filter((d: string) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
@@ -168,25 +173,27 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       domains = [];
       let fromFile = false;
       if (mainService(release)) {
-        fromFile = !o.domain?.length && !!project.domains?.length;
-        domains = [o.domain, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? [];
-        // A site whose domains were all taken off (lf domains --rm) stays unrouted until -d.
-        const unrouted = !domains.length && !!prev && !!siteMain(prev) && !prev.domains.length;
+        fromFile = !domainArgs?.length && !!project.domains?.length;
+        domains = noDomain ? [] : ([domainArgs, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? []);
+        // Unrouted until -d: deployed with --no-domain, or a site whose domains were all taken off (lf domains --rm).
+        let unrouted = noDomain || (!domains.length && ((!!prev && !!siteMain(prev) && !prev.domains.length) || project.domains?.length === 0));
         if (!domains.length && !unrouted) {
           // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
           const main = mainDomain(server);
           const ip = main ? undefined : pickIp(await serverIps(server));
           const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
-          domains = (await ask("Domain(s) to serve (comma separated):", auto)).split(/[\s,]+/).filter(Boolean);
+          const answer = await ask("Domain(s) to serve (comma separated; none: reach it by tunnel only):", auto);
+          unrouted = answer === "none";
+          if (!unrouted) domains = answer.split(/[\s,]+/).filter(Boolean);
         }
         domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
         const bad = domains.filter((d) => !DOMAIN.test(d));
         const clash = domains.filter((d) => fixed.includes(d));
         if (!domains.length && !unrouted) fail("at least one --domain is required");
-        if (unrouted) info(c.dim(`${name} serves no domain (lf domains ${name} --add <domain>, or deploy with -d)`));
+        if (unrouted) info(c.dim(`${name} serves no domain: reach it with lf tunnel ${name}, give it one with lf domains ${name} --add <domain>`));
         if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
         if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
-      } else if (o.domain?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
+      } else if (domainArgs?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
 
       move = await claimDomains(server, serverName, name, [...domains, ...fixed], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
     } catch (e) {

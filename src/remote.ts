@@ -108,7 +108,24 @@ export interface Overview {
   others: External[];
   /** Traefik's dashboard: the domains routers serve it on, and whether `lf traefik dashboard` can tunnel to it. */
   dashboard: { hosts: string[]; tunnel: boolean };
+  /** Running containers neither a site nor routed by Traefik (databases, workers): only a tunnel reaches them. */
+  unrouted: Unrouted[];
 }
+
+export interface Unrouted {
+  container: string;
+  status: string;
+  image: string;
+  /** Its Compose project and service, if it has one. */
+  project?: string;
+  service?: string;
+  /** TCP ports it listens on in its container (exposed or published), lowest first. */
+  ports: number[];
+}
+
+/** The container side of `docker ps`'s Ports column ("0.0.0.0:25->25/tcp, 80/tcp"); ranges left out. */
+export const containerPorts = (col: string) =>
+  [...new Set([...col.matchAll(/(?:^|[\s>])(\d+)\/tcp/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
 
 /** Domains a container's routers serve Traefik's dashboard (api@internal) on. */
 export function dashboardHosts(labels: Record<string, string>): string[] {
@@ -200,7 +217,7 @@ export async function overview(s: Server): Promise<Overview> {
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
 for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done
-docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}\\t{{.Label "com.docker.compose.project"}}\\t{{.Label "com.docker.compose.service"}}' 2>/dev/null || true
+docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}\\t{{.Label "com.docker.compose.project"}}\\t{{.Label "com.docker.compose.service"}}\\t{{.Image}}\\t{{.Ports}}' 2>/dev/null || true
 ids=$(docker ps -aq 2>/dev/null || true)
 # inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
 [ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true`,
@@ -210,9 +227,10 @@ ids=$(docker ps -aq 2>/dev/null || true)
   const byProject = new Map<string, ServiceStatus[]>();
   const metas: SiteMeta[] = [];
   const labeled: { name: string; labels: Record<string, string> }[] = [];
-  const o: Overview = { ready: false, traefik: "", proxy: "traefik", adopted: false, sites: [], others: [], dashboard: { hosts: [], tunnel: false } };
+  const o: Overview = { ready: false, traefik: "", proxy: "traefik", adopted: false, sites: [], others: [], dashboard: { hosts: [], tunnel: false }, unrouted: [] };
+  const ctrs: Unrouted[] = [];
   for (const line of stdout.split("\n")) {
-    const [kind, a = "", b = "", project = "", service = ""] = line.split("\t");
+    const [kind, a = "", b = "", project = "", service = "", image = "", ports = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
     if (kind === "TRAEFIK") {
       o.traefik = a;
@@ -229,6 +247,7 @@ ids=$(docker ps -aq 2>/dev/null || true)
     }
     if (kind === "CTR") {
       status.set(a, b);
+      ctrs.push({ container: a, status: b, image, ports: containerPorts(ports), ...(project && { project, service }) });
       if (project) byProject.set(project, [...(byProject.get(project) ?? []), { service: service || a, container: a, status: b }]);
     }
     if (kind === "LABELS") {
@@ -243,6 +262,11 @@ ids=$(docker ps -aq 2>/dev/null || true)
     // Through landfall's tunnel entrypoint, else through a router that serves it on a domain.
     tunnel: labeled.some((x) => x.name === o.proxy && (hasDashboardTunnel(x.labels) || dashboardHosts(x.labels).length > 0)),
   };
+  const known = new Set([o.proxy, ...o.others.flatMap((e) => e.containers)]);
+  const siteProjects = new Set(metas.map(siteProject));
+  o.unrouted = ctrs
+    .filter((x) => isUp(x.status) && !known.has(x.container) && !(x.project && siteProjects.has(x.project)))
+    .sort((x, y) => x.container.localeCompare(y.container));
   o.sites = metas.map((meta) => {
     const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
     return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, state: siteState(meta), kind: kindOf(meta) };

@@ -3,9 +3,9 @@ import { checkInt, loadProject, resolveServer, type Server } from "../config";
 import { COMPOSE_FILES, currentRelease, isDone, isOld, isUp, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
 import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
-import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
+import { ago, c, confirmRemoval, fail, info, ok, table } from "../ui";
 import { slug } from "../projects";
-import { ctrAddress, type Ctr, findContainer, openTunnel } from "../tunnel";
+import { ctrAddress, type Ctr, findContainer, openTunnel, portScheme } from "../tunnel";
 import { logOpts } from "./traefik";
 
 /** Site + server from args, falling back to ./.landfall.json. */
@@ -237,6 +237,7 @@ The tunnel stays open until Ctrl-C.`,
     server: serverOpt,
     port: { type: "string", desc: "container port (default: the one Traefik routes to)" },
     local: { type: "string", short: "l", desc: "local port (default: the container port, else a free one)" },
+    lan: { type: "boolean", desc: "listen on this machine's network too: open it from a phone on the same Wi-Fi" },
   },
   async run([n, svc], o) {
     const { site, server } = target(n, o.server);
@@ -250,12 +251,12 @@ The tunnel stays open until Ctrl-C.`,
     if (!name) fail(`which service of ${site}? lf tunnel ${site} <service>`);
     const ctr = await findContainer(server, [`label=com.docker.compose.project=${projectName(meta)}`, `label=com.docker.compose.service=${name}`]);
     if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
-    await tunnelTo(server, ctr!, proxy.network, o.port ?? service?.port, { local: o.local, what: `${site}${svc ? ` (${name})` : ""}` });
+    await tunnelTo(server, ctr!, proxy.network, o.port ?? service?.port, { local: o.local, lan: o.lan, what: `${site}${svc ? ` (${name})` : ""}` });
   },
 });
 
 /** A tunnel to a Compose project (or container) landfall did not deploy: a routed container of it, else any. */
-async function foreignTunnel(server: Server, name: string, svc: string | undefined, network: string, o: { port?: string; local?: string }) {
+async function foreignTunnel(server: Server, name: string, svc: string | undefined, network: string, o: { port?: string; local?: string; lan?: boolean }) {
   const project = [`label=com.docker.compose.project=${name}`, ...(svc ? [`label=com.docker.compose.service=${svc}`] : [])];
   const ctr =
     (await findContainer(server, [...project, "label=traefik.enable=true"])) ??
@@ -263,15 +264,21 @@ async function foreignTunnel(server: Server, name: string, svc: string | undefin
     (svc ? undefined : await findContainer(server, [`name=^/?${name}$`]));
   if (!ctr) fail(`no site, Compose project or container "${name}"${svc ? ` with a service ${svc}` : ""} running on ${server.host}. See \`lf sites list\``);
   const service = ctr!.labels["com.docker.compose.service"];
-  await tunnelTo(server, ctr!, network, o.port, { local: o.local, what: `${name}${service && service !== name ? ` (${service})` : ""}` });
+  await tunnelTo(server, ctr!, network, o.port, { local: o.local, lan: o.lan, what: `${name}${service && service !== name ? ` (${service})` : ""}` });
 }
 
 /** Tunnel to the container's port: the given one, else the one Traefik routes to. */
-async function tunnelTo(server: Server, ctr: Ctr, network: string, port: string | number | undefined, o: { local?: string; what: string }) {
-  const found = port ?? Object.entries(ctr.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
+async function tunnelTo(server: Server, ctr: Ctr, network: string, port: string | number | undefined, o: { local?: string; lan?: boolean; what: string }) {
+  // Else the port Traefik routes to, else the one its image exposes (a database's, say).
+  const routedTo = Object.entries(ctr.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
+  const found = port ?? routedTo ?? ctr.ports[0];
   if (found === undefined) fail(`which port of ${ctr.name}? pass --port`);
-  await openTunnel(server, ctrAddress(ctr, network), checkInt(String(found), "--port", 1, 65535), {
+  const to = checkInt(String(found), "--port", 1, 65535);
+  if (port === undefined && routedTo === undefined && ctr.ports.length > 1) info(c.dim(`${ctr.name} also exposes ${ctr.ports.slice(1).join(", ")}: pick one with --port`));
+  const scheme = portScheme(to);
+  await openTunnel(server, ctrAddress(ctr, network), to, {
     ...o,
-    note: "straight to the container: no HTTPS, no login, and the app sees Host: localhost",
+    scheme,
+    note: scheme === "http" ? `straight to the container: no HTTPS, no login, and the app sees Host: ${o.lan ? "localhost or this machine's address" : "localhost"}` : `straight to the container: point a ${scheme} client at it, with the container's own credentials`,
   });
 }
