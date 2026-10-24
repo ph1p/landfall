@@ -85,6 +85,7 @@ nav h3 span { font-weight: 500; letter-spacing: 0; }
 .sections .badge { margin-left: auto; }
 .head h1 .crumb { font-weight: 400; color: var(--dim); }
 .tunnel-url { font-family: var(--mono); font-size: var(--fs-sm); }
+.tunnel-lan::before { content: "· LAN "; color: var(--faint); font-size: var(--fs-sm); }
 .star { color: var(--warn); font-size: var(--fs-xs); }
 main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: inline-size; }
 .show-sm { display: none !important; }
@@ -582,14 +583,45 @@ const runningJobs = () => [...S.jobs.values()].filter((j) => j.info.code === und
 const isTunnel = (info) => info.argv[0] === "tunnel" || (info.argv[0] === "traefik" && info.argv[1] === "dashboard");
 /** Tunnels the UI opened to server n that are still open. */
 const openTunnels = (n) => runningJobs().filter((j) => j.info.server === n && isTunnel(j.info));
-const tunnelUrl = (j) => j.lines.map((l) => l.replace(ANSI, "").match(/http:\/\/localhost:\d+\S*/)?.[0]).find(Boolean);
+const tunnelUrl = (j) => j.lines.map((l) => l.replace(ANSI, "").match(/\b[a-z][a-z0-9+.-]*:\/\/localhost:\d+\S*/)?.[0]).find(Boolean);
+/** With --lan: the addresses other devices on the network open it at. */
+const lanUrls = (j) => j.lines.map((l) => l.replace(ANSI, "")).find((l) => /on your network:/.test(l))?.match(/\b[a-z][a-z0-9+.-]*:\/\/\S+/g) ?? [];
 const closeTunnel = (j) => http(`/api/jobs/${j.info.id}/stop`, {}).catch((e) => toast(e.message));
+/** argv plus --port, --local and --lan, picked in a dialog. ports: the ones the container listens on, if known. */
+function tunnelOptions(n, argv, ports = []) {
+  // A choice only when there is one to make: else free text, empty meaning the CLI's default.
+  const port = ports.length > 1
+    ? { name: "port", label: "Container port", type: "select", value: String(ports[0]), options: ports.map((p) => ({ value: String(p), label: String(p) })) }
+    : { name: "port", label: "Container port", placeholder: ports[0] ? String(ports[0]) : "the one Traefik routes to, else the one it exposes", value: "" };
+  dialog({
+    title: argv[0] === "traefik" ? "Tunnel to the Traefik dashboard" : `Tunnel to ${argv.slice(1).filter((a, i, l) => a !== "-s" && l[i - 1] !== "-s").join(" · ")}`,
+    text: `Forwards a port on this machine to it until you close it: lf ${argv.join(" ")}`,
+    ok: "Open tunnel",
+    fields: [
+      ...(argv[0] === "tunnel" ? [port] : []),
+      { name: "local", label: "Local port", placeholder: "the container's port, else a free one", value: "", hint: "Fails if something else listens on it." },
+      { name: "lan", label: "Reachable from my network too", type: "check", value: false, hint: "Open it from a phone or another device on the same Wi-Fi. Anyone on that network can reach it." },
+    ],
+    onOk: (v) => {
+      const isPort = (x) => /^\d+$/.test(x) && +x >= 1 && +x <= 65535;
+      const to = v.port?.trim() ?? "", local = v.local.trim();
+      if (to && !isPort(to)) return invalid("port", "A port from 1 to 65535");
+      if (local && !isPort(local)) return invalid("local", "A port from 1 to 65535");
+      run([...argv, ...(to ? ["--port", to] : []), ...(local ? ["-l", local] : []), ...(v.lan ? ["--lan"] : [])], { server: n });
+    },
+  });
+}
 /** Open a tunnel with argv, or, when it is open, its address and a way to close it. */
-function tunnelBtn(n, argv, label = "Open tunnel") {
-  const j = openTunnels(n).find((t) => t.info.argv.join(" ") === argv.join(" "));
-  if (!j) return btn(label, () => run(argv, { server: n }), "sm", `lf ${argv.join(" ")}: until you close it`);
+function tunnelBtn(n, argv, label = "Open tunnel", ports = []) {
+  // Opened with options, the job's argv goes on after argv.
+  const j = openTunnels(n).find((t) => t.info.argv.slice(0, argv.length).join(" ") === argv.join(" "));
+  if (!j) return `${btn(label, () => run(argv, { server: n }), "sm", `lf ${argv.join(" ")}: until you close it`)}${btn("…", () => tunnelOptions(n, argv, ports), "sm ghost", "Pick the ports, or make it reachable from your network")}`;
   const url = tunnelUrl(j);
-  return `${url ? `<a class="tunnel-url" href="${esc(url)}" target="_blank" rel="noopener">${esc(url.replace("http://", ""))}</a>` : `<span class="spin" role="img" aria-label="opening"></span>`}
+  // A database's address is for a client, not the browser.
+  const link = (u) => u.startsWith("http://") ? `<a class="tunnel-url" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace("http://", ""))}</a>` : `<code class="tunnel-url" title="Connect a client to it">${esc(u)}</code>`;
+  const lan = lanUrls(j);
+  const addr = !url ? `<span class="spin" role="img" aria-label="opening"></span>` : link(url);
+  return `${addr}${lan.length ? ` <span class="tunnel-lan" title="From other devices on your network">${lan.map(link).join(" ")}</span>` : ""}
     ${btn("Output", () => showJob(j.info.id), "sm ghost")}${btn("Close", () => closeTunnel(j), "sm danger", "Ends the tunnel")}`;
 }
 
@@ -946,6 +978,7 @@ function deployDialog(det, o = {}) {
           ? `Empty: <name>.${main}. A bare name like blog means blog.${main}, @ means ${main} itself (another site serving it hands it over). Other domains need an A record pointing at the server.`
           : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
       },
+      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !!p && p.domains?.length === 0, hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
       ...(det.kind === "static"
         ? [
             { name: "build", label: "Build command (runs here, before upload)", value: det.build ?? "", placeholder: "none" },
@@ -965,7 +998,8 @@ function deployDialog(det, o = {}) {
       if (!n) return invalid("name", "Give the site a name");
       if (!v.server) return invalid("server", "Pick a server");
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
-      const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...domains.flatMap((d) => ["-d", d])];
+      if (v.noDomain && domains.length) return invalid("domains", "No domain is ticked below: clear these, or untick it");
+      const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d]))];
       if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
       if (v.spa && !p?.spa) argv.push("--spa");
       const dir = v.dir?.trim().replace(/\/+$/, "") || ".";
@@ -1494,10 +1528,12 @@ function sitesView(n, o) {
               .join("")}</ul></dd>` : ""}
           </dl></td></tr>`
         : "";
+      // A site deployed with no domain is reached by its tunnel.
+      const where = domains.length ? domains.map((d) => domainChip(n, d)).join("") : main && !old ? `<span class="faint">no domain</span> ${tunnelBtn(n, ["tunnel", name, ...sv(n)])}` : "";
       return `<tr class="click" ${on(toggle)}>
         <td><div class="site-name">${statusDot(status)}<button type="button" class="row-toggle" aria-expanded="${open}" data-f="row:${esc(name)}" ${on(toggle)}><b>${esc(name)}</b> <span class="faint" aria-hidden="true">${open ? "▾" : "▸"}</span></button>${m.auth?.length ? `<span class="lock" title="password protected" role="img" aria-label="password protected">🔒</span>` : ""}</div>
-          <div class="chips show-sm">${domains.map((d) => domainChip(n, d)).join("")}</div></td>
-        <td class="hide-sm"><div class="chips">${domains.map((d) => domainChip(n, d)).join("")}</div></td>
+          <div class="chips show-sm">${where}</div></td>
+        <td class="hide-sm"><div class="chips">${where}</div></td>
         <td class="hide-sm"><span class="badge" title="${esc(services.map((x) => x.service).join(", "))}">${esc(kind)}</span>${services.length > 1 ? ` <span class="faint">${services.length} services</span>` : ""}</td>
         <td class="hide-sm dim">${cur ? esc(ago(cur.at)) : ""}</td>
         <td class="acts">${acts}</td></tr>${detail}`;
@@ -1744,7 +1780,7 @@ function editRule(n, num, r) {
 
 /** Everything an SSH tunnel reaches on server n, and the tunnels open now. */
 function tunnelsView(n, o) {
-  if (!o.ready && !o.others.length) return `<div class="card"><div class="body empty"><h2>Nothing to tunnel to yet</h2><p>Set up the server and deploy a site first.</p></div></div>`;
+  if (!o.ready && !o.others.length && !o.unrouted?.length) return `<div class="card"><div class="body empty"><h2>Nothing to tunnel to yet</h2><p>Set up the server and deploy a site first.</p></div></div>`;
   const open = openTunnels(n);
   const chips = (l) => `<div class="chips">${l.map((d) => `<span class="chip">${esc(d)}</span>`).join("")}</div>`;
   const targets = [];
@@ -1758,6 +1794,8 @@ function tunnelsView(n, o) {
     else for (const svc of x.services) targets.push({ name: `${x.meta.name} · ${svc.service}`, status: svc.status, serves: svc.service === x.main ? x.domains : [], argv: ["tunnel", x.meta.name, svc.service, ...sv(n)] });
   }
   for (const e of o.others) targets.push({ name: e.name, status: e.status, serves: e.domains, argv: ["tunnel", e.name, ...sv(n)], other: true });
+  // Databases, workers: by Compose project and service, else by container name.
+  const loose = (o.unrouted ?? []).map((x) => ({ name: x.container, status: x.status, image: x.image, ports: x.ports ?? [], serves: [], argv: ["tunnel", ...(x.project ? [x.project, x.service] : [x.container]), ...sv(n)] }));
   const row = (t) => `<tr><td><div class="site-name">${t.status ? statusDot(t.status) : ""}<b>${esc(t.name)}</b>${t.other ? `&nbsp;<span class="faint">not landfall's</span>` : ""}</div><div class="show-sm">${chips(t.serves)}</div></td>
       <td class="hide-sm">${chips(t.serves)}</td>
       <td class="acts">${t.argv ? tunnelBtn(n, t.argv) : `<span class="dim">${esc(t.why)}</span> ${btn("Traefik", () => go(n, "traefik"), "sm")}`}</td></tr>`;
@@ -1766,7 +1804,12 @@ function tunnelsView(n, o) {
       .join("")}</tbody></table></div>` : ""}
     <div class="card scroll"><h2>Tunnel to</h2>
       <div class="lede">An SSH tunnel forwards a port on this machine to a container on ${esc(n)}: test a site on localhost with no domain, HTTPS or login. Nothing changes on the server, and closing the tunnel ends it.</div>
-      <table><thead><tr><th>Container</th><th class="hide-sm">Domains</th><th><span class="sr">Tunnel</span></th></tr></thead><tbody>${targets.map(row).join("")}</tbody></table></div>`;
+      <table><thead><tr><th>Container</th><th class="hide-sm">Domains</th><th><span class="sr">Tunnel</span></th></tr></thead><tbody>${targets.map(row).join("")}</tbody></table></div>
+    ${loose.length ? `<div class="card scroll"><h2>Other containers <span class="badge">${loose.length}</span></h2>
+      <div class="lede">Running, but no domain routes to them: databases, caches, workers. The tunnel goes to the port their image exposes.</div>
+      <table><thead><tr><th>Container</th><th class="hide-sm">Image</th><th><span class="sr">Tunnel</span></th></tr></thead><tbody>${loose
+        .map((t) => `<tr><td><div class="site-name">${statusDot(t.status)}<b>${esc(t.name)}</b></div><div class="show-sm faint mono">${esc(t.image)}</div></td><td class="hide-sm faint mono">${esc(t.image)}</td><td class="acts">${tunnelBtn(n, t.argv, undefined, t.ports)}</td></tr>`)
+        .join("")}</tbody></table></div>` : ""}`;
 }
 
 /** Traefik on server n: its dashboard (domain and tunnel) and how landfall runs it. */

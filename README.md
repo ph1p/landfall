@@ -146,6 +146,7 @@ lf deploy -d example.com -d www.example.com -s vps      # static, name = folder 
 lf deploy -b "npm run build"                            # build locally first
 lf deploy -d app.example.com -e DATABASE_URL=postgres://… --env-file .env.production   # Dockerfile app
 lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com            # image
+lf deploy --no-domain                                   # no domain yet: reach it with lf tunnel, add one later with lf domains --add
 lf deploy                                               # later: redeploy using ./.landfall.json
 ```
 
@@ -266,6 +267,8 @@ lf auth --rm-user anna | --off
 lf open
 lf tunnel blog                     # http://localhost:<port> straight to its container: test it without a domain
 lf tunnel my-compose-app -s vps    # also any Compose project or container landfall did not deploy
+lf tunnel my-app db                # a database: postgresql://localhost:5432 (the port its image exposes; --port picks another)
+lf tunnel blog -l 3000 --lan       # local port 3000, also on this machine's network: open it from a phone on the same Wi-Fi
 lf sites rm blog                   # delete the site (asks you to type the name)
 lf logs api -s vps                 # another site on another server
 ```

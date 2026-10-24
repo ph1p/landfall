@@ -6,14 +6,14 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
 import { detectBuild, detectStaticDir, slug } from "../../src/projects";
-import { routerPort } from "../../src/tunnel";
+import { portScheme, routerPort } from "../../src/tunnel";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
 import { journalCmd } from "../../src/cmd";
 import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
 import { findRun, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
-import { dashboardHosts, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
+import { containerPorts, dashboardHosts, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
 import { shq, writeFileCmd } from "../../src/ssh";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
@@ -219,6 +219,7 @@ describe("templates", () => {
       name: "traefik",
       host: false,
       ips: {},
+      ports: [],
       args: ["--entrypoints.web.address=:80", "--entryPoints.websecure.address=:443"],
       labels: {
         "traefik.http.routers.dash.entrypoints": "websecure",
@@ -230,6 +231,19 @@ describe("templates", () => {
     expect(routerPort(ctr, "plain")).toEqual({ port: 80, tls: false });
     expect(routerPort(ctr, "any")).toEqual({ port: 80, tls: false });
     expect(routerPort({ ...ctr, args: [] }, "dash")).toBeUndefined();
+  });
+
+  test("a tunnel to a database port names its client's scheme", () => {
+    expect(portScheme(5432)).toBe("postgresql");
+    expect(portScheme(6379)).toBe("redis");
+    expect(portScheme(993)).toBe("imaps");
+    expect(portScheme(3000)).toBe("http");
+  });
+
+  test("a container's ports are the container side of docker ps, published or not", () => {
+    expect(containerPorts("0.0.0.0:143->143/tcp, [::]:143->143/tcp, 0.0.0.0:110->110/tcp, 4190/tcp, 53/udp")).toEqual([110, 143, 4190]);
+    expect(containerPorts("8080-8081/tcp")).toEqual([]);
+    expect(containerPorts("")).toEqual([]);
   });
 
   test("traefik on the host network publishes no ports and joins no network", () => {

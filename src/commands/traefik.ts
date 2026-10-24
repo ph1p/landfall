@@ -356,6 +356,7 @@ goes to that entrypoint and sends the domain along (log in with its password).`,
   options: {
     server: serverOpt,
     local: { type: "string", short: "l", desc: "local port (default: 8080, else a free one)" },
+    lan: { type: "boolean", desc: "listen on this machine's network too: open it from a phone on the same Wi-Fi" },
     port: { type: "string", desc: "with a Traefik of your own: the port of its API (api.insecure: 8080)" },
   },
   async run(_, o) {
@@ -367,7 +368,7 @@ goes to that entrypoint and sends the domain along (log in with its password).`,
     const also = hosts.length ? `also at ${hosts.map((h) => `https://${h}`).join(", ")} (with its password)` : undefined;
     const port = o.port ? checkInt(o.port, "--port", 1, 65535) : !st.proxy && hasDashboardTunnel(ctr!.labels) ? TUNNEL_PORT : undefined;
     const what = `traefik dashboard of ${name}`;
-    if (port) return openTunnel(server, ctrAddress(ctr!, NETWORK), port, { local: o.local, path: "/dashboard/", what, note: also });
+    if (port) return openTunnel(server, ctrAddress(ctr!, NETWORK), port, { local: o.local, lan: o.lan, path: "/dashboard/", what, note: also });
     // No API port: go through the router that serves it on a domain, as that domain.
     const routed = dashboardRouters(ctr!.labels)
       .flatMap((r) => (r.hosts[0] ? [{ host: r.hosts[0], at: routerPort(ctr!, r.router) }] : []))
@@ -381,6 +382,7 @@ goes to that entrypoint and sends the domain along (log in with its password).`,
     const { host, at } = routed!;
     await openTunnel(server, ctrAddress(ctr!, NETWORK), at!.port, {
       local: o.local,
+      lan: o.lan,
       path: "/dashboard/",
       what,
       note: `through ${host}'s router (it asks for its login)`,
