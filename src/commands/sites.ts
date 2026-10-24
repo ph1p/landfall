@@ -1,10 +1,11 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { loadProject, resolveServer } from "../config";
-import { COMPOSE_FILES, isDone, isUp, OVERRIDE_FILES, projectName, siteDomains, type SiteMeta } from "../compose";
+import { checkInt, loadProject, resolveServer } from "../config";
+import { COMPOSE_FILES, currentRelease, isDone, isUp, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
 import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
 import { slug } from "../projects";
+import { ctrAddress, findContainer, openTunnel } from "../tunnel";
 import { logOpts } from "./traefik";
 
 /** Site + server from args, falling back to ./.landfall.json. */
@@ -220,5 +221,39 @@ record ${shq(`env ${site} ${keys.join(" ")}`)} "cd ${siteDir(site)} && $u && cd 
 ${writeFileCmd(".env", next, "600")}`,
     );
     ok(`updated env of ${site}`);
+  },
+});
+
+export const sitesTunnel = defineCommand({
+  name: "tunnel",
+  args: "[name] [service]",
+  summary: `Open a site on localhost through an SSH tunnel, straight to its container.
+
+Nothing changes on the server: no port is published and its domains stay as they are,
+so it also works for a site with no domain. Traefik is bypassed: no HTTPS and no login.
+The tunnel stays open until Ctrl-C.`,
+  options: {
+    server: serverOpt,
+    port: { type: "string", desc: "container port (default: the one Traefik routes to)" },
+    local: { type: "string", short: "l", desc: "local port (default: the container port, else a free one)" },
+  },
+  async run([n, svc], o) {
+    const { site, server } = target(n, o.server);
+    const { meta, proxy } = await requireSite(server, site);
+    const release = currentRelease(meta);
+    const service = svc ? release?.services.find((x) => x.name === svc) : (siteMain(meta) ?? release?.services.find(routed));
+    if (svc && release && !service) fail(`${site} has no service ${svc} (${release.services.map((x) => x.name).join(", ")})`);
+    const name = service?.name ?? svc;
+    if (!name) fail(`which service of ${site}? lf tunnel ${site} <service>`);
+    const ctr = await findContainer(server, [`label=com.docker.compose.project=${projectName(meta)}`, `label=com.docker.compose.service=${name}`]);
+    if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
+    const found = o.port ?? service?.port ?? Object.entries(ctr!.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
+    if (found === undefined) fail(`which port of ${name}? pass --port`);
+    const port = checkInt(found, "--port", 1, 65535);
+    await openTunnel(server, ctrAddress(ctr!, proxy.network), port, {
+      local: o.local,
+      what: `${site}${svc ? ` (${name})` : ""}`,
+      note: "straight to the container: no HTTPS, no login, and the app sees Host: localhost",
+    });
   },
 });

@@ -9,7 +9,7 @@ import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login"
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
 import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, step, warn } from "../ui";
-import { describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "./traefik";
+import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "./traefik";
 
 export const keygen = defineCommand({
   name: "keygen",
@@ -154,7 +154,7 @@ dashboard unless given as flags.`,
       image: o.image,
       hostNetwork: o["host-network"],
       dashboard: o.dashboard,
-      dashboardUser: "admin",
+      dashboardUser: DEFAULT_USER,
     };
     const ownTraefik = traefik && !traefik.proxy && traefik.status !== "conflict" && traefik.status !== "off";
     if (ownTraefik) traefik.detail += c.dim(` · ${describeTraefik(traefikSettings(existing ?? login, tOpts))}`);
