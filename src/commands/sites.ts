@@ -1,11 +1,11 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, loadProject, resolveServer } from "../config";
-import { COMPOSE_FILES, currentRelease, isDone, isUp, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
+import { checkInt, loadProject, resolveServer, type Server } from "../config";
+import { COMPOSE_FILES, currentRelease, isDone, isOld, isUp, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
 import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
 import { slug } from "../projects";
-import { ctrAddress, findContainer, openTunnel } from "../tunnel";
+import { ctrAddress, type Ctr, findContainer, openTunnel } from "../tunnel";
 import { logOpts } from "./traefik";
 
 /** Site + server from args, falling back to ./.landfall.json. */
@@ -231,6 +231,7 @@ export const sitesTunnel = defineCommand({
 
 Nothing changes on the server: no port is published and its domains stay as they are,
 so it also works for a site with no domain. Traefik is bypassed: no HTTPS and no login.
+Works for any Compose project or container on the server too, not only landfall's sites.
 The tunnel stays open until Ctrl-C.`,
   options: {
     server: serverOpt,
@@ -239,7 +240,9 @@ The tunnel stays open until Ctrl-C.`,
   },
   async run([n, svc], o) {
     const { site, server } = target(n, o.server);
-    const { meta, proxy } = await requireSite(server, site);
+    const { meta, proxy } = await readSite(server, site);
+    if (!meta) return foreignTunnel(server, site, svc, proxy.network, o);
+    if (isOld(meta)) fail(`${site} was deployed by an older landfall: run \`lf deploy\` in its project once to move it to a Compose project`);
     const release = currentRelease(meta);
     const service = svc ? release?.services.find((x) => x.name === svc) : (siteMain(meta) ?? release?.services.find(routed));
     if (svc && release && !service) fail(`${site} has no service ${svc} (${release.services.map((x) => x.name).join(", ")})`);
@@ -247,13 +250,28 @@ The tunnel stays open until Ctrl-C.`,
     if (!name) fail(`which service of ${site}? lf tunnel ${site} <service>`);
     const ctr = await findContainer(server, [`label=com.docker.compose.project=${projectName(meta)}`, `label=com.docker.compose.service=${name}`]);
     if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
-    const found = o.port ?? service?.port ?? Object.entries(ctr!.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
-    if (found === undefined) fail(`which port of ${name}? pass --port`);
-    const port = checkInt(found, "--port", 1, 65535);
-    await openTunnel(server, ctrAddress(ctr!, proxy.network), port, {
-      local: o.local,
-      what: `${site}${svc ? ` (${name})` : ""}`,
-      note: "straight to the container: no HTTPS, no login, and the app sees Host: localhost",
-    });
+    await tunnelTo(server, ctr!, proxy.network, o.port ?? service?.port, { local: o.local, what: `${site}${svc ? ` (${name})` : ""}` });
   },
 });
+
+/** A tunnel to a Compose project (or container) landfall did not deploy: a routed container of it, else any. */
+async function foreignTunnel(server: Server, name: string, svc: string | undefined, network: string, o: { port?: string; local?: string }) {
+  const project = [`label=com.docker.compose.project=${name}`, ...(svc ? [`label=com.docker.compose.service=${svc}`] : [])];
+  const ctr =
+    (await findContainer(server, [...project, "label=traefik.enable=true"])) ??
+    (await findContainer(server, project)) ??
+    (svc ? undefined : await findContainer(server, [`name=^/?${name}$`]));
+  if (!ctr) fail(`no site, Compose project or container "${name}"${svc ? ` with a service ${svc}` : ""} running on ${server.host}. See \`lf sites list\``);
+  const service = ctr!.labels["com.docker.compose.service"];
+  await tunnelTo(server, ctr!, network, o.port, { local: o.local, what: `${name}${service && service !== name ? ` (${service})` : ""}` });
+}
+
+/** Tunnel to the container's port: the given one, else the one Traefik routes to. */
+async function tunnelTo(server: Server, ctr: Ctr, network: string, port: string | number | undefined, o: { local?: string; what: string }) {
+  const found = port ?? Object.entries(ctr.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
+  if (found === undefined) fail(`which port of ${ctr.name}? pass --port`);
+  await openTunnel(server, ctrAddress(ctr, network), checkInt(String(found), "--port", 1, 65535), {
+    ...o,
+    note: "straight to the container: no HTTPS, no login, and the app sees Host: localhost",
+  });
+}

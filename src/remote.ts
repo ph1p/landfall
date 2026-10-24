@@ -112,9 +112,15 @@ export interface Overview {
 
 /** Domains a container's routers serve Traefik's dashboard (api@internal) on. */
 export function dashboardHosts(labels: Record<string, string>): string[] {
+  return dashboardRouters(labels).flatMap((r) => r.hosts);
+}
+
+/** The routers serving Traefik's dashboard (api@internal), with the domains in their rules. */
+export function dashboardRouters(labels: Record<string, string>): { router: string; hosts: string[] }[] {
   return Object.entries(labels)
-    .filter(([k, v]) => /^traefik\.http\.routers\.[^.]+\.service$/.test(k) && v === "api@internal")
-    .flatMap(([k]) => ruleHosts(labels[k.replace(/service$/, "rule")] ?? ""));
+    .map(([k, v]) => [k.match(/^traefik\.http\.routers\.([^.]+)\.service$/)?.[1], v])
+    .filter(([r, v]) => r && v === "api@internal")
+    .map(([r]) => ({ router: r!, hosts: ruleHosts(labels[`traefik.http.routers.${r}.rule`] ?? "") }));
 }
 /** landfall's Traefik serves its dashboard to the server itself, for `lf traefik dashboard`. */
 export const hasDashboardTunnel = (labels: Record<string, string>) => labels[`traefik.http.routers.${TUNNEL_ROUTER}.service`] === "api@internal";
@@ -234,7 +240,8 @@ ids=$(docker ps -aq 2>/dev/null || true)
   o.others = externals(labeled, status, o.proxy, new Set(metas.map(siteProject)));
   o.dashboard = {
     hosts: [...new Set(labeled.flatMap((x) => dashboardHosts(x.labels)))],
-    tunnel: labeled.some((x) => x.name === o.proxy && hasDashboardTunnel(x.labels)),
+    // Through landfall's tunnel entrypoint, else through a router that serves it on a domain.
+    tunnel: labeled.some((x) => x.name === o.proxy && (hasDashboardTunnel(x.labels) || dashboardHosts(x.labels).length > 0)),
   };
   o.sites = metas.map((meta) => {
     const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));

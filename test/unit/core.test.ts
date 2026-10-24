@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
 import { detectBuild, detectStaticDir, slug } from "../../src/projects";
+import { routerPort } from "../../src/tunnel";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
 import { journalCmd } from "../../src/cmd";
@@ -211,6 +212,24 @@ describe("templates", () => {
     expect(dashboardHosts(labels)).toEqual(["dashboard.example.dev"]);
     expect(hasDashboardTunnel(labels)).toBe(false);
     expect(hasDashboardTunnel({ "traefik.http.routers.dashboard-tunnel.service": "api@internal" })).toBe(true);
+  });
+
+  test("a router's port comes from its entrypoint's address flag", () => {
+    const ctr = {
+      name: "traefik",
+      host: false,
+      ips: {},
+      args: ["--entrypoints.web.address=:80", "--entryPoints.websecure.address=:443"],
+      labels: {
+        "traefik.http.routers.dash.entrypoints": "websecure",
+        "traefik.http.routers.dash.tls": "true",
+        "traefik.http.routers.plain.entrypoints": "web",
+      },
+    };
+    expect(routerPort(ctr, "dash")).toEqual({ port: 443, tls: true });
+    expect(routerPort(ctr, "plain")).toEqual({ port: 80, tls: false });
+    expect(routerPort(ctr, "any")).toEqual({ port: 80, tls: false });
+    expect(routerPort({ ...ctr, args: [] }, "dash")).toBeUndefined();
   });
 
   test("traefik on the host network publishes no ports and joins no network", () => {
