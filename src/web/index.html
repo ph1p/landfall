@@ -790,6 +790,7 @@ function setupWizard(base) {
           { name: "image", label: "Image", value: saved.traefikImage ?? S.state.defaultImage },
           { name: "email", label: "Let's Encrypt e-mail (optional)", value: saved.email ?? "" },
           { name: "dashboard", label: "Dashboard domain (optional)", value: "", placeholder: "traefik.example.com", hint: "Behind basic auth; the password is shown after setup." },
+          { name: "http3", label: "HTTP/3 (QUIC on 443/udp)", type: "check", value: saved.http3 !== false, hint: "Browsers that can't use it fall back to HTTP/2." },
         ],
       },
       { name: "firewall", label: "Enable ufw: deny incoming except ssh, 80 and 443", type: "check", value: true, hint: "Skipped automatically if it would block ports in use." },
@@ -804,6 +805,7 @@ function setupWizard(base) {
         if (v.image.trim()) f.push(`--image=${v.image.trim()}`);
         if (v.email.trim()) f.push(`--email=${v.email.trim()}`);
         if (v.dashboard.trim()) f.push(`--dashboard=${v.dashboard.trim()}`);
+        f.push(v.http3 ? "--http3" : "--no-http3");
       }
       if (!v.firewall) f.push("--no-firewall");
       if (!v.harden) f.push("--no-harden");
@@ -1728,6 +1730,31 @@ function settingsView(n) {
         run(argv, reload);
       },
     });
+  const traefikDialog = () =>
+    dialog({
+      title: `Traefik on ${n}`,
+      text: "Runs lf traefik setup, which reconfigures landfall's Traefik and restarts it (a few seconds without traffic). The settings are remembered.",
+      fields: [
+        { name: "http3", label: "HTTP/3 (QUIC on 443/udp)", type: "check", value: x.traefik.http3, hint: "Faster on lossy and mobile connections; browsers that can't use it fall back to HTTP/2." },
+        {
+          name: "mode", label: "Ports", type: "select", value: x.traefik.hostNetwork ? "host" : "docker",
+          options: [
+            { value: "docker", label: "Published by Docker (default)" },
+            { value: "host", label: "Host network: real client IPs, ufw guards 80/443" },
+          ],
+        },
+        { name: "image", label: "Image", value: x.traefik.image, placeholder: S.state.defaultImage },
+        { name: "email", label: "Let's Encrypt e-mail (optional)", value: x.traefik.email ?? "", hint: "Only the account contact; Let's Encrypt no longer mails expiry warnings." },
+        { name: "staging", label: "Let's Encrypt staging CA (test certificates, browsers warn)", type: "check", value: x.traefik.staging },
+      ],
+      ok: "Apply",
+      onOk: (v) => {
+        const argv = ["traefik", "setup", ...sv(n), v.http3 ? "--http3" : "--no-http3", v.mode === "host" ? "--host-network" : "--no-host-network", v.staging ? "--staging" : "--no-staging"];
+        if (v.image.trim()) argv.push("--image", v.image.trim());
+        if (v.email.trim()) argv.push("--email", v.email.trim());
+        run(argv, reload);
+      },
+    });
   const tunnel = () => run(["traefik", "dashboard", ...sv(n)], { server: n });
   const sites = S.overview[n]?.data?.sites ?? [];
   // lf traefik setup refuses to touch a Traefik the server already had.
@@ -1771,10 +1798,11 @@ function settingsView(n) {
         ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>
     </div>
     <div class="card">
-      <h2>Traefik <span class="actions">${dash.tunnel ? btn("Open via tunnel", tunnel, "sm", "lf traefik dashboard: an SSH tunnel to the dashboard, until you stop it") : ""}${foreign ? "" : btn("Dashboard…", dashboard, "sm")}</span></h2>
+      <h2>Traefik <span class="actions">${dash.tunnel ? btn("Open via tunnel", tunnel, "sm", "lf traefik dashboard: an SSH tunnel to the dashboard, until you stop it") : ""}${foreign ? "" : btn("Dashboard…", dashboard, "sm") + btn("Settings…", traefikDialog, "sm")}</span></h2>
       <div class="body">${foreign ? `<div class="note">Sites go through <b class="mono">${esc(foreign)}</b>, a Traefik landfall did not install and never changes: its dashboard is set up in its own config.</div>` : ""}${rows([
         ["image", esc(x.traefik.summary)],
         ["e-mail", esc(x.traefik.email ?? "none")],
+        ["HTTP/3", x.traefik.http3 ? `on <span class="dim">(443/udp)</span>` : `<span class="dim">off</span>`],
         ["dashboard", `${dash.hosts.length ? `${dash.hosts.map(link).join(", ")} <span class="dim">(with its login)</span>` : `<span class="dim">no domain</span>`}${
           dash.tunnel ? ` · <span class="dim">tunnel: lf traefik dashboard</span>`
           : foreign ? ` · <span class="dim">tunnel: lf traefik dashboard --port &lt;its api port&gt;</span>`
