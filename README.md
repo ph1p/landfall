@@ -451,8 +451,8 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 Servers are on the left (★ marks the default). The dot next to each says whether landfall's key login works
 (green), sshd refuses it (yellow) or ssh does not answer (red); hover for the reason. It checks on load, every
 minute while the page is open, and on **Check** at the foot of the list (like `lf server list --check`).
-Reachable servers come first; unreachable ones move to a closed **Unreachable** group. Git hosts from
-`~/.ssh/config` are not listed. **Deploy folder…** browses local folders, or takes a dropped
+Reachable servers come first; unreachable ones move to a closed **Unreachable** group. Git hosts and aliases
+for this machine (`localhost`, `127.0.0.1`, e.g. a Colima VM) from `~/.ssh/config` are not listed. **Deploy folder…** browses local folders, or takes a dropped
 folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refused). Destructive actions ask first.
 
 - **Login:** through the printed `/login?t=…` link. The token is kept in `~/.config/landfall/ui-token`; delete

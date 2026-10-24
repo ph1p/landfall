@@ -24,12 +24,24 @@ export function isGitHost(alias: string): boolean {
   }
 }
 
-/** Registered servers, then ~/.ssh/config aliases that are not git hosts. */
+const LOOPBACK = /^(localhost|127(\.\d+){3}|::1|0:0:0:0:0:0:0:1)$/i;
+
+/** An ssh alias for this machine (a Colima/Lima/OrbStack VM forwarded to 127.0.0.1): no public IP, not a server. */
+export function isLocalHost(alias: string): boolean {
+  if (LOOPBACK.test(alias)) return true;
+  try {
+    return LOOPBACK.test(effectiveSsh({ host: alias }).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Registered servers, then ~/.ssh/config aliases that are neither git hosts nor this machine. */
 export function listServers(): Entry[] {
   const cfg = loadConfig();
   const own = Object.keys(cfg.servers).map((name) => ({ name, registered: true, isDefault: cfg.default === name }));
   const aliases = sshAliases()
-    .filter((a) => !cfg.servers[a] && !isGitHost(a))
+    .filter((a) => !cfg.servers[a] && !isGitHost(a) && !isLocalHost(a))
     .map((name) => ({ name, registered: false, isDefault: false }));
   return [...own, ...aliases];
 }
