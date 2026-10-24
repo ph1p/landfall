@@ -236,7 +236,10 @@ const cookieToken = (req: Request) =>
  * The web dashboard: a local page that runs landfall's commands.
  * It runs commands as `lf` child processes, exactly like typing them, and streams their output.
  */
-export async function webUi(o: { port: number; open: boolean }): Promise<number> {
+/** webUi's port when none is given; taken by something else, the next free one after it. */
+const DEFAULT_PORT = 4777;
+
+export async function webUi(o: { port?: number; open: boolean }): Promise<number> {
   setQuiet(true);
   const secret = token();
   const handler = async (req: Request): Promise<Response> => {
@@ -272,25 +275,35 @@ export async function webUi(o: { port: number; open: boolean }): Promise<number>
   const server = createServer(listener(handler));
   // No timeouts: job output streams stay open as long as the job runs, uploads can be large.
   server.requestTimeout = 0;
-  const err = await new Promise<NodeJS.ErrnoException | undefined>((done) => {
-    server.once("error", done);
-    server.listen(o.port, "127.0.0.1", () => done(undefined));
-  });
-  if (err) {
+  const listen = (port: number) =>
+    new Promise<NodeJS.ErrnoException | undefined>((done) => {
+      server.once("error", done);
+      server.listen(port, "127.0.0.1", () => (server.off("error", done), done(undefined)));
+    });
+  // An lf ui on a taken port has the same token, so it answers it: then just open that one.
+  const running = (port: number) => fetch(`http://127.0.0.1:${port}/api/state`, { headers: { cookie: `landfall=${secret}` } }).then((r) => r.ok, () => false);
+  const want = o.port ?? DEFAULT_PORT;
+  // An explicit --port or nothing; the default port, else the next free one after it, else any.
+  const ports = o.port !== undefined ? [want] : [...Array.from({ length: 20 }, (_, i) => want + i), 0];
+  let err: NodeJS.ErrnoException | undefined;
+  for (const port of ports) {
+    if (!(err = await listen(port))) break;
     if (err.code !== "EADDRINUSE") throw err;
-    // Most likely lf ui already runs there: same token, so just open it.
-    const link = `http://127.0.0.1:${o.port}/login?t=${secret}`;
-    const alive = await fetch(`http://127.0.0.1:${o.port}/api/state`, { headers: { cookie: `landfall=${secret}` } }).then((r) => r.ok, () => false);
-    if (!alive) {
-      console.error(`${c.red("error:")} port ${o.port} is in use; pick another with --port`);
-      return 1;
+    if (await running(port)) {
+      const link = `http://127.0.0.1:${port}/login?t=${secret}`;
+      console.log(`lf ui already runs: ${c.cyan(link)}`);
+      if (o.open) openUrl(link);
+      return 0;
     }
-    console.log(`lf ui already runs: ${c.cyan(link)}`);
-    if (o.open) openUrl(link);
-    return 0;
   }
+  if (err) {
+    console.error(`${c.red("error:")} port ${want} is in use by another program; pick another with --port`);
+    return 1;
+  }
+  const port = (server.address() as AddressInfo).port;
+  if (port !== want) console.log(c.dim(`port ${want} is in use by another program: using ${port}`));
 
-  const link = `http://127.0.0.1:${(server.address() as AddressInfo).port}/login?t=${secret}`;
+  const link = `http://127.0.0.1:${port}/login?t=${secret}`;
   console.log(`${c.bold("lf ui")} ${c.dim(pkg.version)} on ${c.cyan(link)}`);
   console.log(c.dim("Only this machine can reach it, and only with that link. Ctrl-C stops it (and any running commands)."));
   if (o.open) openUrl(link);
