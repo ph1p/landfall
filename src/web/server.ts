@@ -347,8 +347,8 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
       server.close();
       resolve(0);
     };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
+    // SIGHUP: the terminal closed. Without it the jobs outlive the UI.
+    for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(sig, stop);
   });
 }
 

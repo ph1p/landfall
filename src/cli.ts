@@ -24,6 +24,7 @@ import {
 import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
+import { exitWithParent } from "./job";
 import { journal } from "./ssh";
 import { c, CliError, report, setAssumeYes } from "./ui";
 import pkg from "../package.json";
@@ -204,5 +205,6 @@ async function run(argv: string[]): Promise<number> {
   }
 }
 
+exitWithParent();
 // Exit once stdout drained: a pipe takes writes asynchronously, so exiting at once cuts long output (e.g. --json) at 64 KiB.
 run(process.argv.slice(2)).then((code) => process.stdout.write("", () => process.exit(code)));
