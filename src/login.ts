@@ -3,7 +3,6 @@ import fs from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { envVar, expandHome, tildify, type Server } from "./config";
-import { oldKeyFile } from "./legacy";
 import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, step, warn } from "./ui";
@@ -42,11 +41,7 @@ export async function loginPassword(fromStdin?: boolean): Promise<string | undef
   return envVar("PASSWORD") || undefined;
 }
 
-export const keyFile = (name: string) => {
-  const file = join(homedir(), ".ssh", `landfall_${name}`);
-  const old = oldKeyFile(name);
-  return fs.existsSync(file) || !fs.existsSync(old) ? file : old;
-};
+export const keyFile = (name: string) => join(homedir(), ".ssh", `landfall_${name}`);
 
 export function ensureKey(name: string): { path: string; created: boolean } {
   const path = keyFile(name);

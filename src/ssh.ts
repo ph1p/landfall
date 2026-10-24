@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { envVar, expandHome, type Server } from "./config";
-import { OLD_LAYOUT, OLD_PROJECT_FILE } from "./legacy";
+import { ROOT } from "./templates";
 import { fail } from "./ui";
 
 let quiet = false;
@@ -104,8 +104,6 @@ export const journal = {
 };
 
 export interface ScriptOpts {
-  /** Run even on a server srv (landfall's old name) set up: the migration. */
-  oldLayout?: boolean;
   env?: Record<string, string | number | boolean | undefined>;
   capture?: boolean;
   /** Run the script as root through passwordless sudo. */
@@ -123,7 +121,7 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
     .join("\n");
   const res = await spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-    input: `set -euo pipefail\n${header}\n${o.oldLayout ? "" : OLD_LAYOUT}${script}\n`,
+    input: `set -euo pipefail\n${header}\n${script}\n`,
     capture: o.capture,
   });
   if (res.code !== 0) {
@@ -139,9 +137,14 @@ export async function canLogin(s: Server): Promise<boolean> {
   return code === 0;
 }
 
-// A function: legacy.ts is still loading when this module runs (config → legacy → ssh).
+/** Whether landfall logs in to s and has set it up there; the connection stays open for what follows. */
+export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-login"> {
+  const { code } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${ROOT}`], { capture: true });
+  return code === 0 ? "ready" : code === 255 ? "no-login" : "bare";
+}
+
 /** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-const defaultExcludes = () => [".git", "node_modules", ".DS_Store", ".landfall.json", OLD_PROJECT_FILE, ".env", ".env.*", "compose.override.*", "docker-compose.override.*"];
+const DEFAULT_EXCLUDES = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", "compose.override.*", "docker-compose.override.*"];
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
@@ -154,7 +157,7 @@ async function bsdtarFlags(): Promise<string[]> {
 }
 
 /** Stream a local directory into a remote directory via tar over ssh. */
-export async function upload(s: Server, localDir: string, remoteDir: string, excludes = defaultExcludes()) {
+export async function upload(s: Server, localDir: string, remoteDir: string, excludes = DEFAULT_EXCLUDES) {
   if (!fs.existsSync(localDir)) fail(`directory not found: ${localDir}`);
   const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...excludes.flatMap((e) => ["--exclude", e]), "-C", localDir, "."];
   const remote = `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`;

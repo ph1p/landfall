@@ -19,7 +19,7 @@ const unq = (spec: string) => spec.trim().replace(/\\(.)/g, "$1");
 const same = (a: Rule, b: Rule) => a.action === b.action && a.port === b.port && a.proto === b.proto && a.from === b.from;
 
 /** Refuses an undo that would leave ufw on without a way in over ssh, like `lf firewall rm` does. */
-async function guardUndo(server: Server, todo: Step[], force?: boolean) {
+export async function guardUndo(server: Server, todo: Step[], force?: boolean) {
   if (!todo.some((x) => x.undo!.includes("ufw"))) return;
   const fw = await firewallState(server);
   let rules = [...fw.rules];

@@ -2,12 +2,16 @@ import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { defineCommand } from "../cmd";
 import { checkDomain, CONFIG_PATH, DOMAIN, expandHome, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, type Server } from "../config";
-import { runScript, sshExec } from "../ssh";
+import { runScript, shq, sshExec } from "../ssh";
 import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
 import { bytes, checkDns, duration, facts, serverIps } from "../facts";
-import { describeTraefik, traefikSettings } from "./traefik";
-import { c, confirmRemoval, fail, info, interactive, ok, table, warn } from "../ui";
-import { ensureKeyLogin, loginPassword, serverEntry } from "../login";
+import { describeTraefik, traefikSettings, traefikState } from "./traefik";
+import { guardUndo } from "./history";
+import { loginFor, pending, readJournal, undoSteps } from "../journal";
+import { overview, removeLines, siteDir } from "../remote";
+import { PRELUDE, ROOT, TRAEFIK_DIR } from "../templates";
+import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../ui";
+import { ensureKeyLogin, keyFile, loginPassword, serverEntry } from "../login";
 
 export const serverAdd = defineCommand({
   name: "server add",
@@ -105,6 +109,73 @@ export const serverRemove = defineCommand({
     saveConfig(cfg);
     if (o["ssh-config"] && removeHostBlock(name)) ok(`removed Host ${name} from ~/.ssh/config`);
     ok(`removed ${name}`);
+  },
+});
+
+/** Journal runs `server uninstall` reverts: what setup and traefik setup changed outside ROOT. */
+const SETUP_RUN = /^(setup|traefik setup|traefik use)( |$)/;
+
+export const serverUninstall = defineCommand({
+  name: "server uninstall",
+  args: "<name>",
+  summary: `Remove landfall from a server: its sites, Traefik, ${ROOT} and what setup changed.
+
+Deletes every site landfall deployed (named volumes stay unless --volumes) and forgets
+adopted ones, which keep running. Stops landfall's Traefik (a Traefik of your own is left
+alone), reverts what \`lf setup\` changed (deploy user, ufw, ssh hardening, docker network)
+and deletes ${ROOT}, its journal included. Then forgets the server locally.
+Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
+  options: {
+    volumes: { type: "boolean", desc: "also delete the sites' named volumes (their data)" },
+    "keep-setup": { type: "boolean", desc: "keep the deploy user, ufw and ssh hardening; only remove sites, traefik and " + ROOT },
+    force: { type: "boolean", desc: "even if it leaves ufw on without an ssh rule" },
+  },
+  async run([n], o) {
+    if (!n) fail("usage: lf server uninstall <name>");
+    const { name, server } = resolveServer(n);
+    // Deleting ROOT needs root: found now, while the deploy user still exists.
+    const root = await loginFor(server, "root");
+    const [ov, st, runs] = await Promise.all([overview(server), traefikState(server), readJournal(server)]);
+    if (st.compose === "foreign") fail(`${TRAEFIK_DIR}/docker-compose.yml was not written by landfall: move it out of ${ROOT} first`);
+    // Whatever lives under ROOT goes with it; undoing it step by step could trip over what is already gone.
+    const steps = o["keep-setup"] ? [] : runs.filter((r) => SETUP_RUN.test(r.cmd)).flatMap(pending).filter((x) => !x.undo!.includes(ROOT));
+
+    step(`uninstall landfall from ${c.bold(name)}`);
+    for (const x of ov.sites) {
+      const what = x.meta.adopted ? `forget ${x.meta.name} (keeps running from ${x.meta.adopted})` : `delete ${x.meta.name} (${x.domains.join(", ") || "no domains"})`;
+      console.error(`  ${c.red("-")} ${what}${o.volumes && !x.meta.adopted ? " and its volumes" : ""}`);
+    }
+    if (st.compose) console.error(`  ${c.red("-")} stop and remove traefik and its certificates`);
+    if (st.proxy) console.error(`  ${c.dim(`· your traefik ${st.proxy} stays`)}`);
+    for (const x of [...steps].reverse()) console.error(`  ${c.cyan("↺")} ${x.what}`);
+    console.error(`  ${c.red("-")} delete ${ROOT}, its journal included`);
+    console.error(`  ${c.red("-")} forget ${name} locally`);
+    console.error(`  ${c.dim(`· docker, packages, landfall's key for root${o["keep-setup"] ? ", deploy user, ufw and ssh hardening" : ""} stay`)}`);
+    await guardUndo(server, steps, o.force);
+    await confirmRemoval(`Uninstall landfall from ${name}? This cannot be undone.`, name);
+
+    const lines = [PRELUDE];
+    for (const { meta } of ov.sites) {
+      // Adopted projects run from their own folder: only landfall's notes go.
+      const rm = meta.adopted ? [`rmf ${shq(siteDir(meta.name))}`] : removeLines(meta, { volumes: o.volumes });
+      lines.push(`log ${shq(`removing ${meta.name}`)}`, "(", ...rm, ")", `record ${shq(`removed site ${meta.name}`)}`);
+    }
+    if (st.compose) lines.push(`log "stopping traefik"`, `(cd ${TRAEFIK_DIR} && dc down --remove-orphans)`, `record "removed traefik"`);
+    if (lines.length > 1) await runScript(server, lines.join("\n"));
+    if (steps.length) {
+      step(`reverting setup (${steps.length} change${steps.length > 1 ? "s" : ""})`);
+      await undoSteps(server, steps);
+    }
+    await runScript(root.login, `rm -rf ${ROOT}`, { sudo: root.sudo });
+    ok(`landfall removed from ${name}`);
+
+    const cfg = loadConfig();
+    delete cfg.servers[name];
+    if (cfg.default === name) delete cfg.default;
+    saveConfig(cfg);
+    if (removeHostBlock(name)) ok(`removed Host ${name} from ~/.ssh/config`);
+    ok(`forgot ${name}`);
+    if (fs.existsSync(keyFile(name))) info(c.dim(`${tildify(keyFile(name))} stays: root on ${name} still accepts it`));
   },
 });
 

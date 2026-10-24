@@ -19,7 +19,6 @@ import { isPublic4, parseFacts, pickIp, sslipDomain, support } from "../../src/f
 import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
-import { MIGRATED } from "../../src/legacy";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
 import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, type Release, type SiteMeta } from "../../src/compose";
 
@@ -236,18 +235,6 @@ describe("ssh config", () => {
     expect(fs.readFileSync(f, "utf8")).toBe("Host mine\n  HostName 192.0.2.4\n\nHost *\n  ServerAliveInterval 30\n");
   });
 
-  test("blocks written as srv: (landfall's old name) are still managed", () => {
-    const f = join(tmp(), "config");
-    const old = "# >>> srv:vps\nHost vps\n  HostName 1.1.1.1\n# <<< srv:vps\n\nHost vps2\n  User x\n";
-    fs.writeFileSync(f, old);
-    expect(hasManagedBlock("vps", f)).toBe(true);
-    expect(hasManagedBlock("vps2", f)).toBe(false);
-    upsertHostBlock({ alias: "vps", hostname: "2.2.2.2", user: "u", port: 22, key: "/k" }, f);
-    const text = fs.readFileSync(f, "utf8");
-    expect(text).not.toContain("srv:vps");
-    expect(text).toContain("# >>> landfall:vps\nHost vps\n  HostName 2.2.2.2");
-    expect(text).toContain("Host vps2");
-  });
 
   test("non-default port rendered", () => {
     expect(renderHostBlock({ alias: "x", hostname: "h", user: "u", port: 2222, key: "/k" })).toContain("Port 2222");
@@ -513,11 +500,6 @@ describe("journal", () => {
     expect(findRun(runs, "1.2").steps.map((s) => s.what)).toEqual(["installed docker"]);
   });
 
-  test("steps before the move from srv cannot be undone, later ones can", () => {
-    const runs = parseJournal([text, line("d", "do", MIGRATED), line("e", "do", "ufw allow 8000", b64("ufw delete allow 8000"))].join("\n"));
-    expect(runs.slice(0, 4).flatMap(pending)).toEqual([]);
-    expect(pending(runs[4]).map((s) => s.undo)).toEqual(["ufw delete allow 8000"]);
-  });
 });
 
 test("journalCmd keeps flags but not defaults or secrets", () => {
@@ -620,15 +602,6 @@ describe("versions", () => {
     expect(engineNotes({ ...e, docker: "26.1.5" }).dockerNote).toContain("29.9.2 is current");
     expect(engineNotes({ ...e, latestDocker: undefined, latestCompose: undefined })).toMatchObject({ dockerNote: undefined, composeNote: undefined, composeUpdate: false });
   });
-});
-
-test("srv.json (the old project file) is read, and replaced by .landfall.json on save", () => {
-  const d = tmp();
-  fs.writeFileSync(join(d, "srv.json"), JSON.stringify({ name: "blog", domains: ["a.com"] }));
-  expect(loadProject(d)?.name).toBe("blog");
-  saveProject(d, { name: "blog", domains: ["b.com"] });
-  expect(fs.readdirSync(d)).toEqual([".landfall.json"]);
-  expect(loadProject(d)?.domains).toEqual(["b.com"]);
 });
 
 describe("main domains", () => {

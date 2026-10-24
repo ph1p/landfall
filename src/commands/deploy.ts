@@ -2,14 +2,16 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
-import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, type Release, type SiteKind, type SiteMeta } from "../compose";
+import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
+import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readSite, siteDir, validName } from "../remote";
-import { upload } from "../ssh";
-import { ask, c, fail, info, ok, step, warn } from "../ui";
+import { setUpState, upload } from "../ssh";
+import { ask, askSecret, c, confirm, fail, info, interactive, ok, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
 import { composeFile, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
+import { setupServer } from "./setup";
+import { htpasswd } from "./traefik";
 
 export { detectStaticDir, exposedPort, slug } from "../projects";
 
@@ -20,6 +22,13 @@ const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
   static: { files: "/public" },
   image: { port: true },
 };
+
+/** The site's htpasswd lines with `login` added, replacing that user's old one. */
+function withLogin(auth: string[] | undefined, login?: string) {
+  if (!login) return auth;
+  const user = login.slice(0, login.indexOf(":"));
+  return [...(auth ?? []).filter((l) => l.slice(0, l.indexOf(":")) !== user), login];
+}
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
@@ -44,7 +53,10 @@ Kinds:
 
 Every site is a Compose project on the server (/opt/landfall/sites/<name>/current),
 so \`docker compose\` works there without landfall. Settings are saved to
-./.landfall.json, so later deploys are just \`lf deploy\`.`,
+./.landfall.json, so later deploys are just \`lf deploy\`.
+
+A server landfall has not set up yet is set up first (\`lf setup\`), asking
+before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\`.`,
   options: {
     server: serverOpt,
     name: { type: "string", short: "n", desc: "site name (default: folder name)" },
@@ -59,18 +71,42 @@ so \`docker compose\` works there without landfall. Settings are saved to
     build: { type: "string", short: "b", desc: "run this command locally first (e.g. 'npm run build')" },
     keep: { type: "string", desc: "releases to keep for rollback", default: "5" },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
+    host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
+    user: { type: "string", short: "u", desc: "with --host: initial login user (default: root)" },
+    "ssh-port": { type: "string", desc: "with --host: ssh port" },
+    "password-stdin": { type: "boolean", desc: "setting up first: read the login password from stdin (also: $LANDFALL_PASSWORD)" },
+    "auth-user": { type: "string", desc: "protect the site with this login (HTTP basic auth, as lf auth)" },
+    "auth-password": { type: "string", desc: "with --auth-user: its password (asked when missing)" },
   },
   async run([dirArg], o) {
     const cwd = process.cwd();
     const project: Partial<ProjectConfig> = loadProject(cwd) ?? {};
     if (project.name) info(c.dim(`using ${PROJECT_FILE}`));
 
-    const { name: serverName, server } = resolveServer(o.server ?? project.server);
+    let { name: serverName, server } = resolveServer(o.server ?? project.server);
+    if (o.host && !o.server && !project.server && !loadConfig().default) fail("--host needs --server <name> for the new server");
+    const state = o.host ? "bare" : await setUpState(server);
+    if (state !== "ready") {
+      const why = state === "bare" ? "is not set up by landfall yet" : "does not let landfall log in with a key";
+      if (!o.host && !(interactive() && (await confirm(`${serverName} ${why}. Set it up now (lf setup)?`))))
+        fail(`${serverName} ${why}: run \`lf setup ${serverName}\`${state === "no-login" ? " (--host <ip> for a new server)" : ""}, or deploy with --host`);
+      await setupServer(serverName, { host: o.host, user: o.user, port: o["ssh-port"], "password-stdin": o["password-stdin"] });
+      ({ server } = resolveServer(serverName));
+      if ((await setUpState(server)) !== "ready") fail(`${serverName} is still not set up`);
+    }
     const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
     const keep = checkInt(o.keep, "--keep", 1);
     // Domains given up front fail on a typo before the build and the upload.
     const typos = (o.domain?.length ? o.domain : (project.domains ?? [])).map((d: string) => expandDomain(d, server)).filter((d: string) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
+    let login: string | undefined;
+    if (o["auth-user"]) {
+      const user: string = o["auth-user"];
+      if (!/^[A-Za-z0-9._@-]{1,64}$/.test(user)) fail("--auth-user may only have letters, digits and . _ @ -");
+      const pw: string = o["auth-password"] ?? (await askSecret(`Password for ${user}:`));
+      if (pw.length < 8) fail("use a password of at least 8 characters");
+      login = await htpasswd(user, pw);
+    } else if (o["auth-password"]) fail("--auth-password needs --auth-user");
 
     const buildCmd: string | undefined = o.build ?? project.build;
     if (buildCmd) {
@@ -136,7 +172,9 @@ so \`docker compose\` works there without landfall. Settings are saved to
       if (mainService(release)) {
         fromFile = !o.domain?.length && !!project.domains?.length;
         domains = [o.domain, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? [];
-        if (!domains.length) {
+        // A site whose domains were all taken off (lf domains --rm) stays unrouted until -d.
+        const unrouted = !domains.length && !!prev && !!siteMain(prev) && !prev.domains.length;
+        if (!domains.length && !unrouted) {
           // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
           const main = mainDomain(server);
           const ip = main ? undefined : pickIp(await serverIps(server));
@@ -146,7 +184,8 @@ so \`docker compose\` works there without landfall. Settings are saved to
         domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
         const bad = domains.filter((d) => !DOMAIN.test(d));
         const clash = domains.filter((d) => fixed.includes(d));
-        if (!domains.length) fail("at least one --domain is required");
+        if (!domains.length && !unrouted) fail("at least one --domain is required");
+        if (unrouted) info(c.dim(`${name} serves no domain (lf domains ${name} --add <domain>, or deploy with -d)`));
         if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
         if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
       } else if (o.domain?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
@@ -163,7 +202,7 @@ so \`docker compose\` works there without landfall. Settings are saved to
       name,
       kind,
       domains,
-      auth: prev?.auth ?? old?.auth,
+      auth: withLogin(prev?.auth ?? old?.auth, login),
       current: id,
       releases: [...(prev?.releases ?? []), release],
       createdAt: prev?.createdAt ?? old?.createdAt ?? now,
