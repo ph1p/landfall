@@ -410,6 +410,8 @@ function openMenu(anchor, items) {
       all[e.key === "Home" ? 0 : all.length - 1].focus();
     }
   };
+  // Keep focus where it is on mousedown: a browser that does not focus clicked buttons would blur the menu and close it before the click.
+  m.onmousedown = (e) => e.preventDefault();
   m.addEventListener("focusout", (e) => {
     if (!m.contains(e.relatedTarget)) closeMenu(false);
   });
@@ -423,6 +425,8 @@ function openMenu(anchor, items) {
 function closeMenu(restore = true) {
   const m = $("#menu");
   if (!m) return;
+  // Removing the focused item fires focusout, which calls closeMenu again: drop the id first so that call finds nothing.
+  m.removeAttribute("id");
   m.remove();
   menuAnchor?.setAttribute("aria-expanded", "false");
   if (restore && menuAnchor?.isConnected) menuAnchor.focus({ preventScroll: true });
@@ -1685,6 +1689,9 @@ function settingsView(n) {
       if (d) run(["traefik", "setup", ...sv(n), "--dashboard", d], reload);
     }, "Apply");
   const sites = S.overview[n]?.data?.sites ?? [];
+  // Sites behind a Traefik the server already had (proxy.env): lf traefik setup refuses to touch it.
+  const proxy = S.overview[n]?.data?.proxy;
+  const foreign = proxy && proxy !== "traefik" ? proxy : "";
   const external = (d) => S.overview[n]?.data?.others?.find((e) => e.domains.includes(d))?.name;
   const servedBy = (d) => sites.find((s) => s.domains.includes(d))?.meta.name;
   const serve = (d) => {
@@ -1721,8 +1728,8 @@ function settingsView(n) {
         ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>
     </div>
     <div class="card">
-      <h2>Traefik <span class="actions">${btn("Dashboard…", dashboard, "sm")}</span></h2>
-      <div class="body">${rows([
+      <h2>Traefik <span class="actions">${foreign ? "" : btn("Dashboard…", dashboard, "sm")}</span></h2>
+      <div class="body">${foreign ? `<div class="note">Sites go through <b class="mono">${esc(foreign)}</b>, a Traefik landfall did not install and never changes: its dashboard is set up in its own config.</div>` : ""}${rows([
         ["image", esc(x.traefik.summary)],
         ["e-mail", esc(x.traefik.email ?? "none")],
         ["dashboard", x.traefik.dashboard ? `<a href="https://${esc(x.traefik.dashboard)}" target="_blank" rel="noopener">${esc(x.traefik.dashboard)}</a>` : "off"],
