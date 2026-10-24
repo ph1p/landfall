@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
-import { checkDomain, checkEmail, loadConfig, mainDomain, withPrimary, saveConfig, tildify, type Server } from "../config";
+import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, saveConfig, tildify, type Server } from "../config";
 import { canLogin, runScript } from "../ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
@@ -44,7 +44,7 @@ async function askTraefik(server: Server, o: TraefikInstall) {
     info(c.dim("host network: traefik sees real client IPs (also IPv6) and ufw guards 80/443; default publishes the ports via Docker"));
     o.hostNetwork = await confirm("run traefik on the host network?", false);
   }
-  if (o.email === undefined && server.email === undefined) {
+  if (o.email === undefined && server.email === undefined && defaults().email === undefined) {
     const typed = (await ask("Let's Encrypt e-mail (optional)", "")).trim();
     o.email = typed ? checkEmail(typed) : undefined;
   }

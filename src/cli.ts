@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { journalCmd, parse, usage, type Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
+import { config } from "./commands/config";
 import { deploy } from "./commands/deploy";
 import { init } from "./commands/init";
 import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUninstall, serverUse } from "./commands/server";
@@ -73,6 +74,7 @@ const commands: Command[] = [
   historyLog,
   historyUndo,
   keygen,
+  config,
   ui,
 ];
 
@@ -127,7 +129,7 @@ function help() {
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
     ["Updates", ["updates", "update"]],
     ["History", ["history", "undo"]],
-    ["Dashboard", ["ui"]],
+    ["landfall", ["config", "ui"]],
   ];
   const lines = [
     `${c.bold("landfall")} ${c.dim(pkg.version)} — set up servers and deploy sites behind Traefik + HTTPS`,

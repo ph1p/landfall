@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkEmail, checkImage, checkInt, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
+import { checkEmail, checkImage, defaults, checkInt, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../remote";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../tunnel";
@@ -45,7 +45,7 @@ export async function newLogin(user: string, password?: string, flag = "user") {
 /** What `installTraefik` will run with: flags first, then what the server entry remembers. */
 export function traefikSettings(server: Server, o: Pick<TraefikInstall, "email" | "staging" | "image" | "hostNetwork" | "http3">) {
   return {
-    email: o.email ?? server.email,
+    email: o.email ?? server.email ?? defaults().email,
     staging: !!(o.staging ?? server.staging),
     image: o.image || server.traefikImage || DEFAULT_TRAEFIK_IMAGE,
     hostNetwork: !!(o.hostNetwork ?? server.hostNetwork),
@@ -115,7 +115,8 @@ ensure_running traefik`,
   const cfg = loadConfig();
   if (cfg.servers[name]) {
     Object.assign(cfg.servers[name], {
-      email,
+      // landfall's default stays the default: changing it later reaches this server too.
+      email: email === defaults().email ? undefined : email,
       staging: staging || undefined,
       traefikImage: t.image === DEFAULT_TRAEFIK_IMAGE ? undefined : t.image,
       hostNetwork: t.hostNetwork || undefined,
