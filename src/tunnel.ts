@@ -143,7 +143,7 @@ export async function openTunnel(
   const ssh = spawn("ssh", [...args, "-N", "-L", `${o.as ? "127.0.0.1" : bind}:${fwd}:${addr}:${port}`, dest(s)], { stdio: ["ignore", "inherit", "inherit"] });
   const exited = new Promise<number>((resolve) => ssh.on("close", (code) => resolve(code ?? 1)));
   let stopped = false;
-  for (const sig of ["SIGINT", "SIGTERM"] as const) process.once(sig, () => ((stopped = true), ssh.kill()));
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(sig, () => ((stopped = true), ssh.kill()));
   for (let i = 0; i < 100 && ssh.exitCode === null && !(await listening(fwd)); i++) await new Promise((r) => setTimeout(r, 150));
   let proxy: http.Server | undefined;
   if (ssh.exitCode === null) {

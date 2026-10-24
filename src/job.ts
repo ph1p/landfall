@@ -18,6 +18,26 @@ export interface Job {
   stop(): void;
 }
 
+/**
+ * In a job: stop it, and the ssh it started, once the lf ui that started it is gone. A job runs
+ * detached (own session), so a killed UI or a closed terminal would otherwise leave it running,
+ * e.g. a tunnel still holding its local port.
+ */
+export function exitWithParent() {
+  const parent = Number(process.env.LANDFALL_PARENT);
+  // Only this process watches: what it starts (another lf, say) has a different parent.
+  delete process.env.LANDFALL_PARENT;
+  if (!parent) return;
+  setInterval(() => {
+    if (process.ppid === parent) return;
+    try {
+      process.kill(-process.pid, "SIGTERM");
+    } catch {
+      process.exit(1);
+    }
+  }, 1000).unref();
+}
+
 const MAX_LINES = 5000;
 const MAX_LINE = 10_000;
 const clip = (l: string) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) + "…" : l);
@@ -27,7 +47,7 @@ const clip = (l: string) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) + "…" 
  * prompts: the web dashboard asks the questions before starting it.
  */
 export function startJob(argv: string[], onChange: () => void, opts: { password?: string; env?: Record<string, string>; cwd?: string; stdin?: string } = {}): Job {
-  const env: Record<string, string | undefined> = { ...process.env, NO_COLOR: "1", LANDFALL_REPORT: "1", ...opts.env };
+  const env: Record<string, string | undefined> = { ...process.env, NO_COLOR: "1", LANDFALL_REPORT: "1", LANDFALL_PARENT: String(process.pid), ...opts.env };
   if (opts.password) {
     Object.assign(env, askpassEnv(opts.password));
   }
