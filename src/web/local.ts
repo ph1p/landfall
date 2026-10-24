@@ -56,14 +56,17 @@ export async function receiveUpload(form: FormData) {
     await save(file, files[0]);
     const out = join(root, "files");
     fs.mkdirSync(out);
-    // unzip and tar both refuse entries that climb out with ../
+    // unzip and tar both refuse entries that climb out with ../, but a link could still point
+    // anywhere (and a later entry be written through it): archives with links are refused.
     const zip = /\.zip$/i.test(file);
+    if (hasLinks(file, zip)) throw new Error(`${files[0].name} contains symlinks or hard links: upload the folder instead`);
     const r = zip ? spawnSync("unzip", ["-q", file, "-d", out]) : spawnSync("tar", ["-xf", file, "-C", out]);
     if (r.error || r.status !== 0) {
       const t = zip ? spawnSync("tar", ["-xf", file, "-C", out]) : r;
       if (t.error || t.status !== 0) throw new Error(`could not unpack ${files[0].name}`);
     }
     fs.rmSync(file);
+    dropLinks(out);
     return { path: topFolder(out), files: countFiles(out) };
   }
   const out = join(root, "files");
@@ -73,6 +76,25 @@ export async function receiveUpload(form: FormData) {
     await save(join(out, ...parts), f);
   }
   return { path: topFolder(out), files: files.length };
+}
+
+/** Whether an archive holds links, from its verbose listing (mode column starts with l or h). */
+function hasLinks(file: string, zip: boolean): boolean {
+  const list = (cmd: string, args: string[]) => {
+    const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 256 * 1024 ** 2 });
+    return r.error || r.status !== 0 ? undefined : r.stdout;
+  };
+  // macOS tar (bsdtar) lists zips too; Linux has zipinfo.
+  const out = zip ? (list("zipinfo", [file]) ?? list("tar", ["-tvf", file])) : list("tar", ["-tvf", file]);
+  if (out === undefined) throw new Error(`could not read ${file.split("/").pop()}`);
+  return out.split("\n").some((l) => /^[lh]/.test(l) || / link to /.test(l));
+}
+
+/** Remove any link that got through anyway: deploy must only ship what was uploaded. */
+function dropLinks(dir: string) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (e.isSymbolicLink()) fs.rmSync(join(e.parentPath, e.name), { force: true });
+  }
 }
 
 /** Descend through folders that hold nothing but one folder (and macOS litter). */

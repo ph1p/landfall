@@ -27,7 +27,11 @@ export interface SshOpts {
 export const sshConfigFlag = (f = envVar("SSH_CONFIG")) => (f ? ["-F", fs.existsSync(f) ? f : "/dev/null"] : []);
 
 /** `user@host`, or just the host/alias when ssh config supplies the user. */
-export const dest = (s: Server) => (s.user ? `${s.user}@${s.host}` : s.host);
+export const dest = (s: Server) => {
+  // Last in the ssh args: a leading "-" would turn a host name into an option (-oProxyCommand=…).
+  if (/^-|\s/.test(s.host) || (s.user && /^-|\s/.test(s.user))) fail(`not a server: ${s.user ? `${s.user}@` : ""}${s.host}`);
+  return s.user ? `${s.user}@${s.host}` : s.host;
+};
 
 /** Flags that select the target (config file, port, key) — shared by ssh, ssh -G and ssh-copy-id. */
 export function targetArgs(s: Server): string[] {

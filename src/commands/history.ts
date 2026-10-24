@@ -1,10 +1,11 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer, type Server } from "../config";
 import { parseRule, type Rule } from "../inventory";
-import { findRun, pending, readJournal, undoSteps, type Run, type Step } from "../journal";
+import { findRun, laterConflicts, pending, readJournal, undoSteps, type Run, type Step } from "../journal";
 import { JOURNAL } from "../templates";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn } from "../ui";
 import { firewallState, guardSsh } from "./firewall";
+import { historyView } from "../views";
 
 /** One step as `lf history` and `lf undo` print it. */
 export function stepLine(x: Step, i: number) {
@@ -27,12 +28,16 @@ export async function guardUndo(server: Server, todo: Step[], force?: boolean) {
   for (const x of [...todo].sort((a, b) => b.line - a.line)) {
     for (const line of x.undo!.split("\n")) {
       const del = line.match(/\$SUDO ufw --force delete (.+?) >\/dev\/null/);
-      const add = line.match(/\$SUDO ufw (prepend )?((?:allow|deny|reject|limit) .+?) >\/dev\/null/);
+      const add = line.match(/\$SUDO ufw (prepend |insert (\d+) )?((?:allow|deny|reject|limit) .+?) >\/dev\/null/);
       if (del) {
         const gone = parseRule(unq(del[1]));
         const i = rules.findIndex((r) => same(r, gone));
         if (i >= 0) rules.splice(i, 1);
-      } else if (add) rules = add[1] ? [parseRule(unq(add[2])), ...rules] : [...rules, parseRule(unq(add[2]))];
+      } else if (add) {
+        const r = parseRule(unq(add[3]));
+        if (add[2]) rules.splice(Number(add[2]) - 1, 0, r);
+        else rules = add[1] ? [r, ...rules] : [...rules, r];
+      }
       else if (/\$SUDO ufw disable/.test(line)) ufw = "inactive";
       else if (/\$SUDO ufw --force enable/.test(line)) ufw = "active";
     }
@@ -53,8 +58,8 @@ export const historyLog = defineCommand({
   },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
+    if (o.json) return console.log(JSON.stringify(await historyView(server, Number(o.n) || 20), null, 2));
     const runs = (await readJournal(server)).reverse().slice(0, Number(o.n) || 20);
-    if (o.json) return console.log(JSON.stringify(runs, null, 2));
     if (!runs.length) return info(`nothing in ${JOURNAL} on ${name} yet`);
     for (const r of runs) {
       console.log(runLine(r));
@@ -72,7 +77,7 @@ export const historyUndo = defineCommand({
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "everything landfall did that can be reverted" },
-    force: { type: "boolean", desc: "even if it leaves ufw on without an ssh rule" },
+    force: { type: "boolean", desc: "even if it leaves ufw on without an ssh rule, or a later run changed the same site or file" },
   },
   async run([ref], o) {
     const { name, server } = resolveServer(o.server);
@@ -87,6 +92,15 @@ export const historyUndo = defineCommand({
       if (!run) return ok(`nothing to undo on ${name}`);
       ({ steps } = run);
       label = `#${run.run.n} ${run.run.cmd} (${ago(run.run.time)})`;
+      // Undo puts whole files and sites back as they were: a later run on the same one would silently lose its
+      // changes, and undoing that one afterwards would bring this run's changes back.
+      const clash = laterConflicts(runs, run.run.n, steps);
+      if (clash.length && !o.force) {
+        fail(
+          `later runs changed the same things: ${clash.map((x) => `#${x.run.n} ${x.run.cmd} (${x.subject})`).join(", ")}. ` +
+            `Undo those first, newest first, or pass --force`,
+        );
+      }
       const later = runs.filter((r) => r.n > run.run.n && pending(r).length);
       if (later.length) warn(`later runs build on it and stay: ${later.map((r) => `#${r.n} ${r.cmd}`).join(", ")}`);
     }

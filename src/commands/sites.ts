@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, loadProject, resolveServer, type Server } from "../config";
 import { COMPOSE_FILES, currentRelease, isDone, isOld, isUp, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
-import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
+import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, info, ok, table } from "../ui";
 import { slug } from "../projects";
@@ -28,8 +28,10 @@ export const sitesList = defineCommand({
   },
   async run(_, o) {
     const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
-    const { sites, others } = await overview(server);
-    if (o.json) return console.log(JSON.stringify(o.others ? { sites, others } : sites, null, 2));
+    const view = await overview(server);
+    const { sites, others } = view;
+    // --others: the whole overview the web UI reads (proxy, dashboard, unrouted containers too).
+    if (o.json) return console.log(JSON.stringify(o.others ? view : sites, null, 2));
     if (others.length) {
       console.log(c.dim(`not deployed by landfall, routed by Traefik (\`lf adopt <name>\` manages a Compose project):`));
       table([
@@ -203,15 +205,19 @@ export const sitesEnv = defineCommand({
   name: "env",
   args: "[name] [KEY=VALUE...]",
   summary: "Show or change a site's .env; services whose environment changed are recreated.",
-  options: { server: serverOpt, unset: { type: "string", short: "u", multiple: true, desc: "remove KEY" } },
+  options: {
+    server: serverOpt,
+    unset: { type: "string", short: "u", multiple: true, desc: "remove KEY" },
+    "env-file": { type: "string", desc: "also set the KEY=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
+  },
   async run(pos, o) {
-    const pairs = pos.filter((p) => p.includes("="));
     const [n] = pos.filter((p) => !p.includes("="));
+    const set = { ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("="))) };
     const { site, server } = target(n, o.server);
     const { env } = await requireSite(server, site, { deployed: "manage the .env of" });
-    if (!pairs.length && !o.unset?.length) return void process.stdout.write(env || c.dim("(empty)\n"));
-    const next = mergeEnv(env, parseEnvPairs(pairs), o.unset ?? []);
-    const keys = [...pairs.map((p) => p.slice(0, p.indexOf("="))), ...(o.unset ?? []).map((k: string) => `-${k}`)];
+    if (!Object.keys(set).length && !o.unset?.length) return void process.stdout.write(env || c.dim("(empty)\n"));
+    const next = mergeEnv(env, set, o.unset ?? []);
+    const keys = [...Object.keys(set), ...(o.unset ?? []).map((k: string) => `-${k}`)];
     await composeCmd(
       server,
       site,

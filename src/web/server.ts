@@ -1,24 +1,19 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import pkg from "../../package.json";
-import { httpsStatus } from "../commands/access";
-import { firewallState } from "../commands/firewall";
-import { domainDns, serverSettings, suggestDomains } from "../commands/server";
-import { CONFIG_PATH, DOMAIN, loadConfig, loadProject, resolveServer, saveConfig, useServer } from "../config";
+import { secretEnv } from "../cmd";
+import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../config";
 import { changes, listServers, target } from "../dashboard";
-import { checkDns, facts, pickIp, serverIps } from "../facts";
 import { loadProjects } from "../projects";
-import { engineNotes, engineStatus, imageStatus, pkgStatus } from "../updates";
 import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
-import { pending, readJournal } from "../journal";
 import { overview } from "../remote";
+import { configView, dnsView, factsView, firewallView, historyView, updatesView } from "../views";
 import { newRunId, setQuiet } from "../ssh";
-import { effectiveSsh } from "../sshconfig";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../templates";
 import { c, openUrl } from "../ui";
 
@@ -31,11 +26,18 @@ interface WebJob {
   undoable: boolean;
   job: Job;
   listeners: Set<() => void>;
+  /** As started, for a retry with --force: the page only sees the argv with passwords masked. */
+  opts: { server?: string; password?: string; cwd?: string };
 }
 
 // Next to this file in src/web, and copied next to the bundle in dist by the build.
 const page = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const MAX_JOBS = 50;
+/** Jobs running at once: each is a process with its own ssh connections. */
+const MAX_RUNNING = 20;
+/** Request bodies: uploads may be a whole project, everything else is a small JSON. */
+const MAX_UPLOAD = 512 * 1024 ** 2;
+const MAX_BODY = 1024 ** 2;
 const jobs = new Map<string, WebJob>();
 
 /** Commands that make no sense without a terminal, or would start another dashboard. */
@@ -61,8 +63,9 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   // The journal credits what the job changes to this id, so it can be undone as one.
   const id = newRunId();
   const listeners = new Set<() => void>();
-  const job = startJob(argv, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, env: { LANDFALL_RUN: id } });
-  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), undoable: changes(argv), job, listeners };
+  const { args, env, stdin } = secretsOut(argv);
+  const job = startJob(args, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, stdin, env: { ...env, LANDFALL_RUN: id } });
+  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), undoable: changes(argv), job, listeners, opts: o };
   jobs.set(id, w);
   for (const [old, j] of jobs) {
     if (jobs.size <= MAX_JOBS) break;
@@ -71,8 +74,39 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   return w;
 }
 
-/** The command as the page shows it: passwords given as flags are masked. */
-const shown = (argv: string[]) => argv.map((a, i) => (/^(-p|--([\w-]+-)?password)$/.test(argv[i - 1]) ? "***" : a.replace(/^(--([\w-]+-)?password=).*/, "$1***")));
+/** The command as the page shows it: passwords given as flags, and `lf env` values, are masked. */
+const isEnvCmd = (argv: string[]) => argv[0] === "env" || (argv[0] === "sites" && argv[1] === "env");
+const ENV_PAIR = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/**
+ * Move passwords and .env values off the job's command line, where `ps` would show them:
+ * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs as a dotenv on stdin.
+ */
+export function secretsOut(argv: string[]) {
+  const args: string[] = [];
+  const env: Record<string, string> = {};
+  const pairs: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const flag = a.match(/^--((?:[\w-]+-)?password)(?:=(.*))?$/s);
+    if (flag && (flag[2] !== undefined || i + 1 < argv.length)) {
+      env[secretEnv(flag[1])] = flag[2] ?? argv[++i];
+    } else if (isEnvCmd(argv) && ENV_PAIR.test(a) && !a.includes("\n") && !argv.includes("--env-file")) {
+      pairs.push(a);
+    } else args.push(a);
+  }
+  if (pairs.length) args.push("--env-file", "-");
+  return { args, env, stdin: pairs.length ? pairs.join("\n") + "\n" : undefined };
+}
+
+const shown = (argv: string[]) =>
+  argv.map((a, i) =>
+    /^(-p|--([\w-]+-)?password)$/.test(argv[i - 1])
+      ? "***"
+      : isEnvCmd(argv) && ENV_PAIR.test(a)
+        ? a.replace(/=.*/s, "=***")
+        : a.replace(/^(--([\w-]+-)?password=).*/, "$1***"),
+  );
 
 const jobInfo = (w: WebJob) => ({
   id: w.id,
@@ -82,6 +116,7 @@ const jobInfo = (w: WebJob) => ({
   undoable: w.undoable,
   code: w.job.code,
   stopped: !!w.job.stopped,
+  report: w.job.report,
 });
 
 /** Server-sent events: the job's lines from `from` on, then `done` with the exit code. */
@@ -96,7 +131,7 @@ function jobEvents(w: WebJob, from: number, signal: AbortSignal): Response {
         const { lines, dropped, code } = w.job;
         const start = Math.max(sent, dropped);
         if (dropped + lines.length > start) {
-          send(`data: ${JSON.stringify({ from: start, lines: lines.slice(start - dropped) })}\n\n`);
+          send(`data: ${JSON.stringify({ from: start, lines: lines.slice(start - dropped), report: w.job.report })}\n\n`);
           sent = dropped + lines.length;
         }
         if (code !== undefined) {
@@ -134,6 +169,8 @@ async function api(req: Request, path: string[]): Promise<Response> {
       project: loadProject(process.cwd()) ?? null,
       projects: loadProjects(),
       defaultImage: DEFAULT_TRAEFIK_IMAGE,
+      // The CLI's own input rules, so forms reject what the command would.
+      rules: { loginName: LOGIN_NAME.source, minPassword: MIN_PASSWORD },
       paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },
       servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: cfg.servers[e.name] ?? null })),
       jobs: [...jobs.values()].reverse().map(jobInfo),
@@ -143,39 +180,15 @@ async function api(req: Request, path: string[]): Promise<Response> {
   if (what === "servers" && name) {
     const { server } = resolveServer(name);
     if (method === "GET" && !sub) return json(await overview(server));
-    if (method === "GET" && sub === "firewall") {
-      const { login, probe, ...fw } = await firewallState(server);
-      return json({ ...fw, asRoot: effectiveSsh(login).user === "root" });
-    }
-    if (method === "GET" && sub === "config") {
-      const settings = serverSettings(name);
-      const [dns, suggest] = await Promise.all([Promise.all(settings.domains.map((d) => domainDns(server, d))), suggestDomains(server)]);
-      return json({ ...settings, dns, suggest });
-    }
-    if (method === "GET" && sub === "history") {
-      const runs = (await readJournal(server)).reverse();
-      return json(runs.map((r) => ({ ...r, pending: pending(r).length })));
-    }
-    if (method === "GET" && sub === "facts") {
-      const f = await facts(server);
-      const ips = await serverIps(server, f);
-      return json({ ...f, ips, sslipIp: pickIp(ips) ?? null });
-    }
-    if (method === "GET" && sub === "updates") {
-      const refresh = new URL(req.url).searchParams.get("refresh") === "1";
-      const packages = await pkgStatus(server, refresh);
-      const engine = await engineStatus(server);
-      return json({ packages, images: await imageStatus(server), engine: { ...engine, ...engineNotes(engine) } });
-    }
+    // The same views `--json` prints.
+    if (method === "GET" && sub === "firewall") return json(await firewallView(server));
+    if (method === "GET" && sub === "config") return json(await configView(name, server));
+    if (method === "GET" && sub === "history") return json(await historyView(server));
+    if (method === "GET" && sub === "facts") return json(await factsView(name, server));
+    if (method === "GET" && sub === "updates") return json(await updatesView(server, new URL(req.url).searchParams.get("refresh") === "1"));
     if (method === "GET" && sub === "dns") {
       const domains = (new URL(req.url).searchParams.get("domains") ?? "").split(",").filter((d) => DOMAIN.test(d)).slice(0, 50);
-      const ips = await serverIps(server);
-      const [dns, https] = await Promise.all([checkDns(domains, ips), Promise.all(domains.map(httpsStatus))]);
-      return json({ ips, domains: dns.map((d, i) => ({ ...d, https: https[i] })) });
-    }
-    if (method === "POST" && sub === "default") {
-      useServer(name);
-      return json({ ok: true });
+      return json(await dnsView(server, domains));
     }
   }
 
@@ -185,6 +198,9 @@ async function api(req: Request, path: string[]): Promise<Response> {
       const argv = body.argv;
       if (!Array.isArray(argv) || !argv.length || !argv.every((a) => typeof a === "string") || NO_JOB.has(argv[0])) {
         return failure("argv must be a list of landfall arguments", 400);
+      }
+      if ([...jobs.values()].filter((j) => j.job.code === undefined).length >= MAX_RUNNING) {
+        return failure(`${MAX_RUNNING} jobs are already running: wait for one to finish or stop one`, 429);
       }
       let cwd: string | undefined;
       try {
@@ -200,6 +216,11 @@ async function api(req: Request, path: string[]): Promise<Response> {
       return jobEvents(w, Number(new URL(req.url).searchParams.get("from")) || 0, req.signal);
     }
     if (w && method === "GET" && !sub) return json({ ...jobInfo(w), lines: w.job.lines, from: w.job.dropped });
+    if (w && method === "POST" && sub === "force") {
+      if (w.job.code === undefined || w.argv.includes("--force")) return failure("only a finished job without --force", 400);
+      if ([...jobs.values()].filter((j) => j.job.code === undefined).length >= MAX_RUNNING) return failure("too many jobs running", 429);
+      return json(jobInfo(startWebJob([...w.argv, "--force"], w.opts)));
+    }
     if (w && method === "POST" && sub === "stop") {
       w.job.stop();
       return json(jobInfo(w));
@@ -207,17 +228,9 @@ async function api(req: Request, path: string[]): Promise<Response> {
   }
 
   if (what === "fs" && method === "GET") return json(browse(new URL(req.url).searchParams.get("path") ?? undefined));
-  if (what === "projects" && method === "GET") return json(loadProjects());
   if (what === "upload" && method === "POST") {
     const up = await receiveUpload(await req.formData());
     return json({ ...up, detected: browse(up.path).detected });
-  }
-
-  if (what === "open" && method === "POST") {
-    const { url } = (await req.json()) as { url?: string };
-    if (!url || !/^https?:\/\//.test(url)) return failure("not a web address", 400);
-    openUrl(url);
-    return json({ ok: true });
   }
 
   return failure("not found", 404);
@@ -231,6 +244,8 @@ const cookieToken = (req: Request) =>
     .split(/;\s*/)
     .find((p) => p.startsWith("landfall="))
     ?.slice("landfall=".length) ?? "";
+
+const fingerprint = (secret: string) => createHash("sha256").update(`landfall-ui:${secret}`).digest("hex");
 
 /**
  * The web dashboard: a local page that runs landfall's commands.
@@ -251,6 +266,8 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
     const origin = req.headers.get("origin");
     if (origin && new URL(origin).host !== host) return new Response("forbidden origin", { status: 403 });
 
+    // Another lf ui of this user answers with the same hash; the token itself never leaves (see `running`).
+    if (url.pathname === "/ping") return new Response(fingerprint(secret));
     if (url.pathname === "/login") {
       if (!same(url.searchParams.get("t") ?? "", secret)) return new Response("wrong or missing token, use the link lf ui printed", { status: 403 });
       return new Response(null, {
@@ -263,6 +280,10 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
     }
     if (url.pathname === "/") return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (url.pathname.startsWith("/api/")) {
+      // SameSite=Strict still sends the cookie from other ports of 127.0.0.1 (same site), and an <img> sends
+      // no Origin: only this page's own requests (or non-browser clients, which send no Sec-Fetch-Site) get in.
+      const site = req.headers.get("sec-fetch-site");
+      if (site && site !== "same-origin" && site !== "none") return new Response("forbidden", { status: 403 });
       try {
         return await api(req, url.pathname.slice(5).split("/").filter(Boolean).map(decodeURIComponent));
       } catch (e) {
@@ -281,7 +302,11 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
       server.listen(port, "127.0.0.1", () => (server.off("error", done), done(undefined)));
     });
   // An lf ui on a taken port has the same token, so it answers it: then just open that one.
-  const running = (port: number) => fetch(`http://127.0.0.1:${port}/api/state`, { headers: { cookie: `landfall=${secret}` } }).then((r) => r.ok, () => false);
+  const running = (port: number) =>
+    fetch(`http://127.0.0.1:${port}/ping`).then(
+      async (r) => r.ok && (await r.text()) === fingerprint(secret),
+      () => false,
+    );
   const want = o.port ?? DEFAULT_PORT;
   // An explicit --port or nothing; the default port, else the next free one after it, else any.
   const ports = o.port !== undefined ? [want] : [...Array.from({ length: 20 }, (_, i) => want + i), 0];
@@ -321,6 +346,19 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
 }
 
 /** Serve a fetch-style handler with node:http; the request's signal aborts when the client goes away. */
+/** The request body, failing once it passes `limit` bytes (a chunked body has no length to check up front). */
+function capped(req: IncomingMessage, limit: number): Readable {
+  let seen = 0;
+  return req.pipe(
+    new Transform({
+      transform(chunk: Buffer, _enc, done) {
+        seen += chunk.length;
+        done(seen > limit ? new Error("request too large") : null, chunk);
+      },
+    }),
+  );
+}
+
 function listener(handler: (req: Request) => Promise<Response>) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const abort = new AbortController();
@@ -329,7 +367,12 @@ function listener(handler: (req: Request) => Promise<Response>) {
     try {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) for (const x of [v ?? []].flat()) headers.append(k, x);
-      const body = req.method === "GET" || req.method === "HEAD" ? undefined : (Readable.toWeb(req) as ReadableStream);
+      const limit = req.url?.startsWith("/api/upload") ? MAX_UPLOAD : MAX_BODY;
+      if (Number(req.headers["content-length"]) > limit) {
+        res.writeHead(413).end("request too large");
+        return;
+      }
+      const body = req.method === "GET" || req.method === "HEAD" ? undefined : (Readable.toWeb(capped(req, limit)) as ReadableStream);
       r = await handler(new Request(`http://${req.headers.host ?? "127.0.0.1"}${req.url}`, { method: req.method, headers, body, signal: abort.signal, duplex: "half" } as RequestInit));
     } catch {
       r = new Response("bad request", { status: 400 });

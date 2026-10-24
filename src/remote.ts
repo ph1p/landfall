@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Server } from "./config";
 import { parse as parseYaml } from "yaml";
 import {
@@ -24,7 +25,7 @@ import {
 } from "./compose";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
-import { fail, warn } from "./ui";
+import { fail, readStdin, warn } from "./ui";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
@@ -288,6 +289,9 @@ export async function prepareRelease(
 ): Promise<{ dir: string; config: any }> {
   const site = siteDir(name);
   const rel = `${site}/releases/${id}`;
+  // Moved to the release root: paths inside it (build: ., ./data) would point elsewhere from a subfolder.
+  const file = o.file?.replace(/^(\.\/)+/, "");
+  if (file?.includes("/")) fail(`-f takes a compose file in the project folder itself, not ${o.file}`);
   const others = [...COMPOSE_FILES, ...OVERRIDE_FILES].filter((f) => f !== "compose.yaml");
   const script = [
     PRELUDE,
@@ -297,13 +301,14 @@ export async function prepareRelease(
     `[ -e ../../.env ] || { touch ../../.env && chmod 600 ../../.env; }`,
     "ln -sfn ../../.env .env",
     ...Object.entries(o.generated ?? {}).map(([f, text]) => writeFileCmd(f, text)),
-    ...(o.file && o.file !== "compose.yaml" ? [`mv -f ${shq(o.file)} compose.yaml`] : []),
+    ...(file && file !== "compose.yaml" ? [`mv -f ${shq(file)} compose.yaml`] : []),
     `rm -f ${others.map(shq).join(" ")}`,
     // The .env this deploy is about to write, so a first deploy can set what compose.yaml requires.
     ...(o.env !== undefined ? [writeFileCmd(".env.next", o.env, "600")] : []),
-    `[ -f compose.yaml ] || { echo "no compose.yaml in the upload" >&2; cfg=; false; } && cfg=$(dc ${o.env !== undefined ? "--env-file .env.next " : ""}-f compose.yaml config 2>&1) || {`,
-    `  printf '%s\\n' "$cfg" >&2; exit 1`,
-    "}",
+    `[ -f compose.yaml ] || { echo "no compose.yaml in the upload" >&2; exit 1; }`,
+    // stderr apart: compose warns there (an unset \${VAR}), and a warning inside the YAML breaks parsing it.
+    `cfg=$(dc ${o.env !== undefined ? "--env-file .env.next " : ""}-f compose.yaml config 2>.config.err) || { cat .config.err >&2; rm -f .config.err; exit 1; }`,
+    "cat .config.err >&2; rm -f .config.err",
     "rm -f .env.next",
     `pwd -P; printf %s ${shq(SEP)}; printf '%s\\n' "$cfg"`,
   ].join("\n");
@@ -343,7 +348,7 @@ export async function discardRelease(s: Server, name: string, id: string) {
   const site = siteDir(name);
   await runScript(
     s,
-    `cd / && rm -rf ${shq(`${site}/releases/${id}`)}; [ -f ${shq(site + "/site.json")} ] || { rmdir ${shq(site + "/releases")} 2>/dev/null; rm -f ${shq(site + "/.env")}; rmdir ${shq(site)} 2>/dev/null; } || true`,
+    `cd / && rm -rf ${shq(`${site}/releases/${id}`)}; [ -f ${shq(site + "/site.json")} ] || { rmdir ${shq(site + "/releases")} 2>/dev/null; { [ -s ${shq(site + "/.env")} ] || rm -f ${shq(site + "/.env")}; }; rmdir ${shq(site)} 2>/dev/null; } || true`,
   );
 }
 
@@ -380,9 +385,14 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: bool
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
   const rel = shq("releases/" + meta.current);
+  const project = projectName(meta);
   const lines = [
     `mkdir -p ${shq(dir)} && cd ${shq(dir)}`,
-    writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"),
+    // Compose finds containers by project name alone: one started elsewhere under the same name would be
+    // recreated or removed by this site's 'up --remove-orphans'.
+    `here=$(pwd -P)/`,
+    `other=$(docker ps -a --filter ${shq(`label=com.docker.compose.project=${project}`)} --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null | while read -r d; do case "$d/" in ("$here"*) ;; (*) echo "\${d:-a container without a folder}"; break ;; esac; done || true)`,
+    `[ -z "$other" ] || { echo ${shq(`a Compose project named ${project} already runs from`)} "$other:" ${shq(`deploying would replace its containers. Pick another site name, or make it a site with lf adopt ${project}`)} >&2; exit 1; }`,
     o.env !== undefined ? writeFileCmd(".env", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
     `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
   ];
@@ -390,6 +400,8 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: bool
     lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && dc build -q) || exit 1`);
   }
   if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && dc pull -q --ignore-buildable) || exit 1`);
+  // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
+  lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
   lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name));
   return lines;
@@ -403,7 +415,7 @@ const dropRelease = (meta: SiteMeta, r: Release) => [
 ];
 
 /** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
-function takeoverLines(old: SiteMeta): string[] {
+function takeoverLines(old: SiteMeta, keep?: string): string[] {
   const dir = siteDir(old.name);
   const images = old.kind === "dockerfile" ? (old.releases as any[]).map((r) => r.image).filter(Boolean) : [];
   return [
@@ -411,7 +423,7 @@ function takeoverLines(old: SiteMeta): string[] {
     `log "removing the old container of ${old.name}"`,
     `dc -p ${shq(oldProject(old.name))} down --remove-orphans >/dev/null 2>&1 || docker rm -f ${shq(oldProject(old.name))} >/dev/null 2>&1 || true`,
     `rm -f docker-compose.yml nginx.conf`,
-    ...old.releases.map((r) => `rm -rf ${shq("releases/" + r.id)}`),
+    ...old.releases.filter((r) => r.id !== keep).map((r) => `rm -rf ${shq("releases/" + r.id)}`),
     ...images.map(rmImage),
   ];
 }
@@ -441,7 +453,12 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   const lines = [PRELUDE];
   if (o.takeover) {
     // The old layout's releases are not Compose projects: nothing to go back to.
-    lines.push(`record ${shq(`${o.what} (moved from landfall's old site layout, cannot be undone)`)}`, ...siteLines(meta, proxy, o), ...takeoverLines(o.takeover));
+    // Old container first: once site.json says v2, a failed start would never get to remove it.
+    lines.push(
+      `record ${shq(`${o.what} (moved from landfall's old site layout, cannot be undone)`)}`,
+      ...takeoverLines(o.takeover, meta.current),
+      ...siteLines(meta, proxy, o),
+    );
     await runScript(s, lines.join("\n"));
     return;
   }
@@ -521,6 +538,17 @@ export function mergeEnv(existing: string, set: Record<string, string>, unset: s
   for (const [k, v] of pending) out.push(`${k}=${v}`);
   return out.length ? out.join("\n") + "\n" : "";
 }
+
+/** KEY=VALUE lines of a dotenv file; `export` prefixes and comments are skipped. */
+export const dotenvLines = (text: string): string[] =>
+  text
+    .split("\n")
+    .map((l) => l.trim().replace(/^export\s+/, ""))
+    .filter((l) => l && !l.startsWith("#") && l.includes("="));
+
+/** A local dotenv file as pairs; `-` reads stdin, which keeps the values out of `ps`. */
+export const readEnvFile = async (path: string) =>
+  parseEnvPairs(dotenvLines(path === "-" ? await readStdin() : fs.readFileSync(path, "utf8")));
 
 export function parseEnvPairs(pairs: string[]): Record<string, string> {
   const out: Record<string, string> = {};

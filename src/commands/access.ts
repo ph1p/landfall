@@ -5,9 +5,10 @@ import { updateProjectDomains } from "../projects";
 import { isOld, siteDomains, siteMain } from "../compose";
 import { changeSite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
-import { c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
+import { c, confirmRemoval, fail, info, ok, openUrl, readStdin, warn } from "../ui";
 import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
 import { target } from "./sites";
+import { dnsView } from "../views";
 
 
 /** HTTPS status of a URL: the code, or why there is none. */
@@ -72,11 +73,8 @@ and update .landfall.json of remembered projects.`,
     const changing = !!(o.add || o.rm || o.set);
     const { meta, proxy } = await requireSite(server, site, changing ? { deployed: "change the domains of" } : {});
     if (!changing) {
-      const all = siteDomains(meta);
-      const ips = await serverIps(server);
-      const [dns, https] = await Promise.all([checkDns(all, ips), Promise.all(all.map(httpsStatus))]);
-      const rows = dns.map((d, i) => ({ ...d, https: https[i] }));
-      if (o.json) return void console.log(JSON.stringify({ site, serverIps: ips, domains: rows }, null, 2));
+      const { ips, domains: rows } = await dnsView(server, siteDomains(meta));
+      if (o.json) return void console.log(JSON.stringify({ site, ips, domains: rows }, null, 2));
       for (const r of rows) {
         const dnsState = r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");
         const h = r.https.status ? (r.https.status < 400 ? c.green : r.https.status === 401 ? c.cyan : c.yellow)(`https ${r.https.status}`) : c.red(`https ${r.https.error}`);
@@ -128,7 +126,8 @@ export const auth = defineCommand({
   options: {
     server: serverOpt,
     user: { type: "string", short: "u", desc: "login to add or change (default with --password: admin)" },
-    password: { type: "string", short: "p", desc: "its password (asked when missing)" },
+    password: { type: "string", short: "p", desc: "its password (asked when missing; visible in ps, prefer --password-stdin)" },
+    "password-stdin": { type: "boolean", desc: "read the password from stdin" },
     "rm-user": { type: "string", multiple: true, desc: "remove a login" },
     off: { type: "boolean", desc: "remove every login" },
   },
@@ -136,7 +135,8 @@ export const auth = defineCommand({
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
     const users = (meta.auth ?? []).map(loginUser);
-    const user = o.user ?? (o.password ? DEFAULT_USER : undefined);
+    const password: string | undefined = o["password-stdin"] ? (await readStdin()).replace(/\r?\n$/, "") : o.password;
+    const user = o.user ?? (password ? DEFAULT_USER : undefined);
     if (!user && !o["rm-user"] && !o.off) {
       if (!users.length) return void console.log(`${site} is public ${c.dim("(add a login with --user)")}`);
       return void console.log(`${site} asks for a login: ${users.map((u) => c.bold(u)).join(", ")}`);
@@ -146,7 +146,7 @@ export const auth = defineCommand({
     for (const u of drop) if (!users.includes(u)) warn(`no login ${u} on ${site}`);
     if (user) drop.add(user);
     lines = lines.filter((l) => !drop.has(loginUser(l)));
-    if (user) lines.push(await newLogin(user, o.password));
+    if (user) lines.push(await newLogin(user, password));
     if (lines.join("\n") === (meta.auth ?? []).join("\n")) return ok("nothing to change");
     const now = lines.map(loginUser);
     const gone = users.filter((u) => !now.includes(u));

@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { JOURNAL, PRELUDE } from "./templates";
+import { JOURNAL, PRELUDE, ROOT, SITES, TRAEFIK_DIR } from "./templates";
 import { fail } from "./ui";
 
 /** One change landfall made on the server: a line of the journal. */
@@ -55,6 +55,31 @@ export function parseJournal(text: string): Run[] {
   return [...runs.values()];
 }
 
+const reEsc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const SUBJECT = new RegExp(`${reEsc(SITES)}/[A-Za-z0-9._-]+|${reEsc(TRAEFIK_DIR)}`, "g");
+
+/**
+ * What an undo shell puts back: site folders, traefik, and files it restores by absolute path.
+ * Undos are full snapshots, so two steps on the same subject only undo newest first.
+ */
+export function subjects(undo: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of undo.matchAll(SUBJECT)) out.add(m[0]);
+  for (const m of undo.matchAll(/restore_file \S+ '?(\/[^\s';]+)/g)) out.add(m[1]);
+  return out;
+}
+
+/** Pending steps of runs after `after` that put back something `steps` would too: undoing `steps` first clobbers them. */
+export function laterConflicts(runs: Run[], after: number, steps: Step[]): { run: Run; subject: string }[] {
+  const mine = new Set(steps.filter((x) => x.undo && !x.undone).flatMap((x) => [...subjects(x.undo!)]));
+  const found: { run: Run; subject: string }[] = [];
+  for (const run of runs.filter((r) => r.n > after)) {
+    const hit = pending(run).flatMap((x) => [...subjects(x.undo!)]).find((t) => mine.has(t));
+    if (hit) found.push({ run, subject: hit });
+  }
+  return found;
+}
+
 export async function readJournal(s: Server): Promise<Run[]> {
   const { stdout } = await runScript(s, `cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null || true`, { capture: true });
   return parseJournal(stdout);
@@ -85,12 +110,20 @@ export async function loginFor(s: Server, user: string): Promise<{ login: Server
 
 const UNDO_STEP = String.raw`
 undo_step() { # undo_step <line> <undo shell, base64>
-  set +e
-  ( set -e; eval "$(printf %s "$2" | base64 -d)" )
-  rc=$?
-  set -e
-  [ "$rc" = 0 ] || { echo "could not undo journal line $1 (exit $rc); later steps are undone, the rest is kept" >&2; exit 1; }
-  _journal undo "$1" ""
+  # Two undos at once must not both revert a step: the second waits here, then finds it done.
+  [ -e ${ROOT}/.undo.lock ] || touch ${ROOT}/.undo.lock 2>/dev/null || true
+  if [ -r ${ROOT}/.undo.lock ] && command -v flock >/dev/null 2>&1; then exec 9<${ROOT}/.undo.lock; flock 9; fi
+  if awk -F'\t' -v l="$1" '$6 == "undo" && $7 == l {f = 1} END {exit !f}' ${JOURNAL} 2>/dev/null; then
+    echo "journal line $1 was already undone" >&2
+  else
+    set +e
+    ( set -e; eval "$(printf %s "$2" | base64 -d)" )
+    rc=$?
+    set -e
+    [ "$rc" = 0 ] || { echo "could not undo journal line $1 (exit $rc); later steps are undone, the rest is kept" >&2; exit 1; }
+    _journal undo "$1" ""
+  fi
+  exec 9<&-
 }`;
 
 /** Reverts steps newest first, each as the user that made it; stops at the first that fails. */

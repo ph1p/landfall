@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import { checkInt, type Server } from "./config";
 import { dest, runScript, shq, targetArgs } from "./ssh";
-import { c, fail, info, ok, warn } from "./ui";
+import { c, fail, info, ok, report, warn } from "./ui";
 
 /** A container as a tunnel sees it: its address on each network, its labels and its command-line flags. */
 export interface Ctr {
@@ -151,8 +151,9 @@ export async function openTunnel(
     const scheme = o.scheme ?? "http";
     const url = (host: string) => `${scheme}://${host}:${local}${scheme === "http" ? (o.path ?? "/") : ""}`;
     ok(`${o.what}: ${c.cyan(url("localhost"))}`);
+    const ips = o.lan ? lanAddresses() : [];
+    report({ url: url("localhost"), lan: ips.map(url) });
     if (o.lan) {
-      const ips = lanAddresses();
       info(ips.length ? `on your network: ${ips.map((ip) => c.cyan(url(ip))).join("  ")}` : "on your network: this machine has no network address yet");
       warn("anyone on that network reaches it too: close it when you are done");
     }

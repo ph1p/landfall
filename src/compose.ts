@@ -188,7 +188,8 @@ export const PROXY_KEY = "landfall-proxy";
 
 /** Traefik labels for one routed service. */
 export function routeLabels(site: string, s: Service, domains: string[], proxy: Proxy, auth: string[] = []): Record<string, string> {
-  const r = `${site}-${s.name.toLowerCase()}`;
+  // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
+  const r = `${site}_${s.name.toLowerCase().replace(/\./g, "-")}`;
   const out: Record<string, string> = {
     "traefik.enable": "true",
     "traefik.docker.network": proxy.network,

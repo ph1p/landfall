@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkImage, checkInt, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
+import { checkEmail, checkImage, checkInt, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../remote";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../tunnel";
 import { runScript, shq, writeFileCmd } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, TUNNEL_PORT, type Proxy } from "../templates";
-import { askSecret, c, confirm, confirmRemoval, fail, info, ok, step } from "../ui";
+import { askSecret, c, confirm, confirmRemoval, fail, info, ok, step, warn } from "../ui";
+import { adminLogin } from "../updates";
 
 export interface TraefikInstall {
   /** Optional; falls back to what the server entry remembers. */
@@ -35,9 +36,9 @@ export const loginUser = (line: string) => line.slice(0, line.indexOf(":"));
 export const DEFAULT_USER = "admin";
 
 export async function newLogin(user: string, password?: string, flag = "user") {
-  if (!/^[A-Za-z0-9._@-]{1,64}$/.test(user)) fail(`${flag} may only have letters, digits and . _ @ -`);
+  checkLoginName(user, flag);
   const pw = password ?? (await askSecret(`Password for ${user}:`));
-  if (pw.length < 8) fail("use a password of at least 8 characters");
+  if (pw.length < MIN_PASSWORD) fail(`use a password of at least ${MIN_PASSWORD} characters`);
   return htpasswd(user, pw);
 }
 
@@ -59,6 +60,7 @@ export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
 export async function installTraefik(name: string, server: Server, o: TraefikInstall) {
   const t = traefikSettings(server, o);
   checkImage(t.image);
+  if (t.email) checkEmail(t.email);
   const { email, staging } = t;
   step("installing traefik");
   // The dashboard stays as remembered unless --dashboard changes it ("off" removes it).
@@ -67,11 +69,12 @@ export async function installTraefik(name: string, server: Server, o: TraefikIns
   const host = o.dashboard && o.dashboard !== "off" ? expandDomain(o.dashboard, server) : o.dashboardPassword && dashboard?.host;
   if (host) {
     if (!DOMAIN.test(host)) fail(`not a dashboard domain: ${host}${host.includes(".") ? "" : " (set a main domain first: lf server domain)"}`);
-    const user = o.dashboard ? o.dashboardUser : (dashboard?.user ?? o.dashboardUser);
+    const user = checkLoginName(o.dashboard ? o.dashboardUser : (dashboard?.user ?? o.dashboardUser), "--dashboard-user");
     password = o.dashboardPassword ?? randomBytes(12).toString("base64url");
     dashboard = { host, user, htpasswd: await htpasswd(user, password) };
   }
   const compose = traefikCompose({ ...t, dashboard });
+  if (t.hostNetwork) await openHostPorts(server, t.http3);
   await runScript(
     server,
     `${PRELUDE}
@@ -102,15 +105,12 @@ else
   # Certificates in letsencrypt/ stay, a later install reuses them.
   record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml .env .landfall.sha256 dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
 fi
-# Host mode: ufw decides who reaches 443/udp (published ports bypass it). Setup without ufw: nothing to open.
-if [ -n "${t.hostNetwork && t.http3 ? "1" : ""}" ] && command -v ufw >/dev/null 2>&1 && $SUDO ufw status 2>/dev/null | grep -q "Status: active"; then
-  ufw_add allow 443/udp
-fi
+# Written now: a start that fails below must not make landfall's own file look edited by hand.
+sha256sum docker-compose.yml > .landfall.sha256
 log "starting traefik"
 dc up -d --remove-orphans --quiet-pull
 sleep 2 # traefik exits shortly after start on a bad config
-ensure_running traefik
-sha256sum docker-compose.yml > .landfall.sha256`,
+ensure_running traefik`,
   );
   const cfg = loadConfig();
   if (cfg.servers[name]) {
@@ -125,7 +125,7 @@ sha256sum docker-compose.yml > .landfall.sha256`,
     saveConfig(cfg);
   }
   ok(`traefik running (${describeTraefik(t)}) — HTTPS certificates from Let's Encrypt`);
-  if (t.hostNetwork) info(c.dim("host network: ufw now decides who reaches 80/443 (landfall's firewall allows both)"));
+  if (t.hostNetwork) info(c.dim("host network: ufw now decides who reaches 80/443"));
   if (dashboard) {
     ok(`dashboard: https://${dashboard.host}`);
     if (password) info(`user ${c.bold(dashboard.user)}  password ${c.bold(password)}`);
@@ -139,7 +139,7 @@ export async function useProxy(server: Server, p: Proxy) {
   await runScript(
     server,
     `${PRELUDE}
-docker network inspect ${p.network} >/dev/null 2>&1 || { echo "docker network ${p.network} does not exist" >&2; exit 1; }
+docker network inspect ${shq(p.network)} >/dev/null 2>&1 || { echo ${shq(`docker network ${p.network} does not exist`)} >&2; exit 1; }
 [ -w ${ROOT} ] || $SUDO install -d -o "$(id -un)" ${ROOT}
 u=$(saved ${PROXY_FILE})
 ${writeFileCmd(PROXY_FILE, proxyFile(p))}
@@ -169,6 +169,26 @@ for d in ${SITES}/*/; do [ -d "$d" ] && printf 'site\\t%s\\n' "$(basename "$d")"
   return st;
 }
 
+/**
+ * Host mode puts traefik behind ufw (published ports bypass it): when ufw is on, allow 80, 443 and,
+ * for HTTP/3, 443/udp. Needs root, which the deploy login usually lacks.
+ */
+async function openHostPorts(server: Server, http3: boolean) {
+  const rules = ["80/tcp", "443/tcp", ...(http3 ? ["443/udp"] : [])];
+  let login: Server;
+  try {
+    login = await adminLogin(server, "checking ufw");
+  } catch {
+    return warn(`can't check ufw without root; if it is on, allow ${rules.join(", ")} (lf firewall add)`);
+  }
+  await runScript(
+    login,
+    `${PRELUDE}
+command -v ufw >/dev/null 2>&1 && $SUDO ufw status 2>/dev/null | grep -q "Status: active" || exit 0
+${rules.map((r) => `ufw_add allow ${r}`).join("\n")}`,
+  );
+}
+
 /** Stops landfall's traefik and takes out its config, undoable; certificates stay unless `certs`. */
 export async function removeTraefik(server: Server, o: { certs?: boolean } = {}) {
   step("removing traefik");
@@ -178,7 +198,11 @@ export async function removeTraefik(server: Server, o: { certs?: boolean } = {})
 cd ${TRAEFIK_DIR}
 log "stopping traefik"
 dc down --remove-orphans
-u="$(saved ${TRAEFIK_DIR}/docker-compose.yml); $(saved ${TRAEFIK_DIR}/.landfall.sha256); $(saved ${DYNAMIC_DIR}/landfall.yml)"
+# One assignment each: an assignment's status is only its last $(...), so a failed backup would go unnoticed.
+u1=$(saved ${TRAEFIK_DIR}/docker-compose.yml)
+u2=$(saved ${TRAEFIK_DIR}/.landfall.sha256)
+u3=$(saved ${DYNAMIC_DIR}/landfall.yml)
+u="$u1; $u2; $u3"
 rm -f docker-compose.yml .landfall.sha256 ${DYNAMIC_DIR}/landfall.yml
 ${o.certs ? "rmf letsencrypt" : ""}
 # Certificates removed with --certs come back from Let's Encrypt on the next start.
@@ -209,11 +233,17 @@ export const traefikSetup = defineCommand({
   },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
-    const t = assessTraefik(await probeServer(server));
+    const probe = await probeServer(server);
+    const t = assessTraefik(probe);
     if (t.status === "conflict") fail(`not touching ${name}: ${t.detail}`);
     if (t.proxy) fail(`${name} already has its own traefik: ${t.detail}. landfall does not reconfigure it (lf traefik use)`);
+    // On the host network traefik's tunnel entrypoint binds 127.0.0.1:${TUNNEL_PORT} itself: taken, it would not start.
+    if (traefikSettings(server, { hostNetwork: o["host-network"] }).hostNetwork) {
+      const taken = probe.listen.find((l) => l.port === TUNNEL_PORT && l.proc !== "traefik");
+      if (taken) fail(`port ${TUNNEL_PORT} is in use by ${taken.proc}; traefik on the host network needs it for lf tunnel`);
+    }
     await installTraefik(name, server, {
-      email: o.email,
+      email: o.email && checkEmail(o.email),
       staging: o.staging,
       image: o.image,
       hostNetwork: o["host-network"],

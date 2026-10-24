@@ -2,6 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../config";
 import { adminLogin, engineNotes, engineStatus, imageStatus, pkgStatus, updateCompose, updateImages, upgradePackages, type Engine, type ImageStatus, type PkgStatus } from "../updates";
 import { c, confirm, fail, info, ok, step, table, warn } from "../ui";
+import { updatesView } from "../views";
 
 const STATE: Record<ImageStatus["state"], (s: string) => string> = {
   current: c.green,
@@ -49,11 +50,11 @@ export const updatesList = defineCommand({
   },
   async run(_, o) {
     const { server } = resolveServer(o.server);
+    if (o.json) return void console.log(JSON.stringify(await updatesView(server, o.refresh), null, 2));
     // One after the other: parallel first connections race for the ssh control socket.
     const packages = await pkgStatus(server, o.refresh);
     const images = await imageStatus(server);
     const engine = await engineStatus(server);
-    if (o.json) return void console.log(JSON.stringify({ packages, images, engine: { ...engine, ...engineNotes(engine) } }, null, 2));
     printPkgs(packages, o.all);
     printEngine(engine);
     printImages(images);
@@ -75,7 +76,7 @@ compose plugin setup installed with the newest release (undoable too).`,
   options: {
     server: serverOpt,
     packages: { type: "boolean", desc: "upgrade OS packages" },
-    security: { type: "boolean", desc: "only security updates (apt, dnf)" },
+    security: { type: "boolean", desc: "only security updates (apt, dnf/yum); implies --packages" },
     reboot: { type: "boolean", desc: "reboot afterwards if the upgrade needs it" },
     images: { type: "boolean", desc: "pull newer images and recreate their containers" },
     compose: { type: "boolean", desc: "update the compose plugin landfall installed to the newest release" },
@@ -95,7 +96,8 @@ compose plugin setup installed with the newest release (undoable too).`,
       }
       return;
     }
-    const both = !o.packages && !o.images;
+    // --security and --reboot are package options: on their own they don't pull images.
+    const both = !o.packages && !o.images && !o.security && !o.reboot;
     if (sites.length && o.packages) fail("sites only apply to --images");
     const doPkgs = !sites.length && (o.packages || both || o.security);
     const doImgs = o.images || both || sites.length > 0;
@@ -108,11 +110,11 @@ compose plugin setup installed with the newest release (undoable too).`,
       else if (!pick.length) ok(o.security ? "no security updates" : "packages up to date");
       else {
         printPkgs({ ...p, updates: pick }, false);
-        if (o.security && p.mgr === "apk") fail("apk has no security-only upgrades; drop --security");
+        if (o.security && (p.mgr === "apk" || p.mgr === "zypper")) fail(`${p.mgr} has no security-only upgrades here; drop --security`);
         if (await confirm(`Upgrade ${pick.length} package${pick.length === 1 ? "" : "s"} on ${name}?`)) {
           step(`upgrading packages on ${name}`);
           await upgradePackages(login, {
-            only: o.security && p.mgr === "apt-get" ? pick.map((u) => u.name) : undefined,
+            only: o.security ? pick.map((u) => u.name) : undefined,
             what: o.security ? `${pick.length} security packages` : `${pick.length} packages`,
             reboot: o.reboot,
           });

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { envVar, expandHome, type Server } from "./config";
+import { checkAlias, envVar, expandHome, type Server } from "./config";
 import { dest, targetArgs } from "./ssh";
 import { fail } from "./ui";
 
@@ -105,9 +105,10 @@ export function renderHostBlock(b: HostBlock): string {
 export function upsertHostBlock(b: HostBlock, file = SSH_CONFIG): { created: boolean; block: string } {
   const created = !fs.existsSync(file);
   const current = created ? "" : fs.readFileSync(file, "utf8");
+  checkAlias(b.alias);
   const block = renderHostBlock(b);
   const re = blockRe(b.alias, "\\n?");
-  const next = re.test(current) ? current.replace(re, block + "\n") : `${block}\n\n${current}`;
+  const next = re.test(current) ? current.replace(re, () => block + "\n") : `${block}\n\n${current}`;
   fs.mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, next, { mode: 0o600 });
   resolved.clear();
@@ -172,7 +173,8 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
   const ident = (l: string) => l.trim().match(/^identityfile\s*=?\s*(.+)$/i)?.[1].replace(/^"(.*)"$/, "$1");
   const removed = block.filter((l) => {
     const f = ident(l);
-    return f !== undefined && (!fs.existsSync(expandHome(f)) || expandHome(f) === key);
+    // %d, ${HOME} and the like expand only in ssh: such a line is kept, missing or not.
+    return f !== undefined && (expandHome(f) === key || (!/[%$]/.test(f) && !fs.existsSync(expandHome(f))));
   });
   const indent = block.find((l) => l.trim())?.match(/^\s*/)?.[0] || "  ";
   const added = `${indent}IdentityFile ${key}`;
