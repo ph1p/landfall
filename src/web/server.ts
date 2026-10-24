@@ -7,7 +7,7 @@ import { Readable, Transform } from "node:stream";
 import pkg from "../../package.json";
 import { secretEnv } from "../cmd";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../config";
-import { changes, listServers, target } from "../dashboard";
+import { changes, listServers, reachAll, target } from "../dashboard";
 import { loadProjects } from "../projects";
 import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
@@ -177,6 +177,11 @@ async function api(req: Request, path: string[]): Promise<Response> {
       servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: cfg.servers[e.name] ?? null })),
       jobs: [...jobs.values()].reverse().map(jobInfo),
     });
+  }
+
+  // Separate from state: logging in to every server takes seconds, the list should not wait.
+  if (what === "reach" && method === "GET") {
+    return json(await reachAll(listServers().map((e) => e.name), new URL(req.url).searchParams.get("fresh") === "1"));
   }
 
   if (what === "servers" && name) {

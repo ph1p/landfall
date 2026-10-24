@@ -8,7 +8,7 @@ import { bytes, checkDns, duration, facts, serverIps } from "../facts";
 import { describeTraefik, traefikSettings, traefikState } from "./traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../journal";
-import { listServers } from "../dashboard";
+import { listServers, reachAll } from "../dashboard";
 import { overview, removeLines, siteDir } from "../remote";
 import { PRELUDE, ROOT, TRAEFIK_DIR } from "../templates";
 import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../ui";
@@ -73,31 +73,40 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
 
 export const serverList = defineCommand({
   name: "server list",
-  summary: "List servers registered with landfall and aliases found in ~/.ssh/config.",
+  summary: `List servers registered with landfall and aliases found in ~/.ssh/config.
+
+Git hosts (github.com, gitlab.*, User git …) are left out: they are not servers.
+--check logs in to each with its key (5s timeout, 8 at a time):
+  ok     key login works
+  login  sshd answers but refuses the key (lf setup installs one)
+  down   no ssh: host off, wrong port, firewall, or name not found`,
   options: {
     all: { type: "boolean", short: "a", desc: "also list every ssh config alias" },
+    check: { type: "boolean", short: "c", desc: "try an ssh login to each and show which are reachable" },
     json: { type: "boolean", desc: "machine-readable output (what the web UI lists)" },
   },
   async run(_, o) {
     const cfg = loadConfig();
+    const list = listServers().filter((e) => e.registered || o.all);
+    const target = (s: Server) => `${s.user ? s.user + "@" : ""}${s.host}${s.port ? ":" + s.port : ""}`;
+    const status = o.check ? await reachAll(list.map((e) => e.name)) : {};
     if (o.json) {
-      const list = listServers().filter((e) => e.registered || o.all);
-      const target = (s: Server) => `${s.user ? s.user + "@" : ""}${s.host}${s.port ? ":" + s.port : ""}`;
-      return void console.log(JSON.stringify(list.map((e) => ({ ...e, target: e.registered ? target(cfg.servers[e.name]) : e.name })), null, 2));
+      return void console.log(JSON.stringify(list.map((e) => ({ ...e, target: e.registered ? target(cfg.servers[e.name]) : e.name, ...(o.check && { reach: status[e.name] }) })), null, 2));
     }
-    const rows = [[c.dim("NAME"), c.dim("TARGET"), c.dim("SOURCE")]];
-    for (const [name, s] of Object.entries(cfg.servers)) {
-      const target = `${s.user ? s.user + "@" : ""}${s.host}${s.port ? ":" + s.port : ""}`;
-      rows.push([name + (cfg.default === name ? c.green(" *") : ""), target, "landfall"]);
-    }
-    if (o.all) {
-      for (const alias of sshAliases()) {
-        if (!cfg.servers[alias]) rows.push([alias, alias, hasManagedBlock(alias) ? "ssh (landfall)" : "ssh"]);
-      }
-    }
-    if (rows.length === 1) {
+    if (!list.length) {
       console.log(`no servers yet — ${c.bold("lf server add <ssh-alias>")} or ${c.bold("lf setup <name> --host <ip>")}`);
       return;
+    }
+    const paint = { ok: c.green, login: c.yellow, down: c.red };
+    const rows = [[c.dim("NAME"), c.dim("TARGET"), c.dim("SOURCE"), ...(o.check ? [c.dim("STATUS")] : [])]];
+    for (const e of list) {
+      const r = status[e.name];
+      rows.push([
+        e.name + (e.isDefault ? c.green(" *") : ""),
+        e.registered ? target(cfg.servers[e.name]) : e.name,
+        e.registered ? "landfall" : hasManagedBlock(e.name) ? "ssh (landfall)" : "ssh",
+        ...(r ? [`${paint[r.state](r.state)} ${c.dim(r.state === "ok" ? `${r.ms}ms` : r.detail)}`] : []),
+      ]);
     }
     table(rows);
     if (!o.all) console.log(c.dim("\nAny ~/.ssh/config alias works too (--all to list them)."));

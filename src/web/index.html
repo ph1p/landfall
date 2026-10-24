@@ -79,6 +79,8 @@ nav h3 span { font-weight: 500; }
 .srv.on .n { color: var(--text); }
 .srv.on .t { color: var(--dim); }
 .srv .n { font-weight: 550; display: flex; align-items: center; gap: 6px; }
+.srv .n .dot, .tile .n .dot { margin-right: 0; flex: none; }
+#recheck.busy { animation: spin 1s linear infinite; }
 .srv .t { color: var(--faint); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-none { color: var(--faint); font-size: var(--fs-sm); padding: 6px 10px; }
 .srv .t .live { color: var(--ok); }
@@ -292,7 +294,7 @@ body.dragging::after {
   </header>
   <!-- The filter stays put across renders, so typing keeps its focus. -->
   <nav class="servers" id="nav">
-    <div class="nav-top"><input id="filter" type="search" placeholder="Filter servers" autocomplete="off" spellcheck="false" aria-label="Filter servers"><button type="button" id="add-server" title="Register an ssh alias or set up a fresh machine">+</button></div>
+    <div class="nav-top"><input id="filter" type="search" placeholder="Filter servers" autocomplete="off" spellcheck="false" aria-label="Filter servers"><button type="button" id="recheck" title="Check which servers landfall can log in to (lf server list --check)" aria-label="Check servers">↻</button><button type="button" id="add-server" title="Register an ssh alias or set up a fresh machine">+</button></div>
     <div id="navlist"></div>
   </nav>
   <div class="server-pick" id="pick"></div>
@@ -332,6 +334,8 @@ const S = {
   dns: {},               // name -> {data: {ips, domains: [{domain, ips, ok, https}]}}
   open: new Set(),       // expanded site rows
   filter: "",            // server list filter
+  reach: {},             // name -> {state: ok|login|down, detail, ms} from /api/reach
+  reaching: false,
   jobs: new Map(),       // id -> {info, lines, after, actions, es}
   job: null,             // shown job id
 };
@@ -511,6 +515,29 @@ function invalidate(name) {
 async function refreshState() {
   S.state = await http("/api/state");
   render();
+}
+/** Which servers take landfall's ssh login; the server caches each answer for 30s unless fresh. */
+async function loadReach(fresh = false) {
+  if (S.reaching) return;
+  S.reaching = true;
+  renderNav();
+  try {
+    S.reach = await http(`/api/reach${fresh ? "?fresh=1" : ""}`);
+  } catch (e) {
+    toast(`Checking servers failed: ${e.message}`);
+  } finally {
+    S.reaching = false;
+    // The home tiles show the dots too; an open server's view stays as it is.
+    S.sel ? renderNav() : render();
+  }
+}
+const REACH_DOT = { ok: ["up", "reachable"], login: ["warn", "login refused"], down: ["down", "unreachable"] };
+function reachDot(n) {
+  const r = S.reach[n];
+  if (!r) return `<span class="dot" role="img" aria-label="not checked yet" title="${S.reaching ? "Checking…" : "Not checked yet"}"></span>`;
+  const [cls, word] = REACH_DOT[r.state];
+  const tip = r.state === "ok" ? `Key login works (${r.ms} ms)` : r.state === "login" ? `sshd answers but refuses the login: ${r.detail}` : `Unreachable: ${r.detail}`;
+  return `<span class="dot ${cls}" role="img" aria-label="${word}" title="${esc(tip)}"></span>`;
 }
 
 // ---- jobs ----------------------------------------------------------------
@@ -1330,7 +1357,7 @@ function renderNav() {
   const item = (s) => {
     const tunnels = openTunnels(s.name).length;
     const head = `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}" data-f="srv:${esc(s.name)}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
-      <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
+      <div class="n">${reachDot(s.name)}${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
       <div class="t">${esc(s.target)}${tunnels ? ` · <span class="live">${plural(tunnels, "tunnel")}</span>` : ""}</div></button>`;
     return s.name === S.sel ? `${head}<div class="sections" role="list" aria-label="${esc(s.name)}">${sectionButtons(s.name, "sec")}</div>` : head;
   };
@@ -1340,10 +1367,12 @@ function renderNav() {
   };
   $("#filter").hidden = list.length < 8;
   $("#add-server").textContent = list.length < 8 ? "+ Add server" : "+";
+  $("#recheck").disabled = S.reaching || !list.length;
+  $("#recheck").classList.toggle("busy", S.reaching);
   $("#navlist").innerHTML = `${group("Servers", own)}${group("From ~/.ssh/config", aliases)}
     ${list.length ? "" : `<div class="nav-none">No servers yet.</div>`}`;
   $("#pick").innerHTML = `<select aria-label="Server" onchange="go(this.value || null)">
-    <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}</option>`).join("")}
+    <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}${S.reach[s.name] && S.reach[s.name].state !== "ok" ? ` · ${REACH_DOT[S.reach[s.name].state][1]}` : ""}</option>`).join("")}
   </select>`;
 }
 
@@ -1481,12 +1510,12 @@ function homeView() {
   const list = S.state.servers;
   const own = list.filter((s) => s.registered);
   const tile = (s) => `<button type="button" class="tile" ${on(() => go(s.name, "sites"))}>
-      <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
+      <div class="n">${reachDot(s.name)}${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
       <div class="t">${esc(s.target)}</div></button>`;
   const def = list.find((s) => s.isDefault)?.name;
   return `<div class="home">
     <h1>${own.length ? "Your servers" : "Pick a server"}</h1>
-    <p>landfall connects only when you open one. Servers are ssh targets: any ~/.ssh/config alias works${own.length < list.length ? ` (${list.length - own.length} in the list on the left)` : ""}.</p>
+    <p>The dot shows whether landfall's ssh login works (hover for why not); nothing else connects until you open one. Servers are ssh targets: any ~/.ssh/config alias works${own.length < list.length ? ` (${list.length - own.length} in the list on the left)` : ""}.</p>
     <div class="grid">${own.map(tile).join("")}<button type="button" class="tile add" ${on(addServer)}>+ Add server</button></div>
     <div class="cli">Everything here runs an <span class="mono">lf</span> command, shown above its output, so you can do the same in a terminal:
       <pre>lf deploy ./dist -d blog <span># a folder, Dockerfile project or image, with HTTPS</span>
@@ -2135,11 +2164,15 @@ $("#filter").addEventListener("input", (e) => {
   renderNav();
 });
 $("#add-server").onclick = () => addServer();
+$("#recheck").onclick = () => loadReach(true);
+// Servers go up and down: check again each minute while the page is visible.
+setInterval(() => document.hidden || loadReach(), 60_000);
 $("#app-settings").onclick = () => defaultsDialog();
 
 (async () => {
   try {
     await refreshState();
+    loadReach();
     // Jobs started before a reload keep running on the server: list them, and show one still running.
     const old = [];
     for (const info of S.state.jobs.slice().reverse()) {
