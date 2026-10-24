@@ -144,6 +144,38 @@ export async function canLogin(s: Server): Promise<boolean> {
   return code === 0;
 }
 
+export interface Reach {
+  /** ok: key login works · login: sshd answers but refuses the login · down: no ssh at all */
+  state: "ok" | "login" | "down";
+  detail: string;
+  ms: number;
+}
+
+/** One key-only ssh login, so it also works through ProxyJump and where ICMP is blocked. */
+export function reach(s: Server, timeout = 5): Promise<Reach> {
+  const t0 = Date.now();
+  // Our ConnectTimeout comes first: for -o options ssh keeps the first value.
+  const args = [...targetArgs(s), "-o", `ConnectTimeout=${timeout}`, "-o", "BatchMode=yes", "-o", "ControlPath=none", "-T", dest(s), "true"];
+  return new Promise((resolve) => {
+    const done = (state: Reach["state"], detail: string) => resolve({ state, detail, ms: Date.now() - t0 });
+    const child = spawn("ssh", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    child.stderr!.on("data", (d) => (err += d));
+    // ConnectTimeout covers the TCP connect only; a host that accepts and then stalls is cut here.
+    const kill = setTimeout(() => child.kill(), (timeout + 5) * 1000);
+    child.on("error", (e) => (clearTimeout(kill), done("down", e.message)));
+    child.on("close", (code) => {
+      clearTimeout(kill);
+      const line = err.trim().split("\n").filter((l) => !/^Warning: Permanently added/.test(l)).pop() ?? "";
+      if (code === 0) done("ok", "key login works");
+      else if (code === null) done("down", "no answer");
+      else if (/resolve|not known|nodename|no address/i.test(line)) done("down", "host name not found");
+      else if (/timed out|refused|no route|unreachable|network is down/i.test(line)) done("down", line.replace(/^ssh: /, ""));
+      else done("login", line || `ssh exited ${code}`);
+    });
+  });
+}
+
 /** Whether landfall logs in to s and has set it up there; the connection stays open for what follows. */
 export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-login"> {
   const { code } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${ROOT}`], { capture: true });

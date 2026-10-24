@@ -415,7 +415,7 @@ lf server add vps                                       # register an existing s
 lf server add box --host 198.51.100.4 -u ubuntu -i ~/.ssh/box --default
 lf server add web --host 198.51.100.5 -u admin               # asks the password once, installs ~/.ssh/landfall_web
 lf server config vps                                    # landfall entry, Traefik settings, ssh login, keys, Host block
-lf server list --all
+lf server list --all --check                            # which servers landfall can log in to right now
 lf server use vps
 lf config --tunnel-only --keep 3                        # defaults for every server; also lists where landfall puts things
 lf server rm vps                                        # forget locally
@@ -448,7 +448,10 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | History | `lf history`, `lf undo` |
 | Settings | `lf server config`, `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard` |
 
-Servers are on the left (★ marks the default). **Deploy folder…** browses local folders, or takes a dropped
+Servers are on the left (★ marks the default). The dot next to each says whether landfall's key login works
+(green), sshd refuses it (yellow) or ssh does not answer (red); hover for the reason. It checks on load, every
+minute while the page is open, and on ↻ (like `lf server list --check`). Git hosts from `~/.ssh/config` are not
+listed. **Deploy folder…** browses local folders, or takes a dropped
 folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refused). Destructive actions ask first.
 
 - **Login:** through the printed `/login?t=…` link. The token is kept in `~/.config/landfall/ui-token`; delete
@@ -502,7 +505,7 @@ lf undo -s box -y                           # revert the last run
 | `lf setup <name> --check` | Reports what is set up and what setup would change. Changes nothing. |
 | `lf setup <name> --key-only` | Only installs landfall's ssh key. |
 | `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
-| `lf server list [--all] [--json]` | Lists registered servers. `--all` adds every ssh alias. Alias: `servers`. |
+| `lf server list [--all] [--check] [--json]` | Lists registered servers. `--all` adds every ssh alias except git hosts (github.com, `gitlab.*`, `User git` …). `--check` tries a key login to each: `ok`, `login` (sshd refuses the key) or `down`. Alias: `servers`. |
 | `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
 | `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
 | `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--tunnel-only] [--json]` | Manages main domains (the first is primary) and checks their DNS; `--tunnel-only` makes new sites deploy with no domain. |
