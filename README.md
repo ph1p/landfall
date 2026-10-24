@@ -121,6 +121,7 @@ with the newest release. An existing Docker is never reinstalled. In a terminal,
 | `--dashboard traefik.example.com` | Traefik dashboard behind basic auth (`traefik` alone means `traefik.<main domain>`) |
 | `--image traefik:v3.5` | Traefik image (remembered, default `traefik:v3`) |
 | `--host-network` | run Traefik on the host network (remembered), see [Traefik](#traefik) |
+| `--no-http3` | Traefik without HTTP/3 on 443/udp (remembered), see [Traefik](#traefik) |
 | `--no-firewall` / `--no-harden` / `--no-traefik` / `--no-ssh-config` | skip a step |
 | `--check` / `--key-only` / `--force` | report only / install only the key / apply despite conflicts |
 
@@ -297,6 +298,7 @@ lf traefik setup --email you@example.com       # reconfigure (safe to re-run)
 lf traefik setup --dashboard traefik           # dashboard at traefik.<main domain> behind a login; `off` removes it
 lf traefik dashboard                           # the dashboard on localhost through an SSH tunnel, no domain needed
 lf traefik setup --host-network                # bind 80/443 on the host
+lf traefik setup --no-http3                    # turn HTTP/3 off (on by default)
 ```
 
 landfall's Traefik is the container `traefik` from `/opt/landfall/traefik/docker-compose.yml`. By default Docker
@@ -306,6 +308,11 @@ publishes 80/443 to it. Sites work the same in both modes:
 |---|---|---|
 | client IP in logs / `X-Forwarded-For` | real IPv4; IPv6 may show Docker's gateway | always real |
 | ufw | Docker's NAT bypasses ufw for 80/443 | ufw applies |
+
+HTTP/3 (QUIC) is on by default: Traefik also listens on 443/udp, and browsers switch to it after their first
+HTTP/2 request. Setup's firewall opens 443/udp; with `--host-network` on a server whose ufw is already active,
+`lf traefik setup` adds the rule. `--no-http3` turns it off (remembered). In the web UI (`lf ui`)
+these options are in a server's settings under Traefik → Settings….
 
 Traefik only answers hosts it has a certificate for (`sniStrict`). A domain pointed at the server but served
 by no site fails the TLS handshake, as if nothing listened there, instead of showing a 404 or Traefik's own
@@ -475,7 +482,7 @@ lf undo -s box -y                           # revert the last run
 
 | command | what it does |
 |---|---|
-| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--staging] [--image img] [--host-network] [--force]` | Installs or reconfigures landfall's Traefik. `--force` overwrites hand edits. |
+| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--staging] [--image img] [--host-network] [--no-http3] [--force]` | Installs or reconfigures landfall's Traefik. `--force` overwrites hand edits. |
 | `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Routes sites through a Traefik you already run. |
 | `lf traefik rm [--certs]` | Removes landfall's Traefik (undoable), or stops using yours after `traefik use`. |
 | `lf traefik status` / `logs [-f]` / `restart` | Inspects or restarts Traefik. `lf traefik` alone means `status`. |

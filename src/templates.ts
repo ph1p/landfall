@@ -288,6 +288,7 @@ if [ "$FIREWALL" = 1 ] && command -v ufw >/dev/null 2>&1; then
   ufw_add allow "$SSH_PORT/tcp"
   ufw_add allow 80/tcp
   ufw_add allow 443/tcp
+  ufw_add allow 443/udp # HTTP/3
   ufw_enable
 fi
 
@@ -401,6 +402,8 @@ export interface TraefikOpts {
   staging: boolean;
   /** network_mode: host — traefik binds 80/443 itself, so it sees real client IPs (also IPv6) and ufw guards it. */
   hostNetwork?: boolean;
+  /** HTTP/3 (QUIC) on websecure; bridge mode also publishes 443/udp. */
+  http3?: boolean;
   dashboard?: { host: string; htpasswd: string };
 }
 
@@ -431,6 +434,7 @@ export function traefikCompose(o: TraefikOpts): string {
   ];
   // Optional: Let's Encrypt no longer mails expiry warnings, the address is only an account contact.
   if (o.email) cmd.push(`--certificatesresolvers.le.acme.email=${o.email}`);
+  if (o.http3) cmd.push("--entrypoints.websecure.http3=true");
   if (o.staging) cmd.push("--certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory");
   const labels: string[] = [];
   // The dashboard always answers on the tunnel entrypoint (`lf traefik dashboard`), only to the host itself:
@@ -467,7 +471,7 @@ ${
     : `    ports:
       - "80:80"
       - "443:443"
-`
+${o.http3 ? '      - "443:443/udp"\n' : ""}`
 }    volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./letsencrypt:/letsencrypt

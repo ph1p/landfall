@@ -15,6 +15,7 @@ export interface TraefikInstall {
   staging?: boolean;
   image?: string;
   hostNetwork?: boolean;
+  http3?: boolean;
   dashboard?: string;
   dashboardUser: string;
   dashboardPassword?: string;
@@ -41,17 +42,18 @@ export async function newLogin(user: string, password?: string, flag = "user") {
 }
 
 /** What `installTraefik` will run with: flags first, then what the server entry remembers. */
-export function traefikSettings(server: Server, o: Pick<TraefikInstall, "email" | "staging" | "image" | "hostNetwork">) {
+export function traefikSettings(server: Server, o: Pick<TraefikInstall, "email" | "staging" | "image" | "hostNetwork" | "http3">) {
   return {
     email: o.email ?? server.email,
     staging: !!(o.staging ?? server.staging),
     image: o.image || server.traefikImage || DEFAULT_TRAEFIK_IMAGE,
     hostNetwork: !!(o.hostNetwork ?? server.hostNetwork),
+    http3: (o.http3 ?? server.http3) !== false,
   };
 }
 
 export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
-  [t.image, t.hostNetwork ? "host network" : "ports 80/443 published", t.staging && "LE staging"].filter(Boolean).join(", ");
+  [t.image, t.hostNetwork ? "host network" : "ports 80/443 published", t.http3 ? "HTTP/3" : "no HTTP/3", t.staging && "LE staging"].filter(Boolean).join(", ");
 
 /** Install traefik and remember its settings on the lf server entry `name` (if registered). */
 export async function installTraefik(name: string, server: Server, o: TraefikInstall) {
@@ -100,6 +102,10 @@ else
   # Certificates in letsencrypt/ stay, a later install reuses them.
   record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml .env .landfall.sha256 dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
 fi
+# Host mode: ufw decides who reaches 443/udp (published ports bypass it). Setup without ufw: nothing to open.
+if [ -n "${t.hostNetwork && t.http3 ? "1" : ""}" ] && command -v ufw >/dev/null 2>&1 && $SUDO ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw_add allow 443/udp
+fi
 log "starting traefik"
 dc up -d --remove-orphans --quiet-pull
 sleep 2 # traefik exits shortly after start on a bad config
@@ -113,6 +119,7 @@ sha256sum docker-compose.yml > .landfall.sha256`,
       staging: staging || undefined,
       traefikImage: t.image === DEFAULT_TRAEFIK_IMAGE ? undefined : t.image,
       hostNetwork: t.hostNetwork || undefined,
+      http3: t.http3 ? undefined : false,
       dashboard,
     });
     saveConfig(cfg);
@@ -194,6 +201,7 @@ export const traefikSetup = defineCommand({
     staging: { type: "boolean", desc: "Let's Encrypt staging CA, remembered (--no-staging to switch back)" },
     image: { type: "string", desc: `traefik image, remembered (default: ${DEFAULT_TRAEFIK_IMAGE})` },
     "host-network": { type: "boolean", desc: "run on the host network: real client IPs, ufw applies; remembered (--no-host-network)" },
+    http3: { type: "boolean", desc: "HTTP/3 over QUIC on 443/udp, on by default; remembered (--no-http3 turns it off)" },
     dashboard: { type: "string", desc: "serve the traefik dashboard on this domain (basic auth), remembered; `traefik` = traefik.<main domain>, `off` removes it" },
     "dashboard-user": { type: "string", desc: "dashboard user", default: DEFAULT_USER },
     "dashboard-password": { type: "string", desc: "dashboard password (default: generated)" },
@@ -209,6 +217,7 @@ export const traefikSetup = defineCommand({
       staging: o.staging,
       image: o.image,
       hostNetwork: o["host-network"],
+      http3: o.http3,
       dashboard: o.dashboard,
       dashboardUser: o["dashboard-user"],
       dashboardPassword: o["dashboard-password"],

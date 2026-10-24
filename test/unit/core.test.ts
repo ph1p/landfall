@@ -235,9 +235,23 @@ describe("templates", () => {
 
   test("traefik settings: flags win over what the server remembers", () => {
     const server = { host: "x", traefikImage: "traefik:v3.4", hostNetwork: true, email: "a@x" };
-    expect(traefikSettings(server, {})).toEqual({ email: "a@x", staging: false, image: "traefik:v3.4", hostNetwork: true });
+    expect(traefikSettings(server, {})).toEqual({ email: "a@x", staging: false, image: "traefik:v3.4", hostNetwork: true, http3: true });
     expect(traefikSettings(server, { image: "traefik:v3.6", hostNetwork: false })).toMatchObject({ image: "traefik:v3.6", hostNetwork: false });
     expect(traefikSettings({ host: "x" }, {}).image).toBe(DEFAULT_TRAEFIK_IMAGE);
+    expect(traefikSettings({ host: "x", http3: false }, {}).http3).toBe(false);
+    expect(traefikSettings({ host: "x", http3: false }, { http3: true }).http3).toBe(true);
+  });
+
+  test("traefik with HTTP/3 enables it on websecure and publishes 443/udp", () => {
+    const y = traefikCompose({ image: "traefik:v3", staging: false, http3: true });
+    expect(y).toContain("--entrypoints.websecure.http3=true");
+    expect(y).toContain('"443:443/udp"');
+    const host = traefikCompose({ image: "traefik:v3", staging: false, http3: true, hostNetwork: true });
+    expect(host).toContain("--entrypoints.websecure.http3=true");
+    expect(host).not.toContain("ports:");
+    const off = traefikCompose({ image: "traefik:v3", staging: false });
+    expect(off).not.toContain("http3");
+    expect(off).not.toContain("/udp");
   });
 });
 

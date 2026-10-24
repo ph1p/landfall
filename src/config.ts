@@ -18,6 +18,8 @@ export interface Server {
   /** landfall's own traefik, remembered like email/staging. */
   traefikImage?: string;
   hostNetwork?: boolean;
+  /** HTTP/3 on 443/udp; on unless false. */
+  http3?: boolean;
   /**
    * Main domains. The first is the primary: sites default to <site>.<primary>, and a bare
    * name like `blog` means blog.<primary>. The others are listed and DNS-checked too.
