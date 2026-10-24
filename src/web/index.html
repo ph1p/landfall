@@ -76,6 +76,15 @@ nav h3 span { font-weight: 500; letter-spacing: 0; }
 .srv .n { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .srv .t { color: var(--dim); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-none { color: var(--faint); font-size: var(--fs-sm); padding: 6px 10px; }
+.srv .t .live { color: var(--ok); }
+/* The open server's sections, under it in the list. */
+.sections { display: grid; gap: 1px; margin: 2px 0 8px 14px; padding-left: 6px; border-left: 1px solid var(--line); }
+.sections button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: none; padding: 4px 10px; color: var(--dim); }
+.sections button:hover { background: var(--bg); color: var(--text); }
+.sections button.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.sections .badge { margin-left: auto; }
+.head h1 .crumb { font-weight: 400; color: var(--dim); }
+.tunnel-url { font-family: var(--mono); font-size: var(--fs-sm); }
 .star { color: var(--warn); font-size: var(--fs-xs); }
 main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: inline-size; }
 .show-sm { display: none !important; }
@@ -92,7 +101,8 @@ main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: in
 .head h1 { margin: 0; font-size: 22px; }
 .head .sub { color: var(--dim); font-size: var(--fs); margin-top: 2px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
+/* Phones only: elsewhere the sections sit under the server in the list. */
+.tabs { display: none; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--dim); flex: none; }
 .tabs button:hover { color: var(--text); }
@@ -250,6 +260,7 @@ body.dragging::after {
   .project button { padding: 5px 9px; font-size: var(--fs); white-space: nowrap; }
   nav.servers { display: none; }
   .server-pick { display: block; padding: 10px 16px 0; }
+  .tabs { display: flex; position: sticky; top: -14px; z-index: 2; background: var(--bg); }
   main { padding: 14px 16px 40px; }
   .project .path { display: none; }
   aside.job { inset: 52px 0 0 0; width: 100vw; }
@@ -454,11 +465,13 @@ window.addEventListener("hashchange", route);
 
 // ---- loading -------------------------------------------------------------
 
-const STORE = { sites: "overview", facts: "facts", updates: "updates", firewall: "firewall", history: "history", settings: "settings" };
-const URLS = { sites: "", facts: "/facts", updates: "/updates", firewall: "/firewall", history: "/history", settings: "/config" };
+const STORE = { sites: "overview", tunnels: "overview", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", history: "history", settings: "settings" };
+const URLS = { sites: "", tunnels: "", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", history: "/history", settings: "/config" };
+// A server's sections, in the list and as tabs on phones; keys 1-7 switch between them.
+const SECTIONS = [["sites", "Sites"], ["tunnels", "Tunnels"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["history", "History"], ["settings", "Settings"]];
 
 // The overview and facts drive the header, so every tab needs them.
-const needs = (tab) => (tab === "sites" ? ["sites", "facts"] : ["sites", "facts", tab]);
+const needs = (tab) => (STORE[tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab]);
 function load(name, tab, force = false) {
   for (const t of needs(tab)) {
     const store = S[STORE[t]];
@@ -512,6 +525,8 @@ function stream(j) {
     j.lines.length = Math.min(j.lines.length, from);
     j.lines.push(...lines);
     if (S.job === j.info.id) appendOutput(j);
+    // A tunnel's address shows in the lists once it is up.
+    if (isTunnel(j.info) && !j.url && (j.url = tunnelUrl(j))) render();
   };
   es.addEventListener("done", (e) => {
     es.close();
@@ -564,6 +579,19 @@ function showJob(id) {
   $("#job .job-out")?.focus({ preventScroll: true });
 }
 const runningJobs = () => [...S.jobs.values()].filter((j) => j.info.code === undefined);
+const isTunnel = (info) => info.argv[0] === "tunnel" || (info.argv[0] === "traefik" && info.argv[1] === "dashboard");
+/** Tunnels the UI opened to server n that are still open. */
+const openTunnels = (n) => runningJobs().filter((j) => j.info.server === n && isTunnel(j.info));
+const tunnelUrl = (j) => j.lines.map((l) => l.replace(ANSI, "").match(/http:\/\/localhost:\d+\S*/)?.[0]).find(Boolean);
+const closeTunnel = (j) => http(`/api/jobs/${j.info.id}/stop`, {}).catch((e) => toast(e.message));
+/** Open a tunnel with argv, or, when it is open, its address and a way to close it. */
+function tunnelBtn(n, argv, label = "Open tunnel") {
+  const j = openTunnels(n).find((t) => t.info.argv.join(" ") === argv.join(" "));
+  if (!j) return btn(label, () => run(argv, { server: n }), "sm", `lf ${argv.join(" ")}: until you close it`);
+  const url = tunnelUrl(j);
+  return `${url ? `<a class="tunnel-url" href="${esc(url)}" target="_blank" rel="noopener">${esc(url.replace("http://", ""))}</a>` : `<span class="spin" role="img" aria-label="opening"></span>`}
+    ${btn("Output", () => showJob(j.info.id), "sm ghost")}${btn("Close", () => closeTunnel(j), "sm danger", "Ends the tunnel")}`;
+}
 
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 function lineClass(l) {
@@ -1192,9 +1220,13 @@ function renderNav() {
   const aliases = list.filter((s) => !s.registered);
   const q = S.filter.toLowerCase();
   const hit = (s) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
-  const item = (s) => `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}"${s.name === S.sel ? ` aria-current="page"` : ""} data-f="srv:${esc(s.name)}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
+  const item = (s) => {
+    const tunnels = openTunnels(s.name).length;
+    const head = `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}" data-f="srv:${esc(s.name)}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
       <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
-      <div class="t">${esc(s.target)}</div></button>`;
+      <div class="t">${esc(s.target)}${tunnels ? ` · <span class="live">${plural(tunnels, "tunnel")}</span>` : ""}</div></button>`;
+    return s.name === S.sel ? `${head}<div class="sections" role="list" aria-label="${esc(s.name)}">${sectionButtons(s.name, "sec")}</div>` : head;
+  };
   const group = (title, l) => {
     const shown = l.filter(hit);
     return l.length ? `<h3>${title}${q ? `<span>${shown.length}/${l.length}</span>` : ""}</h3>${shown.map(item).join("") || `<div class="nav-none">no match</div>`}` : "";
@@ -1206,6 +1238,18 @@ function renderNav() {
   $("#pick").innerHTML = `<select aria-label="Server" onchange="go(this.value || null)">
     <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}</option>`).join("")}
   </select>`;
+}
+
+/** The open server's sections as buttons, each with its count. */
+function sectionButtons(n, f) {
+  const o = S.overview[n]?.data;
+  const tunnels = openTunnels(n).length;
+  const badge = {
+    sites: o ? ` <span class="badge">${o.sites.length}</span>` : "",
+    tunnels: tunnels ? ` <span class="badge ok">${tunnels} open</span>` : "",
+    updates: updatesBadge(n),
+  };
+  return SECTIONS.map(([t, label], i) => `<button type="button" class="${S.tab === t ? "on" : ""}"${S.tab === t ? ` aria-current="page"` : ""} data-f="${f}:${t}" title="${label} (${i + 1})" ${on(() => go(n, t))}>${label}${badge[t] ?? ""}</button>`).join("");
 }
 
 function renderHeader() {
@@ -1288,12 +1332,11 @@ function renderMain() {
       : o.ready ? `<span class="dot down"></span>no traefik` : ""
     : "";
   const sub = [esc(s?.target ?? ""), s && !s.registered ? "from ~/.ssh/config" : "", traefik].filter(Boolean).join(" · ");
-  const tab = (t, label) => `<button type="button" class="${S.tab === t ? "on" : ""}"${S.tab === t ? ` aria-current="page"` : ""} data-f="tab:${t}" ${on(() => go(n, t))}>${label}</button>`;
   // Reloading with something already on screen: keep it, show a small spinner.
   const reloading = needs(S.tab).some((t) => S[STORE[t]][n]?.loading && S[STORE[t]][n]?.data);
   main.innerHTML = `
     <div class="head">
-      <div><h1>${esc(n)}${s?.isDefault ? ` <span class="star" title="default server">★</span>` : ""}</h1><div class="sub">${sub}</div>${factsLine(n)}</div>
+      <div><h1>${esc(n)}${s?.isDefault ? ` <span class="star" title="default server">★</span>` : ""} <span class="crumb">/ ${SECTIONS.find(([t]) => t === S.tab)[1]}</span>${reloading ? ` <span class="spin" role="img" aria-label="reloading"></span>` : ""}</h1><div class="sub">${sub}</div>${factsLine(n)}</div>
       <div class="actions">
         ${btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying")}
         ${btn("Run…", () => runCommand(n), "", "Run a shell command over ssh")}
@@ -1308,7 +1351,7 @@ function renderMain() {
       </div>
     </div>
     ${factsNote(n)}
-    <div class="tabs">${tab("sites", `Sites${o ? ` <span class="badge">${o.sites.length}</span>` : ""}`)}${tab("updates", `Updates${updatesBadge(n)}`)}${tab("firewall", "Firewall")}${tab("history", "History")}${tab("settings", "Settings")}${reloading ? `<span class="spin" role="img" aria-label="reloading" style="align-self:center;margin-left:8px"></span>` : ""}</div>
+    <div class="tabs">${sectionButtons(n, "tab")}</div>
     <div id="view"></div>`;
   const view = $("#view");
   if (ov.loading && !o) view.innerHTML = `<div class="loading"><span class="spin"></span> connecting to ${esc(n)}…</div>`;
@@ -1318,6 +1361,8 @@ function renderMain() {
       <div class="actions" style="margin:0">${btn("Set up", () => setupFlow([n]), "primary")} ${btn("Retry", () => (load(n, S.tab, true), render()))}</div>`;
   } else if (!o) view.innerHTML = "";
   else if (S.tab === "sites") view.innerHTML = sitesView(n, o);
+  else if (S.tab === "tunnels") view.innerHTML = tunnelsView(n, o);
+  else if (S.tab === "traefik") view.innerHTML = traefikView(n);
   else if (S.tab === "updates") view.innerHTML = updatesView(n);
   else if (S.tab === "firewall") view.innerHTML = firewallView(n);
   else if (S.tab === "settings") view.innerHTML = settingsView(n);
@@ -1356,7 +1401,7 @@ function othersCard(n, o) {
           <div class="chips show-sm">${links(e)}</div></td>
         <td class="hide-sm"><div class="chips">${links(e)}</div></td>
         <td class="hide-sm mono dim">${esc(e.dir ?? e.containers.join(", "))}</td>
-        <td class="acts">${e.dir ? btn("Adopt…", () => adoptDialog(n, e), "sm", "lf adopt") : ""}</td></tr>`)
+        <td class="acts">${btn("Tunnel", () => run(["tunnel", e.name, ...sv(n)], { server: n }), "sm", "lf tunnel: an SSH tunnel straight to the container, until you stop it")}${e.dir ? btn("Adopt…", () => adoptDialog(n, e), "sm", "lf adopt") : ""}</td></tr>`)
       .join("")}</tbody></table></div>`;
 }
 
@@ -1697,18 +1742,42 @@ function editRule(n, num, r) {
 
 // ---- history ---------------------------------------------------------------
 
-function settingsView(n) {
+/** Everything an SSH tunnel reaches on server n, and the tunnels open now. */
+function tunnelsView(n, o) {
+  if (!o.ready && !o.others.length) return `<div class="card"><div class="body empty"><h2>Nothing to tunnel to yet</h2><p>Set up the server and deploy a site first.</p></div></div>`;
+  const open = openTunnels(n);
+  const chips = (l) => `<div class="chips">${l.map((d) => `<span class="chip">${esc(d)}</span>`).join("")}</div>`;
+  const targets = [];
+  const dashArgv = ["traefik", "dashboard", ...sv(n)];
+  targets.push({ name: "Traefik dashboard", status: o.traefik, serves: o.dashboard.hosts, argv: o.dashboard.tunnel ? dashArgv : null, why: "no tunnel yet: see Traefik" });
+  for (const x of o.sites) {
+    if (x.state === "old") continue;
+    // One row per service when a site has several: each is its own container.
+    const many = x.services.length > 1;
+    if (!many) targets.push({ name: x.meta.name, status: x.status, serves: x.domains, argv: ["tunnel", x.meta.name, ...sv(n)] });
+    else for (const svc of x.services) targets.push({ name: `${x.meta.name} · ${svc.service}`, status: svc.status, serves: svc.service === x.main ? x.domains : [], argv: ["tunnel", x.meta.name, svc.service, ...sv(n)] });
+  }
+  for (const e of o.others) targets.push({ name: e.name, status: e.status, serves: e.domains, argv: ["tunnel", e.name, ...sv(n)], other: true });
+  const row = (t) => `<tr><td><div class="site-name">${t.status ? statusDot(t.status) : ""}<b>${esc(t.name)}</b>${t.other ? `&nbsp;<span class="faint">not landfall's</span>` : ""}</div><div class="show-sm">${chips(t.serves)}</div></td>
+      <td class="hide-sm">${chips(t.serves)}</td>
+      <td class="acts">${t.argv ? tunnelBtn(n, t.argv) : `<span class="dim">${esc(t.why)}</span> ${btn("Traefik", () => go(n, "traefik"), "sm")}`}</td></tr>`;
+  return `${open.length ? `<div class="card scroll"><h2>Open <span class="badge ok">${open.length}</span></h2><table><tbody>${open
+      .map((j) => `<tr><td><b class="mono">lf ${esc(j.info.argv.filter((a, i, l) => a !== "-s" && l[i - 1] !== "-s").join(" "))}</b></td><td class="acts">${tunnelBtn(n, j.info.argv)}</td></tr>`)
+      .join("")}</tbody></table></div>` : ""}
+    <div class="card scroll"><h2>Tunnel to</h2>
+      <div class="lede">An SSH tunnel forwards a port on this machine to a container on ${esc(n)}: test a site on localhost with no domain, HTTPS or login. Nothing changes on the server, and closing the tunnel ends it.</div>
+      <table><thead><tr><th>Container</th><th class="hide-sm">Domains</th><th><span class="sr">Tunnel</span></th></tr></thead><tbody>${targets.map(row).join("")}</tbody></table></div>`;
+}
+
+/** Traefik on server n: its dashboard (domain and tunnel) and how landfall runs it. */
+function traefikView(n) {
   const st = S.settings[n] ?? { loading: true };
   if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> reading the settings…</div>`;
   if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
   const x = st.data;
-  const reload = { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), render()) : undefined) };
+  const reload = { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "traefik", true), render()) : undefined) };
   const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
-  const dnsRow = (d) => `${esc(d.domain)} ${d.ok ? `<span class="badge ok">dns ok</span>` : d.ips.length ? `<span class="badge warn">dns → ${esc(d.ips.join(", "))}</span>` : `<span class="badge bad">no dns</span>`}`;
-  const addDomain = () =>
-    promptDlg(`Add a main domain to ${n}`, `${x.domains.length ? "The first main domain stays the primary." : "The first main domain is the primary: new sites get <site>.<domain>, and a bare name like blog means blog.<domain>."}\nPoint <domain> and *.<domain> (A records) at the server once.`, { label: "Domain", placeholder: "example.com", type: "text", value: "" }, (d) => {
-      if (d) run(["server", "domain", n, "--add", d], reload);
-    }, "Add");
+  const P = S.state.paths;
   const dashboard = () =>
     dialog({
       title: `Traefik dashboard on ${n}`,
@@ -1755,13 +1824,48 @@ function settingsView(n) {
         run(argv, reload);
       },
     });
-  const tunnel = () => run(["traefik", "dashboard", ...sv(n)], { server: n });
-  const sites = S.overview[n]?.data?.sites ?? [];
   // lf traefik setup refuses to touch a Traefik the server already had.
   const o = S.overview[n]?.data;
   const foreign = o?.adopted ? o.proxy : "";
   const dash = o?.dashboard ?? { hosts: x.traefik.dashboard ? [x.traefik.dashboard] : [], tunnel: false };
   const link = (h) => `<a href="https://${esc(h)}" target="_blank" rel="noopener">${esc(h)}</a>`;
+  const dashArgv = ["traefik", "dashboard", ...sv(n)];
+  return `
+    <div class="card">
+      <h2>Dashboard <span class="actions">${foreign ? "" : btn(dash.hosts.length ? "Domain & login…" : "Put on a domain…", dashboard, "sm")}</span></h2>
+      <div class="body">${rows([
+        ["domain", dash.hosts.length ? `${dash.hosts.map(link).join(", ")} <span class="dim">(with its login)</span>` : `<span class="dim">none${foreign ? "" : ": only through the tunnel"}</span>`],
+        ["tunnel", dash.tunnel
+          ? `${tunnelBtn(n, dashArgv, "Open via tunnel")} <span class="dim">lf traefik dashboard</span>`
+          : foreign ? `<span class="dim">route its dashboard (api@internal) to a domain, or run <span class="mono">lf traefik dashboard --port &lt;its api port&gt;</span></span>`
+          : `<span class="dim">set up by an older landfall</span> ${btn("Enable tunnel", () => run(["traefik", "setup", ...sv(n)], reload), "sm", "Re-runs lf traefik setup, which adds it")}`],
+      ])}</div>
+    </div>
+    <div class="card">
+      <h2>Traefik <span class="actions">${btn("Status", () => run(["traefik", "status", ...sv(n)]), "sm", "lf traefik status")}${foreign ? "" : btn("Settings…", traefikDialog, "sm")}</span></h2>
+      <div class="body">${foreign ? `<div class="note">Sites go through <b class="mono">${esc(foreign)}</b>, a Traefik landfall did not install and never changes: it is configured in its own files.</div>` : ""}${rows([
+        ["image", esc(x.traefik.summary)],
+        ["e-mail", esc(x.traefik.email ?? "none")],
+        ["HTTP/3", x.traefik.http3 ? `on <span class="dim">(443/udp)</span>` : `<span class="dim">off</span>`],
+        ["files", `<span class="mono">${esc(P.traefik)}/docker-compose.yml</span>`],
+        ["certificates", `<span class="mono">${esc(P.traefik)}/letsencrypt/</span> <span class="dim">(kept on reinstall)</span>`],
+      ])}<p class="faint">Used when landfall installs or reconfigures its own Traefik. With a Traefik that was already there, landfall only writes <span class="mono">${esc(P.proxy)}</span>.</p></div>
+    </div>`;
+}
+
+function settingsView(n) {
+  const st = S.settings[n] ?? { loading: true };
+  if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> reading the settings…</div>`;
+  if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
+  const x = st.data;
+  const reload = { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), render()) : undefined) };
+  const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  const dnsRow = (d) => `${esc(d.domain)} ${d.ok ? `<span class="badge ok">dns ok</span>` : d.ips.length ? `<span class="badge warn">dns → ${esc(d.ips.join(", "))}</span>` : `<span class="badge bad">no dns</span>`}`;
+  const addDomain = () =>
+    promptDlg(`Add a main domain to ${n}`, `${x.domains.length ? "The first main domain stays the primary." : "The first main domain is the primary: new sites get <site>.<domain>, and a bare name like blog means blog.<domain>."}\nPoint <domain> and *.<domain> (A records) at the server once.`, { label: "Domain", placeholder: "example.com", type: "text", value: "" }, (d) => {
+      if (d) run(["server", "domain", n, "--add", d], reload);
+    }, "Add");
+  const sites = S.overview[n]?.data?.sites ?? [];
   const external = (d) => S.overview[n]?.data?.others?.find((e) => e.domains.includes(d))?.name;
   const servedBy = (d) => sites.find((s) => s.domains.includes(d))?.meta.name;
   const serve = (d) => {
@@ -1796,20 +1900,6 @@ function settingsView(n) {
            ${records.length ? `<div class="note">Add at your DNS provider:<div class="mono">${records.join("<br>")}</div></div>` : ""}`
         : `<p class="dim">No main domain set in landfall. New sites get a free <span class="mono">&lt;site&gt;.&lt;ip&gt;.sslip.io</span> address until you set one.</p>`}
         ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>
-    </div>
-    <div class="card">
-      <h2>Traefik <span class="actions">${dash.tunnel ? btn("Open via tunnel", tunnel, "sm", "lf traefik dashboard: an SSH tunnel to the dashboard, until you stop it") : ""}${foreign ? "" : btn("Dashboard…", dashboard, "sm") + btn("Settings…", traefikDialog, "sm")}</span></h2>
-      <div class="body">${foreign ? `<div class="note">Sites go through <b class="mono">${esc(foreign)}</b>, a Traefik landfall did not install and never changes: its dashboard is set up in its own config.</div>` : ""}${rows([
-        ["image", esc(x.traefik.summary)],
-        ["e-mail", esc(x.traefik.email ?? "none")],
-        ["HTTP/3", x.traefik.http3 ? `on <span class="dim">(443/udp)</span>` : `<span class="dim">off</span>`],
-        ["dashboard", `${dash.hosts.length ? `${dash.hosts.map(link).join(", ")} <span class="dim">(with its login)</span>` : `<span class="dim">no domain</span>`}${
-          dash.tunnel ? ` · <span class="dim">tunnel: lf traefik dashboard</span>`
-          : foreign ? ` · <span class="dim">tunnel: lf traefik dashboard --port &lt;its api port&gt;</span>`
-          : ` · <span class="dim">no tunnel yet</span> ${btn("Enable tunnel", () => run(["traefik", "setup", ...sv(n)], reload), "sm", "Re-runs lf traefik setup, which adds it")}`}`],
-        ["files", `<span class="mono">${esc(P.traefik)}/docker-compose.yml</span>`],
-        ["certificates", `<span class="mono">${esc(P.traefik)}/letsencrypt/</span> <span class="dim">(kept on reinstall)</span>`],
-      ])}<p class="faint">Used when landfall installs or reconfigures its own Traefik. With a Traefik that was already there, landfall only writes <span class="mono">${esc(P.proxy)}</span>.</p></div>
     </div>
     <div class="card">
       <h2>On the server <span class="dim mono" style="font-weight:400">${esc(P.root)}</span></h2>
@@ -1908,6 +1998,9 @@ function render() {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && menuEl) return closeMenu();
+  // 1-7: the open server's sections.
+  const sec = SECTIONS[Number(e.key) - 1];
+  if (sec && S.sel && !e.metaKey && !e.ctrlKey && !e.altKey && !$("#dlg").open && !e.target.closest?.("input, textarea, select")) return go(S.sel, sec[0]);
   if (e.key === "Escape" && !$("#dlg").open && S.job && !e.target.closest?.("input, textarea, select")) {
     S.job = null;
     render();

@@ -3,8 +3,8 @@ import bcrypt from "bcryptjs";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkImage, checkInt, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
-import { dashboardHosts, dockerLogs, hasDashboardTunnel } from "../remote";
-import { ctrAddress, findContainer, openTunnel } from "../tunnel";
+import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../remote";
+import { ctrAddress, findContainer, openTunnel, routerPort } from "../tunnel";
 import { runScript, shq, writeFileCmd } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, TUNNEL_PORT, type Proxy } from "../templates";
 import { askSecret, c, confirm, confirmRemoval, fail, info, ok, step } from "../ui";
@@ -349,7 +349,10 @@ export const traefikDashboard = defineCommand({
 
 No domain or password needed: landfall's Traefik serves the dashboard to the server
 itself, and only there. To also serve it on a domain behind a password:
-lf traefik setup --dashboard traefik (traefik.<main domain>).`,
+lf traefik setup --dashboard traefik (traefik.<main domain>).
+
+A Traefik of your own works too when it routes the dashboard to a domain: the tunnel
+goes to that entrypoint and sends the domain along (log in with its password).`,
   options: {
     server: serverOpt,
     local: { type: "string", short: "l", desc: "local port (default: 8080, else a free one)" },
@@ -363,19 +366,25 @@ lf traefik setup --dashboard traefik (traefik.<main domain>).`,
     const hosts = dashboardHosts(ctr!.labels);
     const also = hosts.length ? `also at ${hosts.map((h) => `https://${h}`).join(", ")} (with its password)` : undefined;
     const port = o.port ? checkInt(o.port, "--port", 1, 65535) : !st.proxy && hasDashboardTunnel(ctr!.labels) ? TUNNEL_PORT : undefined;
-    if (!port) {
-      if (also) info(also);
+    const what = `traefik dashboard of ${name}`;
+    if (port) return openTunnel(server, ctrAddress(ctr!, NETWORK), port, { local: o.local, path: "/dashboard/", what, note: also });
+    // No API port: go through the router that serves it on a domain, as that domain.
+    const routed = dashboardRouters(ctr!.labels)
+      .flatMap((r) => (r.hosts[0] ? [{ host: r.hosts[0], at: routerPort(ctr!, r.router) }] : []))
+      .find((r) => r.at);
+    if (!routed)
       fail(
         st.proxy
-          ? `${st.proxy} is your own traefik; if it serves its API (api.insecure), pass its port: --port 8080`
+          ? `${st.proxy} is your own traefik and serves no dashboard on a domain; if it serves its API (api.insecure), pass its port: --port 8080`
           : `traefik on ${name} was set up by an older landfall: \`lf traefik setup -s ${name}\` adds the dashboard tunnel`,
       );
-    }
-    await openTunnel(server, ctrAddress(ctr!, NETWORK), port!, {
+    const { host, at } = routed!;
+    await openTunnel(server, ctrAddress(ctr!, NETWORK), at!.port, {
       local: o.local,
       path: "/dashboard/",
-      what: `traefik dashboard of ${name}`,
-      note: also,
+      what,
+      note: `through ${host}'s router (it asks for its login)`,
+      as: { name: host, tls: at!.tls },
     });
   },
 });

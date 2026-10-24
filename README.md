@@ -265,6 +265,7 @@ lf auth -p '…'                     # the same for user admin
 lf auth --rm-user anna | --off
 lf open
 lf tunnel blog                     # http://localhost:<port> straight to its container: test it without a domain
+lf tunnel my-compose-app -s vps    # also any Compose project or container landfall did not deploy
 lf sites rm blog                   # delete the site (asks you to type the name)
 lf logs api -s vps                 # another site on another server
 ```
@@ -324,7 +325,7 @@ for the seconds until Let's Encrypt issues its certificate. Your own certificate
 The dashboard password is generated and printed once (`--dashboard-password` sets your own, `--dashboard-user` the user, default `admin`).
 The dashboard is always reachable through `lf traefik dashboard`: Traefik serves it on port 8080 to the server itself only
 (loopback and the `web` network's gateway), never published. A Traefik set up before this needs `lf traefik setup` once.
-With your own Traefik, `lf traefik dashboard --port 8080` tunnels to its API port; the web UI shows the domains its dashboard is on. Image, network mode,
+With your own Traefik, `lf traefik dashboard` tunnels to the entrypoint of the router that serves the dashboard on a domain and sends that domain along (TLS name and Host), so its login still applies; without such a router, `--port 8080` tunnels to its API port (api.insecure). The web UI shows the domains its dashboard is on. Image, network mode,
 e-mail, staging and dashboard are remembered per server.
 
 **Using a Traefik you already run.** If 80/443 belong to your own Traefik container, landfall does not install a second one:
