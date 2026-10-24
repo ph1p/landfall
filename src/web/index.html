@@ -176,6 +176,9 @@ td.acts button { margin-left: 4px; }
 .note.info { background: var(--accent-bg); color: var(--accent); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; font-size: var(--fs); margin: 0; }
 .kv dt { color: var(--faint); } .kv dd { margin: 0; }
+details.where summary { cursor: pointer; color: var(--faint); font-size: var(--fs-sm); }
+details.where h3 { font-size: var(--fs-sm); margin: 12px 0 6px; }
+details.where dl { margin: 0; font-size: var(--fs-sm); } details.where dt { overflow-wrap: anywhere; margin-top: 6px; } details.where dd { margin: 0; }
 pre.block { background: var(--hover); border: 1px solid var(--line); padding: 10px 12px; border-radius: var(--r-sm); overflow-x: auto; font-size: var(--fs-sm); margin: 6px 0 0; }
 .detail td { background: color-mix(in srgb, var(--hover) 60%, transparent); }
 .releases, .services { margin: 0; padding: 0; list-style: none; }
@@ -285,6 +288,7 @@ body.dragging::after {
   <header>
     <a class="brand" href="#/"><svg viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4" fill="var(--accent)"/><path d="M4 5h8M4 8h8M4 11h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>landfall <small id="version"></small></a>
     <div class="project" id="project"></div>
+    <button type="button" class="sm ghost" id="app-settings" title="landfall's defaults for every server (lf config)">Defaults</button>
   </header>
   <!-- The filter stays put across renders, so typing keeps its focus. -->
   <nav class="servers" id="nav">
@@ -743,7 +747,7 @@ function renderJob() {
  * onOk(values) runs on submit; return false to keep it open, or {field, error} to keep it open and show why.
  * typeToConfirm: a name the user types before the (dangerous) action is enabled.
  */
-function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk, extra = "", typeToConfirm = "" }) {
+function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk, extra = "", after = "", typeToConfirm = "" }) {
   const dlg = openDlg();
   const field = (f) => {
     const id = `f-${f.name}`;
@@ -766,6 +770,7 @@ function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk
     ${text ? `<div class="text">${esc(text)}</div>` : ""}
     ${extra}
     ${fields.map(group).join("")}
+    ${after}
     ${typeToConfirm ? `<label>Type <b class="mono">${esc(typeToConfirm)}</b> to confirm<input id="dlg-confirm" autocomplete="off" spellcheck="false" autocapitalize="off"></label>` : ""}
     <div class="note bad dlg-err" id="dlg-err" role="alert" hidden></div>
     <div class="btns">
@@ -958,6 +963,43 @@ function addServer() {
 
 const defaultServer = () => S.sel ?? S.state.servers.find((s) => s.isDefault)?.name;
 const mainDomain = (n) => S.state.servers.find((s) => s.name === n)?.saved?.domains?.[0];
+/** The server deploys new sites with no domain unless one is given: its own setting, else landfall's default. */
+const tunnelOnly = (n) => S.state.servers.find((s) => s.name === n)?.saved?.tunnelOnly ?? S.state.defaults.tunnelOnly;
+
+/** landfall's defaults for every server (lf config); a server's own setting wins. */
+function defaultsDialog() {
+  const d = S.state.defaults;
+  dialog({
+    title: "landfall defaults",
+    text: `For every server, unless it sets its own. Saved in ${d.configFile}.`,
+    fields: [
+      { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
+      { name: "tunnelOnly", label: "New sites get no domain: tunnel only", type: "check", value: d.tunnelOnly, hint: "Nothing is served on the internet until a site gets a domain. A server's Settings can override it." },
+      { name: "email", label: "Let's Encrypt e-mail (optional)", value: d.email ?? "", hint: "For servers that set none, when landfall installs Traefik." },
+      { name: "keep", label: "Releases to keep for rollback", value: String(d.keep), placeholder: "5" },
+    ],
+    after: whereList(d.locations),
+    ok: "Save",
+    onOk: (v) => {
+      const argv = ["config"];
+      if (v.default !== (d.default ?? "")) argv.push(...(v.default ? ["--default", v.default] : ["--unset", "default"]));
+      if (v.tunnelOnly !== d.tunnelOnly) argv.push(v.tunnelOnly ? "--tunnel-only" : "--no-tunnel-only");
+      const email = v.email.trim();
+      if (email !== (d.email ?? "")) argv.push(...(email ? ["--email", email] : ["--unset", "email"]));
+      const keep = v.keep.trim();
+      if (keep && (!/^\d+$/.test(keep) || !Number(keep))) return invalid("keep", "A whole number from 1 up");
+      if (keep !== String(d.keep)) argv.push(...(keep ? ["--keep", keep] : ["--unset", "keep"]));
+      if (argv.length === 1) return;
+      run(argv, { after: (j) => (j.info.code === 0 ? void (S.sel && load(S.sel, "settings", true), refreshState()) : undefined) });
+    },
+  });
+}
+/** Every place landfall writes to, from `lf config`: nothing it installs is hidden. */
+const whereList = (loc) => {
+  const kv = (list) => `<dl>${list.map((l) => `<dt class="mono">${esc(l.path)}</dt><dd class="dim">${esc(l.what)}</dd>`).join("")}</dl>`;
+  return `<details class="where"><summary>Where landfall puts things</summary>
+    <h3>On this machine</h3>${kv(loc.local)}<h3>On each server</h3>${kv(loc.server)}</details>`;
+};
 /** What `lf deploy` picks without a domain: <site>.<main domain>, else the free sslip.io address. */
 function autoDomain(n, name) {
   const main = mainDomain(n);
@@ -1002,7 +1044,7 @@ function deployDialog(det, o = {}) {
           ? `Empty: <name>.${main}. A bare name like blog means blog.${main}, @ means ${main} itself (another site serving it hands it over). Other domains need an A record pointing at the server.`
           : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
       },
-      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !!p && p.domains?.length === 0, hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
+      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
       ...(det.kind === "static"
         ? [
             { name: "build", label: "Build command (runs here, before upload)", value: det.build ?? "", placeholder: "none" },
@@ -1022,6 +1064,8 @@ function deployDialog(det, o = {}) {
       if (!n) return invalid("name", "Give the site a name");
       if (!v.server) return invalid("server", "Pick a server");
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
+      // The server's default would leave it unrouted though the box is unticked.
+      if (!v.noDomain && !domains.length && !p?.domains?.length && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d]))];
       if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
       if (v.spa && !p?.spa) argv.push("--spa");
@@ -1956,6 +2000,9 @@ function settingsView(n) {
   const P = S.state.paths;
   const ip = x.dns[0]?.ips[0] ?? "<server ip>";
   const records = x.dns.flatMap((r) => [r.apex, r.wildcard]).filter((d) => !d.ok).map((d) => `${esc(d.domain)}  A  ${esc(ip)}`);
+  const tunnel = x.tunnelOnly;
+  const setTunnel = () =>
+    run(["server", "domain", n, tunnel ? "--no-tunnel-only" : "--tunnel-only"], { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), refreshState()) : undefined) });
   const saved = x.saved ? Object.entries(x.saved).filter(([k, v]) => v !== undefined && k !== "dashboard").map(([k, v]) => [k, `<span class="mono">${esc(String(v))}</span>`]) : [];
   return `
     <div class="card">
@@ -1971,6 +2018,10 @@ function settingsView(n) {
            <p class="faint">New sites get <span class="mono">&lt;site&gt;.${esc(x.domains[0])}</span>; a bare name like <span class="mono">blog</span> means <span class="mono">blog.${esc(x.domains[0])}</span>, and <span class="mono">@</span> means <span class="mono">${esc(x.domains[0])}</span> itself.</p>
            ${records.length ? `<div class="note">Add at your DNS provider:<div class="mono">${records.join("<br>")}</div></div>` : ""}`
         : `<p class="dim">No main domain set in landfall. New sites get a free <span class="mono">&lt;site&gt;.&lt;ip&gt;.sslip.io</span> address until you set one.</p>`}
+        <div class="drow">
+          <div>New sites: ${tunnel ? `<b>no domain</b> <span class="dim">· tunnel only until you give one (Domains… on the site, or deploy with a domain)</span>` : `<b>get a domain</b> <span class="dim">· unless you tick “No domain” when deploying</span>`}${x.tunnelOnlyOwn ? "" : ` <span class="faint">(landfall default)</span>`}</div>
+          <div class="actions">${btn(tunnel ? "Give them a domain" : "Make them tunnel only", setTunnel, "sm", tunnel ? "lf server domain --no-tunnel-only" : "lf server domain --tunnel-only")}</div>
+        </div>
         ${x.suggest.length ? `<div class="note">${x.domains.length ? "Other domains" : "Domains"} your sites on this server already use: ${x.suggest.map((g) => `<b>${esc(g.domain)}</b> <span class="faint">(${g.hosts})</span> ${btn("Add", () => run(["server", "domain", n, "--add", g.domain], reload), "sm")}`).join(" ")}</div>` : ""}</div>
     </div>
     <div class="card">
@@ -2084,6 +2135,7 @@ $("#filter").addEventListener("input", (e) => {
   renderNav();
 });
 $("#add-server").onclick = () => addServer();
+$("#app-settings").onclick = () => defaultsDialog();
 
 (async () => {
   try {

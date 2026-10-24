@@ -16,6 +16,7 @@ import { configView, dnsView, factsView, firewallView, historyView, updatesView 
 import { newRunId, setQuiet } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../templates";
 import { c, openUrl } from "../ui";
+import { defaultsView } from "../commands/config";
 
 interface WebJob {
   id: string;
@@ -172,6 +173,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
       // The CLI's own input rules, so forms reject what the command would.
       rules: { loginName: LOGIN_NAME.source, minPassword: MIN_PASSWORD },
       paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },
+      defaults: defaultsView(),
       servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: cfg.servers[e.name] ?? null })),
       jobs: [...jobs.values()].reverse().map(jobInfo),
     });

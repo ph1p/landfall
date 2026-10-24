@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { defineCommand } from "../cmd";
-import { checkDomain, checkEmail, CONFIG_PATH, DOMAIN, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
+import { checkDomain, checkEmail, CONFIG_PATH, defaults, DOMAIN, isTunnelOnly, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
 import { runScript, shq, sshExec } from "../ssh";
 import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
 import { bytes, checkDns, duration, facts, serverIps } from "../facts";
@@ -251,6 +251,9 @@ export function serverSettings(name: string) {
     configFile: tildify(CONFIG_PATH),
     saved: saved ? { ...saved, dashboard: saved.dashboard && { host: saved.dashboard.host, user: saved.dashboard.user } } : null,
     domains: server.domains ?? [],
+    tunnelOnly: isTunnelOnly(server),
+    /** Set on the server itself, not inherited from `lf config`. */
+    tunnelOnlyOwn: server.tunnelOnly !== undefined,
     traefik: { ...t, summary: describeTraefik(t), dashboard: server.dashboard?.host ?? null },
     ssh: {
       hostname: eff.hostname,
@@ -277,9 +280,10 @@ and the Host block in ~/.ssh/config. Nothing connects to the server.`,
     console.log(`${c.bold(name)}${s.isDefault ? c.dim(" (default)") : ""}`);
     console.log(`\n${c.bold("landfall")} ${c.dim(s.configFile)}`);
     if (!s.saved) row("entry", c.dim("none — an ssh alias landfall was not told about (lf server add)"));
-    else for (const [k, v] of Object.entries(s.saved)) if (v !== undefined && k !== "dashboard" && k !== "domains") row(k, String(v));
+    else for (const [k, v] of Object.entries(s.saved)) if (v !== undefined && k !== "dashboard" && k !== "domains" && k !== "tunnelOnly") row(k, String(v));
     if (!s.domains.length) row("domain", c.dim(`none (lf server domain ${name} example.com)`));
     s.domains.forEach((d, i) => row(i ? "" : s.domains.length > 1 ? "domains" : "domain", i ? d : `${d} ${c.dim(`(primary: new sites get <site>.${d})`)}`));
+    row("new sites", `${s.tunnelOnly ? "no domain, tunnel only" : "get a domain"}${s.tunnelOnlyOwn ? "" : c.dim(" (landfall default, lf config)")}`);
     row("traefik", `${s.traefik.summary}${s.traefik.email ? `, ${s.traefik.email}` : ""} ${c.dim("(when landfall installs it)")}`);
     row("dashboard", s.traefik.dashboard ? `https://${s.traefik.dashboard}` : c.dim("off"));
     console.log(`\n${c.bold("ssh")} ${c.dim(`ssh -G ${s.saved?.host ?? name}`)}`);
@@ -325,12 +329,18 @@ More main domains are listed and DNS-checked; use them with full names
 
 Domains given as arguments replace the list (the first becomes primary).
 Without any, it lists them and, if there are none, suggests the base domains
-the server's sites already use.`,
+the server's sites already use.
+
+--tunnel-only makes new sites deploy with no domain unless -d gives one:
+nothing is served on the internet, \`lf tunnel <site>\` reaches them.
+--no-tunnel-only goes back to <site>.<primary>. Existing sites keep theirs.
+Without either, the server follows landfall's default (\`lf config --tunnel-only\`).`,
   options: {
     add: { type: "string", short: "a", multiple: true, desc: "add a main domain (after the primary)" },
     primary: { type: "string", desc: "make this main domain the primary (added if new)" },
     rm: { type: "string", multiple: true, desc: "remove a main domain" },
     clear: { type: "boolean", desc: "forget all main domains" },
+    "tunnel-only": { type: "boolean", desc: "new sites get no domain unless -d gives one (--no-tunnel-only)" },
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(args, o) {
@@ -341,7 +351,19 @@ the server's sites already use.`,
     const n: string | undefined = takesDomain ? undefined : args[0];
     const given = takesDomain ? args : args.slice(1);
     const { name, server } = resolveServer(n);
-    if (given.length || o.add || o.rm || o.primary || o.clear) {
+    const tunnelOnly: boolean | undefined = o["tunnel-only"];
+    const changing = !!(given.length || o.add || o.rm || o.primary || o.clear);
+    if (tunnelOnly !== undefined) {
+      const entry = (cfg.servers[name] ??= { host: name });
+      // Same as landfall's default: follow it, so `lf config` changes this server too.
+      if (tunnelOnly === (defaults().tunnelOnly ?? false)) delete entry.tunnelOnly;
+      else entry.tunnelOnly = tunnelOnly;
+      saveConfig(cfg);
+      server.tunnelOnly = entry.tunnelOnly;
+      ok(tunnelOnly ? `new sites on ${c.bold(name)} get no domain: reach them with lf tunnel, or deploy with -d` : `new sites on ${c.bold(name)} get a domain again`);
+      if (!changing) return;
+    }
+    if (changing) {
       const entry = (cfg.servers[name] ??= { host: name });
       const rm: string[] = (o.rm ?? []).map(checkDomain);
       let next: string[] = o.clear ? [] : given.length ? given.map(checkDomain) : [...(entry.domains ?? [])];

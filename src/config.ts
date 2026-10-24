@@ -25,16 +25,34 @@ export interface Server {
    * name like `blog` means blog.<primary>. The others are listed and DNS-checked too.
    */
   domains?: string[];
+  /** New sites get no domain unless one is given: reached with `lf tunnel` only. Unset: landfall's default. */
+  tunnelOnly?: boolean;
   /** The sudo user that bootstrapped the server when root couldn't log in: re-runs and admin tasks use it. */
   admin?: string;
   /** Traefik dashboard, remembered so re-running traefik setup keeps it. */
   dashboard?: { host: string; user: string; htpasswd: string };
 }
 
+/** landfall's defaults for every server (`lf config`); a server's own setting wins. */
+export interface Defaults {
+  /** New sites get no domain unless one is given. */
+  tunnelOnly?: boolean;
+  /** Let's Encrypt contact for servers that set none. */
+  email?: string;
+  /** Releases a deploy keeps for rollback. */
+  keep?: number;
+}
+
 export interface Config {
   default?: string;
+  defaults?: Defaults;
   servers: Record<string, Server>;
 }
+
+export const DEFAULT_KEEP = 5;
+export const defaults = (): Defaults => loadConfig().defaults ?? {};
+/** Whether new sites on s get no domain: its own setting, else landfall's default. */
+export const isTunnelOnly = (s: Server) => s.tunnelOnly ?? defaults().tunnelOnly ?? false;
 
 /** $LANDFALL_<name>. */
 export const envVar = (name: string) => process.env[`LANDFALL_${name}`];

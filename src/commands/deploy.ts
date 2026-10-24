@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
+import { checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
@@ -69,7 +69,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
     build: { type: "string", short: "b", desc: "run this command locally first (e.g. 'npm run build')" },
-    keep: { type: "string", desc: "releases to keep for rollback", default: "5" },
+    keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
     host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
     user: { type: "string", short: "u", desc: "with --host: initial login user (default: root)" },
@@ -95,7 +95,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if ((await setUpState(server)) !== "ready") fail(`${serverName} is still not set up`);
     }
     const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
-    const keep = checkInt(o.keep, "--keep", 1);
+    const keep = checkInt(o.keep ?? defaults().keep ?? DEFAULT_KEEP, "--keep", 1);
     // parseArgs reads --no-domain as the negation of --domain: a false among its values.
     const noDomain = !!o["no-domain"] || ((o.domain as unknown[] | undefined)?.includes(false) ?? false);
     const domainArgs: string[] | undefined = o.domain?.filter((d: unknown) => typeof d === "string");
@@ -182,6 +182,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         domains = noDomain ? [] : ([domainArgs, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? []);
         // Unrouted until -d: deployed with --no-domain, or a site whose domains were all taken off (lf domains --rm).
         let unrouted = noDomain || (!domains.length && ((!!prev && !!siteMain(prev) && !prev.domains.length) || project.domains?.length === 0));
+        // The server's default: new sites stay off the internet until -d.
+        if (!domains.length && !unrouted && isTunnelOnly(server)) unrouted = true;
         if (!domains.length && !unrouted) {
           // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
           const main = mainDomain(server);

@@ -245,6 +245,7 @@ lf domains blog --add @                     # blog also serves example.com
 lf server domain vps --add other.org        # more main domains; the first stays primary
 lf server domain vps --primary other.org    # switch the primary
 lf server domain vps --rm other.org         # drop one; --clear drops all (back to sslip.io)
+lf server domain vps --tunnel-only          # new sites get no domain unless -d: reach them with lf tunnel (--no-tunnel-only undoes)
 ```
 
 `server domain` prints the A records to add: one for the domain and a wildcard `*.example.com`. With those in
@@ -416,6 +417,7 @@ lf server add web --host 198.51.100.5 -u admin               # asks the password
 lf server config vps                                    # landfall entry, Traefik settings, ssh login, keys, Host block
 lf server list --all
 lf server use vps
+lf config --tunnel-only --keep 3                        # defaults for every server; also lists where landfall puts things
 lf server rm vps                                        # forget locally
 lf server uninstall vps                                 # remove landfall from the server (type the name back)
 lf ssh vps -- docker ps
@@ -503,8 +505,9 @@ lf undo -s box -y                           # revert the last run
 | `lf server list [--all] [--json]` | Lists registered servers. `--all` adds every ssh alias. Alias: `servers`. |
 | `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
 | `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
-| `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--json]` | Manages main domains (the first is primary) and checks their DNS. |
+| `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--tunnel-only] [--json]` | Manages main domains (the first is primary) and checks their DNS; `--tunnel-only` makes new sites deploy with no domain. |
 | `lf server use <name>` | Sets the default server. |
+| `lf config [--tunnel-only] [--email e] [--keep n] [--default name] [--unset key] [--json]` | Shows or changes landfall's defaults for every server, and lists every place landfall writes to. A server's own setting wins. |
 | `lf server rm <name>` | Forgets a server locally. The server is untouched. |
 | `lf server uninstall <name> [--volumes] [--keep-setup] [--force]` | Deletes landfall's sites, Traefik and `/opt/landfall`, reverts setup (deploy user, ssh hardening, firewall), and forgets the server. Docker, packages and root's landfall key stay; adopted sites keep running. Alias: `uninstall`. |
 | `lf ssh [name] [-- cmd]` | Opens a shell or runs a one-off command. |
@@ -557,7 +560,7 @@ lf undo -s box -y                           # revert the last run
 
 | local file | content |
 |---|---|
-| `~/.config/landfall/config.json` | registered servers, default server, per-server settings |
+| `~/.config/landfall/config.json` | registered servers, default server, per-server settings, landfall defaults (`lf config`) |
 | `~/.config/landfall/projects.json` | folders deployed from this machine (web UI *Recent*/*Redeploy*) |
 | `~/.config/landfall/ui-token` | web UI login token |
 | `~/.config/landfall/uploads/` | folders dropped into the web UI, removed after a day |
@@ -589,7 +592,12 @@ On the server:
       .env -> ../../.env
     current -> releases/<id>
   journal.log                       every change, with the shell that reverts it
+/etc/ssh/sshd_config.d/00-landfall.conf   ssh hardening from `lf setup`
 ```
+
+`lf setup` also installs Docker with the compose plugin, ufw, fail2ban and unattended-upgrades, and creates the
+`deploy` user (group docker). Before changing a file, landfall keeps a backup next to it as
+`.<file>.landfall-<run>` (the newest 10). `lf config` and the web UI's *Defaults* dialog list all of these places.
 
 `cd -P /opt/landfall/sites/blog/current && docker compose ps` works as usual.
 
