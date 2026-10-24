@@ -442,6 +442,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 
 | page | commands |
 |---|---|
+| Overview | `lf server list --check`, recent deploys, `lf config` (defaults, and where landfall puts things) |
 | Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `logs`, `restart`/`stop`/`start`, `env`, `domains`, `auth`, `tunnel`, `sites rm` |
 | Updates | `lf updates`, `lf update` |
 | Firewall | `lf firewall` and its subcommands |
@@ -601,7 +602,7 @@ On the server:
 
 `lf setup` also installs Docker with the compose plugin, ufw, fail2ban and unattended-upgrades, and creates the
 `deploy` user (group docker). Before changing a file, landfall keeps a backup next to it as
-`.<file>.landfall-<run>` (the newest 10). `lf config` and the web UI's *Defaults* dialog list all of these places.
+`.<file>.landfall-<run>` (the newest 10). `lf config` and the web UI's *Overview* list all of these places.
 
 `cd -P /opt/landfall/sites/blog/current && docker compose ps` works as usual.
 
