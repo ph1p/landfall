@@ -415,7 +415,7 @@ The web dashboard (`lf ui`) listens on `127.0.0.1` and opens your browser. Serve
 local folders or takes a dropped folder or `.zip`. Every action streams the output of its plain command into a side
 panel. Destructive actions ask first. Login works through the printed `/login?t=…` link. The token is kept in
 `~/.config/landfall/ui-token`, and you can delete that file to rotate it. Requests with a foreign `Host` or `Origin`
-are refused. Running `lf ui` again while the dashboard is running just opens the page.
+are refused. Running `lf ui` again while the dashboard is running just opens the page. If another program has port 4777, it takes the next free one (an explicit `--port` fails instead).
 
 ## Using landfall from scripts and agents
 
