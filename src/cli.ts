@@ -3,7 +3,7 @@ import { journalCmd, parse, usage, type Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { deploy } from "./commands/deploy";
 import { init } from "./commands/init";
-import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUse } from "./commands/server";
+import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUninstall, serverUse } from "./commands/server";
 import { firewallAllow, firewallDeny, firewallDisable, firewallEnable, firewallRemove, firewallStatus, firewallUpdate } from "./commands/firewall";
 import { historyLog, historyUndo } from "./commands/history";
 import { keygen, setup } from "./commands/setup";
@@ -21,9 +21,9 @@ import {
 } from "./commands/sites";
 import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
-import { traefikLogs, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
+import { traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 import { journal } from "./ssh";
-import { c, CliError, fail, setAssumeYes } from "./ui";
+import { c, CliError, setAssumeYes } from "./ui";
 import pkg from "../package.json";
 
 const commands: Command[] = [
@@ -52,12 +52,14 @@ const commands: Command[] = [
   serverDomain,
   serverUse,
   serverRemove,
+  serverUninstall,
   serverSsh,
   traefikSetup,
   traefikUse,
   traefikStatus,
   traefikLogs,
   traefikRestart,
+  traefikRemove,
   firewallStatus,
   firewallEnable,
   firewallDisable,
@@ -87,6 +89,8 @@ const aliases: Record<string, string> = {
   "sites ls": "sites list",
   "sites remove": "sites rm",
   "server remove": "server rm",
+  uninstall: "server uninstall",
+  "traefik remove": "traefik rm",
   traefik: "traefik status",
   firewall: "firewall status",
   "firewall remove": "firewall rm",
@@ -113,8 +117,8 @@ function find(argv: string[]): { cmd?: Command; rest: string[] } {
 
 function help() {
   const groups: [string, string[]][] = [
-    ["Servers", ["setup", "server add", "server list", "server info", "server config", "server domain", "server use", "server rm", "ssh", "keygen"]],
-    ["Traefik", ["traefik setup", "traefik status", "traefik logs", "traefik restart"]],
+    ["Servers", ["setup", "server add", "server list", "server info", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
+    ["Traefik", ["traefik setup", "traefik status", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
     ["Updates", ["updates", "update"]],
@@ -126,7 +130,6 @@ function help() {
     "",
     `${c.bold("Usage:")} lf <command> [options]       ${c.dim("lf <command> --help for details")}`,
     `       lf ui                        ${c.dim("web dashboard in your browser")}`,
-    `       lf tui                       ${c.dim("the dashboard in the terminal")}`,
   ];
   for (const [title, names] of groups) {
     lines.push("", c.bold(title));
@@ -155,13 +158,6 @@ function help() {
 }
 
 async function main(argv: string[]): Promise<number> {
-  if (argv[0] === "tui" && argv.length === 1) {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) fail("the terminal dashboard needs a terminal; `lf ui` opens the web one");
-    // React (loaded with the dashboard) skips its dev-only checks.
-    process.env.NODE_ENV ??= "production";
-    const { dashboard } = await import("./tui");
-    return dashboard(run);
-  }
   if (!argv.length || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
     help();
     return 0;
@@ -187,7 +183,7 @@ async function main(argv: string[]): Promise<number> {
   return typeof code === "number" ? code : 0;
 }
 
-/** One command, errors printed; the dashboard runs its actions through this too. */
+/** One command, errors printed. */
 async function run(argv: string[]): Promise<number> {
   try {
     return await main(argv);

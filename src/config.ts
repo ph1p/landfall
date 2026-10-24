@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { adoptOldConfig, OLD_PROJECT_FILE, oldEnv } from "./legacy";
 import { fail } from "./ui";
 
 /**
@@ -34,13 +33,11 @@ export interface Config {
 }
 
 /** $LANDFALL_<name>. */
-export const envVar = (name: string) => process.env[`LANDFALL_${name}`] ?? oldEnv(name);
+export const envVar = (name: string) => process.env[`LANDFALL_${name}`];
 
 const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
 export const configDir = envVar("CONFIG_DIR") ?? join(configHome, "landfall");
 export const CONFIG_PATH = join(configDir, "config.json");
-
-if (!envVar("CONFIG_DIR")) adoptOldConfig(configHome, configDir);
 
 export const expandHome = (p: string) => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
@@ -165,10 +162,7 @@ export interface ProjectConfig {
 }
 
 /** The project file in a directory: .landfall.json, or the older one. */
-export const projectFile = (cwd: string) => {
-  const file = join(cwd, PROJECT_FILE);
-  return fs.existsSync(file) || !fs.existsSync(join(cwd, OLD_PROJECT_FILE)) ? file : join(cwd, OLD_PROJECT_FILE);
-};
+export const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
 export function loadProject(cwd: string): ProjectConfig | undefined {
   try {
@@ -180,5 +174,4 @@ export function loadProject(cwd: string): ProjectConfig | undefined {
 
 export function saveProject(cwd: string, p: ProjectConfig) {
   fs.writeFileSync(join(cwd, PROJECT_FILE), JSON.stringify(p, null, 2) + "\n");
-  fs.rmSync(join(cwd, OLD_PROJECT_FILE), { force: true });
 }

@@ -5,8 +5,8 @@ import { checkImage, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dockerLogs } from "../remote";
 import { runScript, shq, writeFileCmd } from "../ssh";
-import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "../templates";
-import { c, fail, info, ok, step } from "../ui";
+import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "../templates";
+import { c, confirm, confirmRemoval, fail, info, ok, step } from "../ui";
 
 export interface TraefikInstall {
   /** Optional; falls back to what the server entry remembers. */
@@ -126,6 +126,43 @@ record ${shq(`sites use traefik ${p.container}`)} "$u"`,
   info(c.dim(`redeploy existing sites to switch them over; delete ${PROXY_FILE} to let landfall run its own traefik again`));
 }
 
+/** Who runs the Traefik for lf sites on the server, and the sites behind it. */
+export async function traefikState(server: Server): Promise<{ proxy?: string; compose?: "ours" | "foreign"; sites: string[] }> {
+  const { stdout } = await runScript(
+    server,
+    `[ ! -f ${PROXY_FILE} ] || printf 'proxy\\t%s\\n' "$(sed -n 's/^container=//p' ${PROXY_FILE})"
+f=${TRAEFIK_DIR}/docker-compose.yml
+[ ! -f $f ] || { grep -q "managed by landfall" $f && echo compose ours || echo compose foreign; }
+for d in ${SITES}/*/; do [ -d "$d" ] && printf 'site\\t%s\\n' "$(basename "$d")"; done; true`,
+    { capture: true },
+  );
+  const st: { proxy?: string; compose?: "ours" | "foreign"; sites: string[] } = { sites: [] };
+  for (const line of stdout.split("\n")) {
+    const [k, v] = line.split(/[\t ]/);
+    if (k === "proxy") st.proxy = v || "?";
+    if (k === "compose") st.compose = v as "ours" | "foreign";
+    if (k === "site") st.sites.push(v);
+  }
+  return st;
+}
+
+/** Stops landfall's traefik and takes out its config, undoable; certificates stay unless `certs`. */
+export async function removeTraefik(server: Server, o: { certs?: boolean } = {}) {
+  step("removing traefik");
+  await runScript(
+    server,
+    `${PRELUDE}
+cd ${TRAEFIK_DIR}
+log "stopping traefik"
+dc down --remove-orphans
+u="$(saved ${TRAEFIK_DIR}/docker-compose.yml); $(saved ${TRAEFIK_DIR}/.landfall.sha256); $(saved ${DYNAMIC_DIR}/landfall.yml)"
+rm -f docker-compose.yml .landfall.sha256 ${DYNAMIC_DIR}/landfall.yml
+${o.certs ? "rmf letsencrypt" : ""}
+# Certificates removed with --certs come back from Let's Encrypt on the next start.
+record ${shq(`removed traefik${o.certs ? " and its certificates" : ""}`)} "$u; cd ${TRAEFIK_DIR} && dc up -d --remove-orphans"`,
+  );
+}
+
 /** --follow/--tail, shared by `logs` and `traefik logs`. */
 export const logOpts = {
   follow: { type: "boolean", short: "f", desc: "follow" },
@@ -193,6 +230,32 @@ pass them when it is configured by a file. That Traefik is never changed.`,
     const missing = (["network", "entrypoint", "resolver"] as const).filter((k) => !p[k]);
     if (missing.length) fail(`could not read the ${missing.join(", ")} of ${container}; pass ${missing.map((m) => `--${m}`).join(" ")}`);
     await useProxy(server, p as Proxy);
+  },
+});
+
+export const traefikRemove = defineCommand({
+  name: "traefik rm",
+  summary: `Stop landfall's Traefik and remove its config. Sites stay but are unreachable until \`lf traefik setup\`.
+
+Certificates in letsencrypt/ stay for a later install unless --certs. Undo with \`lf undo\`.
+With a Traefik of your own (lf traefik use), landfall only stops routing sites through it.`,
+  options: { server: serverOpt, certs: { type: "boolean", desc: "also delete the Let's Encrypt certificates" } },
+  async run(_, o) {
+    const { name, server } = resolveServer(o.server);
+    const st = await traefikState(server);
+    if (st.proxy) {
+      if (!(await confirm(`Stop routing sites on ${name} through your traefik ${st.proxy}? It keeps running.`, false))) fail("cancelled");
+      await runScript(server, `${PRELUDE}\nu=$(saved ${PROXY_FILE})\n_as ${ROOT} rm -f ${PROXY_FILE}\nrecord ${shq(`sites stop using traefik ${st.proxy}`)} "$u"`);
+      ok(`landfall no longer uses ${st.proxy}; it keeps running and keeps routing the sites until they are redeployed`);
+      return info(c.dim("lf traefik setup installs landfall's own traefik"));
+    }
+    if (st.compose === "foreign") fail(`${TRAEFIK_DIR}/docker-compose.yml was not written by landfall; not touching it`);
+    if (!st.compose) return ok(`no traefik of landfall's on ${name}`);
+    const sites = st.sites.length ? ` ${st.sites.join(", ")} will be unreachable until \`lf traefik setup\`.` : "";
+    await confirmRemoval(`Stop and remove traefik${o.certs ? " and its certificates" : ""} on ${name}?${sites}`);
+    await removeTraefik(server, { certs: o.certs });
+    ok(`traefik removed${o.certs ? "" : c.dim(" (certificates stay for a later install; --certs deletes them)")}`);
+    info(c.dim("lf undo puts it back, lf traefik setup installs it again"));
   },
 });
 

@@ -19,7 +19,7 @@ const MAX_LINES = 5000;
 
 /**
  * Run `lf <argv>` as a child with piped output and no terminal, so it never
- * prompts: the dashboard (terminal or web) asks the questions before starting it.
+ * prompts: the web dashboard asks the questions before starting it.
  */
 export function startJob(argv: string[], onChange: () => void, opts: { password?: string; env?: Record<string, string>; cwd?: string } = {}): Job {
   const env: Record<string, string | undefined> = { ...process.env, NO_COLOR: "1", ...opts.env };

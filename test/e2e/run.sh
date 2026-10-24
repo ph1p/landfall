@@ -244,8 +244,10 @@ lf deploy -d @ -y >/dev/null 2>&1 || die "deploy -d @ takes the main domain"
 expect box.test / apex
 { ! lf domains main --json | has '"box.test"' && lf domains main --json | has '"main.box.test"'; } || die "main hands box.test over"
 pass "deploy -d @ moves the main domain, the old site keeps its others"
-out=$(lf domains main --add @ -y 2>&1) && die "move that leaves a site without domains"
-{ has "lf sites rm apex" <<<"$out"; } || { echo "$out"; die "move hint"; }; pass "a site keeps at least one domain"
+lf domains apex --rm @ -y >/dev/null 2>&1 || die "domains --rm the only domain"
+lf deploy -y >/dev/null 2>&1 || die "redeploy a site with no domain"
+{ [ "$(code box.test)" = 404 ] && [ -n "$(docker exec "$NAME" docker ps -q --filter label=landfall.site=apex)" ] && ! lf domains apex --json | has '"box.test"'; } \
+  || die "site without domains stays up, unrouted"; pass "domains --rm takes the main domain off a site, redeploys keep it unrouted"
 lf domains apex --add apex2.test >/dev/null 2>&1 && lf domains main --add @ -y >/dev/null 2>&1 || die "move back"
 expect box.test / main
 { ! grep -q '"box.test"' .landfall.json; } || die "move updates the old site's .landfall.json"
@@ -289,6 +291,12 @@ out=$(lf traefik status 2>&1); { echo "$out" | has 'network host'; } || { echo "
 lf traefik setup --no-host-network >/dev/null 2>&1 || die "traefik back to published ports"
 expect who.test / "Hostname"
 pass "traefik back to published ports"
+lf traefik rm -y >/dev/null 2>&1 || die "traefik rm"
+docker exec "$NAME" sh -c '! docker inspect traefik >/dev/null 2>&1 && [ ! -e /opt/landfall/traefik/docker-compose.yml ] && [ -d /opt/landfall/traefik/letsencrypt ]' \
+  || die "traefik rm stops traefik, certificates stay"; pass "traefik rm stops traefik, certificates stay"
+lf undo -y >/dev/null 2>&1 || die "undo traefik rm"
+expect who.test / "Hostname"
+pass "undo puts the removed traefik back"
 
 echo "== remove"
 lf sites rm who -y
@@ -421,7 +429,7 @@ docker exec "$NAME" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall/sites
 { docker exec "$NAME" grep -q "$(printf '\tundo\t')" /opt/landfall/journal.log; } || die "journal kept"
 pass "undo --all leaves the server as it was, journal kept"
 
-echo "== server from when landfall was called srv"
+echo "== site from before Compose sites"
 lf setup box --host 127.0.0.1 --port "$SSH_PORT" --key "$WORK/key" --email test@example.com --staging --no-firewall -y >/dev/null 2>&1 || die "setup again"
 trust_test_hosts
 # A site as the landfall before Compose sites wrote it: one container from sites/<name>/docker-compose.yml.
@@ -454,27 +462,6 @@ networks:
 EOF
   chown -R deploy $d && docker compose up -d >/dev/null 2>&1' || die "make old site"
 expect mig.test / Hostname
-# Turn it into the old layout: /opt/srv, srv-<site> containers and labels, 00-srv.conf.
-docker exec "$NAME" sh -c 'set -e
-  cd /opt/landfall/sites/mig && docker compose down -t 1 >/dev/null 2>&1
-  cd /opt/landfall/traefik && docker compose down -t 1 >/dev/null 2>&1
-  sed -i s/landfall/srv/g /opt/landfall/sites/mig/docker-compose.yml /opt/landfall/traefik/docker-compose.yml
-  cd / && mv /opt/landfall /opt/srv && mv /etc/ssh/sshd_config.d/00-landfall.conf /etc/ssh/sshd_config.d/00-srv.conf
-  cd /opt/srv/traefik && docker compose up -d >/dev/null 2>&1
-  cd /opt/srv/sites/mig && docker compose up -d >/dev/null 2>&1' || die "make old layout"
-expect mig.test / Hostname
-out=$(lf ls 2>&1) && die "old layout refused"
-{ has "run 'lf setup' for it once" <<<"$out"; } || { echo "$out"; die "old layout refused"; }
-pass "commands ask to run setup on an old layout"
-lf setup box --no-firewall -y >"$WORK/mig.log" 2>&1 || { cat "$WORK/mig.log"; die "setup migrates"; }
-docker exec "$NAME" sh -c '[ ! -e /opt/srv ] && [ -f /opt/landfall/sites/mig/site.json ] && [ -f /etc/ssh/sshd_config.d/00-landfall.conf ] && [ ! -e /etc/ssh/sshd_config.d/00-srv.conf ]' \
-  || die "setup moves /opt/srv"
-{ docker exec "$NAME" docker inspect landfall-mig | has '"landfall.site": "mig"' && ! docker exec "$NAME" docker inspect srv-mig >/dev/null 2>&1; } \
-  || die "container renamed"
-expect mig.test / Hostname
-{ lf ls | has -E 'mig.*Up'; } || die "ls after migration"
-{ lf log | has "landfall was called srv"; } || die "migration journaled"
-pass "setup moves an srv server to landfall, sites keep serving"
 # Deploying an old site makes it a Compose site: same domain, its old container gone.
 mkdir -p "$WORK/mig" && cd "$WORK/mig"
 lf deploy -n mig --image traefik/whoami:v1.11 --port 80 --no-save -y >"$WORK/mig2.log" 2>&1 || { cat "$WORK/mig2.log"; die "deploy takes over an old site"; }
@@ -483,6 +470,12 @@ expect mig.test / Hostname
   && ! docker exec "$NAME" test -e /opt/landfall/sites/mig/docker-compose.yml; } || die "old site taken over"
 pass "deploy moves an old site to a Compose project"
 cd "$WORK"
+
+echo "== uninstall"
+lf server uninstall box --volumes -y >"$WORK/uninstall.log" 2>&1 || { cat "$WORK/uninstall.log"; die "server uninstall"; }
+{ [ -z "$(docker exec "$NAME" docker ps -aq)" ] && docker exec "$NAME" test ! -e /opt/landfall; } || die "uninstall removes sites, traefik and /opt/landfall"
+{ ! has '"box"' "$LANDFALL_CONFIG_DIR/config.json" && ! has "landfall:box" "$LANDFALL_SSH_CONFIG"; } || die "uninstall forgets box"
+pass "server uninstall removes sites, traefik and /opt/landfall, forgets the server"
 
 echo "== fresh server with password"
 FRESH_PORT=${FRESH_PORT:-2223}
@@ -526,5 +519,16 @@ HOME="$WORK/home" node "$ROOT/dist/cli.mjs" setup fresh --no-traefik --no-firewa
 # Host block holds an absolute key path: HOME differs from the passwd home here.
 [ "$(ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes fresh "id -un")" = deploy ] || die "ssh fresh as deploy"; pass "ssh fresh logs in as deploy"
 { docker exec "$NAME-fresh" sshd -T | grep -x >/dev/null 'passwordauthentication no'; } || die "password auth disabled"; pass "password auth disabled"
+HOME="$WORK/home" node "$ROOT/dist/cli.mjs" server uninstall fresh -y </dev/null >"$WORK/fresh-un.log" 2>&1 || { cat "$WORK/fresh-un.log"; die "uninstall fresh"; }
+docker exec "$NAME-fresh" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall ] && [ ! -e /etc/ssh/sshd_config.d/00-landfall.conf ]' || die "uninstall reverts setup"
+{ docker exec "$NAME-fresh" sshd -T | grep -x >/dev/null 'passwordauthentication yes'; } || die "uninstall turns password auth back on"
+pass "server uninstall reverts setup: deploy user, ssh hardening"
+docker exec "$NAME-fresh" pkill nc || true
+mkdir -p "$WORK/freshsite" && echo "fresh site" > "$WORK/freshsite/index.html"
+(cd "$WORK/freshsite" && echo hunter2 | HOME="$WORK/home" node "$ROOT/dist/cli.mjs" deploy -s fresh --host 127.0.0.1 --ssh-port "$FRESH_PORT" \
+  --password-stdin -d fresh.test --no-save -y >"$WORK/fresh-deploy.log" 2>&1) || { cat "$WORK/fresh-deploy.log"; die "deploy sets up a new server"; }
+docker exec "$NAME-fresh" sh -c 'id deploy >/dev/null && docker inspect traefik >/dev/null && [ -f /opt/landfall/sites/freshsite/site.json ]' \
+  || { cat "$WORK/fresh-deploy.log"; die "deploy --host: setup, traefik, site"; }
+pass "deploy --host sets up a new server with the password, then deploys"
 
 echo; pass "all e2e checks"

@@ -6,7 +6,6 @@ import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
 import { support } from "../facts";
 import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login";
-import { migrateServer } from "../legacy";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
 import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, step, warn } from "../ui";
@@ -49,6 +48,12 @@ async function askTraefik(server: Server, o: TraefikInstall) {
   const domain = mainDomain(server);
   o.dashboard ??= (await ask(`dashboard domain, behind basic auth (optional${domain ? ", `off` for none" : ""})`, domain ? `traefik.${domain}` : "")) || undefined;
   if (o.dashboard === "off") o.dashboard = undefined;
+}
+
+/** Runs setup from another command, with setup's defaults for what `o` leaves out. */
+export function setupServer(name: string, o: Record<string, unknown>) {
+  const defaults = Object.fromEntries(Object.entries(setup.options!).flatMap(([k, v]) => ("default" in v ? [[k, v.default]] : [])));
+  return setup.run([name], { ...defaults, ...o }, []);
 }
 
 export const setup = defineCommand({
@@ -131,7 +136,6 @@ dashboard unless given as flags.`,
     // 2. inspect before touching anything
     next("checking what is already set up");
     const probeEnv = { PUBKEY: pubkey, DEPLOY_USER: deployUser };
-    if (!(await migrateServer(login, o))) return;
     const [probe, dockerLatest, composeLatest] = await Promise.all([probeServer(login, probeEnv), latestDocker(), latestCompose()]);
     Object.assign(probe.values, { docker_latest: dockerLatest ?? "", compose_latest: composeLatest ?? "" });
     // The port sshd listens on, which differs from eff.port behind port forwarding.

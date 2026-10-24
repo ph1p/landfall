@@ -226,7 +226,8 @@ export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROX
       usesProxy = true;
       lines.push("    networks:", ...s.networks.map((n) => `      ${q(n)}: {}`), `      ${PROXY_KEY}: {}`);
       if (s.own) labels["traefik.docker.network"] = proxy.network;
-      else labels = routeLabels(meta.name, s, s.domains ?? meta.domains, proxy, meta.auth);
+      // A main service with no domains left stays up, unrouted.
+      else if ((s.domains ?? meta.domains).length) labels = routeLabels(meta.name, s, s.domains ?? meta.domains, proxy, meta.auth);
     }
     labels["landfall.managed"] = "true";
     labels["landfall.site"] = meta.name;

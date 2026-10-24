@@ -39,7 +39,7 @@ const MAX_JOBS = 50;
 const jobs = new Map<string, WebJob>();
 
 /** Commands that make no sense without a terminal, or would start another dashboard. */
-const NO_JOB = new Set(["ui", "web", "tui"]);
+const NO_JOB = new Set(["ui", "web"]);
 
 /** The login token survives restarts, so a bookmarked or still-open page keeps working. */
 function token(): string {
@@ -72,7 +72,7 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
 }
 
 /** The command as the page shows it: passwords given as flags are masked. */
-const shown = (argv: string[]) => argv.map((a, i) => (["-p", "--password"].includes(argv[i - 1]) ? "***" : a.replace(/^(--password=).*/, "$1***")));
+const shown = (argv: string[]) => argv.map((a, i) => (/^(-p|--([\w-]+-)?password)$/.test(argv[i - 1]) ? "***" : a.replace(/^(--([\w-]+-)?password=).*/, "$1***")));
 
 const jobInfo = (w: WebJob) => ({
   id: w.id,
@@ -236,7 +236,7 @@ const cookieToken = (req: Request) =>
     ?.slice("landfall=".length) ?? "";
 
 /**
- * The web dashboard: a local page that does what the terminal dashboard does.
+ * The web dashboard: a local page that runs landfall's commands.
  * It runs commands as `lf` child processes, exactly like typing them, and streams their output.
  */
 export async function webUi(o: { port: number; open: boolean }): Promise<number> {

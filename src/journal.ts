@@ -1,7 +1,6 @@
 import type { Server } from "./config";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { MIGRATED } from "./legacy";
 import { JOURNAL, PRELUDE } from "./templates";
 import { fail } from "./ui";
 
@@ -49,9 +48,6 @@ export function parseJournal(text: string): Run[] {
       if (target) target.undone = true;
       step.reverts = Number(what);
       step.what = `undid: ${target?.what ?? `line ${what}`}`;
-    } else if (what === MIGRATED) {
-      // Their undo shells name srv's paths and containers, which the move renamed.
-      for (const s of byLine.values()) delete s.undo;
     } else if (undo64) step.undo = Buffer.from(undo64, "base64").toString();
     byLine.set(step.line, step);
     run.steps.push(step);
@@ -76,7 +72,7 @@ export function findRun(runs: Run[], ref: string): { run: Run; steps: Step[] } {
 }
 
 /** How a step's undo runs: as the user that made it; root's steps as root or through passwordless sudo. */
-async function loginFor(s: Server, user: string): Promise<{ login: Server; sudo?: boolean }> {
+export async function loginFor(s: Server, user: string): Promise<{ login: Server; sudo?: boolean }> {
   const me = effectiveSsh(s).user;
   if (user === me || me === "root") return { login: s };
   if (user !== "root") return { login: { ...s, user } };

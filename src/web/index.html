@@ -7,16 +7,19 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232563eb'/><path d='M4 5h8M4 8h8M4 11h5' stroke='white' stroke-width='1.6' stroke-linecap='round'/></svg>">
 <style>
 :root {
-  --bg: #f6f7f9; --panel: #fff; --line: #e3e6eb; --text: #1b1f24; --dim: #6a7280; --faint: #9aa1ad;
-  --accent: #2563eb; --accent-bg: #e8effd; --ok: #15803d; --ok-bg: #e5f5ea; --warn: #b45309; --warn-bg: #fdf3e2;
+  /* Three text sizes and three corner radii; headings set their own. */
+  --fs-xs: 11.5px; --fs-sm: 12.5px; --fs: 13px;
+  --r-sm: 6px; --r: 8px; --r-lg: 12px;
+  --bg: #f6f7f9; --panel: #fff; --line: #e3e6eb; --line-strong: #c4c9d2; --text: #1b1f24; --dim: #5f6774; --faint: #6e7582;
+  --accent: #1d4ed8; --accent-bg: #e8effd; --accent-solid: var(--accent); --bad-solid: var(--bad); --ok: #13733a; --ok-bg: #e5f5ea; --warn: #b45309; --warn-bg: #fdf3e2;
   --bad: #c0262d; --bad-bg: #fbe9ea; --term: #11151b; --term-text: #d7dce3; --shadow: 0 1px 2px rgb(0 0 0 / .05), 0 4px 16px rgb(0 0 0 / .06);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0e1116; --panel: #161a21; --line: #262c36; --text: #e4e7ec; --dim: #8b93a1; --faint: #5f6775;
-    --accent: #5b8cff; --accent-bg: #1a2540; --ok: #4ade80; --ok-bg: #12291b; --warn: #f5b34a; --warn-bg: #2d2412;
+    --bg: #0e1116; --panel: #161a21; --line: #262c36; --line-strong: #3a4250; --text: #e4e7ec; --dim: #8b93a1; --faint: #7d8594;
+    --accent: #5b8cff; --accent-bg: #1a2540; --accent-solid: #3366dd; --bad-solid: #cc3333; --ok: #4ade80; --ok-bg: #12291b; --warn: #f5b34a; --warn-bg: #2d2412;
     --bad: #ff6b6b; --bad-bg: #331719; --term: #0a0d11; --term-text: #d7dce3; --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 6px 20px rgb(0 0 0 / .35);
     color-scheme: dark;
   }
@@ -26,52 +29,54 @@ html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-code, .mono { font-family: var(--mono); font-size: 12.5px; }
+code, .mono { font-family: var(--mono); font-size: var(--fs-sm); }
 button {
-  font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
-  padding: 5px 11px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: var(--fs); border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 5px 11px; border-radius: var(--r-sm); cursor: pointer; white-space: nowrap;
 }
 button:hover { border-color: var(--faint); }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button.primary:hover { filter: brightness(1.08); }
 button:disabled { opacity: .5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
 button.danger { color: var(--bad); }
-button.danger.solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.danger.solid { background: var(--bad-solid); border-color: var(--bad-solid); color: #fff; }
+button.danger.solid:hover { filter: brightness(1.08); }
 button.ghost { border-color: transparent; background: transparent; color: var(--dim); }
 button.ghost:hover { color: var(--text); background: var(--bg); }
-button.sm { padding: 2px 8px; font-size: 12px; }
+button.sm { padding: 2px 8px; font-size: var(--fs-sm); }
 input, select, textarea {
-  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; width: 100%;
+  font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 9px; width: 100%;
 }
 input.secret { -webkit-text-security: disc; text-security: disc; }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
-textarea { font-family: var(--mono); font-size: 12.5px; min-height: 90px; }
+input:focus, select:focus, textarea:focus { outline: 3px solid color-mix(in srgb, var(--accent) 30%, transparent); outline-offset: 0; border-color: var(--accent); }
+textarea { font-family: var(--mono); font-size: var(--fs-sm); min-height: 90px; }
 
 .app { display: grid; grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: 52px 1fr; height: 100vh; }
-.app.with-job { grid-template-columns: 250px minmax(0, 1fr) minmax(380px, 40%); }
+.app.with-job { grid-template-columns: 250px minmax(0, 1fr) clamp(360px, 32vw, 520px); }
 header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; letter-spacing: -.01em; color: var(--text); }
 .brand:hover { text-decoration: none; }
 .brand svg { width: 22px; height: 22px; flex: none; }
-.brand small { font-weight: 400; color: var(--faint); font-size: 12px; letter-spacing: 0; }
-.project { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; min-width: 0; }
+.brand small { font-weight: 400; color: var(--faint); font-size: var(--fs-sm); letter-spacing: 0; }
+.project { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: var(--fs); min-width: 0; }
 .project .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36vw; }
 nav.servers { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; display: flex; flex-direction: column; }
 .nav-top { position: sticky; top: 0; z-index: 1; background: var(--panel); display: flex; gap: 6px; padding: 10px 10px 6px; }
-.nav-top input { padding: 5px 9px; font-size: 13px; }
+.nav-top input { padding: 5px 9px; font-size: var(--fs); }
 .nav-top button { flex: none; }
 #navlist { padding: 0 8px 12px; }
-nav h3 { margin: 10px 8px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; display: flex; justify-content: space-between; }
+nav h3 { margin: 10px 8px 4px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; display: flex; justify-content: space-between; }
 nav h3 span { font-weight: 500; letter-spacing: 0; }
-.srv { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: 7px; }
+.srv { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: var(--r-sm); }
 .srv:hover { background: var(--bg); border-color: transparent; }
 .srv.on { background: var(--accent-bg); }
 .srv.on .n { color: var(--accent); }
+.srv.on .t { color: var(--text); }
 .srv .n { font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.srv .t { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-none { color: var(--faint); font-size: 12.5px; padding: 6px 10px; }
-.star { color: var(--warn); font-size: 11px; }
+.srv .t { color: var(--dim); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-none { color: var(--faint); font-size: var(--fs-sm); padding: 6px 10px; }
+.star { color: var(--warn); font-size: var(--fs-xs); }
 main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: inline-size; }
 .show-sm { display: none !important; }
 /* By main's own width, so an open job panel squeezes the tables like a small screen does. */
@@ -83,40 +88,42 @@ main { overflow: auto; padding: 20px 24px 40px; min-width: 0; container-type: in
 .empty { color: var(--dim); text-align: center; padding: 60px 20px; }
 .empty h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
 .head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 20px; margin-bottom: 16px; }
+.head > div:first-child { flex: 1 1 320px; min-width: 0; }
 .head h1 { margin: 0; font-size: 22px; }
-.head .sub { color: var(--dim); font-size: 13px; margin-top: 2px; }
+.head .sub { color: var(--dim); font-size: var(--fs); margin-top: 2px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--dim); flex: none; }
 .tabs button:hover { color: var(--text); }
 .tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow); }
 .card + .card { margin-top: 16px; }
 .card > h2 { margin: 0; padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .card > h2 .actions { font-weight: 400; }
 .card > h2 .sub { font-weight: 400; color: var(--dim); }
-.card > .lede { padding: 10px 16px; color: var(--dim); font-size: 13px; border-bottom: 1px solid var(--line); }
+.card > .lede { padding: 10px 16px; color: var(--dim); font-size: var(--fs); border-bottom: 1px solid var(--line); }
 
 /* "⋯" menus: one floating list at a time, placed by openMenu(). */
 button.more { padding-inline: 7px; letter-spacing: .05em; }
-.menu { position: fixed; z-index: 30; min-width: 180px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: grid; }
-.menu button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; gap: 16px; }
-.menu button:hover, .menu button:focus-visible { background: var(--bg); outline: none; }
+.menu { position: fixed; z-index: 30; min-width: 180px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 4px; display: grid; }
+.menu button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: var(--r-sm); display: flex; justify-content: space-between; gap: 16px; }
+.menu button:hover { background: var(--bg); }
+.menu button:focus-visible { background: var(--accent-bg); outline: 2px solid var(--accent); outline-offset: -2px; }
 .menu button.danger:hover { background: var(--bad-bg); }
-.menu button .k { color: var(--faint); font-family: var(--mono); font-size: 11.5px; }
+.menu button .k { color: var(--faint); font-family: var(--mono); font-size: var(--fs-xs); }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 
 .home { max-width: 860px; margin: 0 auto; padding-top: 20px; }
 .home h1 { margin: 0 0 4px; font-size: 22px; }
 .home > p { color: var(--dim); margin: 0 0 20px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.tile { display: block; text-align: left; padding: 14px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); width: 100%; }
+.tile { display: block; text-align: left; padding: 14px 16px; border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); width: 100%; }
 .tile:hover { border-color: var(--accent); }
 .tile .n { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 6px; }
-.tile .t { color: var(--dim); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .t { color: var(--dim); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile.add { border-style: dashed; box-shadow: none; color: var(--dim); display: grid; place-items: center; min-height: 64px; }
-.cli { margin-top: 28px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--dim); }
+.cli { margin-top: 28px; padding: 14px 16px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); font-size: var(--fs); color: var(--dim); }
 .cli pre { margin: 8px 0 0; font: 12.5px/1.6 var(--mono); color: var(--text); white-space: pre-wrap; }
 .cli pre span { color: var(--faint); }
 
@@ -128,7 +135,7 @@ button.more { padding-inline: 7px; letter-spacing: .05em; }
 td .chips.show-sm { margin-top: 4px; }
 .card .body { padding: 12px 16px; }
 table { border-collapse: collapse; width: 100%; }
-th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { text-align: left; font-weight: 600; font-size: var(--fs-xs); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 tr.click { cursor: pointer; }
@@ -139,18 +146,18 @@ td.acts button { margin-left: 4px; }
 .scroll { overflow-x: auto; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); margin-right: 6px; vertical-align: 1px; }
 .dot.up { background: var(--ok); } .dot.down { background: var(--bad); } .dot.warn { background: var(--warn); }
-.badge { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--bg); color: var(--dim); border: 1px solid var(--line); }
+.badge { display: inline-block; font-size: var(--fs-xs); padding: 1px 7px; border-radius: 99px; background: var(--bg); color: var(--dim); border: 1px solid var(--line); }
 .badge.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
 .badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .badge.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
 .badge.accent { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
 .dim { color: var(--dim); } .faint { color: var(--faint); }
-.note { padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); margin-bottom: 14px; }
+.note { padding: 10px 14px; border-radius: var(--r); background: var(--warn-bg); color: var(--warn); margin-bottom: 14px; }
 .note.bad { background: var(--bad-bg); color: var(--bad); }
 .note.info { background: var(--accent-bg); color: var(--accent); }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; margin: 0; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: var(--fs); margin: 0; }
 .kv dt { color: var(--dim); } .kv dd { margin: 0; }
-pre.block { background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
+pre.block { background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; border-radius: var(--r-sm); overflow-x: auto; font-size: var(--fs-sm); margin: 6px 0 0; }
 .detail td { background: var(--bg); }
 .releases, .services { margin: 0; padding: 0; list-style: none; }
 .services li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
@@ -158,70 +165,78 @@ pre.block { background: var(--bg); border: 1px solid var(--line); padding: 10px 
 .run { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .run:last-child { border-bottom: 0; }
 .run .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.run .cmd { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.run .cmd { font-family: var(--mono); font-weight: 600; font-size: var(--fs); }
 .steps { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; }
-.steps li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; font-size: 13px; }
+.steps li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; font-size: var(--fs); }
 .steps li .ico { width: 16px; text-align: center; flex: none; }
 .steps li.undone, .steps li.fixed { color: var(--faint); }
 .steps li.undone .what { text-decoration: line-through; }
 .steps li button { opacity: 0; }
-.steps li:hover button { opacity: 1; }
+.steps li:hover button, .steps li:focus-within button { opacity: 1; }
 .form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
 .form-row label { flex: 1 1 140px; }
-label { display: block; font-size: 12.5px; color: var(--dim); }
+label { display: block; font-size: var(--fs-sm); color: var(--dim); }
 label > input, label > select, label > textarea { margin-top: 4px; }
-.check { display: flex; gap: 8px; align-items: flex-start; color: var(--text); font-size: 13.5px; }
+.check { display: flex; gap: 8px; align-items: flex-start; color: var(--text); font-size: var(--fs); }
 .check input { width: auto; margin-top: 3px; }
-.hint { font-size: 12px; color: var(--faint); margin-top: 3px; }
+.hint { font-size: var(--fs-sm); color: var(--faint); margin-top: 3px; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
 .loading { color: var(--dim); padding: 30px 0; text-align: center; }
 
 [hidden] { display: none !important; }
 aside.job { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
 .job-head { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
-.job-head .title { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.job-head .title { font-family: var(--mono); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .job-out { flex: 1; overflow: auto; background: var(--term); color: var(--term-text); font: 12.5px/1.5 var(--mono); padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
 .job-out .c-cyan { color: #67d3e8; } .job-out .c-green { color: #6ee7a0; } .job-out .c-yellow { color: #f5c76a; } .job-out .c-red { color: #ff8a8a; } .job-out .c-dim { color: #7b8494; }
 .job-foot { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.job-foot .status { margin-right: auto; font-size: 13px; }
+.job-foot .status { margin-right: auto; font-size: var(--fs); }
 .joblist { border-top: 1px solid var(--line); max-height: 28%; overflow: auto; }
-.joblist button { display: flex; width: 100%; gap: 8px; border: 0; border-radius: 0; text-align: left; background: none; padding: 6px 12px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.joblist button { display: flex; width: 100%; gap: 8px; border: 0; border-radius: 0; text-align: left; background: none; padding: 6px 12px; font-family: var(--mono); font-size: var(--fs-sm); color: var(--dim); }
 .joblist button span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.joblist button.on { background: var(--accent-bg); color: var(--text); }
+.joblist button.on { background: var(--accent-bg); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.joblist .ok { color: var(--ok); } .joblist .bad { color: var(--bad); }
 
-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow); width: min(520px, calc(100vw - 32px)); }
+dialog { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow); width: min(520px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgb(0 0 0 / .35); }
 dialog form { padding: 18px 20px; display: grid; gap: 12px; }
 dialog h2 { margin: 0; font-size: 16px; }
-dialog .text { color: var(--dim); white-space: pre-wrap; font-size: 13.5px; }
+dialog .text { color: var(--dim); white-space: pre-wrap; font-size: var(--fs); }
 dialog .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; display: grid; gap: 8px; }
-legend { font-size: 12.5px; font-weight: 600; padding: 0 4px; }
-.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 10; }
+fieldset { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; margin: 0; display: grid; gap: 8px; }
+legend { font-size: var(--fs-sm); font-weight: 600; padding: 0 4px; }
+.toast { position: fixed; inset: auto auto 16px 50%; transform: translateX(-50%); margin: 0; border: 0; background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: var(--r); font-size: var(--fs); max-width: min(560px, calc(100vw - 32px)); }
+.toast button { margin-left: 10px; background: none; border-color: color-mix(in srgb, var(--bg) 40%, transparent); color: inherit; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.row-toggle { border: 0; background: none; padding: 2px 4px; margin-left: -4px; display: inline-flex; align-items: center; gap: 4px; color: inherit; font-weight: 600; }
+.row-toggle:hover { background: none; text-decoration: underline; }
+.jobs-btn .spin { width: 10px; height: 10px; margin-right: 4px; }
+.dlg-err { margin: 0; }
 .server-pick { display: none; }
-.facts { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--dim); font-size: 12.5px; margin-top: 4px; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--dim); font-size: var(--fs-sm); margin-top: 4px; }
 .facts b { color: var(--text); font-weight: 500; }
 .chips { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 .chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
 .chip a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip button { padding: 0 5px; font-size: 12px; opacity: .55; }
-.chip button:hover { opacity: 1; }
-.lock { font-size: 11px; margin-left: 4px; }
+.chip button { padding: 0 5px; font-size: var(--fs-sm); min-width: 24px; min-height: 24px; color: var(--faint); }
+.chip:hover button, .chip button:focus-visible { color: var(--text); }
+.lock { font-size: var(--fs-xs); margin-left: 4px; }
 dialog.wide { width: min(680px, calc(100vw - 32px)); }
-.list { display: grid; border: 1px solid var(--line); border-radius: 8px; max-height: 260px; overflow: auto; }
+.list { display: grid; border: 1px solid var(--line); border-radius: var(--r); max-height: 260px; overflow: auto; }
 .list .row { display: flex; gap: 10px; align-items: baseline; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); text-align: left; background: none; padding: 6px 10px; min-width: 0; }
 .list .row:last-child { border-bottom: 0; }
 .list .row:hover { background: var(--bg); }
 .list .row .mono { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
-.crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-size: 12.5px; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-size: var(--fs-sm); }
 .crumbs button { padding: 1px 4px; }
-.detected { font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
-.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 12px; text-align: center; color: var(--dim); font-size: 13px; }
-.drop label { display: inline; color: var(--accent); cursor: pointer; font-size: 13px; }
+.detected { font-size: var(--fs); padding: 8px 12px; border-radius: var(--r); background: var(--bg); }
+.drop { border: 1.5px dashed var(--line); border-radius: var(--r); padding: 12px; text-align: center; color: var(--dim); font-size: var(--fs); }
+.drop label { display: inline; color: var(--accent); cursor: pointer; font-size: var(--fs); }
 body.dragging::after {
   content: "Drop a folder or .zip to deploy it"; position: fixed; inset: 12px; z-index: 20; display: grid; place-items: center;
-  border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--bg) 85%, transparent); color: var(--accent); font-size: 18px; font-weight: 600; pointer-events: none;
+  border: 2px dashed var(--accent); border-radius: var(--r-lg); background: color-mix(in srgb, var(--bg) 85%, transparent); color: var(--accent); font-size: 18px; font-weight: 600; pointer-events: none;
 }
 
 @media (max-width: 1100px) {
@@ -232,7 +247,7 @@ body.dragging::after {
   .app, .app.with-job { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52px auto 1fr; }
   header { padding: 0 12px; gap: 8px; }
   .brand small { display: none; }
-  .project button { padding: 5px 9px; font-size: 13px; white-space: nowrap; }
+  .project button { padding: 5px 9px; font-size: var(--fs); white-space: nowrap; }
   nav.servers { display: none; }
   .server-pick { display: block; padding: 10px 16px 0; }
   main { padding: 14px 16px 40px; }
@@ -254,9 +269,11 @@ body.dragging::after {
   </nav>
   <div class="server-pick" id="pick"></div>
   <main id="main"></main>
-  <aside class="job" id="job" hidden></aside>
+  <aside class="job" id="job" aria-label="Command output" hidden></aside>
 </div>
-<dialog id="dlg"></dialog>
+<dialog id="dlg" aria-labelledby="dlg-title"></dialog>
+<div class="toast" id="toast" role="status" popover="manual"></div>
+<div class="sr" id="sr-live" role="status"></div>
 <script>
 "use strict";
 const $ = (s, el = document) => el.querySelector(s);
@@ -299,13 +316,32 @@ async function http(path, body) {
   return data;
 }
 
+// One live region in the top layer, so it shows (and is announced) above an open dialog too.
+// action: {label, run} adds a button, e.g. to open the job a toast is about.
 let toastTimer;
-function toast(msg) {
-  let t = $(".toast");
-  if (!t) document.body.append((t = Object.assign(document.createElement("div"), { className: "toast" })));
+function toast(msg, action) {
+  const t = $("#toast");
   t.textContent = msg;
+  if (action) {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "sm", textContent: action.label });
+    b.onclick = () => (hideToast(), action.run());
+    t.append(b);
+  }
+  t.hidePopover?.();
+  t.showPopover?.();
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.remove(), 3500);
+  toastTimer = setTimeout(hideToast, Math.max(4000, msg.length * 70) + (action ? 4000 : 0));
+}
+function hideToast() {
+  $("#toast").hidePopover?.();
+}
+$("#toast").onmouseenter = () => clearTimeout(toastTimer);
+$("#toast").onmouseleave = () => (toastTimer = setTimeout(hideToast, 2000));
+/** Tell screen readers about a change that has no visible text of its own. */
+function say(text) {
+  const r = $("#sr-live");
+  r.textContent = "";
+  setTimeout(() => (r.textContent = text), 50);
 }
 
 // Buttons call functions registered per render: data-k="<id>".
@@ -316,15 +352,16 @@ function on(fn) {
   handlers.set(k, fn);
   return `data-k="${k}"`;
 }
-function btn(label, fn, cls = "", title = "") {
-  return `<button type="button" class="${cls}" ${on(fn)}${title ? ` title="${esc(title)}"` : ""}>${label}</button>`;
+/** f: a key that stays the same across renders, so the button keeps its keyboard focus when redrawn. */
+function btn(label, fn, cls = "", title = "", f = "") {
+  return `<button type="button" class="${cls}" ${on(fn)}${title ? ` title="${esc(title)}"` : ""}${f ? ` data-f="${esc(f)}"` : ""}>${label}</button>`;
 }
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-k]");
   const menu = $("#menu");
   // A click outside an open menu only closes it.
   if (menu && !e.target.closest("#menu")) {
-    closeMenu();
+    closeMenu(false);
     e.preventDefault();
     return void e.stopPropagation();
   }
@@ -344,14 +381,17 @@ document.addEventListener("click", (e) => {
 function menuBtn(items, title = "More actions", cls = "sm") {
   items = items.filter(Boolean);
   if (!items.length) return "";
-  return btn("⋯", (e, el) => openMenu(el, items), `${cls} more`, title);
+  return btn("⋯", (e, el) => openMenu(el, items), `${cls} more`, title).replace("<button", `<button aria-haspopup="menu" aria-expanded="false" aria-label="${esc(title)}"`);
 }
+let menuAnchor = null;
 function openMenu(anchor, items) {
-  closeMenu();
+  closeMenu(false);
+  menuAnchor = anchor;
+  anchor.setAttribute("aria-expanded", "true");
   const m = Object.assign(document.createElement("div"), { id: "menu", className: "menu" });
   m.setAttribute("role", "menu");
   m.innerHTML = items
-    .map((it, i) => it === "-" ? "<hr>" : `<button type="button" role="menuitem" data-i="${i}" class="${it.cls ?? ""}"${it.title ? ` title="${esc(it.title)}"` : ""}><span>${esc(it.label)}</span>${it.hint ? `<span class="k">${esc(it.hint)}</span>` : ""}</button>`)
+    .map((it, i) => it === "-" ? `<hr role="separator">` : `<button type="button" role="menuitem" data-i="${i}" class="${it.cls ?? ""}"${it.title ? ` title="${esc(it.title)}"` : ""}><span>${esc(it.label)}</span>${it.hint ? `<span class="k">${esc(it.hint)}</span>` : ""}</button>`)
     .join("");
   m.onclick = (e) => {
     const b = e.target.closest("button[data-i]");
@@ -365,19 +405,31 @@ function openMenu(anchor, items) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length].focus();
+    } else if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      all[e.key === "Home" ? 0 : all.length - 1].focus();
     }
   };
+  m.addEventListener("focusout", (e) => {
+    if (!m.contains(e.relatedTarget)) closeMenu(false);
+  });
   document.body.append(m);
   const r = anchor.getBoundingClientRect();
   m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
   m.style.top = `${r.bottom + 4 + m.offsetHeight > innerHeight - 8 ? Math.max(8, r.top - m.offsetHeight - 4) : r.bottom + 4}px`;
   $("button", m)?.focus({ preventScroll: true });
 }
-function closeMenu() {
-  $("#menu")?.remove();
+/** restore: focus goes back to the "⋯" button (Esc, or an item that opens no dialog). */
+function closeMenu(restore = true) {
+  const m = $("#menu");
+  if (!m) return;
+  m.remove();
+  menuAnchor?.setAttribute("aria-expanded", "false");
+  if (restore && menuAnchor?.isConnected) menuAnchor.focus({ preventScroll: true });
+  menuAnchor = null;
 }
-addEventListener("resize", closeMenu);
-document.addEventListener("scroll", closeMenu, true);
+addEventListener("resize", () => closeMenu(false));
+document.addEventListener("scroll", (e) => e.target.closest?.("#menu") || closeMenu(false), true);
 
 // ---- routing: #/<server>/<tab> ---------------------------------------------
 
@@ -390,7 +442,7 @@ function route() {
   const [, name, tab] = location.hash.split("/");
   S.sel = name ? decodeURIComponent(name) : null;
   S.tab = tab in STORE ? tab : "sites";
-  if (S.sel) load(S.sel, S.tab);
+  if (S.sel && server()) load(S.sel, S.tab);
   render();
 }
 window.addEventListener("hashchange", route);
@@ -400,13 +452,14 @@ window.addEventListener("hashchange", route);
 const STORE = { sites: "overview", facts: "facts", updates: "updates", firewall: "firewall", history: "history", settings: "settings" };
 const URLS = { sites: "", facts: "/facts", updates: "/updates", firewall: "/firewall", history: "/history", settings: "/config" };
 
+// The overview and facts drive the header, so every tab needs them.
+const needs = (tab) => (tab === "sites" ? ["sites", "facts"] : ["sites", "facts", tab]);
 function load(name, tab, force = false) {
-  // The overview and facts drive the header, so every tab needs them.
-  const needed = tab === "sites" ? ["sites", "facts"] : ["sites", "facts", tab];
-  for (const t of needed) {
+  for (const t of needs(tab)) {
     const store = S[STORE[t]];
     if (store[name] && !force) continue;
-    store[name] = { loading: true };
+    // Keep what is shown while it reloads; views show a spinner only when they have nothing yet.
+    store[name] = { ...store[name], loading: true, error: undefined };
     http(`/api/servers/${encodeURIComponent(name)}${URLS[t]}`).then(
       (data) => ((store[name] = { data }), render()),
       (e) => ((store[name] = { error: e.message }), render()),
@@ -414,8 +467,11 @@ function load(name, tab, force = false) {
   }
 }
 function invalidate(name) {
-  for (const k of [...Object.values(STORE), "dns"]) delete S[k][name];
-  if (S.sel === name) load(name, S.tab);
+  delete S.dns[name];
+  // What is on screen reloads in place; other tabs reload when opened.
+  const shown = new Set(S.sel === name ? needs(S.tab).map((t) => STORE[t]) : []);
+  for (const k of Object.values(STORE)) if (!shown.has(k)) delete S[k][name];
+  if (S.sel === name) load(name, S.tab, true);
 }
 async function refreshState() {
   S.state = await http("/api/state");
@@ -440,6 +496,7 @@ async function run(argv, o = {}) {
   S.job = info.id;
   stream(j);
   render();
+  say(`Running lf ${argv.join(" ")}`);
 }
 
 function stream(j) {
@@ -469,7 +526,12 @@ function finished(j) {
   j.actions = (j.after && j.after(j)) || [];
   // Safety checks refuse what would lock out ssh or break running services; --force overrides after reading why.
   if (failed && !info.argv.includes("--force") && j.lines.some((l) => l.includes("--force"))) {
-    j.actions.push({ label: "Do it anyway (--force)", cls: "danger", run: () => run([...info.argv, "--force"], { server: info.server }) });
+    const why = j.lines.map((l) => l.replace(ANSI, "").trim()).filter(Boolean).slice(-4).join("\n");
+    j.actions.push({
+      label: "Do it anyway (--force)…",
+      cls: "danger",
+      run: () => confirmDlg({ title: "Override the safety check?", text: why, ok: "Run with --force", danger: true, onOk: () => run([...info.argv, "--force"], { server: info.server }) }),
+    });
   }
   if (info.undoable && info.server && info.code !== null) {
     j.actions.push({
@@ -486,7 +548,17 @@ function finished(j) {
   if (info.server) invalidate(info.server);
   refreshState().catch(() => {});
   render();
+  const what = `lf ${info.argv.join(" ")} ${info.code === 0 ? "done" : info.code === null ? "stopped" : `failed (exit ${info.code})`}`;
+  // Closed or showing another job: say so, with a way back to it.
+  if (S.job !== info.id) toast(`${info.code === 0 ? "✓" : "✗"} ${what}`, { label: "Show", run: () => showJob(info.id) });
+  else say(what);
 }
+function showJob(id) {
+  S.job = id;
+  render();
+  $("#job .job-out")?.focus({ preventScroll: true });
+}
+const runningJobs = () => [...S.jobs.values()].filter((j) => j.info.code === undefined);
 
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 function lineClass(l) {
@@ -532,33 +604,51 @@ function renderJob() {
         ? `<span style="color:var(--ok)">✓ done</span>`
         : `<span style="color:var(--bad)">✗ failed (exit ${info.code})</span>`;
   const others = [...S.jobs.values()].reverse();
+  const stop = () => {
+    const doStop = () => http(`/api/jobs/${info.id}/stop`, {}).catch((e) => toast(e.message));
+    if (!info.undoable) return doStop();
+    confirmDlg({ title: `Stop lf ${info.argv[0]}?`, text: "What it changed so far stays. Undo it from History.", ok: "Stop it", danger: true, onOk: doStop });
+  };
+  // The output element stays across renders: rebuilding it would lose the reader's scroll position.
+  let out = $(".job-out", el);
+  const fresh = !out || out.dataset.job !== info.id;
+  if (fresh) {
+    out = Object.assign(document.createElement("div"), { className: "job-out", tabIndex: 0 });
+    out.dataset.job = info.id;
+    out.setAttribute("role", "region");
+    out.setAttribute("aria-label", "Output");
+  }
   el.innerHTML = `
     <div class="job-head">
       <span class="title" title="${esc("lf " + info.argv.join(" "))}">$ lf ${esc(info.argv.join(" "))}</span>
-      ${btn("✕", () => ((S.job = null), render()), "ghost sm", "Close (Esc)")}
+      ${btn("✕", () => ((S.job = null), render()), "ghost sm", "Close (Esc)", "job-close").replace("<button", `<button aria-label="Close output"`)}
     </div>
-    <div class="job-out"></div>
+    <div class="job-out-slot"></div>
     <div class="job-foot">
       <span class="status">${status}</span>
-      ${running ? btn("Stop", () => http(`/api/jobs/${info.id}/stop`, {}).catch((e) => toast(e.message)), "danger") : ""}
-      ${(running ? [] : j.actions).map((a, i) => btn(esc(a.label), a.run, a.cls ?? (i === 0 ? "primary" : ""))).join("")}
+      ${running ? btn("Stop", stop, "danger", info.undoable ? "Changes made so far stay" : "", "job-stop") : ""}
+      ${(running ? [] : j.actions).map((a, i) => btn(esc(a.label), a.run, a.cls ?? (i === 0 ? "primary" : ""), "", `job-act:${a.label}`)).join("")}
     </div>
     ${others.length > 1 ? `<div class="joblist">${others
-      .map((o) => `<button type="button" class="${o.info.id === S.job ? "on" : ""}" ${on(() => ((S.job = o.info.id), render()))}>
-        <span>${o.info.code === undefined ? "…" : o.info.code === 0 ? "✓" : o.info.code === null ? "■" : "✗"}</span><span>lf ${esc(o.info.argv.join(" "))}</span></button>`)
+      .map((o) => {
+        const [cls, ico] = o.info.code === undefined ? ["", "…"] : o.info.code === 0 ? ["ok", "✓"] : o.info.code === null ? ["", "■"] : ["bad", "✗"];
+        return `<button type="button" class="${o.info.id === S.job ? "on" : ""}" data-f="job:${o.info.id}" ${on(() => showJob(o.info.id))}>
+        <span class="${cls}">${ico}</span><span>lf ${esc(o.info.argv.join(" "))}</span></button>`;
+      })
       .join("")}</div>` : ""}`;
+  $(".job-out-slot", el).replaceWith(out);
   appendOutput(j);
-  const out = $("#job .job-out");
-  out.scrollTop = out.scrollHeight;
+  if (fresh) out.scrollTop = out.scrollHeight;
 }
 
 // ---- dialogs -------------------------------------------------------------
 
 /**
  * A modal form. fields: [{name, label, value, type: text|password|textarea|select|check, options, hint, placeholder}].
- * onOk(values) runs on submit; return false to keep it open.
+ * onOk(values) runs on submit; return false to keep it open, or {field, error} to keep it open and show why.
+ * typeToConfirm: a name the user types before the (dangerous) action is enabled.
  */
-function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk, extra = "" }) {
+function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk, extra = "", typeToConfirm = "" }) {
   const dlg = openDlg();
   const field = (f) => {
     const id = `f-${f.name}`;
@@ -576,34 +666,54 @@ function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk
     return `<label>${esc(f.label)}<input id="${id}" name="${f.name}" type="${f.type || "text"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="off" spellcheck="false">${hint}</label>`;
   };
   const group = (f) => (f.legend ? `<fieldset><legend>${esc(f.legend)}</legend>${f.fields.map(field).join("")}</fieldset>` : field(f));
-  dlg.innerHTML = `<form method="dialog">
-    <h2>${esc(title)}</h2>
+  dlg.innerHTML = `<form method="dialog" novalidate>
+    <h2 id="dlg-title">${esc(title)}</h2>
     ${text ? `<div class="text">${esc(text)}</div>` : ""}
     ${extra}
     ${fields.map(group).join("")}
+    ${typeToConfirm ? `<label>Type <b class="mono">${esc(typeToConfirm)}</b> to confirm<input id="dlg-confirm" autocomplete="off" spellcheck="false" autocapitalize="off"></label>` : ""}
+    <div class="note bad dlg-err" id="dlg-err" role="alert" hidden></div>
     <div class="btns">
       <button type="button" value="cancel" class="ghost" id="dlg-cancel">Cancel</button>
       <button type="submit" value="ok" class="${danger ? "danger solid" : "primary"}">${esc(ok)}</button>
     </div>
   </form>`;
   const form = $("form", dlg);
+  const submit = $("button[type=submit]", form);
   $("#dlg-cancel", dlg).onclick = () => dlg.close();
+  if (typeToConfirm) {
+    submit.disabled = true;
+    $("#dlg-confirm", dlg).oninput = (e) => (submit.disabled = e.target.value.trim() !== typeToConfirm);
+  }
+  form.oninput = (e) => e.target.removeAttribute?.("aria-invalid");
   form.onsubmit = (e) => {
     e.preventDefault();
+    if (submit.disabled) return;
     const values = {};
     for (const f of fields.flatMap((f) => f.fields ?? [f])) {
       const el = form.elements[f.name];
       values[f.name] = f.type === "check" ? el.checked : el.value;
     }
-    if (onOk(values) === false) return;
+    const r = onOk(values);
+    if (r === false) return;
+    if (r?.error) {
+      const err = $("#dlg-err", dlg), el = r.field && form.elements[r.field];
+      err.textContent = r.error;
+      err.hidden = false;
+      el?.setAttribute("aria-invalid", "true");
+      el?.focus();
+      return;
+    }
     // Empty before closing: browsers offer to save a password they still see when the form goes away.
     for (const el of form.querySelectorAll(".secret")) el.value = "";
     dlg.close();
   };
   dlg.showModal();
+  // A dangerous confirm starts on Cancel, so a stray Enter does not delete anything.
   const first = $("input:not([type=checkbox]), textarea, select", form);
-  (first || $("button[type=submit]", form)).focus();
+  (first || (danger ? $("#dlg-cancel", dlg) : submit)).focus();
 }
+const invalid = (field, error) => ({ field, error });
 /**
  * Passwords here are for servers and sites, not for this page: a masked text field, so browsers
  * and password managers do not offer to save them. Browsers without text masking get a password field.
@@ -621,7 +731,7 @@ function openDlg(cls = "") {
 const confirmDlg = (o) => dialog({ ...o, onOk: () => o.onOk() });
 const promptDlg = (title, text, field, onOk, ok = "OK") => dialog({ title, text, fields: [{ name: "v", ...field }], ok, onOk: (v) => onOk(v.v.trim()) });
 
-// ---- server flows (mirror the terminal dashboard) -------------------------
+// ---- server flows ----------------------------------------------------------
 
 const sv = (n) => ["-s", n];
 const server = () => S.state?.servers.find((s) => s.name === S.sel);
@@ -730,10 +840,10 @@ function addServer() {
     ok: "Add",
     onOk: (v) => {
       const [name, host, user, port, key] = [v.name, v.host, v.user, v.port, v.key].map((x) => x.trim());
-      if (!name) return false;
+      if (!name) return invalid("name", "Give the server a name");
       const known = S.state.servers.some((s) => s.name === name);
-      if (!known && !host) return void toast(`${name} is not in your ssh config: give its IP or hostname`), false;
-      if (port && !/^\d+$/.test(port)) return void toast("The port is a number"), false;
+      if (!known && !host) return invalid("host", `${name} is not in your ssh config: give its IP or hostname`);
+      if (port && !/^\d+$/.test(port)) return invalid("port", "The port is a number");
       const args = [name, ...(host ? ["--host", host] : []), ...(user ? ["-u", user] : []), ...(port ? ["-p", port] : []), ...(key ? ["-i", key] : [])];
       // With a password: install the key now, then the setup wizard needs nothing but the alias.
       const then = (j) => (j.info.code === 0 ? void (v.setup ? setupWizard([name]) : go(name)) : undefined);
@@ -797,15 +907,23 @@ function deployDialog(det, o = {}) {
             { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
           ]
         : []),
+      { name: "authUser", label: "Login user (optional)", placeholder: "admin", hint: "Visitors log in with this user and password (HTTP basic auth). Empty: no change; set or remove it later with Password… on the site." },
+      { name: "authPassword", label: "Login password (at least 8 characters)", type: "password" },
     ],
     ok: "Deploy",
     onOk: (v) => {
       const n = v.name.trim();
-      if (!n || !v.server) return false;
+      if (!n) return invalid("name", "Give the site a name");
+      if (!v.server) return invalid("server", "Pick a server");
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...domains.flatMap((d) => ["-d", d])];
       if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
       if (v.spa && !p?.spa) argv.push("--spa");
+      const user = v.authUser.trim();
+      if (user && !/^[A-Za-z0-9._@-]{1,64}$/.test(user)) return invalid("authUser", "Only letters, digits and . _ @ -");
+      if (user && v.authPassword.length < 8) return invalid("authPassword", "The password needs at least 8 characters");
+      if (!user && v.authPassword) return invalid("authUser", "Give a user for the password");
+      if (user) argv.push("--auth-user", user, "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
@@ -957,8 +1075,10 @@ function domainsDialog(n, m) {
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
       if (v.free) domains.push(free);
       if (v.apex) domains.push(main);
-      if (!domains.length) return void toast("A site needs at least one domain"), false;
-      run(["domains", m.name, ...sv(n), ...domains.flatMap((d) => ["--set", d]), "-y"], { server: n });
+      // None left: the site keeps running, unrouted.
+      const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
+      if (!args.length) return;
+      run(["domains", m.name, ...sv(n), ...args, "-y"], { server: n });
     },
   });
 }
@@ -978,8 +1098,8 @@ function authDialog(n, m) {
     ok: "Save",
     onOk: (v) => {
       if (v.off) return void run(["auth", m.name, ...sv(n), "--off", "-y"], { server: n });
-      if (!v.user.trim()) return void toast("Give a user name"), false;
-      if (v.password.length < 8) return void toast("The password needs at least 8 characters"), false;
+      if (!v.user.trim()) return invalid("user", "Give a user name");
+      if (v.password.length < 8) return invalid("password", "The password needs at least 8 characters");
       run(["auth", m.name, ...sv(n), "-u", v.user.trim(), "-p", v.password], { server: n });
     },
   });
@@ -1021,6 +1141,7 @@ function forget(n) {
     text: "Removes it from landfall (and the Host block landfall wrote to ~/.ssh/config).\nNothing on the server is changed.",
     ok: `Forget ${n}`,
     danger: true,
+    typeToConfirm: n,
     onOk: () => run(["server", "rm", n, "-y"], { server: n, after: (j) => (j.info.code === 0 ? void go(null) : undefined) }),
   });
 }
@@ -1044,7 +1165,7 @@ function renderNav() {
   const aliases = list.filter((s) => !s.registered);
   const q = S.filter.toLowerCase();
   const hit = (s) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
-  const item = (s) => `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
+  const item = (s) => `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}"${s.name === S.sel ? ` aria-current="page"` : ""} data-f="srv:${esc(s.name)}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
       <div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
       <div class="t">${esc(s.target)}</div></button>`;
   const group = (title, l) => {
@@ -1055,7 +1176,7 @@ function renderNav() {
   $("#add-server").textContent = list.length < 8 ? "+ Add server" : "+";
   $("#navlist").innerHTML = `${group("Servers", own)}${group("From ~/.ssh/config", aliases)}
     ${list.length ? "" : `<div class="nav-none">No servers yet.</div>`}`;
-  $("#pick").innerHTML = `<select onchange="go(this.value || null)">
+  $("#pick").innerHTML = `<select aria-label="Server" onchange="go(this.value || null)">
     <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}</option>`).join("")}
   </select>`;
 }
@@ -1064,7 +1185,11 @@ function renderHeader() {
   const st = S.state;
   $("#version").textContent = st.version;
   const p = st.project;
-  $("#project").innerHTML = `
+  const running = runningJobs().length;
+  const jobsBtn = S.jobs.size && !S.job
+    ? btn(`${running ? `<span class="spin" aria-hidden="true"></span>` : ""}Jobs${running ? ` · ${running} running` : ""}`, () => showJob([...S.jobs.keys()].pop()), "jobs-btn", "Show command output", "jobs")
+    : "";
+  $("#project").innerHTML = `${jobsBtn}
     <span class="path" title="${esc(st.cwd)}">${p ? `<b>${esc(p.name)}</b> · ${esc(p.domains.join(", "))}` : esc(st.cwd.replace(/^\/(Users|home)\/[^/]+/, "~"))}</span>
     ${btn("Deploy folder…", () => folderDialog(st.cwd), "", "Pick a folder, a recent project, or drop one here")}
     ${btn(p ? "Deploy" : "Deploy this folder", deployHere, "primary", p ? `lf deploy (.landfall.json in ${st.cwd})` : `lf deploy from ${st.cwd}`)}`;
@@ -1079,7 +1204,10 @@ function errorHint(error) {
 
 const isUp = (status) => /^up/i.test(status);
 // A one-off service that finished (Exited (0)) is not down: grey, not red.
-const statusDot = (status) => `<span class="dot ${isUp(status) ? (/unhealthy|restarting/i.test(status) ? "warn" : "up") : /^exited \(0\)/i.test(status) ? "" : "down"}"></span>`;
+const statusDot = (status) => {
+  const [cls, word] = isUp(status) ? (/unhealthy|restarting/i.test(status) ? ["warn", "unhealthy"] : ["up", "running"]) : /^exited \(0\)/i.test(status) ? ["", "finished"] : ["down", "down"];
+  return `<span class="dot ${cls}" role="img" aria-label="${word}" title="${esc(status)}"></span>`;
+};
 
 const size = (b) => {
   const u = ["B", "K", "M", "G", "T"];
@@ -1120,6 +1248,11 @@ function renderMain() {
   if (!S.sel) return void (main.innerHTML = homeView());
   const n = S.sel;
   const s = server();
+  if (!s) {
+    return void (main.innerHTML = `<div class="card"><div class="body empty"><h2>No server named ${esc(n)}</h2>
+      <p>It is not in landfall's list or in ~/.ssh/config (anymore).</p>
+      <p>${btn("All servers", () => go(null), "primary")} ${btn("Add a server…", addServer)}</p></div></div>`);
+  }
   const ov = S.overview[n] ?? { loading: true };
   const o = ov.data;
   const traefik = o
@@ -1128,14 +1261,16 @@ function renderMain() {
       : o.ready ? `<span class="dot down"></span>no traefik` : ""
     : "";
   const sub = [esc(s?.target ?? ""), s && !s.registered ? "from ~/.ssh/config" : "", traefik].filter(Boolean).join(" · ");
-  const tab = (t, label) => `<button type="button" class="${S.tab === t ? "on" : ""}" ${on(() => go(n, t))}>${label}</button>`;
+  const tab = (t, label) => `<button type="button" class="${S.tab === t ? "on" : ""}"${S.tab === t ? ` aria-current="page"` : ""} data-f="tab:${t}" ${on(() => go(n, t))}>${label}</button>`;
+  // Reloading with something already on screen: keep it, show a small spinner.
+  const reloading = needs(S.tab).some((t) => S[STORE[t]][n]?.loading && S[STORE[t]][n]?.data);
   main.innerHTML = `
     <div class="head">
       <div><h1>${esc(n)}${s?.isDefault ? ` <span class="star" title="default server">★</span>` : ""}</h1><div class="sub">${sub}</div>${factsLine(n)}</div>
       <div class="actions">
         ${btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying")}
         ${btn("Run…", () => runCommand(n), "", "Run a shell command over ssh")}
-        ${btn("↻", () => load(n, S.tab, true) || render(), "", "Reload")}
+        ${btn("↻", () => (load(n, S.tab, true), render()), "", "Reload", "reload").replace("<button", `<button aria-label="Reload"`)}
         ${menuBtn([
           { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
           { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) },
@@ -1146,15 +1281,16 @@ function renderMain() {
       </div>
     </div>
     ${factsNote(n)}
-    <div class="tabs">${tab("sites", `Sites${o ? ` <span class="badge">${o.sites.length}</span>` : ""}`)}${tab("updates", `Updates${updatesBadge(n)}`)}${tab("firewall", "Firewall")}${tab("history", "History")}${tab("settings", "Settings")}</div>
+    <div class="tabs">${tab("sites", `Sites${o ? ` <span class="badge">${o.sites.length}</span>` : ""}`)}${tab("updates", `Updates${updatesBadge(n)}`)}${tab("firewall", "Firewall")}${tab("history", "History")}${tab("settings", "Settings")}${reloading ? `<span class="spin" role="img" aria-label="reloading" style="align-self:center;margin-left:8px"></span>` : ""}</div>
     <div id="view"></div>`;
   const view = $("#view");
-  if (ov.loading) view.innerHTML = `<div class="loading"><span class="spin"></span> connecting to ${esc(n)}…</div>`;
+  if (ov.loading && !o) view.innerHTML = `<div class="loading"><span class="spin"></span> connecting to ${esc(n)}…</div>`;
   else if (ov.error) {
     const hint = errorHint(ov.error);
     view.innerHTML = `<div class="note bad"><b>Cannot reach ${esc(n)}.</b> ${esc(hint)}<div class="mono" style="margin-top:6px">${esc(ov.error)}</div></div>
       <div class="actions" style="margin:0">${btn("Set up", () => setupFlow([n]), "primary")} ${btn("Retry", () => (load(n, S.tab, true), render()))}</div>`;
-  } else if (S.tab === "sites") view.innerHTML = sitesView(n, o);
+  } else if (!o) view.innerHTML = "";
+  else if (S.tab === "sites") view.innerHTML = sitesView(n, o);
   else if (S.tab === "updates") view.innerHTML = updatesView(n);
   else if (S.tab === "firewall") view.innerHTML = firewallView(n);
   else if (S.tab === "settings") view.innerHTML = settingsView(n);
@@ -1188,7 +1324,7 @@ function othersCard(n, o) {
   const links = (e) => e.domains.map((d) => `<span class="chip"><a href="https://${esc(d)}" target="_blank" rel="noopener">${esc(d)}</a></span>`).join("");
   return `<div class="card scroll"><h2>Not deployed by landfall <span class="badge">${o.others.length}</span></h2>
     <div class="lede">Containers your Traefik routes, e.g. your own compose projects. Adopting one lists it as a site with logs, restart and stop; it keeps running from its folder.</div>
-    <table><thead><tr><th>Name</th><th class="hide-sm">Domains</th><th class="hide-sm">Folder</th><th></th></tr></thead><tbody>${o.others
+    <table><thead><tr><th>Name</th><th class="hide-sm">Domains</th><th class="hide-sm">Folder</th><th><span class="sr">Actions</span></th></tr></thead><tbody>${o.others
       .map((e) => `<tr><td><div class="site-name">${statusDot(e.status)}<b>${esc(e.name)}</b>&nbsp;<span class="faint">${esc(e.status.toLowerCase())}</span></div>
           <div class="chips show-sm">${links(e)}</div></td>
         <td class="hide-sm"><div class="chips">${links(e)}</div></td>
@@ -1229,13 +1365,16 @@ function sitesView(n, o) {
             : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay.\nThis cannot be undone.",
           ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
           danger: true,
+          typeToConfirm: m.adopted ? "" : name,
           onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]),
         });
       const svcMenu = (x) =>
         menuBtn([
           { label: "Logs", hint: `lf logs ${name} ${x.service}`, run: () => run(["logs", name, x.service, ...sv(n), "-f"]) },
           { label: "Restart", hint: "lf restart", run: () => run(["restart", name, x.service, ...sv(n)]) },
-          { label: isUp(x.status) ? "Stop" : "Start", hint: `lf ${isUp(x.status) ? "stop" : "start"}`, run: () => run([isUp(x.status) ? "stop" : "start", name, x.service, ...sv(n)]) },
+          isUp(x.status)
+            ? { label: "Stop…", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${x.service} of ${name}?`, text: "It stays stopped until you start it again.", ok: "Stop it", danger: true, onOk: () => run(["stop", name, x.service, ...sv(n)]) }) }
+            : { label: "Start", hint: "lf start", run: () => run(["start", name, x.service, ...sv(n)]) },
         ], `${x.service} of ${name}`, "sm ghost");
       const acts = [
         proj && !m.adopted
@@ -1244,7 +1383,9 @@ function sitesView(n, o) {
         old ? "" : btn("Logs", () => run(["logs", name, ...sv(n), "-f"]), "sm", "Follow the logs of all its services"),
         menuBtn([
           old ? null : { label: "Restart", hint: "lf restart", run: () => run(["restart", name, ...sv(n)]) },
-          old ? null : { label: up ? "Stop" : "Start", hint: `lf ${up ? "stop" : "start"}`, run: () => run([up ? "stop" : "start", name, ...sv(n)]) },
+          old ? null
+          : up ? { label: "Stop…", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${name}?`, text: `${domains.join(", ") || "The site"} stops answering until you start it again.`, ok: "Stop it", danger: true, onOk: () => run(["stop", name, ...sv(n)]) }) }
+          : { label: "Start", hint: "lf start", run: () => run(["start", name, ...sv(n)]) },
           managed && older.length
             ? { label: "Roll back…", hint: "lf rollback", title: `To ${older[0].id} (${ago(older[0].at)})`, run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }) }
             : null,
@@ -1280,7 +1421,7 @@ function sitesView(n, o) {
           </dl></td></tr>`
         : "";
       return `<tr class="click" ${on(toggle)}>
-        <td><div class="site-name">${statusDot(status)}<b>${esc(name)}</b>${m.auth?.length ? `<span class="lock" title="password protected">🔒</span>` : ""} <span class="faint">${open ? "▾" : "▸"}</span></div>
+        <td><div class="site-name">${statusDot(status)}<button type="button" class="row-toggle" aria-expanded="${open}" data-f="row:${esc(name)}" ${on(toggle)}><b>${esc(name)}</b> <span class="faint" aria-hidden="true">${open ? "▾" : "▸"}</span></button>${m.auth?.length ? `<span class="lock" title="password protected" role="img" aria-label="password protected">🔒</span>` : ""}</div>
           <div class="chips show-sm">${domains.map((d) => domainChip(n, d)).join("")}</div></td>
         <td class="hide-sm"><div class="chips">${domains.map((d) => domainChip(n, d)).join("")}</div></td>
         <td class="hide-sm"><span class="badge" title="${esc(services.map((x) => x.service).join(", "))}">${esc(kind)}</span>${services.length > 1 ? ` <span class="faint">${services.length} services</span>` : ""}</td>
@@ -1289,7 +1430,7 @@ function sitesView(n, o) {
     })
     .join("");
   return `<div class="card scroll"><table>
-    <thead><tr><th>Site</th><th class="hide-sm">Domains</th><th class="hide-sm">Kind</th><th class="hide-sm">Deployed</th><th></th></tr></thead>
+    <thead><tr><th>Site</th><th class="hide-sm">Domains</th><th class="hide-sm">Kind</th><th class="hide-sm">Deployed</th><th><span class="sr">Actions</span></th></tr></thead>
     <tbody>${rows}</tbody></table></div>${othersCard(n, o)}`;
 }
 
@@ -1353,7 +1494,7 @@ function refreshUpdates(n) {
 
 function updatesView(n) {
   const st = S.updates[n] ?? { loading: true };
-  if (st.loading) return `<div class="loading"><span class="spin"></span> ${st.refreshing ? "refreshing package lists…" : "checking packages and images…"}</div>`;
+  if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> ${st.refreshing ? "refreshing package lists…" : "checking packages and images…"}</div>`;
   if (st.error) return `<div class="note bad">${esc(st.error)}</div><div class="actions" style="margin:0">${btn("Retry", () => (load(n, "updates", true), render()))}</div>`;
   const { packages: p, images, engine: e } = st.data;
   const s = sv(n);
@@ -1429,7 +1570,7 @@ const REACH = { open: "ok", limited: "accent", blocked: "bad", local: "" };
 
 function firewallView(n) {
   const st = S.firewall[n] ?? { loading: true };
-  if (st.loading) return `<div class="loading"><span class="spin"></span> reading the firewall…</div>`;
+  if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> reading the firewall…</div>`;
   if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
   const fw = st.data;
   const s = sv(n);
@@ -1453,11 +1594,11 @@ function firewallView(n) {
       const port = r.port ? `${r.port}${r.proto ? `/${r.proto}` : ""}` : "";
       return `<tr>
         <td class="faint">${num}</td>
-        <td>${btn(`<span class="badge ${cls}">${esc(r.action)}${r.out ? " out" : ""}</span>`, () => fwRun(["firewall", "update", num, "--action", flip, ...s]), "ghost sm", `Switch to ${flip}`)}</td>
+        <td>${btn(`<span class="badge ${cls}">${esc(r.action)}${r.out ? " out" : ""}</span>`, () => confirmDlg({ title: `Switch rule ${num} to ${flip}?`, text: `${r.spec}${r.from ? ` from ${r.from}` : ""}`, ok: `Switch to ${flip}`, danger: flip === "deny", onOk: () => fwRun(["firewall", "update", r.spec, "--action", flip, ...s]) }), "ghost sm", `Switch to ${flip}`)}</td>
         <td class="mono">${esc(port || r.spec)}</td>
         <td>${r.from ? `<span class="mono">${esc(r.from)}</span>` : `<span class="dim">anywhere</span>`}</td>
         <td class="dim hide-sm">${esc(r.comment ?? "")}</td>
-        <td class="acts">${btn("Edit", () => editRule(n, num, r), "sm")}${btn("Remove", () => confirmDlg({ title: `Remove rule ${num}?`, text: r.spec, ok: "Remove it", danger: true, onOk: () => fwRun(["firewall", "rm", num, ...s, "-y"]) }), "sm danger")}</td>
+        <td class="acts">${btn("Edit", () => editRule(n, num, r), "sm")}${btn("Remove", () => confirmDlg({ title: `Remove rule ${num}?`, text: r.spec, ok: "Remove it", danger: true, onOk: () => fwRun(["firewall", "rm", r.spec, ...s, "-y"]) }), "sm danger")}</td>
       </tr>`;
     })
     .join("");
@@ -1470,7 +1611,7 @@ function firewallView(n) {
       <h2>ufw ${badge} <span class="dim" style="font-weight:400">incoming default: ${esc(fw.policy.toLowerCase())} · ssh on ${esc(fw.sshPort)}${fw.asRoot ? " · as root" : ""}</span>
         <span class="actions">${toggle}</span></h2>
       <div class="scroll"><table>
-        <thead><tr><th>#</th><th>Action</th><th>Port</th><th>From</th><th class="hide-sm">Comment</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Action</th><th>Port</th><th>From</th><th class="hide-sm">Comment</th><th><span class="sr">Actions</span></th></tr></thead>
         <tbody>${ruleRows || `<tr><td colspan="6" class="dim">no rules</td></tr>`}</tbody>
       </table></div>
       <div class="body" style="border-top:1px solid var(--line)">
@@ -1498,7 +1639,9 @@ document.addEventListener("submit", (e) => {
   const port = f.port.value.trim();
   if (!port) return;
   const from = f.from.value.trim();
-  run(["firewall", f.action.value, port, ...sv(S.sel), ...(from && from !== "anywhere" ? ["--from", from] : [])], { server: S.sel });
+  const action = f.action.value;
+  e.target.reset();
+  run(["firewall", action, port, ...sv(S.sel), ...(from && from !== "anywhere" ? ["--from", from] : [])], { server: S.sel });
 });
 
 function editRule(n, num, r) {
@@ -1513,7 +1656,8 @@ function editRule(n, num, r) {
     ],
     ok: "Save",
     onOk: (v) => {
-      const argv = ["firewall", "update", num, ...sv(n)];
+      // By its text, not its number: numbers shift when another firewall command lands first.
+      const argv = ["firewall", "update", r.spec, ...sv(n)];
       if (v.port.trim() && v.port.trim() !== port) argv.push("--port", v.port.trim());
       argv.push("--from", v.from.trim() || "any");
       if (v.action !== r.action) argv.push("--action", v.action);
@@ -1526,7 +1670,7 @@ function editRule(n, num, r) {
 
 function settingsView(n) {
   const st = S.settings[n] ?? { loading: true };
-  if (st.loading) return `<div class="loading"><span class="spin"></span> reading the settings…</div>`;
+  if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> reading the settings…</div>`;
   if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
   const x = st.data;
   const reload = { server: n, after: (j) => (j.info.code === 0 ? void (load(n, "settings", true), render()) : undefined) };
@@ -1612,7 +1756,7 @@ function settingsView(n) {
 
 function historyView(n) {
   const st = S.history[n] ?? { loading: true };
-  if (st.loading) return `<div class="loading"><span class="spin"></span> reading the journal…</div>`;
+  if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> reading the journal…</div>`;
   if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
   const runs = st.data;
   if (!runs.length) return `<div class="card"><div class="body empty"><h2>Nothing yet</h2><p>Every change landfall makes on ${esc(n)} is logged here, with a way to undo it.</p></div></div>`;
@@ -1650,7 +1794,7 @@ function historyView(n) {
   return `
     <div class="card">
       <h2>Journal <span class="dim" style="font-weight:400">/opt/landfall/journal.log · newest first</span>
-        <span class="actions">${total ? btn("Undo everything", () => confirmDlg({ title: `Undo everything landfall did on ${n}?`, text: `${plural(total, "change")}, newest first. Sites, Traefik, the deploy user and landfall's firewall rules go away.`, ok: "Revert everything", danger: true, onOk: () => undo(["--all"]) }), "sm danger") : ""}</span></h2>
+        <span class="actions">${total ? btn("Undo everything", () => confirmDlg({ title: `Undo everything landfall did on ${n}?`, text: `${plural(total, "change")}, newest first. Sites, Traefik, the deploy user and landfall's firewall rules go away.`, ok: "Revert everything", danger: true, typeToConfirm: n, onOk: () => undo(["--all"]) }), "sm danger") : ""}</span></h2>
       ${items}
     </div>`;
 }
@@ -1662,16 +1806,28 @@ function render() {
   // Every render re-registers the buttons it draws (dialogs wire their own buttons).
   handlers = new Map();
   const scroll = $("#main").scrollTop;
+  // innerHTML drops the focused button: find its redrawn twin by its data-f key.
+  const f = document.activeElement?.dataset?.f;
+  // So is what someone was typing into the add-rule form.
+  const form = $("#addrule"), typed = form && [...form.elements].filter((el) => el.name).map((el) => [el.name, el.value]);
+  const typing = form?.contains(document.activeElement) && document.activeElement.name;
   renderHeader();
   renderNav();
   renderMain();
   renderJob();
   $("#main").scrollTop = scroll;
+  const again = typed && $("#addrule");
+  if (again) {
+    for (const [k, v] of typed) again.elements[k].value = v;
+    if (typing) again.elements[typing].focus({ preventScroll: true });
+  }
+  if (f && !document.activeElement?.closest?.("#dlg, #menu")) [...document.querySelectorAll("[data-f]")].find((el) => el.dataset.f === f)?.focus({ preventScroll: true });
+  document.title = S.sel ? `${S.sel} · ${S.tab} · landfall` : "landfall";
 }
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#menu")) return closeMenu();
-  if (e.key === "Escape" && !$("#dlg").open && S.job) {
+  if (e.key === "Escape" && !$("#dlg").open && S.job && !e.target.closest?.("input, textarea, select")) {
     S.job = null;
     render();
   }
@@ -1687,17 +1843,22 @@ $("#add-server").onclick = () => addServer();
   try {
     await refreshState();
     // Jobs started before a reload keep running on the server: list them, and show one still running.
+    const old = [];
     for (const info of S.state.jobs.slice().reverse()) {
       const j = { info, lines: [], actions: [] };
       S.jobs.set(info.id, j);
       if (info.code === undefined) stream(j);
-      else {
-        const full = await http(`/api/jobs/${info.id}`);
-        j.lines = full.lines;
-      }
+      else old.push(j);
     }
     S.job = S.state.jobs.find((j) => j.code === undefined)?.id ?? null;
     route();
+    // Finished jobs' output only matters once someone opens them: fetch it after the page is up.
+    for (const j of old) {
+      http(`/api/jobs/${j.info.id}`).then((full) => {
+        j.lines = full.lines;
+        if (S.job === j.info.id) render();
+      }, () => {});
+    }
   } catch (e) {
     $("#main").innerHTML = `<div class="empty"><h2>lf ui</h2><p>${esc(e.message)}</p></div>`;
   }

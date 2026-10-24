@@ -121,7 +121,7 @@ export interface External {
 
 /**
  * Group containers that carry Traefik router rules by compose project. Skips landfall's own
- * sites (and srv's, before the migration), projects landfall adopted, the proxy itself, and
+ * sites, projects landfall adopted, the proxy itself, and
  * traefik.enable=false.
  */
 export function externals(
@@ -132,7 +132,7 @@ export function externals(
 ): External[] {
   const out = new Map<string, External>();
   for (const { name, labels } of ctrs) {
-    if (name === proxy || labels["landfall.managed"] || labels["srv.managed"] || labels["traefik.enable"] === "false") continue;
+    if (name === proxy || labels["landfall.managed"] || labels["traefik.enable"] === "false") continue;
     const project = labels["com.docker.compose.project"];
     if (project && sites.has(project)) continue;
     const hosts = Object.entries(labels)
@@ -419,7 +419,7 @@ export const siteLogs = (s: Server, name: string, o: { service?: string; tail?: 
     `cd -P ${shq(siteDir(name) + "/current")} && docker compose logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${o.service ? shq(o.service) : ""}`,
   ]);
 
-function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: boolean } = {}): string[] {
+export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: boolean } = {}): string[] {
   const dir = siteDir(meta.name);
   const v = o.volumes ? " -v" : "";
   const images = meta.adopted ? [] : meta.releases.flatMap((r) => builtImages(meta, r));

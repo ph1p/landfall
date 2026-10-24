@@ -41,10 +41,8 @@ export async function claimDomains(server: Server, serverName: string, site: str
       fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
     }
     if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);
-    if (taken.length === m.domains.length) {
-      fail(`${taken.join(", ")} ${taken.length > 1 ? "are" : "is"} all ${m.name} serves: give it another domain first (lf domains ${m.name} --add <domain>) or remove it (lf sites rm ${m.name})`);
-    }
-    await confirmRemoval(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${site}?`);
+    const left = taken.length === m.domains.length ? ` ${m.name} keeps running with no domain.` : "";
+    await confirmRemoval(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${site}?${left}`);
   }
   return async () => {
     for (const m of others) {
@@ -53,7 +51,7 @@ export async function claimDomains(server: Server, serverName: string, site: str
       m.updatedAt = new Date().toISOString();
       await applySite(server, m, proxy, { keep: m.releases.length, prev, what: `moved ${prev.domains.filter((d) => domains.includes(d)).join(", ")} from ${m.name} to ${site}` });
       updateProjectDomains(serverName, m.name, m.domains);
-      info(c.dim(`${m.name} keeps ${m.domains.join(", ")}`));
+      info(c.dim(m.domains.length ? `${m.name} keeps ${m.domains.join(", ")}` : `${m.name} serves no domain now`));
     }
   };
 }
@@ -97,12 +95,14 @@ and update .landfall.json of remembered projects.`,
     next = [...new Set([...next, ...lower(o.add)])].filter((d) => !lower(o.rm).includes(d));
     const bad = next.filter((d) => !DOMAIN.test(d));
     if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
-    if (!next.length) fail("a site needs at least one domain");
     const missing = lower(o.rm).filter((d) => !meta.domains.includes(d));
     if (missing.length) warn(`${missing.join(", ")} not on ${site}`);
     if (next.join() === meta.domains.join()) return ok("nothing to change");
     const dropped = meta.domains.filter((d) => !next.includes(d));
-    if (dropped.length) await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.`);
+    if (dropped.length) {
+      const left = next.length ? "" : ` ${site} keeps running, unreachable until it gets a domain again.`;
+      await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.${left}`);
+    }
     const move = await claimDomains(server, serverName, site, next.filter((d) => !meta.domains.includes(d)), proxy);
 
     const prev = structuredClone(meta);
@@ -113,7 +113,8 @@ and update .landfall.json of remembered projects.`,
     updateProjectDomains(serverName, site, next);
     const here = loadProject(process.cwd());
     if (here?.name === site) saveProject(process.cwd(), { ...here, domains: next });
-    ok(`${site} serves ${next.map((d) => c.cyan(`https://${d}`)).join(", ")}`);
+    if (!next.length) ok(`${site} serves no domain now ${c.dim(`(lf domains ${site} --add <domain> routes it again)`)}`);
+    else ok(`${site} serves ${next.map((d) => c.cyan(`https://${d}`)).join(", ")}`);
     const ips = await serverIps(server);
     for (const d of await checkDns(next.filter((d) => !prev.domains.includes(d)), ips)) {
       if (!d.ok) warn(`${d.domain} ${d.ips.length ? `points at ${d.ips.join(", ")}` : "has no DNS record"}, not ${ips.join(" or ")}: HTTPS waits for it`);
