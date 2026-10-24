@@ -2,6 +2,14 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import stringWidth from "string-width";
 
+/** All of stdin, for secrets passed as --*-stdin / `-` instead of on the command line (where `ps` shows them). */
+export const readStdin = async () => {
+  if (process.stdin.isTTY) fail("expected the value on stdin, e.g. printf %s \"$SECRET\" | lf …");
+  let out = "";
+  for await (const chunk of process.stdin) out += chunk;
+  return out;
+};
+
 const color = process.stdout.isTTY && !process.env.NO_COLOR;
 const wrap = (code: string) => (s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
 
@@ -21,6 +29,17 @@ export const info = (msg: string) => console.error(`  ${msg}`);
 export const warn = (msg: string) => console.error(`${c.yellow("!")} ${msg}`);
 
 export class CliError extends Error {}
+/** Starts a marker line on stderr: what follows is JSON for the web UI, not text to show. */
+export const REPORT = "\x1e";
+
+/**
+ * Tell the web UI (which runs lf as a job) a fact it acts on, such as a tunnel's address, instead
+ * of it reading the text output. Outside a web job this prints nothing.
+ */
+export function report(data: Record<string, unknown>) {
+  if (process.env.LANDFALL_REPORT) process.stderr.write(`${REPORT}${JSON.stringify(data)}\n`);
+}
+
 export const fail = (msg: string): never => {
   throw new CliError(msg);
 };
@@ -64,7 +83,7 @@ export async function confirmRemoval(question: string, typed?: string): Promise<
 
 export async function confirm(question: string, def = true): Promise<boolean> {
   if (assumeYes) return true;
-  if (!process.stdin.isTTY) return def;
+  if (!process.stdin.isTTY) fail(`${question} Pass -y to confirm (no terminal to ask).`);
   const answer = (await ask(`${question} ${def ? "[Y/n]" : "[y/N]"}`, def ? "y" : "n")).toLowerCase();
   return answer.startsWith("y");
 }

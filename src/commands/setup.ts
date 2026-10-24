@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
-import { checkDomain, loadConfig, mainDomain, withPrimary, saveConfig, tildify, type Server } from "../config";
+import { checkDomain, checkEmail, loadConfig, mainDomain, withPrimary, saveConfig, tildify, type Server } from "../config";
 import { canLogin, runScript } from "../ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
@@ -8,7 +8,7 @@ import { support } from "../facts";
 import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
-import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, step, warn } from "../ui";
+import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "./traefik";
 
 export const keygen = defineCommand({
@@ -44,7 +44,10 @@ async function askTraefik(server: Server, o: TraefikInstall) {
     info(c.dim("host network: traefik sees real client IPs (also IPv6) and ufw guards 80/443; default publishes the ports via Docker"));
     o.hostNetwork = await confirm("run traefik on the host network?", false);
   }
-  if (o.email === undefined && server.email === undefined) o.email = (await ask("Let's Encrypt e-mail (optional)", "")) || undefined;
+  if (o.email === undefined && server.email === undefined) {
+    const typed = (await ask("Let's Encrypt e-mail (optional)", "")).trim();
+    o.email = typed ? checkEmail(typed) : undefined;
+  }
   const domain = mainDomain(server);
   o.dashboard ??= (await ask(`dashboard domain, behind basic auth (optional${domain ? ", `off` for none" : ""})`, domain ? `traefik.${domain}` : "")) || undefined;
   if (o.dashboard === "off") o.dashboard = undefined;
@@ -117,9 +120,14 @@ dashboard unless given as flags.`,
     };
     // Re-running setup on a server we already set up: landfall now logs in as the
     // deploy user, but bootstrapping needs root, which kept key-only access.
+    // Root may be locked: then the sudo user that bootstrapped it the first time.
     if (!o.user && o["deploy-user"] && effectiveSsh(login).user === o["deploy-user"]) {
-      const asRoot = { ...login, user: "root" };
-      if (await canLogin(asRoot)) login.user = "root";
+      let admin: string | undefined;
+      for (const user of ["root", existing?.admin]) {
+        if (!admin && user && (await canLogin({ ...login, user }))) admin = user;
+      }
+      if (admin) login.user = admin;
+      else warn(`${o["deploy-user"]} can't change the system and root's key login does not work; pass -u <a sudo user> if setup fails`);
     }
     const eff = effectiveSsh(login);
     step(`setting up ${c.bold(name)} ${c.dim(`(${eff.user}@${eff.hostname}:${eff.port})`)}`);
@@ -150,7 +158,7 @@ dashboard unless given as flags.`,
     });
     const traefik = checks.find((ch) => ch.part === "traefik");
     const tOpts: TraefikInstall = {
-      email: o.email,
+      email: o.email && checkEmail(o.email),
       staging: o.staging,
       image: o.image,
       hostNetwork: o["host-network"],
@@ -164,6 +172,7 @@ dashboard unless given as flags.`,
     info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}`);
     if (os.note) (os.level === "ok" ? info : warn)(os.note);
     printChecks(checks);
+    report({ checks: checks.map(({ part, label, status, detail }) => ({ part, label, status, detail })) });
     if (o.check) return;
     const apply = await decide(checks, o.force);
     const firstTraefik = ownTraefik && traefik.status === "todo" && interactive();
@@ -191,6 +200,7 @@ dashboard unless given as flags.`,
           SSH_PORT: sshPort,
           HARDEN: apply.has("harden"),
           FIREWALL: apply.has("firewall"),
+          HTTP3: (tOpts.http3 ?? existing?.http3) !== false,
         },
       });
       ok("server bootstrapped");
@@ -212,6 +222,7 @@ dashboard unless given as flags.`,
     next("ssh config + landfall config");
     const entry = serverEntry(name, target, keyPath, { existing, sshConfig: o["ssh-config"], ownAlias: isOwnAlias, port: o.port, keyGiven: !!o.key });
     if (domain) entry.domains = withPrimary(entry.domains, domain);
+    if (eff.user !== "root" && effectiveSsh(target).user !== eff.user) entry.admin = eff.user;
     cfg.servers[name] = entry;
     cfg.default ??= name;
     saveConfig(cfg);

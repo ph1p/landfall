@@ -146,9 +146,9 @@ drop_line() { # drop_line <file> <line>: remove an exact line, keeping the file'
   t=$($SUDO grep -vxF -- "$2" "$1" || true)
   { [ -z "$t" ] || printf '%s\n' "$t"; } | $SUDO tee "$1" >/dev/null
 }
-ufw_add() { # ufw_add [prepend] <rule...>: add a ufw rule, journaled with its delete
+ufw_add() { # ufw_add [prepend | insert N] <rule...>: add a ufw rule, journaled with its delete
   out=$($SUDO ufw "$@") || return 1
-  [ "$1" != prepend ] || shift
+  case "$1" in prepend) shift ;; insert) shift 2 ;; esac
   case "$out" in
     *Skipping*) ;;
     # ufw rewrote a rule that differed only in action/comment (limit 22 -> allow 22): deleting it
@@ -288,7 +288,7 @@ if [ "$FIREWALL" = 1 ] && command -v ufw >/dev/null 2>&1; then
   ufw_add allow "$SSH_PORT/tcp"
   ufw_add allow 80/tcp
   ufw_add allow 443/tcp
-  ufw_add allow 443/udp # HTTP/3
+  [ "$HTTP3" != 1 ] || ufw_add allow 443/udp
   ufw_enable
 fi
 
@@ -299,22 +299,27 @@ if [ "$HARDEN" = 1 ] && [ -d /etc/ssh ]; then
   if [ "$($SUDO sshd -T 2>/dev/null | awk '$1 == "permitrootlogin" {print $2}')" = no ]; then root_login=no; fi
   # 00- so it wins over cloud-init's 50-cloud-init.conf: sshd keeps the first value it reads.
   want=$(printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login")
+  undo=""
   if [ "$($SUDO cat ${SSHD_CONF} 2>/dev/null || true)" != "$want" ]; then
     $SUDO install -d /etc/ssh/sshd_config.d
     undo=$(saved ${SSHD_CONF})
     printf '%s\n' "$want" | $SUDO tee ${SSHD_CONF} >/dev/null
-    if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
-      undo="$undo; $(saved /etc/ssh/sshd_config)"
-      printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
-    fi
-    if $SUDO sshd -t; then
-      sshd_reload
-      record "hardened sshd (keys only, root login $root_login)" "$undo; sshd_reload"
-    else
-      log "sshd config test failed, putting the old config back"
-      eval "$undo"
-    fi
   fi
+  if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
+    if [ -n "$undo" ]; then undo="$undo; "; fi
+    undo="$undo$(saved /etc/ssh/sshd_config)"
+    printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
+  fi
+  if [ -z "$undo" ]; then :
+  elif $SUDO sshd -t; then
+    sshd_reload
+    record "hardened sshd (keys only, root login $root_login)" "$undo; sshd_reload"
+  else
+    log "sshd config test failed, putting the old config back"
+    eval "$undo"
+  fi
+  pw=$($SUDO sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n')
+  [ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
 fi
 log "bootstrap done"
 `;
@@ -359,7 +364,10 @@ kv sites "$(ls ${SITES} 2>/dev/null | wc -l | tr -d ' ')"
 kv network "$(yn S docker network inspect ${NETWORK})"
 kv proxy "$(grep -v '^#' ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
 if command -v ufw >/dev/null 2>&1; then kv ufw "$(S ufw status 2>/dev/null | awk 'NR == 1 {print $2}')"; else kv ufw missing; fi
-kv hardened "$(yn test -f ${SSHD_CONF})"
+# Hardened = what sshd really uses (a Match block or an earlier file can override ours). Without
+# root, sshd -T prints nothing: then our file is all there is to go by.
+pw=$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n')
+if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi
 kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
 kv password_users "$(S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null)"
 f=${TRAEFIK_DIR}/docker-compose.yml

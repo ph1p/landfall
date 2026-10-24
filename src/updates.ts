@@ -9,9 +9,11 @@ import { fail } from "./ui";
 export async function adminLogin(s: Server, what: string): Promise<Server> {
   const { stdout } = await runScript(s, `{ [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; } && echo yes || true`, { capture: true });
   if (stdout.trim() === "yes") return s;
-  const root = { ...s, user: "root" };
-  if (effectiveSsh(s).user !== "root" && (await canLogin(root))) return root;
-  return fail(`${what} needs root or passwordless sudo; ${effectiveSsh(s).user} has neither and root's key login does not work`);
+  const me = effectiveSsh(s).user;
+  for (const user of ["root", s.admin]) {
+    if (user && user !== me && (await canLogin({ ...s, user }))) return { ...s, user };
+  }
+  return fail(`${what} needs root or passwordless sudo; ${me} has neither and root's key login does not work`);
 }
 
 // ---------------------------------------------------------------- OS packages
@@ -50,6 +52,10 @@ case "$m" in
   apk)
     refresh S apk update -q
     apk version -l '<' 2>/dev/null | awk 'NR > 1 {print "apk=" $1 "\t" $3}' ;;
+  zypper)
+    refresh S zypper -q -n refresh
+    # v | Repository | Name | Current Version | Available Version | Arch
+    zypper -q -n list-updates 2>/dev/null | awk -F' *[|] *' '$1 == "v" {print "pkg=" $3 "\t" $4 "\t" $5 "\t" $2}' ;;
 esac
 [ -f /var/run/reboot-required ] && echo reboot=1
 exit 0

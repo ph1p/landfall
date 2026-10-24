@@ -24,7 +24,7 @@ import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 import { journal } from "./ssh";
-import { c, CliError, setAssumeYes } from "./ui";
+import { c, CliError, report, setAssumeYes } from "./ui";
 import pkg from "../package.json";
 
 const commands: Command[] = [
@@ -192,7 +192,11 @@ async function run(argv: string[]): Promise<number> {
   try {
     return await main(argv);
   } catch (e) {
-    if (e instanceof CliError) console.error(`${c.red("error:")} ${e.message}`);
+    if (e instanceof CliError) {
+      console.error(`${c.red("error:")} ${e.message}`);
+      // A safety check refused: the web UI offers to run it again with --force.
+      if (/--force\b/.test(e.message)) report({ force: e.message });
+    }
     else console.error(e);
     return 1;
   }

@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
-import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readSite, siteDir, validName } from "../remote";
+import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
-import { ask, c, confirm, fail, info, interactive, ok, step, warn } from "../ui";
+import { ask, c, confirm, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
 import { composeFile, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
@@ -67,7 +67,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     port: { type: "string", desc: "container port (image/dockerfile; default: EXPOSE or 3000)" },
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
-    "env-file": { type: "string", desc: "merge a local .env file into the site's .env" },
+    "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
     build: { type: "string", short: "b", desc: "run this command locally first (e.g. 'npm run build')" },
     keep: { type: "string", desc: "releases to keep for rollback", default: "5" },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
@@ -117,7 +117,11 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
     const image = imageArg && checkImage(imageArg);
     const root = resolve(cwd, dirArg ?? project.dir ?? ".");
-    const compose = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
+    const named = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
+    const compose = named && normalize(named);
+    // The file becomes the release's compose.yaml, at the root of the upload: from a subfolder its relative
+    // paths (build: ., ./data:/data) would point elsewhere.
+    if (compose?.includes("/")) fail(`${named} is not in the folder deployed; deploy its folder instead: lf deploy ${dirname(join(relative(cwd, root) || ".", compose))} -f ${basename(compose)}`);
     if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
     const detected = detectBuild(cwd);
     const dir = compose || image ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
@@ -144,11 +148,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     let env: string | undefined;
     if (o.env?.length || o["env-file"]) {
       env = prevEnv;
-      if (o["env-file"]) env = mergeEnv(env, parseEnvPairs(dotenvLines(fs.readFileSync(o["env-file"], "utf8"))));
+      if (o["env-file"]) env = mergeEnv(env, await readEnvFile(o["env-file"]));
       if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env));
     }
 
-    const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id));
+    // A takeover removes the old layout's release folders: the new id must not be one of them.
+    const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id));
     const releaseDir = `${siteDir(name)}/releases/${id}`;
     const generated: Record<string, string> =
       kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
@@ -246,17 +251,13 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
 
     ok(`release ${c.bold(id)} live`);
     for (const d of all) console.log(`  ${c.cyan(`https://${d}`)}`);
+    if (all[0]) report({ url: `https://${all[0]}` });
     if (all[0]) await checkLive(all[0]);
   },
 });
 
 /** Turn dotenv text into KEY=VALUE pairs, dropping comments and blanks. */
-function dotenvLines(text: string): string[] {
-  return text
-    .split("\n")
-    .map((l) => l.trim().replace(/^export\s+/, ""))
-    .filter((l) => l && !l.startsWith("#") && l.includes("="));
-}
+
 
 async function checkLive(domain: string) {
   try {

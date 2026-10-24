@@ -30,6 +30,9 @@ const GLOBAL_OPTS: Record<string, OptSpec> = {
   yes: { type: "boolean", short: "y", desc: "assume yes / defaults for prompts" },
 };
 
+/** `--dashboard-password` → `LANDFALL_SECRET_DASHBOARD_PASSWORD`. */
+export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase().replace(/-/g, "_")}`;
+
 export function parse(cmd: Command, argv: string[]) {
   const dd = argv.indexOf("--");
   const own = cmd.passthrough && dd >= 0 ? argv.slice(0, dd) : argv;
@@ -38,6 +41,10 @@ export function parse(cmd: Command, argv: string[]) {
   for (const [k, { desc, ...spec }] of Object.entries({ ...GLOBAL_OPTS, ...cmd.options })) options[k] = spec;
   try {
     const { values, positionals } = parseArgs({ args: own, options, allowPositionals: true, allowNegative: true });
+    // Passwords may come from the environment instead (the web UI passes them so): argv shows in `ps`.
+    for (const k of Object.keys(cmd.options ?? {})) {
+      if (/(^|-)password$/.test(k) && values[k] === undefined && process.env[secretEnv(k)]) values[k] = process.env[secretEnv(k)];
+    }
     return { values: values as Record<string, any>, positionals, rest };
   } catch (e: any) {
     return fail(`${e.message}\n\n${usage(cmd)}`);

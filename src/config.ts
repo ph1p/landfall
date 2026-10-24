@@ -25,6 +25,8 @@ export interface Server {
    * name like `blog` means blog.<primary>. The others are listed and DNS-checked too.
    */
   domains?: string[];
+  /** The sudo user that bootstrapped the server when root couldn't log in: re-runs and admin tasks use it. */
+  admin?: string;
   /** Traefik dashboard, remembered so re-running traefik setup keeps it. */
   dashboard?: { host: string; user: string; htpasswd: string };
 }
@@ -99,11 +101,33 @@ export function resolveServer(name?: string): { name: string; server: Server } {
     else if (names.length === 0) fail("no server given. Use --server <ssh-alias> or `lf server add`");
     else fail(`several servers configured (${names.join(", ")}); pick one with --server or \`lf server use\``);
   }
+  if (!/^[A-Za-z0-9._@:\[\]-]+$/.test(name!) || name!.startsWith("-")) fail(`not a server name: ${name}`);
   const server = cfg.servers[name!] ?? { host: name! };
   return { name: name!, server };
 }
 
+/** A name landfall writes into ~/.ssh: a `Host` line and the key file `landfall_<name>`. */
+export const checkAlias = (name: string) => {
+  if (!/^[A-Za-z0-9_@:\[\]][A-Za-z0-9._@:\[\]-]*$/.test(name)) fail(`not a server name: ${name} (letters, digits and . _ - @ : only)`);
+  return name;
+};
+
 export const DOMAIN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+
+/** Basic-auth and dashboard logins: the web UI checks its forms with these too. */
+export const LOGIN_NAME = /^[A-Za-z0-9._@-]{1,64}$/;
+export const MIN_PASSWORD = 8;
+
+export const checkLoginName = (user: string, flag = "user") => {
+  if (!LOGIN_NAME.test(user)) fail(`${flag} may only have letters, digits and . _ @ -`);
+  return user;
+};
+
+/** The Let's Encrypt contact; it lands in Traefik's command line, so no spaces or quotes. */
+export const checkEmail = (e: string) => {
+  if (!/^[^\s@"'`$\\]+@[^\s@"'`$\\]+\.[^\s@"'`$\\]+$/.test(e)) fail(`not an e-mail address: ${e}`);
+  return e;
+};
 
 /** A main domain as typed (`*.example.com` too), lower-cased; fails on anything else. */
 export const checkDomain = (d: string) => {

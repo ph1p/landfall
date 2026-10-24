@@ -1,10 +1,12 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer, type Server } from "../config";
 import { enableBlocks, parseRule, probeServer, reachability, ruleFor, type Probe, type Reach, type Rule } from "../inventory";
-import { canLogin, runScript, shq } from "../ssh";
+import { runScript, shq } from "../ssh";
 import { effectiveSsh } from "../sshconfig";
 import { PRELUDE } from "../templates";
+import { adminLogin } from "../updates";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn } from "../ui";
+import { firewallView } from "../views";
 
 export interface FirewallState {
   /** The login that may change the firewall: the server's own if it has sudo, else root. */
@@ -25,11 +27,7 @@ export async function firewallState(server: Server): Promise<FirewallState> {
   let login = server;
   let probe = await probeServer(login);
   if (probe.values.sudo !== "1") {
-    const root = { ...server, user: "root" };
-    if (effectiveSsh(server).user === "root" || !(await canLogin(root))) {
-      fail(`the firewall needs root or passwordless sudo; ${effectiveSsh(server).user} has no sudo and root's key login does not work`);
-    }
-    login = root;
+    login = await adminLogin(server, "the firewall");
     probe = await probeServer(login);
   }
   const v = probe.values;
@@ -71,9 +69,19 @@ const ufwAdd = (args: string[]) => `ufw_add ${args.map(shq).join(" ")}`;
 /** Adds a rule; a deny goes first so it wins over an allow for the same port (ufw rejects prepend on an empty list). */
 const addRule = (args: string[]) => (args[0] === "deny" ? `${ufwAdd(["prepend", ...args])} 2>/dev/null || ${ufwAdd(args)}` : ufwAdd(args));
 /** Journals the delete of an existing rule with the shell that adds it back. */
-const deleteRule = (r: Rule) =>
+/** Re-adds a deleted rule: at its old number when known, else where its action belongs. */
+const readd = (r: Rule, at?: number) =>
+  `${at ? `$SUDO ufw insert ${at} ${r.spec} >/dev/null 2>&1 || ` : ""}$SUDO ufw ${r.action === "allow" || r.action === "limit" ? "" : "prepend "}${r.spec} >/dev/null 2>&1 || $SUDO ufw ${r.spec} >/dev/null`;
+
+const deleteRule = (r: Rule, at?: number) =>
   `$SUDO ufw --force delete ${r.spec} >/dev/null
-record ${shq(`ufw delete ${r.spec}`)} ${shq(`$SUDO ufw ${r.action === "allow" || r.action === "limit" ? "" : "prepend "}${r.spec} >/dev/null 2>&1 || $SUDO ufw ${r.spec} >/dev/null`)}`;
+record ${shq(`ufw delete ${r.spec}`)} ${shq(readd(r, at))}`;
+
+/**
+ * `ufw show added` lists IPv4 and dual-stack rules first, in the order `ufw status numbered` gives them, so the
+ * list index is the rule's number. IPv6-only rules come after the v6 halves of dual rules: no number to trust.
+ */
+const position = (fw: FirewallState, n: number) => (fw.rules.slice(0, n).some((r) => r.from?.includes(":")) ? undefined : n);
 /** The rule as `ufw show added` would print it. */
 const asRule = (args: string[]) => parseRule(args.map((a, i) => (args[i - 1] === "comment" ? `'${a}'` : a)).join(" "));
 const NEEDS_UFW = `command -v ufw >/dev/null || { echo "ufw is not installed (lf firewall enable installs it)" >&2; exit 1; }`;
@@ -130,12 +138,8 @@ export const firewallStatus = defineCommand({
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
+    if (o.json) return void console.log(JSON.stringify(await firewallView(server), null, 2));
     const fw = await firewallState(server);
-    if (o.json) {
-      const { ufw, policy, sshPort, rules, ports, blocked } = fw;
-      console.log(JSON.stringify({ ufw, policy, sshPort, rules: rules.map((r, i) => ({ n: i + 1, ...r })), ports, blocked }, null, 2));
-      return;
-    }
     const state = fw.ufw === "active" ? c.green("on") : fw.ufw === "missing" ? c.yellow("not installed") : c.yellow("off");
     step(`firewall on ${name}: ${state}${fw.ufw === "active" ? c.dim(` · incoming default ${fw.policy.toLowerCase()}`) : ""}`);
     console.log(`\n${c.bold("Rules")}`);
@@ -203,7 +207,7 @@ export const firewallRemove = defineCommand({
     const { rule, n } = pick(fw, which);
     await guardSsh(fw, fw.rules.filter((r) => r !== rule), o.force);
     await confirmRemoval(`Remove rule ${n} (${rule.spec}) on ${name}?`);
-    await runScript(fw.login, `${PRELUDE}\n${NEEDS_UFW}\n${deleteRule(rule)}`);
+    await runScript(fw.login, `${PRELUDE}\n${NEEDS_UFW}\n${deleteRule(rule, position(fw, n))}`);
     ok(`removed rule ${n}: ${rule.spec}`);
   },
 });
@@ -229,15 +233,20 @@ export const firewallUpdate = defineCommand({
     if (!port) fail(`rule ${n} (${rule.spec}) names no port; pass --port`);
     const from = o.from === "any" ? undefined : (o.from ?? rule.from);
     const args = ruleArgs({ action, port, from, comment: o.comment ?? rule.comment });
+    // Same place in the list: ufw stops at the first matching rule, so moving it changes what it does.
+    const at = position(fw, n);
     const others = fw.rules.filter((r) => r !== rule);
-    await guardSsh(fw, action === "deny" ? [asRule(args), ...others] : [...others, asRule(args)], o.force);
+    const updated = at ? fw.rules.map((r) => (r === rule ? asRule(args) : r)) : action === "deny" ? [asRule(args), ...others] : [...others, asRule(args)];
+    await guardSsh(fw, updated, o.force);
+    // The last rule has no number to insert at: appending puts it there anyway.
+    const add = at && at < fw.rules.length ? `${ufwAdd(["insert", String(at), ...args])} || ${addRule(args)}` : addRule(args);
     // Removing first keeps ufw from skipping the new rule as a duplicate; open connections (this ssh) survive it.
     await runScript(
       fw.login,
       `${PRELUDE}
 ${NEEDS_UFW}
-${deleteRule(rule)}
-${addRule(args)} || { $SUDO ufw ${rule.spec} >/dev/null; record "restored ufw ${rule.spec}"; echo "kept rule ${n}" >&2; exit 1; }`,
+${deleteRule(rule, at)}
+${add} || { ${readd(rule, at)}; record "restored ufw ${rule.spec}"; echo "kept rule ${n}" >&2; exit 1; }`,
     );
     ok(`rule ${n}: ${rule.spec} → ${args.join(" ")}`);
   },

@@ -1,17 +1,19 @@
 import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { defineCommand } from "../cmd";
-import { checkDomain, CONFIG_PATH, DOMAIN, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
+import { checkDomain, checkEmail, CONFIG_PATH, DOMAIN, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
 import { runScript, shq, sshExec } from "../ssh";
 import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
 import { bytes, checkDns, duration, facts, serverIps } from "../facts";
 import { describeTraefik, traefikSettings, traefikState } from "./traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../journal";
+import { listServers } from "../dashboard";
 import { overview, removeLines, siteDir } from "../remote";
 import { PRELUDE, ROOT, TRAEFIK_DIR } from "../templates";
 import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../ui";
 import { ensureKeyLogin, keyFile, loginPassword, serverEntry } from "../login";
+import { configView, factsView } from "../views";
 
 export const serverAdd = defineCommand({
   name: "server add",
@@ -58,7 +60,7 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     if (!entry.key) delete entry.key;
     if (!entry.user) delete entry.user;
     if (!entry.port) delete entry.port;
-    if (o.email) entry.email = o.email;
+    if (o.email) entry.email = checkEmail(o.email);
     if (domain) entry.domains = withPrimary(entry.domains, domain);
     cfg.servers[name] = entry;
     if (o.default || !cfg.default) cfg.default = name;
@@ -72,9 +74,17 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
 export const serverList = defineCommand({
   name: "server list",
   summary: "List servers registered with landfall and aliases found in ~/.ssh/config.",
-  options: { all: { type: "boolean", short: "a", desc: "also list every ssh config alias" } },
+  options: {
+    all: { type: "boolean", short: "a", desc: "also list every ssh config alias" },
+    json: { type: "boolean", desc: "machine-readable output (what the web UI lists)" },
+  },
   async run(_, o) {
     const cfg = loadConfig();
+    if (o.json) {
+      const list = listServers().filter((e) => e.registered || o.all);
+      const target = (s: Server) => `${s.user ? s.user + "@" : ""}${s.host}${s.port ? ":" + s.port : ""}`;
+      return void console.log(JSON.stringify(list.map((e) => ({ ...e, target: e.registered ? target(cfg.servers[e.name]) : e.name })), null, 2));
+    }
     const rows = [[c.dim("NAME"), c.dim("TARGET"), c.dim("SOURCE")]];
     for (const [name, s] of Object.entries(cfg.servers)) {
       const target = `${s.user ? s.user + "@" : ""}${s.host}${s.port ? ":" + s.port : ""}`;
@@ -203,8 +213,8 @@ export const serverInfo = defineCommand({
   options: { json: { type: "boolean", desc: "machine-readable output" } },
   async run([name], o) {
     const { name: n, server } = resolveServer(name);
+    if (o.json) return void console.log(JSON.stringify(await factsView(n, server), null, 2));
     const f = await facts(server);
-    if (o.json) return void console.log(JSON.stringify({ name: n, ...f, ips: await serverIps(server, f) }, null, 2));
     const pct = (used: number, total: number) => (total ? ` (${Math.round((used / total) * 100)}%)` : "");
     const memUsed = f.mem.total - f.mem.available;
     console.log(c.bold(n) + c.dim(` (${server.host})`));
@@ -260,9 +270,9 @@ the main domain, Traefik settings, what ssh resolves (host, user, port, keys)
 and the Host block in ~/.ssh/config. Nothing connects to the server.`,
   options: { json: { type: "boolean", desc: "machine-readable output" } },
   async run([n], o) {
-    const { name } = resolveServer(n);
+    const { name, server } = resolveServer(n);
+    if (o.json) return void console.log(JSON.stringify(await configView(name, server), null, 2));
     const s = serverSettings(name);
-    if (o.json) return void console.log(JSON.stringify(s, null, 2));
     const row = (k: string, v: string) => console.log(`  ${c.dim(k.padEnd(10))} ${v}`);
     console.log(`${c.bold(name)}${s.isDefault ? c.dim(" (default)") : ""}`);
     console.log(`\n${c.bold("landfall")} ${c.dim(s.configFile)}`);

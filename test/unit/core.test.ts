@@ -9,11 +9,12 @@ import { detectBuild, detectStaticDir, slug } from "../../src/projects";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
-import { journalCmd } from "../../src/cmd";
-import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
-import { findRun, parseJournal, pending } from "../../src/journal";
+import { defineCommand, journalCmd, parse, secretEnv } from "../../src/cmd";
+import { baseDomain, checkEmail, checkLoginName, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
+import { findRun, laterConflicts, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
-import { containerPorts, dashboardHosts, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
+import { containerPorts, dashboardHosts, dotenvLines, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
+import { secretsOut } from "../../src/web/server";
 import { shq, writeFileCmd } from "../../src/ssh";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
@@ -113,9 +114,9 @@ describe("templates", () => {
 
   test("labels route all domains over TLS", () => {
     const l = routeLabels("blog", release.services[0], meta.domains, { container: "traefik", network: "web", entrypoint: "websecure", resolver: "le" });
-    expect(l["traefik.http.routers.blog-web.rule"]).toBe("Host(`a.com`) || Host(`www.a.com`)");
-    expect(l["traefik.http.routers.blog-web.tls.certresolver"]).toBe("le");
-    expect(l["traefik.http.services.blog-web.loadbalancer.server.port"]).toBe("3000");
+    expect(l["traefik.http.routers.blog_web.rule"]).toBe("Host(`a.com`) || Host(`www.a.com`)");
+    expect(l["traefik.http.routers.blog_web.tls.certresolver"]).toBe("le");
+    expect(l["traefik.http.services.blog_web.loadbalancer.server.port"]).toBe("3000");
     expect(Object.keys(l).some((k) => k.includes("basicauth"))).toBe(false);
   });
 
@@ -125,8 +126,8 @@ describe("templates", () => {
     const y = overrideYaml(meta, release, p);
     expect(y).toContain('name: "blog"');
     expect(y).toContain('image: "blog-web:20260101000000"');
-    expect(y).toContain('"traefik.http.routers.blog-web.tls.certresolver": "acme"');
-    expect(y).toContain('"traefik.http.routers.blog-admin.rule": "Host(`admin.a.com`)"');
+    expect(y).toContain('"traefik.http.routers.blog_web.tls.certresolver": "acme"');
+    expect(y).toContain('"traefik.http.routers.blog_admin.rule": "Host(`admin.a.com`)"');
     expect(y).toMatch(/"db":\n    labels:/);
     expect(y).toContain("  landfall-proxy:\n    name: \"proxy\"\n    external: true");
   });
@@ -134,7 +135,7 @@ describe("templates", () => {
   test("override escapes $ in basic auth", () => {
     const y = overrideYaml({ ...meta, auth: ["bob:$2y$05$x"] }, release);
     expect(y).toContain('"traefik.http.middlewares.blog-auth.basicauth.users": "bob:$$2y$$05$$x"');
-    expect(y).toContain('"traefik.http.routers.blog-web.middlewares": "blog-auth"');
+    expect(y).toContain('"traefik.http.routers.blog_web.middlewares": "blog-auth"');
   });
 
   test("site domains: the main service's plus each service's own", () => {
@@ -569,6 +570,16 @@ describe("journal", () => {
     expect(findRun(runs, "1.2").steps.map((s) => s.what)).toEqual(["installed docker"]);
   });
 
+  test("flags later runs that touched the same site", () => {
+    const runs = parseJournal([
+      line("a", "do", "deployed blog", b64("rm -rf /opt/landfall/sites/blog/releases/1")),
+      line("b", "do", "deployed shop", b64("rm -rf /opt/landfall/sites/shop/releases/1")),
+      line("c", "do", "redeployed blog", b64("ln -sfn x /opt/landfall/sites/blog/current")),
+    ].join("\n"));
+    expect(laterConflicts(runs, 1, runs[0].steps).map((x) => [x.run.n, x.subject])).toEqual([[3, "/opt/landfall/sites/blog"]]);
+    expect(laterConflicts(runs, 2, runs[1].steps)).toEqual([]);
+  });
+
 });
 
 test("journalCmd keeps flags but not defaults or secrets", () => {
@@ -612,6 +623,10 @@ describe("updates", () => {
       { name: "tmux", from: "3.4-1ubuntu0.1", to: "3.4-1ubuntu0.2", security: true },
       { name: "curl", from: "8.5.0-2", to: "8.5.0-3", security: false },
     ]);
+  });
+  test("zypper list", () => {
+    const p = parsePkgList("mgr=zypper\npkg=curl\t8.0.1-1.1\t8.0.1-2.1\tRepo-Update\n");
+    expect(p.updates).toEqual([{ name: "curl", from: "8.0.1-1.1", to: "8.0.1-2.1", security: false }]);
   });
   test("image refs", () => {
     expect(parseRef("traefik:v3.6")).toEqual({ registry: "registry-1.docker.io", repo: "library/traefik", tag: "v3.6", digest: undefined });
@@ -738,5 +753,46 @@ describe("externals", () => {
       { name: "korro", domains: ["korro.app", "www.korro.app"], status: "Up 2 hours", containers: ["korro-korro-1"], dir: "/root/container/korro" },
       { name: "mail", domains: ["mail.x.dev"], status: "Exited (1)", containers: ["mail"], dir: undefined },
     ]);
+  });
+});
+
+describe("secrets stay off the command line", () => {
+  test("web jobs pass passwords as env and env pairs on stdin", () => {
+    expect(secretsOut(["deploy", "--auth-password", "s3cret", "-y"])).toEqual({ args: ["deploy", "-y"], env: { LANDFALL_SECRET_AUTH_PASSWORD: "s3cret" }, stdin: undefined });
+    expect(secretsOut(["auth", "blog", "--password=a b"]).env).toEqual({ LANDFALL_SECRET_PASSWORD: "a b" });
+    expect(secretsOut(["env", "blog", "-s", "x", "A=1", "B=two=2", "-u", "C"])).toEqual({
+      args: ["env", "blog", "-s", "x", "-u", "C", "--env-file", "-"],
+      env: {},
+      stdin: "A=1\nB=two=2\n",
+    });
+    // Not an env command: KEY=VALUE stays an argument.
+    expect(secretsOut(["deploy", "-e", "A=1"]).args).toEqual(["deploy", "-e", "A=1"]);
+  });
+
+  test("password options fall back to LANDFALL_SECRET_*", () => {
+    const cmd = defineCommand({ name: "t", summary: "", options: { "dashboard-password": { type: "string", desc: "" } }, async run() {} });
+    expect(secretEnv("dashboard-password")).toBe("LANDFALL_SECRET_DASHBOARD_PASSWORD");
+    process.env.LANDFALL_SECRET_DASHBOARD_PASSWORD = "from-env";
+    try {
+      expect(parse(cmd, []).values["dashboard-password"]).toBe("from-env");
+      expect(parse(cmd, ["--dashboard-password", "flag"]).values["dashboard-password"]).toBe("flag");
+    } finally {
+      delete process.env.LANDFALL_SECRET_DASHBOARD_PASSWORD;
+    }
+  });
+
+  test("dotenv lines", () => {
+    expect(parseEnvPairs(dotenvLines("# c\nexport A=1\n\nC=a=b\n"))).toEqual({ A: "1", C: "a=b" });
+  });
+});
+
+describe("input checks", () => {
+  test("login names and emails that reach remote files", () => {
+    expect(checkLoginName("admin.me@x")).toBe("admin.me@x");
+    expect(() => checkLoginName("a:b")).toThrow();
+    expect(() => checkLoginName("a\nb")).toThrow();
+    expect(checkEmail("me@example.com")).toBe("me@example.com");
+    expect(() => checkEmail("me@example.com'; rm -rf /")).toThrow();
+    expect(() => checkEmail("$(id)@x.com")).toThrow();
   });
 });

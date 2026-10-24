@@ -265,6 +265,8 @@ body.dragging::after {
   main { padding: 14px 16px 40px; }
   .project .path { display: none; }
   aside.job { inset: 52px 0 0 0; width: 100vw; }
+  td.acts { white-space: normal; }
+  td.acts button { margin: 2px 0 2px 4px; }
 }
 </style>
 </head>
@@ -506,7 +508,10 @@ async function refreshState() {
 async function run(argv, o = {}) {
   let info;
   try {
-    info = await http("/api/jobs", { argv, server: o.server ?? S.sel ?? undefined, password: o.password, cwd: o.cwd });
+    // A retry runs the job's own argv on the server: the page only has it with passwords masked.
+    info = o.retry
+      ? await http(`/api/jobs/${encodeURIComponent(o.retry)}/force`, {})
+      : await http("/api/jobs", { argv, server: o.server ?? S.sel ?? undefined, password: o.password, cwd: o.cwd });
   } catch (e) {
     return toast(e.message);
   }
@@ -522,7 +527,8 @@ function stream(j) {
   const es = new EventSource(`/api/jobs/${j.info.id}/events?from=${j.lines.length}`);
   j.es = es;
   es.onmessage = (e) => {
-    const { from, lines } = JSON.parse(e.data);
+    const { from, lines, report } = JSON.parse(e.data);
+    if (report) j.report = report;
     j.lines.length = Math.min(j.lines.length, from);
     j.lines.push(...lines);
     if (S.job === j.info.id) appendOutput(j);
@@ -532,6 +538,7 @@ function stream(j) {
   es.addEventListener("done", (e) => {
     es.close();
     j.info = JSON.parse(e.data);
+    j.report = j.info.report;
     finished(j);
   });
   // Dropped connection while it still runs: pick up where it left off.
@@ -546,12 +553,12 @@ function finished(j) {
   const failed = info.code !== 0 && info.code !== null;
   j.actions = (j.after && j.after(j)) || [];
   // Safety checks refuse what would lock out ssh or break running services; --force overrides after reading why.
-  if (failed && !info.argv.includes("--force") && j.lines.some((l) => l.includes("--force"))) {
-    const why = j.lines.map((l) => l.replace(ANSI, "").trim()).filter(Boolean).slice(-4).join("\n");
+  const why = rep(j).force;
+  if (failed && !info.argv.includes("--force") && why) {
     j.actions.push({
       label: "Do it anyway (--force)…",
       cls: "danger",
-      run: () => confirmDlg({ title: "Override the safety check?", text: why, ok: "Run with --force", danger: true, onOk: () => run([...info.argv, "--force"], { server: info.server }) }),
+      run: () => confirmDlg({ title: "Override the safety check?", text: why, ok: "Run with --force", danger: true, onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }) }),
     });
   }
   if (info.undoable && info.server && info.code !== null) {
@@ -583,9 +590,11 @@ const runningJobs = () => [...S.jobs.values()].filter((j) => j.info.code === und
 const isTunnel = (info) => info.argv[0] === "tunnel" || (info.argv[0] === "traefik" && info.argv[1] === "dashboard");
 /** Tunnels the UI opened to server n that are still open. */
 const openTunnels = (n) => runningJobs().filter((j) => j.info.server === n && isTunnel(j.info));
-const tunnelUrl = (j) => j.lines.map((l) => l.replace(ANSI, "").match(/\b[a-z][a-z0-9+.-]*:\/\/localhost:\d+\S*/)?.[0]).find(Boolean);
+/** What the job reported through the CLI's report(): never parsed from its text output. */
+const rep = (j) => j.report ?? j.info.report ?? {};
+const tunnelUrl = (j) => rep(j).url;
 /** With --lan: the addresses other devices on the network open it at. */
-const lanUrls = (j) => j.lines.map((l) => l.replace(ANSI, "")).find((l) => /on your network:/.test(l))?.match(/\b[a-z][a-z0-9+.-]*:\/\/\S+/g) ?? [];
+const lanUrls = (j) => rep(j).lan ?? [];
 const closeTunnel = (j) => http(`/api/jobs/${j.info.id}/stop`, {}).catch((e) => toast(e.message));
 /** argv plus --port, --local and --lan, picked in a dialog. ports: the ones the container listens on, if known. */
 function tunnelOptions(n, argv, ports = []) {
@@ -615,7 +624,13 @@ function tunnelOptions(n, argv, ports = []) {
 function tunnelBtn(n, argv, label = "Open tunnel", ports = []) {
   // Opened with options, the job's argv goes on after argv.
   const j = openTunnels(n).find((t) => t.info.argv.slice(0, argv.length).join(" ") === argv.join(" "));
-  if (!j) return `${btn(label, () => run(argv, { server: n }), "sm", `lf ${argv.join(" ")}: until you close it`)}${btn("…", () => tunnelOptions(n, argv, ports), "sm ghost", "Pick the ports, or make it reachable from your network")}`;
+  if (!j)
+    return `${btn(label, () => run(argv, { server: n }), "sm", `lf ${argv.join(" ")}: until you close it`)}${btn(
+      "On network",
+      () => run([...argv, "--lan"], { server: n }),
+      "sm",
+      "Open it for every device on your network too (a phone, a colleague): anyone there reaches it at this machine's address",
+    )}${btn("…", () => tunnelOptions(n, argv, ports), "sm", "Container port, local port, network")}`;
   const url = tunnelUrl(j);
   // A database's address is for a client, not the browser.
   const link = (u) => u.startsWith("http://") ? `<a class="tunnel-url" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace("http://", ""))}</a>` : `<code class="tunnel-url" title="Connect a client to it">${esc(u)}</code>`;
@@ -785,9 +800,9 @@ function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk
 }
 const invalid = (field, error) => ({ field, error });
 /** What is wrong with a login (lf newLogin's rules), as [field, message]. */
-const loginError = (user, password) =>
-  !/^[A-Za-z0-9._@-]{1,64}$/.test(user) ? ["user", "Only letters, digits and . _ @ -"]
-  : password.length < 8 ? ["password", "The password needs at least 8 characters"]
+const loginError = (user, password, { loginName, minPassword } = S.state.rules) =>
+  !new RegExp(loginName).test(user) ? ["user", "Only letters, digits and . _ @ -"]
+  : password.length < minPassword ? ["password", `The password needs at least ${minPassword} characters`]
   : null;
 /**
  * Passwords here are for servers and sites, not for this page: a masked text field, so browsers
@@ -816,10 +831,10 @@ function setupFlow(args, base = args) {
     server: args[0],
     after: (j) => {
       if (j.info.code !== 0) return;
-      if (j.lines.some((l) => l.includes("no key login yet"))) {
+      if (rep(j).needsKey) {
         return [{ label: "Enter the password to install a key", run: () => passwordFor(args, base) }];
       }
-      const todo = j.lines.filter((l) => /^\s+→ /.test(l)).length;
+      const todo = (rep(j).checks ?? []).filter((ch) => ch.status === "todo").length;
       return [
         { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0] }) },
         { label: "Change options", run: () => setupWizard(base) },
@@ -932,14 +947,13 @@ function addServer() {
 }
 
 const defaultServer = () => S.sel ?? S.state.servers.find((s) => s.isDefault)?.name;
-const sslip = (name, ip) => `${name}.${ip.replace(/\./g, "-")}.sslip.io`;
 const mainDomain = (n) => S.state.servers.find((s) => s.name === n)?.saved?.domains?.[0];
 /** What `lf deploy` picks without a domain: <site>.<main domain>, else the free sslip.io address. */
 function autoDomain(n, name) {
   const main = mainDomain(n);
   if (main) return `${name}.${main}`;
-  const ip = S.facts[n]?.data?.sslipIp;
-  return ip ? sslip(name, ip) : "";
+  const suffix = S.facts[n]?.data?.sslipSuffix;
+  return suffix ? `${name}.${suffix}` : "";
 }
 const slugify = (s) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
 const tilde = (p) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
@@ -989,7 +1003,7 @@ function deployDialog(det, o = {}) {
             { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
           ]
         : []),
-      { name: "authPassword", label: "Login password (optional, at least 8 characters)", type: "password", hint: "Visitors log in with the user below and this password (HTTP basic auth). Empty: no change; set or remove it later with Password… on the site." },
+      { name: "authPassword", label: `Login password (optional, at least ${S.state.rules.minPassword} characters)`, type: "password", hint: "Visitors log in with the user below and this password (HTTP basic auth). Empty: no change; set or remove it later with Password… on the site." },
       { name: "authUser", label: "Login user", value: "admin", placeholder: "admin" },
     ],
     ok: "Deploy",
@@ -1021,7 +1035,7 @@ function deployDialog(det, o = {}) {
 /** After a deploy: offer the address it printed. */
 function openAfter(j) {
   if (j.info.code !== 0) return;
-  const url = j.lines.map((l) => l.replace(ANSI, "").match(/https:\/\/[^\s)]+/)?.[0]).filter(Boolean).pop();
+  const url = rep(j).url;
   if (url) return [{ label: `Open ${url.replace("https://", "")}`, run: () => window.open(url, "_blank", "noopener") }];
 }
 
@@ -1180,7 +1194,7 @@ function authDialog(n, m) {
       : "Visitors have to log in (HTTP basic auth) before they see the site.",
     fields: [
       { name: "user", label: "User", value: users[0] ?? "admin" },
-      { name: "password", label: "Password (at least 8 characters)", type: "password", auto: "new-password" },
+      { name: "password", label: `Password (at least ${S.state.rules.minPassword} characters)`, type: "password", auto: "new-password" },
       ...(users.length ? [{ name: "off", label: "Remove the login: the site is public again", type: "check", value: false }] : []),
     ],
     ok: "Save",
@@ -1189,7 +1203,7 @@ function authDialog(n, m) {
       const user = v.user.trim() || "admin";
       const bad = loginError(user, v.password);
       if (bad) return invalid(...bad);
-      run(["auth", m.name, ...sv(n), "-u", user, "-p", v.password], { server: n });
+      run(["auth", m.name, ...sv(n), "-u", user, "--password", v.password], { server: n });
     },
   });
 }
@@ -1235,14 +1249,8 @@ function forget(n) {
   });
 }
 
-async function makeDefault(n) {
-  try {
-    await http(`/api/servers/${encodeURIComponent(n)}/default`, {});
-    await refreshState();
-    toast(`${n} is now the default server`);
-  } catch (e) {
-    toast(e.message);
-  }
+function makeDefault(n) {
+  run(["server", "use", n], { server: n, after: (j) => (j.info.code === 0 ? void refreshState() : undefined) });
 }
 
 // ---- views ---------------------------------------------------------------
@@ -1828,7 +1836,7 @@ function traefikView(n) {
       fields: [
         { name: "domain", label: "Domain", value: x.traefik.dashboard ?? "", placeholder: x.domains[0] ? `traefik.${x.domains[0]}` : "traefik.example.com", hint: x.traefik.dashboard ? "Empty: take the dashboard off its domain." : "Needs an A record pointing at the server." },
         { name: "user", label: "Login user", value: "admin", placeholder: "admin" },
-        { name: "password", label: "Login password (at least 8 characters)", type: "password", hint: x.traefik.dashboard ? "Empty: keeps the current one." : "Empty: a generated one, shown in the output." },
+        { name: "password", label: `Login password (at least ${S.state.rules.minPassword} characters)`, type: "password", hint: x.traefik.dashboard ? "Empty: keeps the current one." : "Empty: a generated one, shown in the output." },
       ],
       ok: "Apply",
       onOk: (v) => {
@@ -1879,7 +1887,7 @@ function traefikView(n) {
       <div class="body">${rows([
         ["domain", dash.hosts.length ? `${dash.hosts.map(link).join(", ")} <span class="dim">(with its login)</span>` : `<span class="dim">none${foreign ? "" : ": only through the tunnel"}</span>`],
         ["tunnel", dash.tunnel
-          ? `${tunnelBtn(n, dashArgv, "Open via tunnel")} <span class="dim">lf traefik dashboard</span>`
+          ? `${tunnelBtn(n, dashArgv, "Open via tunnel")} <span class="dim mono">lf traefik dashboard</span>`
           : foreign ? `<span class="dim">route its dashboard (api@internal) to a domain, or run <span class="mono">lf traefik dashboard --port &lt;its api port&gt;</span></span>`
           : `<span class="dim">set up by an older landfall</span> ${btn("Enable tunnel", () => run(["traefik", "setup", ...sv(n)], reload), "sm", "Re-runs lf traefik setup, which adds it")}`],
       ])}</div>

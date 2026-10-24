@@ -2,16 +2,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { envVar, expandHome, tildify, type Server } from "./config";
+import { checkAlias, envVar, expandHome, tildify, type Server } from "./config";
 import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
-import { c, fail, info, ok, step, warn } from "./ui";
+import { c, fail, info, ok, readStdin, report, step, warn } from "./ui";
 
-const text = async (s: NodeJS.ReadableStream) => {
-  let out = "";
-  for await (const chunk of s) out += chunk;
-  return out;
-};
 
 let askpass: string | undefined;
 
@@ -34,14 +29,14 @@ export const askpassEnv = (password: string) => ({ SSH_ASKPASS: askpassScript(),
 /** The login password from --password-stdin or $LANDFALL_PASSWORD; undefined means ssh asks itself. */
 export async function loginPassword(fromStdin?: boolean): Promise<string | undefined> {
   if (fromStdin) {
-    const pw = (await text(process.stdin)).replace(/\r?\n$/, "");
+    const pw = (await readStdin()).replace(/\r?\n$/, "");
     if (!pw) fail("--password-stdin: nothing on stdin");
     return pw;
   }
   return envVar("PASSWORD") || undefined;
 }
 
-export const keyFile = (name: string) => join(homedir(), ".ssh", `landfall_${name}`);
+export const keyFile = (name: string) => join(homedir(), ".ssh", `landfall_${checkAlias(name)}`);
 
 export function ensureKey(name: string): { path: string; created: boolean } {
   const path = keyFile(name);
@@ -78,6 +73,7 @@ export async function ensureKeyLogin(name: string, login: Server, o: { check?: b
     keyPath ??= effectiveKey(login);
   } else if (o.check) {
     warn("no key login yet — `lf setup` would install a key first");
+    report({ needsKey: true });
     return undefined;
   }
   let fresh = false;
