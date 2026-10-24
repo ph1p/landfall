@@ -349,6 +349,12 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
     };
     // SIGHUP: the terminal closed. Without it the jobs outlive the UI.
     for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(sig, stop);
+    // Under tsx (pnpm dev) a killed wrapper leaves this process to launchd, still on its port.
+    // Not otherwise: `nohup lf ui &` loses its shell on purpose.
+    if (process.execArgv.some((a) => a.includes("tsx"))) {
+      const parent = process.ppid;
+      setInterval(() => process.ppid !== parent && stop(), 1000).unref();
+    }
   });
 }
 
