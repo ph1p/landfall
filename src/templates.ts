@@ -5,6 +5,10 @@ export const TRAEFIK_DIR = `${ROOT}/traefik`;
 /** Traefik's file provider reads every file here; landfall writes TLS_FILE, other files are yours (e.g. certificates). */
 export const DYNAMIC_DIR = `${TRAEFIK_DIR}/dynamic`;
 export const NETWORK = "web";
+/** Traefik's dashboard for `lf traefik dashboard`: inside the container, or on the host's loopback in host mode. */
+export const TUNNEL_PORT = 8080;
+/** The router that serves the dashboard on TUNNEL_PORT; `lf traefik dashboard` looks for it. */
+export const TUNNEL_ROUTER = "dashboard-tunnel";
 /** The major tag: every deploy and `lf update` gets the newest v3 release; v4 needs a config review. */
 export const DEFAULT_TRAEFIK_IMAGE = "traefik:v3";
 /** Present when sites go through a Traefik the server already had instead of landfall's own. */
@@ -429,10 +433,19 @@ export function traefikCompose(o: TraefikOpts): string {
   if (o.email) cmd.push(`--certificatesresolvers.le.acme.email=${o.email}`);
   if (o.staging) cmd.push("--certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory");
   const labels: string[] = [];
+  // The dashboard always answers on the tunnel entrypoint (`lf traefik dashboard`), only to the host itself:
+  // bridge mode sees the tunnel come from the network's gateway, which install writes to .env.
+  cmd.push("--api.dashboard=true", `--entrypoints.tunnel.address=${o.hostNetwork ? "127.0.0.1" : ""}:${TUNNEL_PORT}`);
+  labels.push(
+    "traefik.enable=true",
+    `traefik.http.routers.${TUNNEL_ROUTER}.rule=PathPrefix(\`/\`)`,
+    `traefik.http.routers.${TUNNEL_ROUTER}.entrypoints=tunnel`,
+    `traefik.http.routers.${TUNNEL_ROUTER}.service=api@internal`,
+    `traefik.http.routers.${TUNNEL_ROUTER}.middlewares=tunnel-only`,
+    "traefik.http.middlewares.tunnel-only.ipallowlist.sourcerange=127.0.0.1/32,${LANDFALL_GATEWAY:-127.0.0.1}/32",
+  );
   if (o.dashboard) {
-    cmd.push("--api.dashboard=true");
     labels.push(
-      "traefik.enable=true",
       `traefik.http.routers.dashboard.rule=Host(\`${o.dashboard.host}\`)`,
       "traefik.http.routers.dashboard.entrypoints=websecure",
       "traefik.http.routers.dashboard.service=api@internal",

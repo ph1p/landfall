@@ -18,10 +18,11 @@ import {
   sitesRollback,
   sitesStart,
   sitesStop,
+  sitesTunnel,
 } from "./commands/sites";
 import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
-import { traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
+import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 import { journal } from "./ssh";
 import { c, CliError, setAssumeYes } from "./ui";
 import pkg from "../package.json";
@@ -40,6 +41,7 @@ const commands: Command[] = [
   sitesStart,
   sitesRemove,
   sitesAdopt,
+  sitesTunnel,
   domains,
   auth,
   open,
@@ -60,6 +62,7 @@ const commands: Command[] = [
   traefikLogs,
   traefikRestart,
   traefikRemove,
+  traefikDashboard,
   firewallStatus,
   firewallEnable,
   firewallDisable,
@@ -101,6 +104,7 @@ const aliases: Record<string, string> = {
   "sites domains": "domains",
   "sites auth": "auth",
   "sites open": "open",
+  "sites tunnel": "tunnel",
   upgrade: "update",
 };
 
@@ -118,9 +122,9 @@ function find(argv: string[]): { cmd?: Command; rest: string[] } {
 function help() {
   const groups: [string, string[]][] = [
     ["Servers", ["setup", "server add", "server list", "server info", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
-    ["Traefik", ["traefik setup", "traefik status", "traefik logs", "traefik restart", "traefik rm"]],
+    ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
-    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
+    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
     ["Updates", ["updates", "update"]],
     ["History", ["history", "undo"]],
     ["Dashboard", ["ui"]],

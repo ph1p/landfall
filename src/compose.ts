@@ -100,6 +100,7 @@ export const ruleHosts = (rule: string) =>
   [...rule.matchAll(/\bHost\(([^)]*)\)/g)].flatMap((m) => [...m[1].matchAll(/[`"]([^`"]+)[`"]/g)].map((h) => h[1].toLowerCase()));
 
 export const ROUTER_RULE = /^traefik\.http\.routers\.[^.]+\.rule$/;
+export const SERVICE_PORT = /^traefik\.http\.services\.[^.]+\.loadbalancer\.server\.port$/;
 
 export interface Analysis {
   services: Service[];

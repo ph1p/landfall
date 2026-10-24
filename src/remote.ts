@@ -23,7 +23,7 @@ import {
   type SiteMeta,
 } from "./compose";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, type Proxy } from "./templates";
+import { OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, warn } from "./ui";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
@@ -106,7 +106,18 @@ export interface Overview {
   sites: SiteStatus[];
   /** Containers routed by Traefik that landfall did not deploy (your own compose projects). Read only. */
   others: External[];
+  /** Traefik's dashboard: the domains routers serve it on, and whether `lf traefik dashboard` can tunnel to it. */
+  dashboard: { hosts: string[]; tunnel: boolean };
 }
+
+/** Domains a container's routers serve Traefik's dashboard (api@internal) on. */
+export function dashboardHosts(labels: Record<string, string>): string[] {
+  return Object.entries(labels)
+    .filter(([k, v]) => /^traefik\.http\.routers\.[^.]+\.service$/.test(k) && v === "api@internal")
+    .flatMap(([k]) => ruleHosts(labels[k.replace(/service$/, "rule")] ?? ""));
+}
+/** landfall's Traefik serves its dashboard to the server itself, for `lf traefik dashboard`. */
+export const hasDashboardTunnel = (labels: Record<string, string>) => labels[`traefik.http.routers.${TUNNEL_ROUTER}.service`] === "api@internal";
 
 export interface External {
   /** Compose project, or the container name without one. */
@@ -193,7 +204,7 @@ ids=$(docker ps -aq 2>/dev/null || true)
   const byProject = new Map<string, ServiceStatus[]>();
   const metas: SiteMeta[] = [];
   const labeled: { name: string; labels: Record<string, string> }[] = [];
-  const o: Overview = { ready: false, traefik: "", proxy: "traefik", adopted: false, sites: [], others: [] };
+  const o: Overview = { ready: false, traefik: "", proxy: "traefik", adopted: false, sites: [], others: [], dashboard: { hosts: [], tunnel: false } };
   for (const line of stdout.split("\n")) {
     const [kind, a = "", b = "", project = "", service = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
@@ -221,6 +232,10 @@ ids=$(docker ps -aq 2>/dev/null || true)
     }
   }
   o.others = externals(labeled, status, o.proxy, new Set(metas.map(siteProject)));
+  o.dashboard = {
+    hosts: [...new Set(labeled.flatMap((x) => dashboardHosts(x.labels)))],
+    tunnel: labeled.some((x) => x.name === o.proxy && hasDashboardTunnel(x.labels)),
+  };
   o.sites = metas.map((meta) => {
     const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
     return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, state: siteState(meta), kind: kindOf(meta) };

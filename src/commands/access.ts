@@ -6,7 +6,7 @@ import { isOld, siteDomains, siteMain } from "../compose";
 import { changeSite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
 import { c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
-import { loginUser, newLogin } from "./traefik";
+import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
 import { target } from "./sites";
 
 
@@ -127,7 +127,7 @@ export const auth = defineCommand({
   lf auth my-site                         show who can log in`,
   options: {
     server: serverOpt,
-    user: { type: "string", short: "u", desc: "login to add or change" },
+    user: { type: "string", short: "u", desc: "login to add or change (default with --password: admin)" },
     password: { type: "string", short: "p", desc: "its password (asked when missing)" },
     "rm-user": { type: "string", multiple: true, desc: "remove a login" },
     off: { type: "boolean", desc: "remove every login" },
@@ -136,16 +136,17 @@ export const auth = defineCommand({
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
     const users = (meta.auth ?? []).map(loginUser);
-    if (!o.user && !o["rm-user"] && !o.off) {
+    const user = o.user ?? (o.password ? DEFAULT_USER : undefined);
+    if (!user && !o["rm-user"] && !o.off) {
       if (!users.length) return void console.log(`${site} is public ${c.dim("(add a login with --user)")}`);
       return void console.log(`${site} asks for a login: ${users.map((u) => c.bold(u)).join(", ")}`);
     }
     let lines = o.off ? [] : [...(meta.auth ?? [])];
     const drop = new Set<string>(o["rm-user"] ?? []);
     for (const u of drop) if (!users.includes(u)) warn(`no login ${u} on ${site}`);
-    if (o.user) drop.add(o.user);
+    if (user) drop.add(user);
     lines = lines.filter((l) => !drop.has(loginUser(l)));
-    if (o.user) lines.push(await newLogin(o.user, o.password));
+    if (user) lines.push(await newLogin(user, o.password));
     if (lines.join("\n") === (meta.auth ?? []).join("\n")) return ok("nothing to change");
     const now = lines.map(loginUser);
     const gone = users.filter((u) => !now.includes(u));

@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkImage, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
+import { checkImage, checkInt, DOMAIN, expandDomain, loadConfig, resolveServer, saveConfig, type Server } from "../config";
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
-import { dockerLogs } from "../remote";
+import { dashboardHosts, dockerLogs, hasDashboardTunnel } from "../remote";
+import { ctrAddress, findContainer, openTunnel } from "../tunnel";
 import { runScript, shq, writeFileCmd } from "../ssh";
-import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "../templates";
+import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, TUNNEL_PORT, type Proxy } from "../templates";
 import { askSecret, c, confirm, confirmRemoval, fail, info, ok, step } from "../ui";
 
 export interface TraefikInstall {
@@ -29,6 +30,9 @@ export async function htpasswd(user: string, password: string) {
 /** The user of an htpasswd line. */
 export const loginUser = (line: string) => line.slice(0, line.indexOf(":"));
 /** An htpasswd line for a site login; asks for the password unless given. flag: the option that named the user, for errors. */
+/** The login user when only a password is given. */
+export const DEFAULT_USER = "admin";
+
 export async function newLogin(user: string, password?: string, flag = "user") {
   if (!/^[A-Za-z0-9._@-]{1,64}$/.test(user)) fail(`${flag} may only have letters, digits and . _ @ -`);
   const pw = password ?? (await askSecret(`Password for ${user}:`));
@@ -73,6 +77,9 @@ ensure_network ${NETWORK}
 [ -w ${TRAEFIK_DIR} ] || { $SUDO install -d -o "$(id -un)" ${TRAEFIK_DIR}; }
 mkdir -p ${TRAEFIK_DIR}/letsencrypt ${DYNAMIC_DIR} && cd ${TRAEFIK_DIR}
 ${writeFileCmd("dynamic/landfall.yml", TLS_FILE)}
+# The dashboard tunnel arrives from the gateway of the network (bridge mode): only it may use the tunnel entrypoint.
+gw=$(docker network inspect ${NETWORK} -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null | tr ' ' '\\n' | grep -m1 '[.]' || true)
+printf 'LANDFALL_GATEWAY=%s\\n' "\${gw:-127.0.0.1}" > .env
 if [ -e docker-compose.yml ]; then
   ${writeFileCmd(".docker-compose.yml.new", compose)}
   # .landfall.sha256: what landfall wrote last. A different file was edited by hand.
@@ -91,7 +98,7 @@ if [ -e docker-compose.yml ]; then
 else
   ${writeFileCmd("docker-compose.yml", compose)}
   # Certificates in letsencrypt/ stay, a later install reuses them.
-  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml .landfall.sha256 dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
+  record ${shq(`installed traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && dc down --remove-orphans && rm -f docker-compose.yml .env .landfall.sha256 dynamic/landfall.yml && { rmdir dynamic 2>/dev/null || true; }"
 fi
 log "starting traefik"
 dc up -d --remove-orphans --quiet-pull
@@ -188,7 +195,7 @@ export const traefikSetup = defineCommand({
     image: { type: "string", desc: `traefik image, remembered (default: ${DEFAULT_TRAEFIK_IMAGE})` },
     "host-network": { type: "boolean", desc: "run on the host network: real client IPs, ufw applies; remembered (--no-host-network)" },
     dashboard: { type: "string", desc: "serve the traefik dashboard on this domain (basic auth), remembered; `traefik` = traefik.<main domain>, `off` removes it" },
-    "dashboard-user": { type: "string", desc: "dashboard user", default: "admin" },
+    "dashboard-user": { type: "string", desc: "dashboard user", default: DEFAULT_USER },
     "dashboard-password": { type: "string", desc: "dashboard password (default: generated)" },
     force: { type: "boolean", desc: "overwrite a docker-compose.yml that was edited by hand" },
   },
@@ -324,5 +331,42 @@ export const traefikRestart = defineCommand({
     const { server } = resolveServer(o.server);
     await runScript(server, `${PRELUDE}\ndocker restart ${PROXY_CTR} >/dev/null\nrecord "restarted traefik"`);
     ok("traefik restarted");
+  },
+});
+
+export const traefikDashboard = defineCommand({
+  name: "traefik dashboard",
+  summary: `Open Traefik's dashboard on localhost through an SSH tunnel.
+
+No domain or password needed: landfall's Traefik serves the dashboard to the server
+itself, and only there. To also serve it on a domain behind a password:
+lf traefik setup --dashboard traefik (traefik.<main domain>).`,
+  options: {
+    server: serverOpt,
+    local: { type: "string", short: "l", desc: "local port (default: 8080, else a free one)" },
+    port: { type: "string", desc: "with a Traefik of your own: the port of its API (api.insecure: 8080)" },
+  },
+  async run(_, o) {
+    const { name, server } = resolveServer(o.server);
+    const st = await traefikState(server);
+    const ctr = await findContainer(server, [`name=^${st.proxy ?? "traefik"}$`]);
+    if (!ctr) fail(`traefik is not running on ${name}${st.proxy ? "" : " (lf traefik setup)"}`);
+    const hosts = dashboardHosts(ctr!.labels);
+    const also = hosts.length ? `also at ${hosts.map((h) => `https://${h}`).join(", ")} (with its password)` : undefined;
+    const port = o.port ? checkInt(o.port, "--port", 1, 65535) : !st.proxy && hasDashboardTunnel(ctr!.labels) ? TUNNEL_PORT : undefined;
+    if (!port) {
+      if (also) info(also);
+      fail(
+        st.proxy
+          ? `${st.proxy} is your own traefik; if it serves its API (api.insecure), pass its port: --port 8080`
+          : `traefik on ${name} was set up by an older landfall: \`lf traefik setup -s ${name}\` adds the dashboard tunnel`,
+      );
+    }
+    await openTunnel(server, ctrAddress(ctr!, NETWORK), port!, {
+      local: o.local,
+      path: "/dashboard/",
+      what: `traefik dashboard of ${name}`,
+      note: also,
+    });
   },
 });

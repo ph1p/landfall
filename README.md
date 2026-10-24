@@ -135,7 +135,7 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 | kind | when | how |
 |---|---|---|
 | **compose** | the folder has a `compose.yaml` | Uploads the folder and runs it as one Compose project. See [Compose sites](#compose-sites). |
-| **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/`. `--spa` sends unknown paths to `index.html`. |
+| **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is where the site generator builds to, even before the first build (Vite/Astro `dist/` or its `outDir`, SvelteKit/CRA/Docusaurus `build/`, Next `out/`, Gatsby/Hugo `public/`, Eleventy/Jekyll `_site/`, Nuxt `.output/public/`, Angular, MkDocs `site/`), else `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/` with one. `lf deploy <dir>` picks another. `--spa` sends unknown paths to `index.html`. |
 | **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from `EXPOSE`, else `--port` (default 3000). `--static` forces static. |
 | **image** | `--image ghcr.io/me/app:1.2` | Pulls the image and runs it. Needs `--port`. For private registries: `lf ssh vps -- docker login ghcr.io`. |
 
@@ -260,8 +260,10 @@ lf domains                         # where DNS points, whether HTTPS answers
 lf domains --add www.example.com   # also --rm, --set (updates .landfall.json)
 lf domains --rm @                  # take the main domain off; the last one leaves the site running, unrouted
 lf auth -u anna                    # login in front of the site (asks for the password, -p passes it)
+lf auth -p '…'                     # the same for user admin
 lf auth --rm-user anna | --off
 lf open
+lf tunnel blog                     # http://localhost:<port> straight to its container: test it without a domain
 lf sites rm blog                   # delete the site (asks you to type the name)
 lf logs api -s vps                 # another site on another server
 ```
@@ -292,7 +294,8 @@ Version-pinned tags show the newest tag of the same shape (`traefik:v3.6` → `t
 lf traefik status                              # container state, routes, mode
 lf traefik logs -f                             # certificate errors show up here
 lf traefik setup --email you@example.com       # reconfigure (safe to re-run)
-lf traefik setup --dashboard traefik           # dashboard at traefik.<main domain>; `off` removes it
+lf traefik setup --dashboard traefik           # dashboard at traefik.<main domain> behind a login; `off` removes it
+lf traefik dashboard                           # the dashboard on localhost through an SSH tunnel, no domain needed
 lf traefik setup --host-network                # bind 80/443 on the host
 ```
 
@@ -311,7 +314,10 @@ for the seconds until Let's Encrypt issues its certificate. Your own certificate
 `/opt/landfall/traefik/dynamic/`: landfall rewrites only `landfall.yml` there. If you edit
 `docker-compose.yml` by hand, `lf traefik setup` shows the diff and stops; `--force` overwrites your edits.
 
-The dashboard password is generated and printed once (`--dashboard-password` sets your own). Image, network mode,
+The dashboard password is generated and printed once (`--dashboard-password` sets your own, `--dashboard-user` the user, default `admin`).
+The dashboard is always reachable through `lf traefik dashboard`: Traefik serves it on port 8080 to the server itself only
+(loopback and the `web` network's gateway), never published. A Traefik set up before this needs `lf traefik setup` once.
+With your own Traefik, `lf traefik dashboard --port 8080` tunnels to its API port; the web UI shows the domains its dashboard is on. Image, network mode,
 e-mail, staging and dashboard are remembered per server.
 
 **Using a Traefik you already run.** If 80/443 belong to your own Traefik container, landfall does not install a second one:

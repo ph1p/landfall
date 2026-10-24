@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
-import { detectStaticDir, slug } from "../../src/projects";
+import { detectBuild, detectStaticDir, slug } from "../../src/projects";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
 import { journalCmd } from "../../src/cmd";
 import { baseDomain, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
 import { findRun, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
-import { externals, mergeEnv, parseEnvPairs } from "../../src/remote";
+import { dashboardHosts, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
 import { shq, writeFileCmd } from "../../src/ssh";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
@@ -190,6 +190,27 @@ describe("templates", () => {
     const y = traefikCompose({ email: "e@x", image: "traefik:v3.6", staging: true, dashboard: { host: "t.x", htpasswd: hash } });
     expect(y).toContain("$$2y$$");
     expect(y).toContain("acme-staging");
+  });
+
+  test("traefik serves its dashboard to the tunnel only from the server", () => {
+    const y = traefikCompose({ image: "traefik:v3.6", staging: false });
+    expect(y).toContain("--entrypoints.tunnel.address=:8080");
+    expect(y).toContain("routers.dashboard-tunnel.service=api@internal");
+    expect(y).toContain("ipallowlist.sourcerange=127.0.0.1/32,${LANDFALL_GATEWAY:-127.0.0.1}/32");
+    expect(y).not.toContain("routers.dashboard.rule");
+    expect(traefikCompose({ image: "traefik:v3.6", staging: false, hostNetwork: true })).toContain("--entrypoints.tunnel.address=127.0.0.1:8080");
+  });
+
+  test("dashboard detection reads the routers that serve api@internal", () => {
+    const labels = {
+      "traefik.http.routers.dash.rule": "Host(`dashboard.example.dev`)",
+      "traefik.http.routers.dash.service": "api@internal",
+      "traefik.http.routers.site.rule": "Host(`example.dev`)",
+      "traefik.http.routers.site.service": "site",
+    };
+    expect(dashboardHosts(labels)).toEqual(["dashboard.example.dev"]);
+    expect(hasDashboardTunnel(labels)).toBe(false);
+    expect(hasDashboardTunnel({ "traefik.http.routers.dashboard-tunnel.service": "api@internal" })).toBe(true);
   });
 
   test("traefik on the host network publishes no ports and joins no network", () => {
@@ -564,6 +585,29 @@ describe("folders and access", () => {
     expect(detectProject(d)).toMatchObject({ kind: "static", dir: "dist" });
     fs.writeFileSync(join(d, "Dockerfile"), "FROM x\nEXPOSE 8080\n");
     expect(detectProject(d)).toMatchObject({ kind: "dockerfile", port: 8080 });
+  });
+
+  test("the publish folder comes from the site generator, before its first build", () => {
+    const d = tmp();
+    const pkg = (deps: Record<string, string>) => fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "x" }, devDependencies: deps }));
+    fs.writeFileSync(join(d, "index.html"), "<script type=module src=/main.js>");
+    pkg({ vite: "7" });
+    expect(detectStaticDir(d)).toBe("dist");
+    expect(detectProject(d)).toMatchObject({ kind: "static", dir: "dist", tool: "Vite", build: "npm run build" });
+    fs.writeFileSync(join(d, "vite.config.ts"), "export default { build: { outDir: './www' } }");
+    expect(detectBuild(d)).toEqual({ tool: "Vite", dir: "www", build: "npm run build" });
+    pkg({ "@sveltejs/kit": "2", vite: "7" });
+    expect(detectStaticDir(d)).toBe("build");
+    pkg({ next: "15" });
+    expect(detectStaticDir(d)).toBe("out");
+    pkg({ astro: "5" });
+    expect(detectStaticDir(d)).toBe("dist");
+    // no build script: a plain folder with its index.html
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ devDependencies: { vite: "7" } }));
+    expect(detectStaticDir(d)).toBe(".");
+    const h = tmp();
+    fs.writeFileSync(join(h, "hugo.toml"), "title = 'x'");
+    expect(detectProject(h)).toMatchObject({ kind: "static", dir: "public", tool: "Hugo", build: "hugo --minify" });
   });
   test("upload paths stay inside", () => {
     expect(safeParts("../../etc//passwd")).toEqual(["etc", "passwd"]);

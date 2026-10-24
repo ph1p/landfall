@@ -8,10 +8,10 @@ import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, rea
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, fail, info, interactive, ok, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { composeFile, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { composeFile, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
-import { loginUser, newLogin } from "./traefik";
+import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
 
 
 /** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
@@ -74,8 +74,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     user: { type: "string", short: "u", desc: "with --host: initial login user (default: root)" },
     "ssh-port": { type: "string", desc: "with --host: ssh port" },
     "password-stdin": { type: "boolean", desc: "setting up first: read the login password from stdin (also: $LANDFALL_PASSWORD)" },
-    "auth-user": { type: "string", desc: "protect the site with this login (HTTP basic auth, as lf auth)" },
-    "auth-password": { type: "string", desc: "with --auth-user: its password (asked when missing)" },
+    "auth-user": { type: "string", desc: "protect the site with this login (HTTP basic auth, as lf auth; default with --auth-password: admin)" },
+    "auth-password": { type: "string", desc: "password of the login (asked when only --auth-user is given)" },
   },
   async run([dirArg], o) {
     const cwd = process.cwd();
@@ -98,8 +98,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     // Domains given up front fail on a typo before the build and the upload.
     const typos = (o.domain?.length ? o.domain : (project.domains ?? [])).map((d: string) => expandDomain(d, server)).filter((d: string) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
-    if (o["auth-password"] && !o["auth-user"]) fail("--auth-password needs --auth-user");
-    const login = o["auth-user"] ? await newLogin(o["auth-user"], o["auth-password"], "--auth-user") : undefined;
+    const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
+    const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
 
     const buildCmd: string | undefined = o.build ?? project.build;
     if (buildCmd) {
@@ -114,9 +114,14 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const root = resolve(cwd, dirArg ?? project.dir ?? ".");
     const compose = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
     if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
-    const dir = compose || image ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd));
+    const detected = detectBuild(cwd);
+    const dir = compose || image ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
     const kind: SiteKind = compose ? "compose" : image ? "image" : !forceStatic && fs.existsSync(join(dir, "Dockerfile")) ? "dockerfile" : "static";
-    if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) warn(`no index.html in ${relative(cwd, dir) || "."}`);
+    const tool = kind === "static" && !dirArg && !project.dir ? detected.tool : undefined;
+    if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
+    if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
+      warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
+    }
     const port = KINDS[kind].port
       ? checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
       : undefined;
@@ -222,7 +227,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (kind === "compose") {
           if (rel !== ".") saved.dir = rel;
           if (o.file || project.compose) saved.compose = compose;
-        } else if (rel !== detectStaticDir(cwd)) saved.dir = rel;
+        } else if (rel !== detectStaticDir(cwd, detected)) saved.dir = rel;
         if (kind === "dockerfile") saved.port = port;
         if (spa) saved.spa = true;
         if (forceStatic && kind === "static") saved.static = true;
