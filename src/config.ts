@@ -68,6 +68,22 @@ export function saveConfig(cfg: Config) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
 }
 
+/** Drop a server from the config (and as the default). */
+export function forgetServer(name: string) {
+  const cfg = loadConfig();
+  delete cfg.servers[name];
+  if (cfg.default === name) delete cfg.default;
+  saveConfig(cfg);
+}
+
+/** Make a server the default, registering an ssh alias as it is. */
+export function useServer(name: string) {
+  const cfg = loadConfig();
+  cfg.servers[name] ??= { host: name };
+  cfg.default = name;
+  saveConfig(cfg);
+}
+
 /**
  * Resolve a server by name: landfall config first, then any ~/.ssh/config alias.
  * With no name: the default server, or the only one configured.

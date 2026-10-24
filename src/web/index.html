@@ -358,9 +358,8 @@ function btn(label, fn, cls = "", title = "", f = "") {
 }
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-k]");
-  const menu = $("#menu");
   // A click outside an open menu only closes it.
-  if (menu && !e.target.closest("#menu")) {
+  if (menuEl && !menuEl.contains(e.target)) {
     closeMenu(false);
     e.preventDefault();
     return void e.stopPropagation();
@@ -384,6 +383,7 @@ function menuBtn(items, title = "More actions", cls = "sm") {
   return btn("⋯", (e, el) => openMenu(el, items), `${cls} more`, title).replace("<button", `<button aria-haspopup="menu" aria-expanded="false" aria-label="${esc(title)}"`);
 }
 let menuAnchor = null;
+let menuEl = null;
 function openMenu(anchor, items) {
   closeMenu(false);
   menuAnchor = anchor;
@@ -416,6 +416,7 @@ function openMenu(anchor, items) {
     if (!m.contains(e.relatedTarget)) closeMenu(false);
   });
   document.body.append(m);
+  menuEl = m;
   const r = anchor.getBoundingClientRect();
   m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
   m.style.top = `${r.bottom + 4 + m.offsetHeight > innerHeight - 8 ? Math.max(8, r.top - m.offsetHeight - 4) : r.bottom + 4}px`;
@@ -423,10 +424,10 @@ function openMenu(anchor, items) {
 }
 /** restore: focus goes back to the "⋯" button (Esc, or an item that opens no dialog). */
 function closeMenu(restore = true) {
-  const m = $("#menu");
+  const m = menuEl;
   if (!m) return;
-  // Removing the focused item fires focusout, which calls closeMenu again: drop the id first so that call finds nothing.
-  m.removeAttribute("id");
+  // Removing the focused item fires focusout, which calls closeMenu again: clear menuEl first so that call is a no-op.
+  menuEl = null;
   m.remove();
   menuAnchor?.setAttribute("aria-expanded", "false");
   if (restore && menuAnchor?.isConnected) menuAnchor.focus({ preventScroll: true });
@@ -1362,15 +1363,16 @@ function sitesView(n, o) {
       const older = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1)).filter((r) => r.at < (cur?.at ?? ""));
       const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
       const deleteSite = () =>
-        confirmDlg({
+        dialog({
           title: m.adopted ? `Stop and forget ${name}?` : `Delete ${name} from ${n}?`,
           text: m.adopted
             ? `Runs docker compose down in ${m.adopted}; its files and volumes stay.`
-            : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay.\nThis cannot be undone.",
+            : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay unless you delete them too.\nThis cannot be undone.",
+          fields: m.adopted ? [] : [{ name: "volumes", type: "check", label: "Also delete its volumes", hint: "Databases, uploads: all its data. lf sites rm --volumes" }],
           ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
           danger: true,
           typeToConfirm: m.adopted ? "" : name,
-          onOk: () => run(["sites", "rm", name, ...sv(n), "-y"]),
+          onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : [])]),
         });
       const svcMenu = (x) =>
         menuBtn([
@@ -1689,9 +1691,9 @@ function settingsView(n) {
       if (d) run(["traefik", "setup", ...sv(n), "--dashboard", d], reload);
     }, "Apply");
   const sites = S.overview[n]?.data?.sites ?? [];
-  // Sites behind a Traefik the server already had (proxy.env): lf traefik setup refuses to touch it.
-  const proxy = S.overview[n]?.data?.proxy;
-  const foreign = proxy && proxy !== "traefik" ? proxy : "";
+  // lf traefik setup refuses to touch a Traefik the server already had.
+  const o = S.overview[n]?.data;
+  const foreign = o?.adopted ? o.proxy : "";
   const external = (d) => S.overview[n]?.data?.others?.find((e) => e.domains.includes(d))?.name;
   const servedBy = (d) => sites.find((s) => s.domains.includes(d))?.meta.name;
   const serve = (d) => {
@@ -1833,7 +1835,7 @@ function render() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && $("#menu")) return closeMenu();
+  if (e.key === "Escape" && menuEl) return closeMenu();
   if (e.key === "Escape" && !$("#dlg").open && S.job && !e.target.closest?.("input, textarea, select")) {
     S.job = null;
     render();

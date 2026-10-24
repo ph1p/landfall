@@ -6,14 +6,13 @@ import { checkImage, checkInt, DOMAIN, expandDomain, mainDomain, loadConfig, loa
 import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
-import { ask, askSecret, c, confirm, fail, info, interactive, ok, step, warn } from "../ui";
+import { ask, c, confirm, fail, info, interactive, ok, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
 import { composeFile, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
-import { htpasswd } from "./traefik";
+import { loginUser, newLogin } from "./traefik";
 
-export { detectStaticDir, exposedPort, slug } from "../projects";
 
 /** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
 const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
@@ -26,8 +25,8 @@ const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
 /** The site's htpasswd lines with `login` added, replacing that user's old one. */
 function withLogin(auth: string[] | undefined, login?: string) {
   if (!login) return auth;
-  const user = login.slice(0, login.indexOf(":"));
-  return [...(auth ?? []).filter((l) => l.slice(0, l.indexOf(":")) !== user), login];
+  const user = loginUser(login);
+  return [...(auth ?? []).filter((l) => loginUser(l) !== user), login];
 }
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
@@ -99,14 +98,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     // Domains given up front fail on a typo before the build and the upload.
     const typos = (o.domain?.length ? o.domain : (project.domains ?? [])).map((d: string) => expandDomain(d, server)).filter((d: string) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
-    let login: string | undefined;
-    if (o["auth-user"]) {
-      const user: string = o["auth-user"];
-      if (!/^[A-Za-z0-9._@-]{1,64}$/.test(user)) fail("--auth-user may only have letters, digits and . _ @ -");
-      const pw: string = o["auth-password"] ?? (await askSecret(`Password for ${user}:`));
-      if (pw.length < 8) fail("use a password of at least 8 characters");
-      login = await htpasswd(user, pw);
-    } else if (o["auth-password"]) fail("--auth-password needs --auth-user");
+    if (o["auth-password"] && !o["auth-user"]) fail("--auth-password needs --auth-user");
+    const login = o["auth-user"] ? await newLogin(o["auth-user"], o["auth-password"], "--auth-user") : undefined;
 
     const buildCmd: string | undefined = o.build ?? project.build;
     if (buildCmd) {

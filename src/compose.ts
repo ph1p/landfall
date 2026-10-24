@@ -1,5 +1,5 @@
 import { DOMAIN } from "./config";
-import { OWN_PROXY, type Proxy } from "./templates";
+import { composeEscape, OWN_PROXY, yamlStr, type Proxy } from "./templates";
 
 /**
  * Every site is a Compose project. A release folder holds the user's compose.yaml as they wrote
@@ -181,9 +181,7 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
   return { services, errors, warnings };
 }
 
-const q = (s: string) => JSON.stringify(s);
-/** Compose interpolates `$` in label values; `$$` is a literal one. */
-const composeEscape = (s: string) => s.replace(/\$/g, "$$$$");
+const q = yamlStr;
 /** Network key of the proxy network in the override; its `name:` is the real one. */
 export const PROXY_KEY = "landfall-proxy";
 

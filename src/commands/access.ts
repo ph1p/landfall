@@ -3,13 +3,12 @@ import { DOMAIN, expandDomain, loadProject, saveProject, type Server } from "../
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
 import { isOld, siteDomains, siteMain } from "../compose";
-import { applySite, overview, requireSite } from "../remote";
+import { changeSite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
-import { askSecret, c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
-import { htpasswd } from "./traefik";
+import { c, confirmRemoval, fail, info, ok, openUrl, warn } from "../ui";
+import { loginUser, newLogin } from "./traefik";
 import { target } from "./sites";
 
-export { DOMAIN } from "../config";
 
 /** HTTPS status of a URL: the code, or why there is none. */
 export async function httpsStatus(domain: string): Promise<{ status?: number; error?: string }> {
@@ -46,10 +45,8 @@ export async function claimDomains(server: Server, serverName: string, site: str
   }
   return async () => {
     for (const m of others) {
-      const prev = structuredClone(m);
-      m.domains = m.domains.filter((d) => !domains.includes(d));
-      m.updatedAt = new Date().toISOString();
-      await applySite(server, m, proxy, { keep: m.releases.length, prev, what: `moved ${prev.domains.filter((d) => domains.includes(d)).join(", ")} from ${m.name} to ${site}` });
+      const moved = m.domains.filter((d) => domains.includes(d));
+      await changeSite(server, m, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))));
       updateProjectDomains(serverName, m.name, m.domains);
       info(c.dim(m.domains.length ? `${m.name} keeps ${m.domains.join(", ")}` : `${m.name} serves no domain now`));
     }
@@ -103,20 +100,17 @@ and update .landfall.json of remembered projects.`,
       const left = next.length ? "" : ` ${site} keeps running, unreachable until it gets a domain again.`;
       await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.${left}`);
     }
-    const move = await claimDomains(server, serverName, site, next.filter((d) => !meta.domains.includes(d)), proxy);
-
-    const prev = structuredClone(meta);
-    meta.domains = next;
-    meta.updatedAt = new Date().toISOString();
+    const added = next.filter((d) => !meta.domains.includes(d));
+    const move = await claimDomains(server, serverName, site, added, proxy);
     await move();
-    await applySite(server, meta, proxy, { keep: meta.releases.length, prev, what: `domains of ${site}: ${next.join(", ")}` });
+    await changeSite(server, meta, proxy, `domains of ${site}: ${next.join(", ")}`, (m) => void (m.domains = next));
     updateProjectDomains(serverName, site, next);
     const here = loadProject(process.cwd());
     if (here?.name === site) saveProject(process.cwd(), { ...here, domains: next });
     if (!next.length) ok(`${site} serves no domain now ${c.dim(`(lf domains ${site} --add <domain> routes it again)`)}`);
     else ok(`${site} serves ${next.map((d) => c.cyan(`https://${d}`)).join(", ")}`);
     const ips = await serverIps(server);
-    for (const d of await checkDns(next.filter((d) => !prev.domains.includes(d)), ips)) {
+    for (const d of await checkDns(added, ips)) {
       if (!d.ok) warn(`${d.domain} ${d.ips.length ? `points at ${d.ips.join(", ")}` : "has no DNS record"}, not ${ips.join(" or ")}: HTTPS waits for it`);
     }
   },
@@ -141,7 +135,7 @@ export const auth = defineCommand({
   async run([n], o) {
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
-    const users = (meta.auth ?? []).map((l) => l.slice(0, l.indexOf(":")));
+    const users = (meta.auth ?? []).map(loginUser);
     if (!o.user && !o["rm-user"] && !o.off) {
       if (!users.length) return void console.log(`${site} is public ${c.dim("(add a login with --user)")}`);
       return void console.log(`${site} asks for a login: ${users.map((u) => c.bold(u)).join(", ")}`);
@@ -149,28 +143,16 @@ export const auth = defineCommand({
     let lines = o.off ? [] : [...(meta.auth ?? [])];
     const drop = new Set<string>(o["rm-user"] ?? []);
     for (const u of drop) if (!users.includes(u)) warn(`no login ${u} on ${site}`);
-    if (o.user) {
-      if (!/^[A-Za-z0-9._@-]{1,64}$/.test(o.user)) fail("user may only have letters, digits and . _ @ -");
-      const pw: string = o.password ?? (await askSecret(`Password for ${o.user}:`));
-      if (pw.length < 8) fail("use a password of at least 8 characters");
-      drop.add(o.user);
-      lines = lines.filter((l) => !drop.has(l.slice(0, l.indexOf(":"))));
-      lines.push(await htpasswd(o.user, pw));
-    } else lines = lines.filter((l) => !drop.has(l.slice(0, l.indexOf(":"))));
+    if (o.user) drop.add(o.user);
+    lines = lines.filter((l) => !drop.has(loginUser(l)));
+    if (o.user) lines.push(await newLogin(o.user, o.password));
     if (lines.join("\n") === (meta.auth ?? []).join("\n")) return ok("nothing to change");
-    const now = lines.map((l) => l.slice(0, l.indexOf(":")));
+    const now = lines.map(loginUser);
     const gone = users.filter((u) => !now.includes(u));
     if (!now.length) await confirmRemoval(`Remove every login from ${site}? Anyone can open it then.`);
     else if (gone.length) await confirmRemoval(`Remove the login${gone.length > 1 ? "s" : ""} ${gone.join(", ")} from ${site}?`);
 
-    const prev = structuredClone(meta);
-    meta.auth = lines.length ? lines : undefined;
-    meta.updatedAt = new Date().toISOString();
-    await applySite(server, meta, proxy, {
-      keep: meta.releases.length,
-      prev,
-      what: now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`,
-    });
+    await changeSite(server, meta, proxy, now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`, (m) => void (m.auth = lines.length ? lines : undefined));
     ok(now.length ? `${site} asks for a login (${now.join(", ")})` : `${site} is public again`);
   },
 });

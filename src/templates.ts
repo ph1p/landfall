@@ -386,10 +386,10 @@ fi
 exit 0
 `;
 
-/** Docker label values containing `$` must be doubled for compose. */
-const composeEscape = (s: string) => s.replace(/\$/g, "$$$$");
-
-const yamlStr = (s: string) => JSON.stringify(s);
+/** Compose interpolates `$` in label values; `$$` is a literal one. */
+export const composeEscape = (s: string) => s.replace(/\$/g, "$$$$");
+/** A YAML string: JSON's double-quoted form is valid YAML. */
+export const yamlStr = (s: string) => JSON.stringify(s);
 
 export interface TraefikOpts {
   email?: string;

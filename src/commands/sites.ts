@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { loadProject, resolveServer } from "../config";
 import { COMPOSE_FILES, isDone, isUp, OVERRIDE_FILES, projectName, siteDomains, type SiteMeta } from "../compose";
-import { adoptSite, applySite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
+import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, ok, table } from "../ui";
 import { slug } from "../projects";
@@ -134,10 +134,7 @@ export const sitesRollback = defineCommand({
     if (idx < 0 && !o.to) fail(`current release ${meta.current} is not in the release list; pick one with --to (see \`lf sites info\`)`);
     const to = o.to ? sorted.find((r) => r.id === o.to) : sorted[idx + 1];
     if (!to) fail(o.to ? `no release ${o.to}` : `no release older than ${meta.current}`);
-    const prev = structuredClone(meta);
-    meta.current = to!.id;
-    meta.updatedAt = new Date().toISOString();
-    await applySite(server, meta, proxy, { keep: meta.releases.length, prev, what: `rollback ${site} from ${prev.current} to ${to!.id}` });
+    await changeSite(server, meta, proxy, `rollback ${site} from ${meta.current} to ${to!.id}`, (m) => void (m.current = to!.id));
     ok(`${site} rolled back to ${c.bold(to!.id)}`);
   },
 });

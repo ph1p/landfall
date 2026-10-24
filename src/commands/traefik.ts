@@ -6,7 +6,7 @@ import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dockerLogs } from "../remote";
 import { runScript, shq, writeFileCmd } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "../templates";
-import { c, confirm, confirmRemoval, fail, info, ok, step } from "../ui";
+import { askSecret, c, confirm, confirmRemoval, fail, info, ok, step } from "../ui";
 
 export interface TraefikInstall {
   /** Optional; falls back to what the server entry remembers. */
@@ -25,6 +25,15 @@ export interface TraefikInstall {
 export async function htpasswd(user: string, password: string) {
   const hash = await bcrypt.hash(password, 10);
   return `${user}:${hash.replace(/^\$2b\$/, "$2y$")}`;
+}
+/** The user of an htpasswd line. */
+export const loginUser = (line: string) => line.slice(0, line.indexOf(":"));
+/** An htpasswd line for a site login; asks for the password unless given. flag: the option that named the user, for errors. */
+export async function newLogin(user: string, password?: string, flag = "user") {
+  if (!/^[A-Za-z0-9._@-]{1,64}$/.test(user)) fail(`${flag} may only have letters, digits and . _ @ -`);
+  const pw = password ?? (await askSecret(`Password for ${user}:`));
+  if (pw.length < 8) fail("use a password of at least 8 characters");
+  return htpasswd(user, pw);
 }
 
 /** What `installTraefik` will run with: flags first, then what the server entry remembers. */

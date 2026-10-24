@@ -128,9 +128,8 @@ dashboard unless given as flags.`,
     // 1. key-based access
     next("ssh key");
     const keyPath = await ensureKeyLogin(name, login, { check: o.check, password: await loginPassword(o["password-stdin"]) });
-    if (!keyPath) return;
-    if (o["key-only"]) return;
-    const pubkey = keyPath ? fs.readFileSync(`${keyPath}.pub`, "utf8").trim() : "";
+    if (!keyPath || o["key-only"]) return;
+    const pubkey = fs.readFileSync(`${keyPath}.pub`, "utf8").trim();
     const deployUser: string = o["deploy-user"] === eff.user ? "" : o["deploy-user"];
 
     // 2. inspect before touching anything
@@ -163,7 +162,7 @@ dashboard unless given as flags.`,
     info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}`);
     if (os.note) (os.level === "ok" ? info : warn)(os.note);
     printChecks(checks);
-    if (o.check || !keyPath) return; // keyPath is always set outside --check
+    if (o.check) return;
     const apply = await decide(checks, o.force);
     const firstTraefik = ownTraefik && traefik.status === "todo" && interactive();
     let domain = o.domain ? checkDomain(o.domain) : existing && mainDomain(existing);
