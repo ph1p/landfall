@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { defineCommand } from "../cmd";
-import { checkDomain, CONFIG_PATH, DOMAIN, expandHome, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, type Server } from "../config";
+import { checkDomain, CONFIG_PATH, DOMAIN, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
 import { runScript, shq, sshExec } from "../ssh";
 import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
 import { bytes, checkDns, duration, facts, serverIps } from "../facts";
@@ -104,9 +104,7 @@ export const serverRemove = defineCommand({
     const cfg = loadConfig();
     if (!cfg.servers[name] && !hasManagedBlock(name)) fail(`unknown server "${name}"`);
     await confirmRemoval(`Forget server ${name}? Nothing on the server changes.`);
-    delete cfg.servers[name];
-    if (cfg.default === name) delete cfg.default;
-    saveConfig(cfg);
+    forgetServer(name);
     if (o["ssh-config"] && removeHostBlock(name)) ok(`removed Host ${name} from ~/.ssh/config`);
     ok(`removed ${name}`);
   },
@@ -169,10 +167,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     await runScript(root.login, `rm -rf ${ROOT}`, { sudo: root.sudo });
     ok(`landfall removed from ${name}`);
 
-    const cfg = loadConfig();
-    delete cfg.servers[name];
-    if (cfg.default === name) delete cfg.default;
-    saveConfig(cfg);
+    forgetServer(name);
     if (removeHostBlock(name)) ok(`removed Host ${name} from ~/.ssh/config`);
     ok(`forgot ${name}`);
     if (fs.existsSync(keyFile(name))) info(c.dim(`${tildify(keyFile(name))} stays: root on ${name} still accepts it`));
@@ -185,10 +180,7 @@ export const serverUse = defineCommand({
   summary: "Set the default server used when --server is omitted.",
   async run([name]) {
     if (!name) fail("usage: lf server use <name>");
-    const cfg = loadConfig();
-    cfg.servers[name] ??= { host: name };
-    cfg.default = name;
-    saveConfig(cfg);
+    useServer(name);
     ok(`default server: ${c.bold(name)}`);
   },
 });

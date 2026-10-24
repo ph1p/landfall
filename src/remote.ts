@@ -101,6 +101,8 @@ export interface Overview {
   traefik: string;
   /** Its container name: landfall's `traefik`, or the one sites were pointed at. */
   proxy: string;
+  /** Sites go through a Traefik the server already had (PROXY_FILE): landfall never reconfigures it. */
+  adopted: boolean;
   sites: SiteStatus[];
   /** Containers routed by Traefik that landfall did not deploy (your own compose projects). Read only. */
   others: External[];
@@ -179,7 +181,7 @@ export async function overview(s: Server): Promise<Overview> {
     s,
     `printf 'READY\\t%s\\n' "$([ -d ${SITES} ] && command -v docker >/dev/null 2>&1 && echo 1)"
 P=${PROXY_CTR}
-printf 'TRAEFIK\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P"
+printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
 for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done
 docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}\\t{{.Label "com.docker.compose.project"}}\\t{{.Label "com.docker.compose.service"}}' 2>/dev/null || true
 ids=$(docker ps -aq 2>/dev/null || true)
@@ -191,13 +193,14 @@ ids=$(docker ps -aq 2>/dev/null || true)
   const byProject = new Map<string, ServiceStatus[]>();
   const metas: SiteMeta[] = [];
   const labeled: { name: string; labels: Record<string, string> }[] = [];
-  const o: Overview = { ready: false, traefik: "", proxy: "traefik", sites: [], others: [] };
+  const o: Overview = { ready: false, traefik: "", proxy: "traefik", adopted: false, sites: [], others: [] };
   for (const line of stdout.split("\n")) {
     const [kind, a = "", b = "", project = "", service = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
     if (kind === "TRAEFIK") {
       o.traefik = a;
       o.proxy = b || "traefik";
+      o.adopted = project === "1";
     }
     if (kind === "SITE") {
       // One broken site.json must not hide every other site.
@@ -323,22 +326,26 @@ export const upLines = (name: string) => [
   `(cd -P current && ${UP}) || { log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; exit 1; }`,
 ];
 
+/** Shell: remove a built image, quietly; one still in use stays. */
+const rmImage = (i: string) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`;
+
 /** Shell that writes a site's files for meta.current, points `current` at it and starts it. */
 function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: boolean; pull?: boolean } = {}): string[] {
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
+  const rel = shq("releases/" + meta.current);
   const lines = [
     `mkdir -p ${shq(dir)} && cd ${shq(dir)}`,
     writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"),
     o.env !== undefined ? writeFileCmd(".env", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
-    `(cd -P ${shq("releases/" + meta.current)} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
+    `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
   ];
   if (o.build && release.services.some((s) => s.build)) {
-    lines.push(`log "building ${meta.name}"`, `(cd -P ${shq("releases/" + meta.current)} && dc build -q) || exit 1`);
+    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && dc build -q) || exit 1`);
   }
-  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${shq("releases/" + meta.current)} && dc pull -q --ignore-buildable) || exit 1`);
+  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && dc pull -q --ignore-buildable) || exit 1`);
   // Swapped in one rename, so `current` always points at a whole release.
-  lines.push(`ln -sfn ${shq("releases/" + meta.current)} current.new && mv -Tf current.new current`, ...upLines(meta.name));
+  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name));
   return lines;
 }
 
@@ -346,7 +353,7 @@ const builtImages = (meta: SiteMeta, r: Release) => (r.services ?? []).filter((s
 
 const dropRelease = (meta: SiteMeta, r: Release) => [
   `rmf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
-  ...builtImages(meta, r).map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
+  ...builtImages(meta, r).map(rmImage),
 ];
 
 /** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
@@ -359,7 +366,7 @@ function takeoverLines(old: SiteMeta): string[] {
     `dc -p ${shq(oldProject(old.name))} down --remove-orphans >/dev/null 2>&1 || docker rm -f ${shq(oldProject(old.name))} >/dev/null 2>&1 || true`,
     `rm -f docker-compose.yml nginx.conf`,
     ...old.releases.map((r) => `rm -rf ${shq("releases/" + r.id)}`),
-    ...images.map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
+    ...images.map(rmImage),
   ];
 }
 
@@ -368,6 +375,14 @@ function takeoverLines(old: SiteMeta): string[] {
  * Used by deploy, rollback and domain changes alike, so all go through the exact same path.
  * Journaled with the shell that brings back o.prev (or removes a new site).
  */
+/** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
+export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void) {
+  const prev = structuredClone(meta);
+  change(meta);
+  meta.updatedAt = new Date().toISOString();
+  await applySite(s, meta, proxy, { keep: meta.releases.length, prev, what });
+}
+
 export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: ApplyOpts) {
   const keep = Math.max(Number.isInteger(o.keep) ? o.keep! : 5, 2);
   // Newest first; never prune the active release, nor the one undo goes back to.
@@ -428,7 +443,7 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
   return [
     `cd ${shq(dir)}`,
     `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(siteProject(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
-    ...images.map((i) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`),
+    ...images.map(rmImage),
     ...(o.keepDir
       ? [`rmf ${files}`, "rmdir releases 2>/dev/null || true"]
       : ["cd /", `rmf ${shq(dir)}`]),

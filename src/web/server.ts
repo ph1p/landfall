@@ -5,10 +5,10 @@ import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import pkg from "../../package.json";
-import { DOMAIN, httpsStatus } from "../commands/access";
+import { httpsStatus } from "../commands/access";
 import { firewallState } from "../commands/firewall";
 import { domainDns, serverSettings, suggestDomains } from "../commands/server";
-import { CONFIG_PATH, loadConfig, loadProject, resolveServer, saveConfig } from "../config";
+import { CONFIG_PATH, DOMAIN, loadConfig, loadProject, resolveServer, saveConfig, useServer } from "../config";
 import { changes, listServers, target } from "../dashboard";
 import { checkDns, facts, pickIp, serverIps } from "../facts";
 import { loadProjects } from "../projects";
@@ -17,7 +17,7 @@ import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
 import { pending, readJournal } from "../journal";
 import { overview } from "../remote";
-import { setQuiet } from "../ssh";
+import { newRunId, setQuiet } from "../ssh";
 import { effectiveSsh } from "../sshconfig";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../templates";
 import { c, openUrl } from "../ui";
@@ -59,7 +59,7 @@ const failure = (e: any, status = 500) => json({ error: e?.message ?? String(e) 
 
 function startWebJob(argv: string[], o: { server?: string; password?: string; cwd?: string }): WebJob {
   // The journal credits what the job changes to this id, so it can be undone as one.
-  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const id = newRunId();
   const listeners = new Set<() => void>();
   const job = startJob(argv, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, env: { LANDFALL_RUN: id } });
   const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), undoable: changes(argv), job, listeners };
@@ -174,10 +174,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
       return json({ ips, domains: dns.map((d, i) => ({ ...d, https: https[i] })) });
     }
     if (method === "POST" && sub === "default") {
-      const cfg = loadConfig();
-      cfg.servers[name] ??= { host: name };
-      cfg.default = name;
-      saveConfig(cfg);
+      useServer(name);
       return json({ ok: true });
     }
   }

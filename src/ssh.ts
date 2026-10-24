@@ -93,12 +93,15 @@ export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
   return code;
 }
 
+/** Id of one landfall run in the journal: undo groups a run's changes by it. */
+export const newRunId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
 /**
  * What the server journal credits a change to. One landfall invocation is one run;
  * the dashboard passes LANDFALL_RUN to its jobs so it can offer to undo them.
  */
 export const journal = {
-  run: process.env.LANDFALL_RUN || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+  run: process.env.LANDFALL_RUN || newRunId(),
   actor: `${userInfo().username}@${hostname().split(".")[0]}`,
   cmd: "",
 };
