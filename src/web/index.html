@@ -1022,7 +1022,6 @@ function deployDialog(det, o = {}) {
       if (!n) return invalid("name", "Give the site a name");
       if (!v.server) return invalid("server", "Pick a server");
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
-      if (v.noDomain && domains.length) return invalid("domains", "No domain is ticked below: clear these, or untick it");
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d]))];
       if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
       if (v.spa && !p?.spa) argv.push("--spa");
@@ -1040,6 +1039,16 @@ function deployDialog(det, o = {}) {
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
   });
+  noDomainToggle();
+}
+
+/** The open dialog's "no domain" box greys out its domains field: ticked, the site gets none. */
+function noDomainToggle() {
+  const box = $("#f-noDomain"), input = $("#f-domains");
+  if (!box || !input) return;
+  const sync = () => (input.disabled = box.checked);
+  box.addEventListener("change", sync);
+  sync();
 }
 
 /** After a deploy: offer the address it printed. */
@@ -1179,20 +1188,22 @@ function domainsDialog(n, m) {
     text: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
     fields: [
       { name: "domains", label: "Domains (space separated)", value: m.domains.join(" ") },
+      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !m.domains.length, hint: "Nothing is served on the internet; the site keeps running. Open via tunnel reaches it." },
       ...(main && !m.domains.includes(main) ? [{ name: "apex", label: `Also serve ${main}`, type: "check", value: false, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }] : []),
       ...(free && !m.domains.includes(free) ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }] : []),
     ],
     ok: "Save",
     onOk: (v) => {
-      const domains = v.domains.split(/[\s,]+/).filter(Boolean);
-      if (v.free) domains.push(free);
-      if (v.apex) domains.push(main);
+      const domains = v.noDomain ? [] : v.domains.split(/[\s,]+/).filter(Boolean);
+      if (v.free && !v.noDomain) domains.push(free);
+      if (v.apex && !v.noDomain) domains.push(main);
       // None left: the site keeps running, unrouted.
       const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
       if (!args.length) return;
       run(["domains", m.name, ...sv(n), ...args, "-y"], { server: n });
     },
   });
+  noDomainToggle();
 }
 
 function authDialog(n, m) {
