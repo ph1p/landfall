@@ -73,15 +73,32 @@ nav.servers { border-right: 1px solid var(--line); background: var(--bg); overfl
 #navlist { padding: 0 8px 16px; }
 nav h3 { margin: 14px 10px 4px; font-size: var(--fs-xs); color: var(--faint); font-weight: 500; display: flex; justify-content: space-between; }
 nav h3 span { font-weight: 500; }
-.srv { display: block; width: 100%; text-align: left; border: 0; background: none; box-shadow: none; padding: 6px 10px; border-radius: var(--r-sm); }
+.srv { display: grid; grid-template-columns: 8px minmax(0, 1fr); column-gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; background: none; box-shadow: none; padding: 7px 10px; border-radius: var(--r-sm); }
+.srv > .dot { margin: 0; }
+.srv .n, .srv .t { grid-column: 2; }
+.srv.off:not(.on) .n { color: var(--dim); }
+.srv .t .refused { color: var(--warn); }
 .srv:hover { background: var(--hover); }
 .srv.on { background: var(--panel); box-shadow: 0 0 0 1px var(--line), var(--shadow); }
 .srv.on .n { color: var(--text); }
 .srv.on .t { color: var(--dim); }
 .srv .n { font-weight: 550; display: flex; align-items: center; gap: 6px; }
-.srv .n .dot, .tile .n .dot { margin-right: 0; flex: none; }
-#recheck.busy { animation: spin 1s linear infinite; }
-.srv .t { color: var(--faint); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .n .dot { margin-right: 0; flex: none; }
+nav h3 .grp { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+nav h3 .grp:hover { color: var(--dim); }
+nav h3 .grp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+nav h3 .caret { width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .15s; }
+nav h3 .grp[aria-expanded="true"] .caret { transform: rotate(90deg); }
+.nav-foot { position: sticky; bottom: 0; margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px 12px 18px; border-top: 1px solid var(--line); background: var(--bg); font-size: var(--fs-sm); }
+.nav-foot .what { flex: 1; min-width: 0; color: var(--dim); }
+.nav-foot .counts { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--text); }
+.nav-foot .counts .dot { margin-right: 5px; }
+.nav-foot .when { color: var(--faint); font-size: var(--fs-xs); margin-top: 2px; }
+.nav-foot .recheck { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.nav-foot .recheck .spin { width: 10px; height: 10px; }
+.srv .t { color: var(--faint); font-size: var(--fs-sm); display: flex; min-width: 0; white-space: nowrap; }
+.srv .t .h { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.srv .t .x { flex: none; white-space: pre; }
 .nav-none { color: var(--faint); font-size: var(--fs-sm); padding: 6px 10px; }
 .srv .t .live { color: var(--ok); }
 /* The open server's sections, under it in the list. */
@@ -294,8 +311,9 @@ body.dragging::after {
   </header>
   <!-- The filter stays put across renders, so typing keeps its focus. -->
   <nav class="servers" id="nav">
-    <div class="nav-top"><input id="filter" type="search" placeholder="Filter servers" autocomplete="off" spellcheck="false" aria-label="Filter servers"><button type="button" id="recheck" title="Check which servers landfall can log in to (lf server list --check)" aria-label="Check servers">↻</button><button type="button" id="add-server" title="Register an ssh alias or set up a fresh machine">+</button></div>
+    <div class="nav-top"><input id="filter" type="search" placeholder="Filter servers" autocomplete="off" spellcheck="false" aria-label="Filter servers"><button type="button" id="add-server" title="Register an ssh alias or set up a fresh machine">+</button></div>
     <div id="navlist"></div>
+    <div class="nav-foot" id="navfoot" hidden></div>
   </nav>
   <div class="server-pick" id="pick"></div>
   <main id="main"></main>
@@ -336,6 +354,7 @@ const S = {
   filter: "",            // server list filter
   reach: {},             // name -> {state: ok|login|down, detail, ms} from /api/reach
   reaching: false,
+  reachedAt: null,       // when the last check finished
   jobs: new Map(),       // id -> {info, lines, after, actions, es}
   job: null,             // shown job id
 };
@@ -523,6 +542,7 @@ async function loadReach(fresh = false) {
   renderNav();
   try {
     S.reach = await http(`/api/reach${fresh ? "?fresh=1" : ""}`);
+    S.reachedAt = new Date();
   } catch (e) {
     toast(`Checking servers failed: ${e.message}`);
   } finally {
@@ -1349,31 +1369,73 @@ function makeDefault(n) {
 
 function renderNav() {
   const st = S.state;
-  const list = st.servers;
-  const own = list.filter((s) => s.registered);
-  const aliases = list.filter((s) => !s.registered);
+  // Reachable first, then refused, then down; unchecked last. sort() is stable, so ties keep config order.
+  const list = st.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
+  // Down servers sit in their own group, closed until opened, so the rest stay in view.
+  const isDown = (s) => S.reach[s.name]?.state === "down";
+  const own = list.filter((s) => s.registered && !isDown(s));
+  const aliases = list.filter((s) => !s.registered && !isDown(s));
+  const down = list.filter(isDown);
   const q = S.filter.toLowerCase();
   const hit = (s) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
   const item = (s) => {
     const tunnels = openTunnels(s.name).length;
-    const head = `<button type="button" class="srv ${s.name === S.sel ? "on" : ""}" data-f="srv:${esc(s.name)}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
-      <div class="n">${reachDot(s.name)}${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
-      <div class="t">${esc(s.target)}${tunnels ? ` · <span class="live">${plural(tunnels, "tunnel")}</span>` : ""}</div></button>`;
+    const r = S.reach[s.name];
+    const why = r?.state === "login" ? `<span class="x"> · <span class="refused">login refused</span></span>` : "";
+    const head = `<button type="button" class="srv ${s.name === S.sel ? "on" : ""} ${r?.state === "down" ? "off" : ""}" data-f="srv:${esc(s.name)}" ${on(() => go(s.name, S.sel === s.name ? S.tab : "sites"))}>
+      ${reachDot(s.name)}<div class="n">${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
+      <div class="t"><span class="h">${esc(s.target)}</span>${why}${tunnels ? `<span class="x"> · <span class="live">${plural(tunnels, "tunnel")}</span></span>` : ""}</div></button>`;
     return s.name === S.sel ? `${head}<div class="sections" role="list" aria-label="${esc(s.name)}">${sectionButtons(s.name, "sec")}</div>` : head;
   };
-  const group = (title, l) => {
+  const group = (key, title, l) => {
+    if (!l.length) return "";
     const shown = l.filter(hit);
-    return l.length ? `<h3>${title}${q ? `<span>${shown.length}/${l.length}</span>` : ""}</h3>${shown.map(item).join("") || `<div class="nav-none">no match</div>`}` : "";
+    // A closed group still shows the open server; a filter opens every group.
+    const closed = navClosed.has(key) && !q;
+    const rows = closed ? shown.filter((s) => s.name === S.sel) : shown;
+    return `<h3><button type="button" class="grp" aria-expanded="${!closed}" ${on(() => toggleGroup(key))}><span class="caret" aria-hidden="true"></span>${title}</button><span>${q ? `${shown.length}/` : ""}${l.length}</span></h3>
+      ${rows.map(item).join("") || (closed ? "" : `<div class="nav-none">no match</div>`)}`;
   };
   $("#filter").hidden = list.length < 8;
   $("#add-server").textContent = list.length < 8 ? "+ Add server" : "+";
-  $("#recheck").disabled = S.reaching || !list.length;
-  $("#recheck").classList.toggle("busy", S.reaching);
-  $("#navlist").innerHTML = `${group("Servers", own)}${group("From ~/.ssh/config", aliases)}
+  $("#navlist").innerHTML = `${group("own", "Servers", own)}${group("ssh", "From ~/.ssh/config", aliases)}${group("down", "Unreachable", down)}
     ${list.length ? "" : `<div class="nav-none">No servers yet.</div>`}`;
+  $("#navfoot").hidden = !list.length;
+  $("#navfoot").innerHTML = reachSummary(list);
   $("#pick").innerHTML = `<select aria-label="Server" onchange="go(this.value || null)">
     <option value="">Pick a server…</option>${list.map((s) => `<option value="${esc(s.name)}" ${s.name === S.sel ? "selected" : ""}>${esc(s.name)} · ${esc(s.target)}${S.reach[s.name] && S.reach[s.name].state !== "ok" ? ` · ${REACH_DOT[S.reach[s.name].state][1]}` : ""}</option>`).join("")}
   </select>`;
+}
+
+const reachRank = (n) => ({ ok: 0, login: 1, down: 2 })[S.reach[n]?.state] ?? 3;
+
+/** The sidebar's foot: what the login check is doing, or what it found and when. */
+function reachSummary(list) {
+  const btnHtml = `<button type="button" class="sm ghost recheck" ${S.reaching ? "disabled" : ""} title="Try landfall's ssh login on every server again (lf server list --check)" ${on(() => loadReach(true))}><span class="${S.reaching ? "spin" : "ico"}" aria-hidden="true">${S.reaching ? "" : "↻"}</span>${S.reaching ? "Checking" : "Check"}</button>`;
+  if (S.reaching) return `<div class="what" role="status">Trying ssh login on ${plural(list.length, "server")}…</div>${btnHtml}`;
+  if (!S.reachedAt) return `<div class="what">Not checked yet</div>${btnHtml}`;
+  const count = { ok: 0, login: 0, down: 0 };
+  for (const s of list) if (S.reach[s.name]) count[S.reach[s.name].state]++;
+  const part = (k, word) => (count[k] ? `<span title="${esc(word)}"><span class="dot ${REACH_DOT[k][0]}"></span>${count[k]} ${word}</span>` : "");
+  const at = S.reachedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `<div class="what" role="status"><div class="counts">${part("ok", "reachable")}${part("login", "refused")}${part("down", "down")}</div>
+    <div class="when">checked ${at} · again every minute</div></div>${btnHtml}`;
+}
+
+// Unreachable starts folded on every load; only the other groups remember their state.
+const navClosed = new Set([...(() => {
+  try {
+    return JSON.parse(localStorage.getItem("lf.navClosed") ?? "[]");
+  } catch {
+    return [];
+  }
+})(), "down"]);
+function toggleGroup(key) {
+  navClosed.has(key) ? navClosed.delete(key) : navClosed.add(key);
+  try {
+    localStorage.setItem("lf.navClosed", JSON.stringify([...navClosed].filter((k) => k !== "down")));
+  } catch {}
+  renderNav();
 }
 
 /** The open server's sections as buttons, each with its count. */
@@ -1508,7 +1570,7 @@ function renderMain() {
 /** No server open: the servers to pick from, and how the same works in a terminal. */
 function homeView() {
   const list = S.state.servers;
-  const own = list.filter((s) => s.registered);
+  const own = list.filter((s) => s.registered).sort((a, b) => reachRank(a.name) - reachRank(b.name));
   const tile = (s) => `<button type="button" class="tile" ${on(() => go(s.name, "sites"))}>
       <div class="n">${reachDot(s.name)}${esc(s.name)}${s.isDefault ? `<span class="star" title="default server">★</span>` : ""}</div>
       <div class="t">${esc(s.target)}</div></button>`;
@@ -2164,7 +2226,6 @@ $("#filter").addEventListener("input", (e) => {
   renderNav();
 });
 $("#add-server").onclick = () => addServer();
-$("#recheck").onclick = () => loadReach(true);
 // Servers go up and down: check again each minute while the page is visible.
 setInterval(() => document.hidden || loadReach(), 60_000);
 $("#app-settings").onclick = () => defaultsDialog();
