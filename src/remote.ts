@@ -209,7 +209,8 @@ export function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
 }
 
 /** Compose project of a site; sites of landfall before Compose sites ran as landfall-<name>. */
-const siteProject = (meta: SiteMeta) => (isOld(meta) ? oldProject(meta.name) : projectName(meta));
+/** The compose project a site runs as. */
+export const siteProject = (meta: SiteMeta) => (isOld(meta) ? oldProject(meta.name) : projectName(meta));
 
 export async function overview(s: Server): Promise<Overview> {
   const { stdout } = await runScript(

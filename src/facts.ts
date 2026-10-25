@@ -176,10 +176,10 @@ export async function checkDns(domains: string[], serverIpList: string[]): Promi
 }
 
 export const bytes = (n: number) => {
-  const u = ["B", "K", "M", "G", "T"];
+  const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
   while (n >= 1024 && i < u.length - 1) (n /= 1024), i++;
-  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)}${u[i]}`;
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
 };
 
 export const duration = (s: number) => {

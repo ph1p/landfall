@@ -12,7 +12,7 @@ import { loadProjects } from "../projects";
 import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
 import { overview } from "../remote";
-import { configView, dnsView, factsView, firewallView, historyView, updatesView } from "../views";
+import { configView, diskView, dnsView, factsView, firewallView, historyView, statsView, updatesView } from "../views";
 import { newRunId, setQuiet } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../templates";
 import { c, openUrl } from "../ui";
@@ -192,6 +192,8 @@ async function api(req: Request, path: string[]): Promise<Response> {
     if (method === "GET" && sub === "config") return json(await configView(name, server));
     if (method === "GET" && sub === "history") return json(await historyView(server));
     if (method === "GET" && sub === "facts") return json(await factsView(name, server));
+    if (method === "GET" && sub === "stats") return json(await statsView(server));
+    if (method === "GET" && sub === "disk") return json(await diskView(server));
     if (method === "GET" && sub === "updates") return json(await updatesView(server, new URL(req.url).searchParams.get("refresh") === "1"));
     if (method === "GET" && sub === "dns") {
       const domains = (new URL(req.url).searchParams.get("domains") ?? "").split(",").filter((d) => DOMAIN.test(d)).slice(0, 50);
