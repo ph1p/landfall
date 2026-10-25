@@ -18,9 +18,10 @@ import { secretsOut } from "../../src/web/server";
 import { shq, writeFileCmd } from "../../src/ssh";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
-import { isPublic4, parseFacts, pickIp, sslipDomain, support } from "../../src/facts";
+import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/stats";
 import { parsePrunePlan, removable } from "../../src/manage";
+import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/system";
 import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
@@ -768,11 +769,13 @@ describe("versions", () => {
   });
 
   test("engineNotes: landfall's own compose can be updated, distro ones are only reported", () => {
-    const e = { docker: "29.9.2", compose: "2.40.3", composePath: "/usr/local/lib/docker/cli-plugins/docker-compose", dockerCe: false, latestDocker: "29.9.2", latestCompose: "5.6.1" };
+    const e = { docker: "29.9.2", compose: "2.40.3", composePath: "/usr/local/lib/docker/cli-plugins/docker-compose", dockerCe: false, synology: false, latestDocker: "29.9.2", latestCompose: "5.6.1" };
     expect(engineNotes(e)).toMatchObject({ dockerNote: undefined, composeUpdate: true });
     expect(engineNotes({ ...e, composePath: "/usr/libexec/docker/cli-plugins/docker-compose", dockerCe: true })).toMatchObject({ composeUpdate: false, composeNote: "compose 2.40.3, 5.6.1 is current (comes with the package upgrades)" });
     expect(engineNotes({ ...e, docker: "26.1.5" }).dockerNote).toContain("29.9.2 is current");
     expect(engineNotes({ ...e, latestDocker: undefined, latestCompose: undefined })).toMatchObject({ dockerNote: undefined, composeNote: undefined, composeUpdate: false });
+    // Same plugin path on DSM, but Container Manager owns it.
+    expect(engineNotes({ ...e, synology: true })).toMatchObject({ composeUpdate: false, composeNote: "compose 2.40.3, 5.6.1 is current (comes with Container Manager updates in Package Center)" });
   });
 });
 
@@ -892,5 +895,100 @@ describe("prune", () => {
 
   test("no docker", () => {
     expect(parsePrunePlan("NODOCKER\n").docker).toBe(false);
+  });
+});
+
+describe("capabilities", () => {
+  const base = "os=X\nid=debian\nversion=12\npkg=apt\ndocker=27.0.1\ncompose=2.29.1\ninit=systemd\nuser=root\nadmin=1\nufw=1\n";
+  const facts = (extra = "") => parseFacts(base + extra, new Date("2026-01-01"));
+
+  test("a plain server can do everything", () => {
+    const k = capabilities(facts());
+    expect(Object.values(k.can).every(Boolean)).toBe(true);
+    expect(k.why).toEqual({});
+  });
+
+  test("Synology: no setup or packages, DSM's firewall, docker and services work", () => {
+    const f = facts("id=dsm\nversion=7.2\npkg=none\nufw=0\nplatform=synology\n");
+    expect(f.support.level).toBe("limited");
+    const k = capabilities(f);
+    expect(k.can).toMatchObject({ setup: false, packages: false, firewall: false, docker: true, compose: true, services: true, admin: true });
+    expect(k.why.firewall).toMatch(/Control Panel/);
+    expect(noUfw("synology", "none", false)).toMatch(/DSM/);
+  });
+
+  test("SteamOS without docker or sudo: says how to get docker; root's key makes it admin", () => {
+    const f = facts("id=steamos\npkg=none\ndocker=\ncompose=\nuser=deck\nadmin=0\nufw=0\nplatform=steamos\n");
+    const k = capabilities(f);
+    expect(k.can).toMatchObject({ docker: false, compose: false, admin: false, firewall: false, setup: false });
+    expect(k.why.docker).toMatch(/home directory/);
+    expect(k.why.admin).toMatch(/deck has no passwordless sudo/);
+    expect(capabilities(f, true).can.admin).toBe(true);
+    expect(capabilities({ ...f, podman: "5.4.0" }).why.docker).toMatch(/^only podman 5.4.0 here: landfall needs docker/);
+  });
+
+  test("no init system: no services; no package manager: a firewall needs ufw already there", () => {
+    const f = facts("init=\npkg=none\nid=\n");
+    expect(f.support.level).toBe("unsupported");
+    const k = capabilities(f);
+    expect(k.can.services).toBe(false);
+    expect(k.can.firewall).toBe(true);
+    expect(capabilities({ ...f, ufw: false }).why.firewall).toMatch(/no ufw/);
+  });
+});
+
+describe("system", () => {
+  const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINh+y8rAZynEZZ03LAQjLtr3Sz/M8prCpgPxEwF0w5L6 test@example";
+  const FP = "SHA256:pmKhY0kEQAIs7Svq6OkGNRmuGnS1+qMxYra0TnoCQ+g";
+
+  test("key lines: fingerprint as ssh-keygen -l, options with quoted spaces", () => {
+    expect(parseKeyLine(KEY)).toMatchObject({ type: "ssh-ed25519", fingerprint: FP, comment: "test@example", options: "" });
+    const k = parseKeyLine(`from="10.0.0.1",command="echo hi there" ${KEY}`)!;
+    expect(k).toMatchObject({ fingerprint: FP, options: 'from="10.0.0.1",command="echo hi there"', comment: "test@example" });
+    expect(parseKeyLine("not a key")).toBeUndefined();
+    expect(parseKeyLine("ssh-ed25519")).toBeUndefined();
+  });
+
+  test("parseSystem", () => {
+    const out = [
+      "root=1", "user=deploy", "hostname=box", "timezone=Europe/Berlin", "ntp=yes", "time=2026-01-01T00:00:00Z", "init=systemd",
+      "SWAP\t/swapfile\tfile\t2147483648\t1048576", "swappiness=60", "disk_free=10000000000", "mem=1000000000",
+      "log_driver=json-file", 'DAEMON\t{ "log-opts": { "max-size": "10m", "max-file": "3" }, "bip": "10.1.0.1/24" }',
+      "SVC\tdocker.service\tloaded\tactive\trunning\tDocker Application Container Engine",
+      "SVC\tnginx.service\tloaded\tfailed\tfailed\tA high performance web server",
+      "UF\tdocker.service\tenabled",
+      "kv junk", "fail2ban=running", "JAIL\tsshd\t2\t40\t1\t1.2.3.4 5.6.7.8",
+      `KEY\tdeploy\t${KEY}`, "KEY\troot\tgarbage",
+    ].join("\n");
+    const i = parseSystem(out, new Set([FP]));
+    expect(i).toMatchObject({ root: true, hostname: "box", timezone: "Europe/Berlin", ntp: true, init: "systemd", fail2ban: "running", mem: 1e9 });
+    expect(i.swap).toEqual([{ file: "/swapfile", type: "file", size: 2147483648, used: 1048576 }]);
+    expect(i.docker).toMatchObject({ driver: "json-file", maxSize: "10m", maxFile: 3 });
+    expect(i.services[0]).toMatchObject({ unit: "docker.service", active: "active", enabled: "enabled", description: "Docker Application Container Engine" });
+    expect(i.services[1].active).toBe("failed");
+    expect(i.jails).toEqual([{ name: "sshd", banned: 2, total: 40, failed: 1, ips: ["1.2.3.4", "5.6.7.8"] }]);
+    expect(i.keys).toHaveLength(1);
+    expect(i.keys[0]).toMatchObject({ user: "deploy", mine: true });
+    const bare = parseSystem("root=0\nuser=me\nlog_driver=json-file\nDAEMON\t{oops");
+    expect(bare).toMatchObject({ root: false, timezone: "UTC", ntp: undefined, fail2ban: "missing" });
+    expect(bare.docker?.daemonError).toMatch(/not valid JSON/);
+    expect(parseSystem("root=1").docker).toBeUndefined();
+  });
+
+  test("log limit keeps the rest of daemon.json", () => {
+    const d = { bip: "10.1.0.1/24", "log-opts": { "max-size": "50m", labels: "x" } };
+    expect(withLogLimit(d, "10m", 3)).toEqual({ bip: "10.1.0.1/24", "log-opts": { "max-size": "10m", "max-file": "3", labels: "x" } });
+    expect(withLogLimit({ "log-opts": { "max-size": "10m", "max-file": "3" } }, undefined, 3)).toEqual({});
+    expect(LOG_SIZE.test("10m") && !LOG_SIZE.test("10mb") && !LOG_SIZE.test("10")).toBe(true);
+  });
+
+  test("validation", () => {
+    expect(parseSwapSize("2G")).toBe(2 * 1024 ** 3);
+    expect(parseSwapSize("512M")).toBe(512 * 1024 ** 2);
+    expect(parseSwapSize("1.5g")).toBe(1536 * 1024 ** 2);
+    expect(() => parseSwapSize("lots")).toThrow();
+    expect(HOSTNAME.test("web-1") && !HOSTNAME.test("-web") && !HOSTNAME.test("a.b") && !HOSTNAME.test("x".repeat(64))).toBe(true);
+    expect(TIMEZONE.test("Europe/Berlin") && TIMEZONE.test("Etc/GMT+1") && !TIMEZONE.test("../etc/passwd") && !TIMEZONE.test("a b")).toBe(true);
+    expect(UNIT.test("docker.service") && UNIT.test("getty@tty1") && !UNIT.test("x; rm -rf /")).toBe(true);
   });
 });

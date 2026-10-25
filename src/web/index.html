@@ -380,6 +380,7 @@ const S = {
   tab: "sites",
   overview: {},          // name -> {data} | {error} | {loading}
   firewall: {},
+  system: {},            // name -> {data: lf system --json}
   history: {},
   updates: {},
   facts: {},
@@ -543,10 +544,10 @@ window.addEventListener("hashchange", route);
 
 // ---- loading -------------------------------------------------------------
 
-const STORE = { sites: "overview", tunnels: "overview", stats: "stats", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", history: "history", settings: "settings" };
-const URLS = { sites: "", tunnels: "", stats: "/stats", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", history: "/history", settings: "/config" };
-// A server's sections, in the list and as tabs on phones; keys 1-8 switch between them.
-const SECTIONS = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["history", "History"], ["settings", "Settings"]];
+const STORE = { sites: "overview", tunnels: "overview", stats: "stats", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", system: "system", history: "history", settings: "settings" };
+const URLS = { sites: "", tunnels: "", stats: "/stats", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", system: "/system", history: "/history", settings: "/config" };
+// A server's sections, in the list and as tabs on phones; keys 1-9 switch between them.
+const SECTIONS = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["system", "System"], ["history", "History"], ["settings", "Settings"]];
 
 // The overview and facts drive the header, so every tab needs them.
 const needs = (tab) => (STORE[tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab]);
@@ -1477,6 +1478,18 @@ function toggleGroup(key) {
 }
 
 /** The open server's sections as buttons, each with its count. */
+/** What the server can do (`lf server info --json` can); null until its facts are in, then everything shows. */
+const can = (n) => S.facts[n]?.data?.can ?? null;
+/** When each section is worth a tab: the same conditions the CLI checks before doing it. */
+const SECTION_IF = {
+  sites: (k) => k.docker || k.setup,
+  tunnels: (k) => k.docker,
+  traefik: (k) => k.docker,
+  updates: (k) => k.packages || k.docker,
+  firewall: (k) => k.firewall,
+};
+const sections = (n) => SECTIONS.filter(([t]) => !can(n) || (SECTION_IF[t]?.(can(n)) ?? true));
+
 function sectionButtons(n, f) {
   const o = S.overview[n]?.data;
   const tunnels = openTunnels(n).length;
@@ -1485,7 +1498,7 @@ function sectionButtons(n, f) {
     tunnels: tunnels ? ` <span class="badge ok">${tunnels} open</span>` : "",
     updates: updatesBadge(n),
   };
-  return SECTIONS.map(([t, label], i) => `<button type="button" class="${S.tab === t ? "on" : ""}"${S.tab === t ? ` aria-current="page"` : ""} data-f="${f}:${t}" title="${label} (${i + 1})" ${on(() => go(n, t))}>${label}${badge[t] ?? ""}</button>`).join("");
+  return sections(n).map(([t, label], i) => `<button type="button" class="${S.tab === t ? "on" : ""}"${S.tab === t ? ` aria-current="page"` : ""} data-f="${f}:${t}" title="${label} (${i + 1})" ${on(() => go(n, t))}>${label}${badge[t] ?? ""}</button>`).join("");
 }
 
 function renderHeader() {
@@ -1545,9 +1558,11 @@ function factsLine(n) {
 }
 
 function factsNote(n) {
-  const sup = S.facts[n]?.data?.support;
+  const f = S.facts[n]?.data;
+  const sup = f?.support;
+  // A system that installs its own way (DSM, SteamOS) is not a problem, just a different kind of server.
   if (!sup?.note) return "";
-  return `<div class="note ${sup.level === "ok" ? "" : "bad"}">${esc(sup.note)}</div>`;
+  return `<div class="note ${sup.level === "eol" || sup.level === "unsupported" ? "bad" : ""}">${esc(sup.note)}${f.can && !f.can.docker ? `. Docker: ${esc(f.why.docker)}` : ""}</div>`;
 }
 
 function renderMain() {
@@ -1560,6 +1575,10 @@ function renderMain() {
       <p>It is not in landfall's list or in ~/.ssh/config (anymore).</p>
       <p>${btn("All servers", () => go(null), "primary")} ${btn("Add a server…", addServer)}</p></div></div>`);
   }
+  // A section this server has no use for (no docker, no ufw…): open the first one it has.
+  const shown = sections(n);
+  if (!shown.some(([t]) => t === S.tab)) return void location.replace(`#/${encodeURIComponent(n)}/${shown[0][0]}`);
+  const k = can(n);
   const ov = S.overview[n] ?? { loading: true };
   const o = ov.data;
   const traefik = o
@@ -1575,14 +1594,14 @@ function renderMain() {
     <div class="head">
       <div><h1>${esc(n)}${s?.isDefault ? ` <span class="star" title="default server">★</span>` : ""} <span class="crumb">/ ${SECTIONS.find(([t]) => t === S.tab)[1]}</span>${reloading ? ` <span class="spin" role="img" aria-label="reloading"></span>` : ""}</h1><div class="sub">${sub}</div>${factsLine(n)}</div>
       <div class="actions">
-        ${btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying")}
+        ${!k || k.setup ? btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying") : ""}
         ${btn("Run…", () => runCommand(n), "", "Run a shell command over ssh")}
         ${btn("↻", () => (load(n, S.tab, true), render()), "", "Reload", "reload").replace("<button", `<button aria-label="Reload"`)}
         ${menuBtn([
           { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
-          { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) },
-          "-",
-          { label: "Reboot…", cls: "danger", hint: "lf reboot", run: () => confirmDlg({ title: `Reboot ${n}?`, text: "Its sites are offline for a minute or two. Waits until it is back and checks its containers run again.", ok: "Reboot", danger: true, onOk: () => run(["reboot", ...sv(n), "-y"], { server: n }) }) },
+          !k || k.docker ? { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) } : null,
+          !k || k.admin ? "-" : null,
+          !k || k.admin ? { label: "Reboot…", cls: "danger", hint: "lf reboot", run: () => confirmDlg({ title: `Reboot ${n}?`, text: "Its sites are offline for a minute or two. Waits until it is back and checks its containers run again.", ok: "Reboot", danger: true, onOk: () => run(["reboot", ...sv(n), "-y"], { server: n }) }) } : null,
           s?.isDefault ? null : { label: "Make default", title: "Commands without -s use it", run: () => makeDefault(n) },
           s?.registered ? "-" : null,
           s?.registered ? { label: `Forget ${n}…`, cls: "danger", hint: "lf server rm", run: () => forget(n) } : null,
@@ -1605,6 +1624,7 @@ function renderMain() {
   else if (S.tab === "traefik") view.innerHTML = traefikView(n);
   else if (S.tab === "updates") view.innerHTML = updatesView(n);
   else if (S.tab === "firewall") view.innerHTML = firewallView(n);
+  else if (S.tab === "system") view.innerHTML = systemView(n);
   else if (S.tab === "settings") view.innerHTML = settingsView(n);
   else view.innerHTML = historyView(n);
 }
@@ -1860,7 +1880,9 @@ function updatesView(n) {
       danger: flags.includes("--reboot"),
       onOk: () => run(["update", "--packages", ...flags, ...s, "-y"], { server: n }),
     });
-  const pkgActs = [
+  // Package upgrades need a package manager and root (the CLI's can.packages).
+  const pkgOk = p.mgr !== "none" && (can(n)?.packages ?? true);
+  const pkgActs = !pkgOk ? "" : [
     btn("Refresh lists", () => refreshUpdates(n), "sm", "Fetch the newest package lists first (apt update)"),
     sec.length && p.mgr !== "apk" ? btn(`Security only (${sec.length})`, () => upgrade(["--security"], "security updates", sec.length), "sm") : "",
     p.updates.length ? btn("Upgrade all", () => upgrade([], "all packages", p.updates.length), "sm primary") : "",
@@ -1893,7 +1915,7 @@ function updatesView(n) {
       ? `<span class="badge">${p.updates.length}</span>${sec.length ? ` <span class="badge warn">${sec.length} security</span>` : ""}`
       : `<span class="badge ok">up to date</span>`;
   return `
-    <div class="card">
+    ${p.mgr === "none" ? "" : `<div class="card">
       <h2>Packages ${head}${p.reboot ? ` <span class="badge warn">reboot required</span>` : ""}
         <span class="dim hide-sm" style="font-weight:400">${esc(p.mgr)}${p.refreshed ? "" : " · lists not refreshed"}</span>
         <span class="actions">${pkgActs}</span></h2>
@@ -1901,8 +1923,9 @@ function updatesView(n) {
         <thead><tr><th>Package</th><th class="hide-sm">Installed</th><th>New</th><th></th></tr></thead>
         <tbody>${pkgRows}${p.updates.length > shown.length ? `<tr><td colspan="4" class="dim">… ${p.updates.length - shown.length} more</td></tr>` : ""}</tbody>
       </table></div>` : ""}
-    </div>
-    <div class="card">
+      ${pkgOk ? "" : `<p class="dim">${esc(S.facts[n]?.data?.why?.packages ?? "")}</p>`}
+    </div>`}
+    ${!e.docker && can(n) && !can(n).docker ? "" : `<div class="card">
       <h2>Docker <span class="badge ${!e.docker || e.dockerNote || e.composeNote ? "warn" : "ok"}">${e.docker ? `${esc(e.docker)} · compose ${esc(e.compose || "missing")}` : "not installed"}</span>
         <span class="actions">${e.composeUpdate ? btn("Update compose", () => run(["update", "--compose", ...s, "-y"], { server: n }), "sm primary") : ""}</span></h2>
       ${[e.dockerNote, e.composeNote].filter(Boolean).map((t) => `<p class="dim">${esc(t)}</p>`).join("")}
@@ -1914,7 +1937,7 @@ function updatesView(n) {
         <thead><tr><th>Name</th><th class="hide-sm">Image</th><th>State</th><th class="hide-sm">Note</th><th></th></tr></thead>
         <tbody>${imgRows || `<tr><td colspan="5" class="dim">no containers</td></tr>`}</tbody>
       </table></div>
-    </div>`;
+    </div>`}`;
 }
 
 // ---- firewall --------------------------------------------------------------
@@ -2015,6 +2038,175 @@ function editRule(n, num, r) {
       argv.push("--from", v.from.trim() || "any");
       if (v.action !== r.action) argv.push("--action", v.action);
       run(argv, { server: n });
+    },
+  });
+}
+
+// ---- system ----------------------------------------------------------------
+
+const SVC_FAILED = (s) => s.active === "failed" || s.active === "crashed";
+const SVC_UP = (s) => s.active === "active" || s.active === "started";
+// What keeps the server and its sites running: shown first, the rest behind "all".
+const KEY_SVCS = ["docker", "containerd", "ssh", "sshd", "fail2ban", "ufw", "unattended-upgrades", "cron", "crond", "systemd-timesyncd", "chronyd", "chrony"];
+const svcName = (u) => u.replace(/\.service$/, "");
+
+function systemView(n) {
+  const st = S.system[n] ?? { loading: true };
+  if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> reading ${esc(n)}…</div>`;
+  if (st.error) return `<div class="note bad">${esc(st.error)}</div>`;
+  const i = st.data;
+  const s = sv(n);
+  const go_ = (argv) => run([...argv, ...s], { server: n });
+  const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+
+  const swapTotal = i.swap.reduce((t, x) => t + x.size, 0);
+  const d = i.docker;
+  // Change buttons only where the CLI would do it: as admin, and not on a system that keeps it itself.
+  const adm = i.root, set = adm && !i.managed;
+  const may = (ok, html) => (ok ? html : "");
+  const basics = `<div class="card"><h2>Basics</h2><div class="body">${rows([
+    ["Host name", `<span class="mono">${esc(i.hostname)}</span> ${may(set, btn("Change", () => renameHost(n, i.hostname), "ghost sm"))}`],
+    ["Time zone", `${esc(i.timezone)} <span class="faint">· ${esc(i.time)}</span> ${may(set, btn("Change", () => changeTz(n, i.timezone), "ghost sm"))}`],
+    ["Clock", i.ntp === true ? `<span class="badge ok">synced</span>` : i.ntp === false ? `<span class="badge warn">not synced</span>` : `<span class="faint">unknown</span>`],
+    ["Swap", `${swapTotal ? `${size(swapTotal)} <span class="faint">${esc(i.swap.map((x) => `${x.file} · ${size(x.used)} used`).join(", "))}</span>` : `<span class="badge${i.mem < 4 * 1024 ** 3 ? " warn" : ""}">none</span> <span class="faint">${size(i.mem)} memory</span>`}
+      ${!set ? "" : i.swap.some((x) => x.file === "/swapfile")
+        ? btn("Remove", () => confirmDlg({ title: `Remove the swap file on ${n}?`, text: "What is swapped out moves back to memory first.", ok: "Remove it", danger: true, onOk: () => go_(["swap", "off", "-y"]) }), "ghost sm danger")
+        : swapTotal ? "" : btn("Add…", () => addSwapDlg(n, i), "ghost sm")}`],
+    ["Docker logs", !d ? `<span class="faint">no docker</span>`
+      : `${d.maxSize ? `${esc(d.maxSize)} × ${d.maxFile ?? 1} per container` : d.driver === "json-file" ? `<span class="badge warn">unlimited</span>` : ""} <span class="faint">${esc(d.driver)}</span> ${d.daemonError || !set ? "" : btn(d.maxSize ? "Change" : "Limit…", () => logLimitDlg(n, d), "ghost sm")}`],
+  ])}${d?.daemonError ? `<div class="note bad" style="margin:12px 0 0">${esc(d.daemonError)}</div>` : ""}
+  ${i.managed ? `<p class="faint" style="margin:12px 0 0">${esc(i.managed)}.</p>` : ""}
+  ${i.root ? "" : `<p class="faint" style="margin:12px 0 0">${esc(i.user)} has no passwordless sudo and root's key does not work: other users' keys, bans and Docker's settings may be missing.</p>`}</div></div>`;
+
+  let services = "";
+  if (i.init !== "other") {
+    const all = S.allSvcs?.[n];
+    const shown = i.services
+      .filter((x) => all || SVC_FAILED(x) || KEY_SVCS.includes(svcName(x.unit)) || (i.init === "openrc" && SVC_UP(x)))
+      .sort((a, b) => (SVC_FAILED(b) - SVC_FAILED(a)) || (KEY_SVCS.includes(svcName(b.unit)) - KEY_SVCS.includes(svcName(a.unit))) || a.unit.localeCompare(b.unit));
+    const nFailed = i.services.filter(SVC_FAILED).length;
+    const row = (x) => {
+      const u = svcName(x.unit);
+      const ssh = /^sshd?$/.test(u), core = /^(docker|containerd)$/.test(u);
+      const stop = () => confirmDlg({
+        title: `Stop ${u} on ${n}?`,
+        text: ssh ? "New ssh logins fail until it is started again (from the provider's console)." : core ? "Every site goes down until it is started again." : "It stays stopped until started again, or until the next boot if it is enabled.",
+        ok: "Stop it", danger: true, onOk: () => go_(["services", "stop", u, "-y", ...(ssh ? ["--force"] : [])]),
+      });
+      const restart = () => core
+        ? confirmDlg({ title: `Restart ${u} on ${n}?`, text: "Every site goes down for a moment.", ok: "Restart", danger: true, onOk: () => go_(["services", "restart", u, "-y"]) })
+        : go_(["services", "restart", u]);
+      const cls = SVC_FAILED(x) ? "bad" : SVC_UP(x) ? "ok" : "";
+      return `<tr><td class="mono">${esc(u)}</td><td><span class="badge ${cls}">${esc(x.sub || x.active)}</span></td>
+        ${i.init === "systemd" ? `<td class="faint hide-sm">${esc(x.enabled ?? "")}</td>` : ""}<td class="dim hide-sm">${esc(x.description)}</td>
+        <td class="acts">${btn("Logs", () => run(["services", "logs", u, "-n", "200", ...s], { server: n }), "sm")}${may(adm, menuBtn([
+          { label: "Restart", run: restart },
+          SVC_UP(x) ? { label: "Stop…", cls: "danger", run: stop } : { label: "Start", run: () => go_(["services", "start", u]) },
+        ], `Actions for ${u}`))}</td></tr>`;
+    };
+    services = `<div class="card"><h2>Services ${nFailed ? `<span class="badge bad">${nFailed} failed</span>` : ""} <span class="sub">${i.init}</span>
+      <span class="actions">${btn(all ? "Fewer" : `All ${i.services.length}`, () => ((S.allSvcs = { ...S.allSvcs, [n]: !all }), render()), "sm")}</span></h2>
+      <div class="scroll"><table><thead><tr><th>Service</th><th>State</th>${i.init === "systemd" ? `<th class="hide-sm">Boot</th>` : ""}<th class="hide-sm">Description</th><th><span class="sr">Actions</span></th></tr></thead>
+      <tbody>${shown.map(row).join("") || `<tr><td colspan="5" class="dim">none</td></tr>`}</tbody></table></div></div>`;
+  }
+
+  const keyRows = i.keys.map((k) => {
+    const label = k.comment || k.fingerprint.slice(7, 19);
+    const rm = () => confirmDlg({
+      title: `Remove ${label} from ${k.user}?`,
+      text: k.mine ? "This is the key this machine logs in with: removing it can lock you out." : `${k.type} ${k.fingerprint}`,
+      ok: "Remove it", danger: true,
+      onOk: () => go_(["keys", "rm", k.fingerprint, "--user", k.user, "-y", ...(k.mine ? ["--force"] : [])]),
+    });
+    return `<tr><td>${esc(k.user)}</td><td>${k.mine ? `<span class="badge ok" title="This machine logs in with it">this machine</span> ` : ""}${esc(k.comment || "")}${k.options ? `<div class="faint mono">${esc(k.options)}</div>` : ""}</td>
+      <td class="mono faint hide-sm">${esc(k.type.replace(/^ssh-/, ""))} ${esc(k.fingerprint.slice(7, 23))}…</td><td class="acts">${may(adm || k.user === i.user, btn("Remove", rm, "sm danger"))}</td></tr>`;
+  }).join("");
+  const keys = `<div class="card"><h2>SSH keys <span class="badge">${i.keys.length}</span> <span class="sub">who may log in</span><span class="actions">${btn("Add key…", () => addKeyDlg(n), "sm")}</span></h2>
+    <div class="scroll"><table><thead><tr><th>User</th><th>Comment</th><th class="hide-sm">Key</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>${keyRows || `<tr><td colspan="4" class="dim">no keys found</td></tr>`}</tbody></table></div></div>`;
+
+  const banned = i.jails.flatMap((j) => j.ips.map((ip) => ({ ip, jail: j.name })));
+  const bans = i.fail2ban === "running"
+    ? `<div class="card"><h2>Bans <span class="badge${banned.length ? " warn" : ""}">${banned.length}</span> <span class="sub">fail2ban · ${esc(i.jails.map((j) => `${j.name}: ${j.total} in total`).join(", "))}</span></h2>
+      <div class="scroll"><table><thead><tr><th>IP</th><th>Jail</th><th><span class="sr">Actions</span></th></tr></thead>
+      <tbody>${banned.map((b) => `<tr><td class="mono">${esc(b.ip)}</td><td>${esc(b.jail)}</td><td class="acts">${may(adm, btn("Unban", () => go_(["unban", b.ip]), "sm"))}</td></tr>`).join("") || `<tr><td colspan="3" class="dim">nobody banned right now</td></tr>`}</tbody></table></div></div>`
+    : `<div class="card"><h2>Bans</h2><div class="body dim">${i.fail2ban === "missing" ? "fail2ban is not installed." : "fail2ban is not running."}</div></div>`;
+
+  return basics + services + keys + bans;
+}
+
+function renameHost(n, old) {
+  dialog({
+    title: `Rename ${n}`,
+    text: "The server's own host name: what its shell prompt and logs show. Your ssh alias stays as it is.",
+    fields: [{ name: "name", label: "Host name", value: old, placeholder: "web-1" }],
+    ok: "Rename",
+    onOk: (v) => {
+      const name = v.name.trim();
+      if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(name)) return { error: "Letters, digits and -, up to 63, no dots.", field: "name" };
+      if (name !== old) run(["hostname", name, ...sv(n)], { server: n });
+    },
+  });
+}
+function changeTz(n, old) {
+  dialog({
+    title: `Time zone of ${n}`,
+    text: "Cron jobs, logs and the clock in containers that read it follow it.",
+    fields: [{ name: "tz", label: "Time zone", value: old, placeholder: "Europe/Berlin, UTC", hint: `Yours is ${Intl.DateTimeFormat().resolvedOptions().timeZone}.` }],
+    ok: "Change",
+    onOk: (v) => {
+      const tz = v.tz.trim();
+      if (!/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+)*$/.test(tz)) return { error: "A name like Europe/Berlin or UTC.", field: "tz" };
+      if (tz !== old) run(["timezone", tz, ...sv(n)], { server: n });
+    },
+  });
+}
+function addSwapDlg(n, i) {
+  const gb = 1024 ** 3;
+  // Rule of thumb: as much as memory up to 2 GB, never more than a tenth of the free disk.
+  const pick = Math.max(0.5, Math.min(i.mem > 2 * gb ? 2 : 1, Math.floor((i.diskFree / gb / 10) * 2) / 2));
+  dialog({
+    title: `Add swap to ${n}`,
+    text: `A swap file at /swapfile, on at boot. It keeps the server alive when memory runs out (slowly instead of killing processes). ${size(i.diskFree)} free on the disk.`,
+    fields: [{ name: "size", label: "Size", value: `${pick >= 1 ? pick + "G" : "512M"}`, placeholder: "1G, 512M" }],
+    ok: "Add swap",
+    onOk: (v) => {
+      if (!/^\d+(\.\d+)?\s*[mg]$/i.test(v.size.trim())) return { error: "A size like 1G or 512M.", field: "size" };
+      run(["swap", v.size.trim(), ...sv(n)], { server: n });
+    },
+  });
+}
+function logLimitDlg(n, d) {
+  dialog({
+    title: `Docker log limit on ${n}`,
+    text: "Caps the log Docker keeps per container. It applies to containers created afterwards: redeploy or restart sites to apply it to them.",
+    fields: [
+      { name: "size", label: "Per file", value: d.maxSize ?? "10m", placeholder: "10m", hint: "k, m or g. Empty removes the limit." },
+      { name: "files", label: "Files kept", value: String(d.maxFile ?? 3), placeholder: "3" },
+      { name: "restart", type: "check", label: "Restart Docker now", hint: "Sites go down for a moment. Otherwise it applies on Docker's next start." },
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      const sz = v.size.trim().toLowerCase();
+      if (sz && !/^\d+[kmg]$/.test(sz)) return { error: "A size like 10m.", field: "size" };
+      if (!/^\d+$/.test(v.files.trim())) return { error: "A number.", field: "files" };
+      run(["log-limit", sz || "off", "--files", v.files.trim(), ...(v.restart ? ["--restart", "-y"] : []), ...sv(n)], { server: n });
+    },
+  });
+}
+function addKeyDlg(n) {
+  dialog({
+    title: `Add an SSH key to ${n}`,
+    text: "Paste a public key (the .pub file, one line). Whoever holds its private key can log in.",
+    fields: [
+      { name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… name@laptop" },
+      { name: "user", label: "User", value: "", placeholder: "the login user", hint: "Whose account it logs in to. Empty: the user landfall logs in as." },
+    ],
+    ok: "Add key",
+    onOk: (v) => {
+      const key = v.key.trim().split("\n")[0];
+      if (!/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(key)) return { error: "That does not look like a public key.", field: "key" };
+      run(["keys", "add", key, ...(v.user.trim() ? ["--user", v.user.trim()] : []), ...sv(n)], { server: n });
     },
   });
 }
@@ -2412,8 +2604,8 @@ function render() {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && menuEl) return closeMenu();
-  // 1-8: the open server's sections.
-  const sec = SECTIONS[Number(e.key) - 1];
+  // 1-9: the open server's sections.
+  const sec = S.sel && sections(S.sel)[Number(e.key) - 1];
   if (sec && S.sel && !e.metaKey && !e.ctrlKey && !e.altKey && !$("#dlg").open && !e.target.closest?.("input, textarea, select")) return go(S.sel, sec[0]);
   if (e.key === "Escape" && !$("#dlg").open && S.job && !e.target.closest?.("input, textarea, select")) {
     S.job = null;

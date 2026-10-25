@@ -302,6 +302,33 @@ lf prune -y >/dev/null 2>&1 || die "prune"
 { lf history 2>&1 | has "pruned"; } || die "prune is journaled"
 pass "prune removes unused images, keeps built images, journals it"
 
+echo "== system"
+# deploy has no sudo here: root's keys and daemon.json come through root's key login.
+out=$(lf system -s box --json) || die "system --json"
+{ echo "$out" | has '"init": "other"' && echo "$out" | has '"mine": true' && echo "$out" | has '"driver": "json-file"'; } || { echo "$out" | head -60; die "system lists init, keys, docker logs"; }
+pass "system lists init, keys and docker logs"
+out=$(lf services restart docker -s box -y 2>&1) && die "services without systemd"
+{ grep -q "no systemd or OpenRC" <<<"$out"; } || die "services without systemd: $out"; pass "services refuse without systemd or OpenRC"
+ssh-keygen -q -t ed25519 -N "" -C e2e-extra -f "$WORK/extra" </dev/null
+lf keys add "$WORK/extra.pub" --user root -s box >/dev/null 2>&1 || die "keys add"
+{ docker exec "$NAME" grep -q e2e-extra /root/.ssh/authorized_keys; } || die "keys add writes the key"; pass "keys add"
+lf keys rm e2e-extra -s box -y >/dev/null 2>&1 || die "keys rm"
+{ ! docker exec "$NAME" grep -q e2e-extra /root/.ssh/authorized_keys; } || die "keys rm drops the key"
+lf undo -s box -y >/dev/null 2>&1 || die "undo keys rm"
+{ docker exec "$NAME" grep -q e2e-extra /root/.ssh/authorized_keys; } || die "undo puts the key back"; pass "keys rm, undo puts it back"
+out=$(lf keys rm "$(ssh-keygen -lf "$WORK/key.pub" | awk '{print $2}')" --user root -s box -y 2>&1) && die "keys rm own key refused"
+{ grep -q "this machine logs in with" <<<"$out"; } || die "keys rm own key refused: $out"; pass "keys rm refuses this machine's key"
+old=$(docker exec "$NAME" hostname)
+lf hostname e2e-box -s box >/dev/null 2>&1 || die "hostname"
+[ "$(docker exec "$NAME" hostname)" = e2e-box ] || die "hostname changes the name"
+lf undo -s box -y >/dev/null 2>&1 || die "undo hostname"
+[ "$(docker exec "$NAME" hostname)" = "$old" ] || die "undo restores the host name"; pass "hostname, undo restores it"
+lf log-limit 10m --files 2 -s box >/dev/null 2>&1 || die "log-limit"
+{ docker exec "$NAME" grep -q '"max-size": *"10m"' /etc/docker/daemon.json; } || die "log-limit writes daemon.json"
+{ lf system -s box --json | has '"maxSize": "10m"'; } || die "system shows the limit"
+lf undo -s box -y >/dev/null 2>&1 || die "undo log-limit"
+{ ! docker exec "$NAME" grep -qs max-size /etc/docker/daemon.json; } || die "undo restores daemon.json"; pass "log-limit, undo restores daemon.json"
+
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
 { lf updates -s box --no-refresh 2>&1 | has "newer version traefik:v3."; } || die "updates names the newer traefik tag"; pass "updates names the newer traefik tag"

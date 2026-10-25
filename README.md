@@ -29,6 +29,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Firewall](#firewall)
 - [History and undo](#history-and-undo)
 - [Managing servers](#managing-servers)
+- [Server system](#server-system)
 - [Web UI](#web-ui)
 - [Using landfall from scripts and agents](#using-landfall-from-scripts-and-agents)
 - [Command reference](#command-reference)
@@ -436,10 +437,56 @@ root or passwordless sudo, root-owned folders and container logs may be missing.
 them without rebuilding) and images an undo in the journal puts back. Containers and volumes stay. `--dry-run`
 shows what would go.
 
+### NAS, Steam Deck and other systems without a package manager
+
+Synology DSM, SteamOS and other systems without apt, dnf, yum, apk or zypper install software their own way.
+`lf setup` refuses on them (`--check` and `--key-only` still work). Register them with `lf server add` and deploy
+to them as they are. `lf server info` shows what landfall can do on a server and why not:
+
+```
+login    root · root or sudo
+init     systemd
+docker   24.0.2 · compose 2.20.1
+firewall DSM has its own firewall: Control Panel → Security → Firewall
+```
+
+On Synology, Docker comes from Container Manager in Package Center, so `lf update --compose` leaves it alone.
+DSM's Control Panel keeps the host name, time zone, swap and Docker's settings, and its own firewall replaces
+ufw, so landfall refuses those changes there. On SteamOS, install Docker in your home directory (landfall does not run podman). A
+login without passwordless sudo can still deploy but not change the system. The web UI shows only the tabs and
+actions that work on the server.
+
+Non-interactive ssh sessions often lack `/usr/local/bin` (where DSM keeps `docker`), so landfall adds
+`/usr/local/sbin` and `/usr/local/bin` to `PATH` for every command it runs.
+
 `server add` installs nothing on the server. It writes a `Host <name>` block between `# >>> landfall:<name>` markers
 (`--no-ssh-config` keeps the details in landfall's config instead). In a Host block you wrote yourself, landfall
 only steps in when the key does not work. It then puts the working `IdentityFile` first, drops lines whose file is
 gone, and keeps a backup as `~/.ssh/config.landfall-bak`.
+
+## Server system
+
+```sh
+lf system                         # host name, time zone, clock, swap, Docker log limit, services, keys, bans
+lf services                       # what landfall relies on (docker, ssh, fail2ban …) and failed ones; --all for every one
+lf services restart docker        # also start, stop; asks first for docker, refuses ssh without --force
+lf services logs fail2ban -f      # journald, else the service's log file; -n lines
+lf keys                           # who may log in, per user; ★ is the key this machine uses
+lf keys add ~/.ssh/anna.pub       # to the login user; --user root for another
+lf keys rm anna@laptop            # by comment or (part of) the fingerprint
+lf bans                           # what fail2ban blocks, per jail
+lf unban 203.0.113.9
+lf swap 2G                        # a swap file at /swapfile, on at boot; lf swap off removes it
+lf hostname web-1
+lf timezone Europe/Berlin
+lf log-limit 10m --files 3        # cap Docker's json-file logs per container; --restart applies it now
+```
+
+Every change is journaled, and all but `swap off` and `services restart` can be undone: `lf undo` stops a
+started service, puts a removed key back, bans an unbanned IP again or restores the old name, zone or
+`daemon.json`. These commands need root or passwordless sudo, else landfall uses root's key login like the
+firewall does. Services work with systemd and OpenRC. The Docker log limit applies to containers created
+afterwards (and Docker restarts only with `--restart`), so redeploy or restart sites to apply it to them.
 
 ## Web UI
 
@@ -460,6 +507,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | Stats | `lf stats` (a new sample every 5s while the tab is open), `lf disk` on request, Clean up… (`lf prune`) |
 | Updates | `lf updates`, `lf update` |
 | Firewall | `lf firewall` and its subcommands |
+| System | `lf system`, `services`, `keys`, `unban`, `swap`, `hostname`, `timezone`, `log-limit` |
 | History | `lf history`, `lf undo` |
 | Settings | `lf server config`, `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard` |
 
@@ -527,6 +575,19 @@ lf undo -s box -y                           # revert the last run
 | `lf disk [--json]` | Shows where disk space goes: filesystems, Docker images, containers, volumes and build cache (with what is reclaimable), each site and its releases, the largest volumes and container logs, the systemd journal. Alias: `server disk`. |
 | `lf prune [--all] [--dry-run] [--json]` | Removes unused Docker images and the build cache. Keeps images in use (stopped containers too), release images for rollback and images undo needs. `--all` also removes unused tagged images (pulled again when needed) and all build cache. Journaled, not reversible. Alias: `server prune`. |
 | `lf reboot [--timeout s]` | Reboots the server (needs root or passwordless sudo), waits until ssh answers again (default 300s) and checks that the containers that ran before run again. Alias: `server reboot`. |
+| `lf system [--json]` | Shows the host name, time zone, clock sync, swap, Docker's log driver and limit, services, SSH keys and fail2ban bans, with hints (no swap on a small server, unlimited Docker logs). Alias: `server system`. |
+| `lf services [--all] [--json]` | Lists services landfall relies on and failed ones; `--all` lists every one. systemd or OpenRC. Alias: `services ls`. |
+| `lf services restart\|start\|stop <service>` | Controls a service. Stopping ssh needs `--force`; stopping or restarting docker asks first. Start and stop can be undone. |
+| `lf services logs <service> [-f] [-n lines]` | Shows a service's log: journald, else its log file. |
+| `lf keys [--json]` | Lists the SSH keys in each user's `authorized_keys` (root and `/home/*`). ★ marks the key this machine logs in with. Alias: `keys ls`. |
+| `lf keys add <key\|file.pub> [--user u]` | Adds a public key, to the login user by default. Undoable. |
+| `lf keys rm <fingerprint\|comment> [--user u]` | Removes a key by comment or fingerprint prefix. Refuses the key this machine uses without `--force`. Undoable. |
+| `lf bans [--json]` | Shows banned IPs per fail2ban jail. |
+| `lf unban <ip>` | Unbans an IP in every jail that bans it. Undo bans it again. |
+| `lf swap [size\|off]` | Shows swap, adds a swap file at `/swapfile` (at least 64M, keeps 2 GB of disk free) or removes it. Adding is undoable. Alias: `server swap`. |
+| `lf hostname [name]` | Shows or sets the host name (and its `/etc/hosts` line). Undoable. Alias: `server hostname`. |
+| `lf timezone [zone]` | Shows or sets the time zone, e.g. `Europe/Berlin`. Undoable. Alias: `server timezone`. |
+| `lf log-limit [size\|off] [--files n] [--restart]` | Shows or sets Docker's json-file log limit per container in `daemon.json` (default 3 files). `--restart` restarts Docker so it applies now. Undoable. |
 | `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
 | `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--tunnel-only] [--json]` | Manages main domains (the first is primary) and checks their DNS; `--tunnel-only` makes new sites deploy with no domain. |
 | `lf server use <name>` | Sets the default server. |

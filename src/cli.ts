@@ -23,6 +23,23 @@ import {
 } from "./commands/sites";
 import { diskCmd, statsCmd } from "./commands/stats";
 import { pruneCmd, rebootCmd } from "./commands/manage";
+import {
+  bansList,
+  hostnameCmd,
+  keysAdd,
+  keysList,
+  keysRemove,
+  logLimitCmd,
+  servicesList,
+  servicesLogs,
+  servicesRestart,
+  servicesStart,
+  servicesStop,
+  swapCmd,
+  systemCmd,
+  timezoneCmd,
+  unbanCmd,
+} from "./commands/system";
 import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
@@ -58,6 +75,21 @@ const commands: Command[] = [
   diskCmd,
   pruneCmd,
   rebootCmd,
+  systemCmd,
+  servicesList,
+  servicesRestart,
+  servicesStart,
+  servicesStop,
+  servicesLogs,
+  keysList,
+  keysAdd,
+  keysRemove,
+  bansList,
+  unbanCmd,
+  swapCmd,
+  hostnameCmd,
+  timezoneCmd,
+  logLimitCmd,
   serverConfig,
   serverDomain,
   serverUse,
@@ -119,6 +151,16 @@ const aliases: Record<string, string> = {
   "server disk": "disk",
   "server prune": "prune",
   "server reboot": "reboot",
+  "server system": "system",
+  "services ls": "services",
+  "services list": "services",
+  "keys ls": "keys",
+  "keys list": "keys",
+  "keys remove": "keys rm",
+  "bans unban": "unban",
+  "server swap": "swap",
+  "server hostname": "hostname",
+  "server timezone": "timezone",
 };
 
 const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));
@@ -135,6 +177,7 @@ function find(argv: string[]): { cmd?: Command; rest: string[] } {
 function help() {
   const groups: [string, string[]][] = [
     ["Servers", ["setup", "server add", "server list", "server info", "stats", "disk", "prune", "reboot", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
+    ["System", ["system", "services", "services restart", "services start", "services stop", "services logs", "keys", "keys add", "keys rm", "bans", "unban", "swap", "hostname", "timezone", "log-limit"]],
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],

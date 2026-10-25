@@ -1,5 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer, type Server } from "../config";
+import { noUfw } from "../facts";
 import { enableBlocks, parseRule, probeServer, reachability, ruleFor, type Probe, type Reach, type Rule } from "../inventory";
 import { runScript, shq } from "../ssh";
 import { effectiveSsh } from "../sshconfig";
@@ -84,6 +85,11 @@ record ${shq(`ufw delete ${r.spec}`)} ${shq(readd(r, at))}`;
 const position = (fw: FirewallState, n: number) => (fw.rules.slice(0, n).some((r) => r.from?.includes(":")) ? undefined : n);
 /** The rule as `ufw show added` would print it. */
 const asRule = (args: string[]) => parseRule(args.map((a, i) => (args[i - 1] === "comment" ? `'${a}'` : a)).join(" "));
+/** Fails here, with the reason, where ufw is not there and `lf firewall enable` could not install it. */
+function ufwUsable(fw: FirewallState) {
+  const why = noUfw(fw.probe.values.platform ?? "", fw.probe.values.pkg ?? "", fw.ufw !== "missing");
+  if (why) fail(why);
+}
 const NEEDS_UFW = `command -v ufw >/dev/null || { echo "ufw is not installed (lf firewall enable installs it)" >&2; exit 1; }`;
 
 /** Refuses a change that leaves ssh blocked while ufw is on, unless --force or the user says so. */
@@ -122,6 +128,7 @@ function addCommand(action: "allow" | "deny") {
       if (!port) fail(`usage: lf firewall ${action} <port[/proto]> [--from ip]`);
       const args = ruleArgs({ action, port, from: o.from, comment: o.comment });
       const fw = await firewallState(resolveServer(o.server).server);
+      ufwUsable(fw);
       if (action === "deny") await guardSsh(fw, [asRule(args), ...fw.rules], o.force);
       await runScript(fw.login, `${PRELUDE}\n${NEEDS_UFW}\n${addRule(args)}`);
       ok(`${args.join(" ")}${fw.ufw === "active" ? "" : c.dim(" (takes effect once the firewall is on: lf firewall enable)")}`);
@@ -148,7 +155,11 @@ export const firewallStatus = defineCommand({
     console.log(`\n${c.bold("Listening ports")}`);
     const color = { open: c.green, limited: c.yellow, blocked: c.red, local: c.dim };
     table(fw.ports.map((p) => [`  ${p.port}`, p.proc, color[p.state](p.why)]));
-    if (fw.ufw !== "active") {
+    const why = noUfw(fw.probe.values.platform ?? "", fw.probe.values.pkg ?? "", fw.ufw !== "missing");
+    if (why) {
+      console.log();
+      info(c.dim(why));
+    } else if (fw.ufw !== "active") {
       console.log();
       if (fw.blocked.length) warn(`enabling would block ${fw.blocked.join(", ")}: allow them first`);
       else info(c.dim(`lf firewall enable turns it on (ssh port ${fw.sshPort} stays open)`));
@@ -163,6 +174,7 @@ export const firewallEnable = defineCommand({
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
     const fw = await firewallState(server);
+    ufwUsable(fw);
     if (fw.ufw === "active") return ok(`firewall on ${name} is already on`);
     if (fw.blocked.length) {
       const why = `turning the firewall on would block ${fw.blocked.join(", ")}`;
