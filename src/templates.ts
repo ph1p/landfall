@@ -49,6 +49,15 @@ export const proxyFile = (p: Proxy) =>
   `container=${p.container}\nnetwork=${p.network}\nentrypoint=${p.entrypoint}\nresolver=${p.resolver}\n`;
 
 /** Shared shell helpers prepended to every remote script. */
+/** Sets PRETTY_NAME, ID and VERSION_ID; needs kv(). Prints platform for systems that install their own way. */
+export const OS_RELEASE = `PRETTY_NAME=unknown; ID=; VERSION_ID=; ID_LIKE=; . /etc/os-release 2>/dev/null
+# Synology DSM has no os-release, only /etc/VERSION.
+if [ -f /etc/synoinfo.conf ]; then
+  productversion=; . /etc/VERSION 2>/dev/null
+  ID=dsm; VERSION_ID=$productversion; PRETTY_NAME="Synology DSM $productversion"; kv platform synology
+elif [ "$ID" = steamos ]; then PRETTY_NAME="SteamOS $VERSION_ID"; kv platform steamos
+fi`;
+
 export const PRELUDE = String.raw`
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
 SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
@@ -336,7 +345,7 @@ S() { if [ -n "$SUDO" ]; then sudo -n "$@"; else "$@"; fi; }
 kv() { printf '%s=%s
 ' "$1" "$2"; }
 yn() { if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
-PRETTY_NAME=unknown; ID=; VERSION_ID=; . /etc/os-release 2>/dev/null
+${OS_RELEASE}
 kv os "$PRETTY_NAME"
 kv os_id "$ID"
 kv os_version "$VERSION_ID"

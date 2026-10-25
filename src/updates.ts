@@ -262,6 +262,8 @@ export interface Engine {
   composePath: string;
   /** docker-ce from Docker's repo: package upgrades keep it current. */
   dockerCe: boolean;
+  /** Synology's Container Manager ships docker and compose, at the same paths setup would use. */
+  synology: boolean;
   latestDocker?: string;
   latestCompose?: string;
 }
@@ -279,23 +281,26 @@ printf 'path=%s
 ' "$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "compose"}}{{.Path}}{{end}}{{end}}' 2>/dev/null)"
 printf 'ce=%s
 ' "$(pkg_has docker-ce && echo 1)"
+printf 'syno=%s
+' "$([ -f /etc/synoinfo.conf ] && echo 1)"
 exit 0`;
   const [{ stdout }, ld, lc] = await Promise.all([runScript(s, script, { capture: true }), latestDocker(), latestCompose()]);
   const v = Object.fromEntries(stdout.split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
-  return { docker: v.docker ?? "", compose: v.compose ?? "", composePath: v.path ?? "", dockerCe: v.ce === "1", latestDocker: ld, latestCompose: lc };
+  return { docker: v.docker ?? "", compose: v.compose ?? "", composePath: v.path ?? "", dockerCe: v.ce === "1", synology: v.syno === "1", latestDocker: ld, latestCompose: lc };
 }
 
 /** What to tell about the engine, and whether landfall can update compose itself. */
 export function engineNotes(e: Engine): { dockerNote?: string; composeNote?: string; composeUpdate: boolean } {
   const old = (have: string, want?: string) => !!have && !!want && cmpVersion(have, want) < 0;
+  const from = e.synology ? " (comes with Container Manager updates in Package Center)" : undefined;
   const dockerNote = old(e.docker, e.latestDocker)
-    ? `docker ${e.docker}, ${e.latestDocker} is current${e.dockerCe ? " (comes with the package upgrades)" : " (distro package: switch to Docker's repo for the newest)"}`
+    ? `docker ${e.docker}, ${e.latestDocker} is current${from ?? (e.dockerCe ? " (comes with the package upgrades)" : " (distro package: switch to Docker's repo for the newest)")}`
     : undefined;
-  const composeUpdate = old(e.compose, e.latestCompose) && e.composePath === COMPOSE_PLUGIN;
+  const composeUpdate = old(e.compose, e.latestCompose) && e.composePath === COMPOSE_PLUGIN && !e.synology;
   const composeNote = !e.compose
     ? "docker compose missing: lf setup installs it"
     : old(e.compose, e.latestCompose)
-      ? `compose ${e.compose}, ${e.latestCompose} is current${composeUpdate ? "" : e.dockerCe ? " (comes with the package upgrades)" : ` (from ${e.composePath || "the distro"})`}`
+      ? `compose ${e.compose}, ${e.latestCompose} is current${composeUpdate ? "" : (from ?? (e.dockerCe ? " (comes with the package upgrades)" : ` (from ${e.composePath || "the distro"})`))}`
       : undefined;
   return { dockerNote, composeNote, composeUpdate };
 }

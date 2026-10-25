@@ -75,11 +75,11 @@ interface RunResult {
   stderr: string;
 }
 
-function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: string; capture?: boolean }): Promise<RunResult> {
+function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: string; capture?: boolean; silent?: boolean }): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       ...opts,
-      stdio: [opts.input !== undefined ? "pipe" : "inherit", opts.capture ? "pipe" : "inherit", quiet ? "pipe" : "inherit"],
+      stdio: [opts.input !== undefined ? "pipe" : "inherit", opts.capture ? "pipe" : "inherit", quiet || opts.silent ? "pipe" : "inherit"],
     });
     let stdout = "";
     let stderr = "";
@@ -92,8 +92,14 @@ function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: stri
 }
 
 /** Run an interactive command (or a login shell when cmd is empty). */
+/**
+ * Non-interactive ssh gets a short PATH: Synology's Container Manager (and other add-on packages)
+ * put docker in /usr/local/bin, which only login shells have.
+ */
+export const REMOTE_PATH = `PATH="$PATH:/usr/local/sbin:/usr/local/bin"`;
+
 export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
-  const { code } = await spawnP("ssh", [...sshArgs(s, { tty: process.stdin.isTTY }), ...cmd], {});
+  const { code } = await spawnP("ssh", [...sshArgs(s, { tty: process.stdin.isTTY }), ...(cmd.length ? [`${REMOTE_PATH};`, ...cmd] : [])], {});
   return code;
 }
 
@@ -128,7 +134,7 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
     .join("\n");
   const res = await spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-    input: `set -euo pipefail\n${header}\n${script}\n`,
+    input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${script}\n`,
     capture: o.capture,
   });
   if (res.code !== 0) {
@@ -140,7 +146,7 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
 
 /** Can we log in with keys alone? */
 export async function canLogin(s: Server): Promise<boolean> {
-  const { code } = await spawnP("ssh", [...sshArgs(s, { batch: true, noMux: true }), "true"], { capture: true });
+  const { code } = await spawnP("ssh", [...sshArgs(s, { batch: true, noMux: true }), "true"], { capture: true, silent: true });
   return code === 0;
 }
 

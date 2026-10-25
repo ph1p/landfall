@@ -168,12 +168,15 @@ dashboard unless given as flags.`,
     };
     const ownTraefik = traefik && !traefik.proxy && traefik.status !== "conflict" && traefik.status !== "off";
     if (ownTraefik) traefik.detail += c.dim(` · ${describeTraefik(traefikSettings(existing ?? login, tOpts))}`);
-    const os = support(probe.values.os_id ?? "", probe.values.os_version ?? "", probe.values.pkg ?? "none");
+    const os = support(probe.values.os_id ?? "", probe.values.os_version ?? "", probe.values.pkg ?? "none", undefined, probe.values.platform);
     info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}`);
-    if (os.note) (os.level === "ok" ? info : warn)(os.note);
+    if (os.note) (os.level === "eol" || os.level === "unsupported" ? warn : info)(os.note);
     printChecks(checks);
     report({ checks: checks.map(({ part, label, status, detail }) => ({ part, label, status, detail })) });
-    if (o.check) return;
+    // Setup installs packages; without a package manager there is nothing it can do safely.
+    const refuse = probe.values.pkg === "none" && `setup does not run here (${os.note}). Use \`lf server add ${name}\` to deploy to it as it is`;
+    if (o.check) return void (refuse && warn(refuse));
+    if (refuse) fail(refuse);
     const apply = await decide(checks, o.force);
     const firstTraefik = ownTraefik && traefik.status === "todo" && interactive();
     let domain = o.domain ? checkDomain(o.domain) : existing && mainDomain(existing);

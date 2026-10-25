@@ -4,7 +4,7 @@ import { defineCommand } from "../cmd";
 import { checkDomain, checkEmail, CONFIG_PATH, defaults, DOMAIN, isTunnelOnly, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
 import { runScript, shq, sshExec } from "../ssh";
 import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
-import { bytes, checkDns, duration, facts, serverIps } from "../facts";
+import { bytes, checkDns, duration, facts, serverCaps, serverIps } from "../facts";
 import { describeTraefik, traefikSettings, traefikState } from "./traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../journal";
@@ -224,6 +224,7 @@ export const serverInfo = defineCommand({
     const { name: n, server } = resolveServer(name);
     if (o.json) return void console.log(JSON.stringify(await factsView(n, server), null, 2));
     const f = await facts(server);
+    const caps = await serverCaps(server, f);
     const pct = (used: number, total: number) => (total ? ` (${Math.round((used / total) * 100)}%)` : "");
     const memUsed = f.mem.total - f.mem.available;
     console.log(c.bold(n) + c.dim(` (${server.host})`));
@@ -235,10 +236,13 @@ export const serverInfo = defineCommand({
       ["memory", `${bytes(memUsed)} / ${bytes(f.mem.total)}${pct(memUsed, f.mem.total)}`],
       ["disk", `${bytes(f.disk.used)} / ${bytes(f.disk.total)}${pct(f.disk.used, f.disk.total)}`],
       ["address", [f.ip4, f.ip6].filter(Boolean).join(", ") || "unknown"],
-      ["docker", f.docker || "not installed or no access (run lf setup)"],
+      ["login", `${f.user}${caps.can.admin ? (f.admin ? c.dim(" · root or sudo") : c.dim(" · root's key for admin work")) : c.yellow(" · no sudo")}`],
+      ["init", f.init === "other" ? c.dim("no systemd or OpenRC") : f.init],
+      ["docker", f.docker ? `${f.docker}${f.compose ? c.dim(` · compose ${f.compose}`) : c.yellow(" · no compose")}` : caps.why.docker!],
+      ["firewall", f.ufw ? "ufw" : caps.can.firewall ? c.dim("none (lf setup installs ufw)") : c.dim(caps.why.firewall!)],
     ];
     for (const [k, v] of rows) console.log(`${c.dim(k.padEnd(8))} ${v}`);
-    if (f.support.note) (f.support.level === "ok" ? console.log : warn)(f.support.note);
+    if (f.support.note) (f.support.level === "eol" || f.support.level === "unsupported" ? warn : info)(f.support.note);
     if (f.docker) {
       console.log();
       await runScript(server, `docker ps --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}' 2>/dev/null || true`);
