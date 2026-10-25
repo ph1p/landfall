@@ -289,6 +289,19 @@ out=$(lf disk --json) || die "disk"
 { echo "$out" | has '"type": "Images"' && echo "$out" | has '"logs"'; } || { echo "$out" | head -60; die "disk sums up docker"; }
 pass "disk sums up docker"
 
+echo "== prune"
+junk=$(printf 'FROM scratch\nLABEL junk=%s\n' "$RANDOM" | docker exec -i "$NAME" docker build -q - 2>/dev/null | tail -n1)
+[ -n "$junk" ] || die "build a dangling image"
+out=$(lf prune --dry-run --json) || die "prune --dry-run"
+{ echo "$out" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); const id = process.argv[1]; process.exit(p.images.some((i) => i.id === id && !i.keep) && p.images.some((i) => i.keep === "used") && !p.images.some((i) => !i.keep && i.tags.some((t) => /^app-/.test(t))) ? 0 : 1)' "$junk"; } \
+  || { echo "$out" | tail -60; die "prune plan: dangling goes, used and built images stay"; }
+pass "prune plan: dangling goes, used and built images stay"
+lf prune -y >/dev/null 2>&1 || die "prune"
+{ ! docker exec "$NAME" docker image inspect "$junk" >/dev/null 2>&1; } || die "prune removes the dangling image"
+{ docker exec "$NAME" docker image ls --format '{{.Repository}}' | grep -q '^app-'; } || die "prune keeps built images"
+{ lf history 2>&1 | has "pruned"; } || die "prune is journaled"
+pass "prune removes unused images, keeps built images, journals it"
+
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
 { lf updates -s box --no-refresh 2>&1 | has "newer version traefik:v3."; } || die "updates names the newer traefik tag"; pass "updates names the newer traefik tag"
