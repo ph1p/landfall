@@ -8,6 +8,7 @@ import { domainDns, serverSettings, suggestDomains } from "./commands/server";
 import type { Server } from "./config";
 import { checkDns, facts, pickIp, serverIps, sslipDomain } from "./facts";
 import { pending, readJournal } from "./journal";
+import { diskUsage, stats } from "./stats";
 import { effectiveSsh } from "./sshconfig";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
 
@@ -32,6 +33,10 @@ export async function factsView(name: string, server: Server) {
   // What a site gets when deployed without a domain and no main domain is set: <site>.<this>.
   return { name, ...f, ips, sslipIp: ip ?? null, sslipSuffix: ip ? sslipDomain("", ip).slice(1) : null };
 }
+
+/** `lf stats --json` and `lf disk --json`. */
+export const statsView = (server: Server) => stats(server);
+export const diskView = (server: Server) => diskUsage(server);
 
 /** `lf history --json`: newest first, with how many steps each run can still undo. */
 export async function historyView(server: Server, n?: number) {

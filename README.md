@@ -421,7 +421,14 @@ lf config --tunnel-only --keep 3                        # defaults for every ser
 lf server rm vps                                        # forget locally
 lf server uninstall vps                                 # remove landfall from the server (type the name back)
 lf ssh vps -- docker ps
+lf stats                                                # CPU, memory, disks, network, busiest processes, every container's usage
+lf stats blog -w                                        # only the containers of one site, refreshed every 5s (--interval)
+lf disk                                                 # where the space goes: images, volumes, build cache, sites, container logs
 ```
+
+`stats` samples the server for one second over ssh; nothing runs on the server between calls. CPU of a
+process counts one core as 100%. `disk` adds up folders, so it takes a few seconds on a full disk; without
+root or passwordless sudo, root-owned folders and container logs may be missing.
 
 `server add` installs nothing on the server. It writes a `Host <name>` block between `# >>> landfall:<name>` markers
 (`--no-ssh-config` keeps the details in landfall's config instead). In a Host block you wrote yourself, landfall
@@ -444,6 +451,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 |---|---|
 | Overview | `lf server list --check`, recent deploys, `lf config` (defaults, and where landfall puts things) |
 | Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `logs`, `restart`/`stop`/`start`, `env`, `domains`, `auth`, `tunnel`, `sites rm` |
+| Stats | `lf stats` (a new sample every 5s while the tab is open), `lf disk` on request |
 | Updates | `lf updates`, `lf update` |
 | Firewall | `lf firewall` and its subcommands |
 | History | `lf history`, `lf undo` |
@@ -509,6 +517,8 @@ lf undo -s box -y                           # revert the last run
 | `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
 | `lf server list [--all] [--check] [--json]` | Lists registered servers. `--all` adds every ssh alias except git hosts (github.com, `gitlab.*`, `User git` …). `--check` tries a key login to each: `ok`, `login` (sshd refuses the key) or `down`. Alias: `servers`. |
 | `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
+| `lf stats [site] [-w] [--interval s] [--json]` | Shows live CPU, memory, swap, disks, network, the busiest processes and each container's CPU, memory, network and restarts. With a site, only its containers. `-w` refreshes until Ctrl-C. Alias: `server stats`. |
+| `lf disk [--json]` | Shows where disk space goes: filesystems, Docker images, containers, volumes and build cache (with what is reclaimable), each site and its releases, the largest volumes and container logs, the systemd journal. Alias: `server disk`. |
 | `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
 | `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--tunnel-only] [--json]` | Manages main domains (the first is primary) and checks their DNS; `--tunnel-only` makes new sites deploy with no domain. |
 | `lf server use <name>` | Sets the default server. |

@@ -280,6 +280,15 @@ pass "updates lists apk packages and images"
 { echo "$out" | has 'built on the server: redeploy to rebuild'; } || { echo "$out" | head -60; die "updates marks images built on the server"; }
 pass "updates marks images built on the server"
 
+echo "== stats"
+out=$(lf stats --json) || die "stats"
+{ echo "$out" | has '"docker": true' && echo "$out" | has '"name": "traefik"' && echo "$out" | has '"cpus": '; } || { echo "$out" | head -60; die "stats lists host and containers"; }
+pass "stats lists host and containers"
+{ lf stats 2>&1 | has Containers; } || die "stats prints"; pass "stats prints"
+out=$(lf disk --json) || die "disk"
+{ echo "$out" | has '"type": "Images"' && echo "$out" | has '"logs"'; } || { echo "$out" | head -60; die "disk sums up docker"; }
+pass "disk sums up docker"
+
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
 { lf updates -s box --no-refresh 2>&1 | has "newer version traefik:v3."; } || die "updates names the newer traefik tag"; pass "updates names the newer traefik tag"
@@ -408,6 +417,7 @@ job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":["ls","-
 { curl -s -N --max-time 30 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui runs a job and streams it"
 { curl -s -b "$JAR" "$UI/api/jobs/$job" | has 'app'; } || die "ui job output"
 { curl -s -b "$JAR" "$UI/api/servers/box/facts" | has '"pkg":"apk"'; } || die "ui reads facts"
+{ curl -s -b "$JAR" "$UI/api/servers/box/stats" | has '"containers":'; } || die "ui reads stats"
 { curl -s -b "$JAR" "$UI/api/fs?path=$WORK/free" | has '"kind":"static"'; } || die "ui browses folders"
 mkdir -p "$WORK/up" && echo '<h1>up</h1>' > "$WORK/up/index.html"
 up=$(curl -s -b "$JAR" -F "file=@$WORK/up/index.html" -F "path=up/index.html" "$UI/api/upload")

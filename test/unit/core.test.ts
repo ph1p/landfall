@@ -19,6 +19,7 @@ import { shq, writeFileCmd } from "../../src/ssh";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
 import { isPublic4, parseFacts, pickIp, sslipDomain, support } from "../../src/facts";
+import { parseDisk, parseSize, parseStats } from "../../src/stats";
 import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
@@ -611,6 +612,69 @@ describe("server facts", () => {
     expect(pickIp(["192.168.1.2", "198.51.100.1"])).toBe("198.51.100.1");
     expect(pickIp(["192.168.1.2"])).toBe("192.168.1.2");
     expect(sslipDomain("blog", "198.51.100.1")).toBe("blog.198-51-100-1.sslip.io");
+  });
+});
+
+describe("server stats", () => {
+  test("docker sizes", () => {
+    expect(parseSize("3.254MiB")).toBe(Math.round(3.254 * 1024 ** 2));
+    expect(parseSize("20.5kB")).toBe(20500);
+    expect(parseSize("1.914GiB")).toBe(Math.round(1.914 * 1024 ** 3));
+    expect(parseSize("0B")).toBe(0);
+    expect(parseSize("--")).toBe(0);
+  });
+  test("parses two samples into rates", () => {
+    const out = [
+      "T1\t100.00",
+      "CPU1\tcpu  1000 0 1000 7000 1000 0 0 0 0 0",
+      "NET1\tlo\t0\t0",
+      "NET1\teth0\t1000\t500",
+      "NET1\tveth1\t9\t9",
+      "T2\t101.00",
+      "CPU2\tcpu  1100 0 1100 7700 1100 0 0 0 0 0",
+      "NET2\teth0\t3000\t1500",
+      "NET2\tveth1\t99\t99",
+      "cpus=2",
+      "load=0.37 0.16 0.07",
+      "mem=2000000 1500000 1000 500",
+      "page=4096",
+      "docker=1",
+      "DISK\t/\t100\t40\t60",
+      "PROC\t357\t2\t8992\tcontainerd",
+      "STAT\tweb\t1.50%\t3.254MiB / 1.914GiB\t682B / 84B\t20.5kB / 8.19kB\t3",
+      "CTR\tweb\tUp 1 second\tblog\tweb\tnginx:alpine",
+      "RST\t/web\t2",
+      'SITE\t{"v":2,"name":"blog","releases":[]}',
+    ].join("\n");
+    const s = parseStats(out, new Date(0));
+    expect(s).toMatchObject({ uptime: 101, cpus: 2, load: [0.37, 0.16, 0.07], docker: true });
+    // 200 busy of 1000 ticks: idle includes iowait.
+    expect(s.cpu).toBe(20);
+    expect(s.mem).toEqual({ total: 2000000 * 1024, available: 1500000 * 1024, swapTotal: 1000 * 1024, swapFree: 500 * 1024 });
+    expect(s.disks).toEqual([{ mount: "/", total: 100 * 1024, used: 40 * 1024, available: 60 * 1024 }]);
+    expect(s.net).toEqual([{ iface: "eth0", rx: 2000, tx: 1000 }]);
+    // 2 ticks of 1000 on 2 cores, 100% = one core.
+    expect(s.procs).toEqual([{ pid: 357, name: "containerd", cpu: 0.4, rss: 8992 * 4096 }]);
+    expect(s.containers).toEqual([
+      expect.objectContaining({ name: "web", site: "blog", project: "blog", service: "web", cpu: 1.5, net: { rx: 682, tx: 84 }, pids: 3, restarts: 2 }),
+    ]);
+  });
+  test("no docker access", () => {
+    const s = parseStats("T1\t1\nT2\t2\ncpus=1\ndocker=\n", new Date(0));
+    expect(s.docker).toBe(false);
+    expect(s.containers).toEqual([]);
+    expect(s.cpu).toBe(0);
+  });
+  test("disk usage", () => {
+    const d = parseDisk(
+      "root=1\nDISK\t/\t100\t40\t60\nlandfall=24\nSITE\tblog\t16\t8\t1\njournald=1048576\ndocker=1\n" +
+        "DF\tImages\t3\t1\t1.2GB\t800MB (66%)\nDF\tBuild Cache\t0\t0\t0B\t0B\nVOL\tdata\t0\t12MB\nLOG\tweb\t4\n",
+    );
+    expect(d).toMatchObject({ root: true, docker: true, landfall: 24 * 1024, journald: 1048576 });
+    expect(d.sites).toEqual([{ name: "blog", size: 16 * 1024, releasesSize: 8 * 1024, releases: 1 }]);
+    expect(d.dockerDf[0]).toEqual({ type: "Images", count: 3, active: 1, size: 1.2e9, reclaimable: 8e8 });
+    expect(d.volumes).toEqual([{ name: "data", links: 0, size: 12e6 }]);
+    expect(d.logs).toEqual([{ container: "web", size: 4096 }]);
   });
 });
 
