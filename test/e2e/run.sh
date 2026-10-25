@@ -289,6 +289,20 @@ out=$(lf disk --json) || die "disk"
 { echo "$out" | has '"type": "Images"' && echo "$out" | has '"logs"'; } || { echo "$out" | head -60; die "disk sums up docker"; }
 pass "disk sums up docker"
 
+echo "== traffic, certs, check"
+{ docker exec "$NAME" docker inspect traefik | has 'accesslog.format=json'; } || die "traefik logs json"; pass "traefik writes a json access log"
+get app.test /nope >/dev/null; get app.test / >/dev/null
+out=$(lf traffic --since 1h --json) || die "traffic"
+{ echo "$out" | node -e 'const t = JSON.parse(require("fs").readFileSync(0, "utf8")); const a = t.sites.find((s) => s.site === "app"); process.exit(t.format === "json" && a && a.requests >= 2 && a.classes["4xx"] >= 1 ? 0 : 1)'; } || { echo "$out" | head -60; die "traffic counts app's requests"; }
+pass "traffic counts app's requests"
+{ lf traffic app --since 1h 2>&1 | has /nope; } || die "traffic app lists the failing path"; pass "traffic app lists the failing path"
+out=$(lf certs --json) || die "certs"
+{ echo "$out" | node -e 'const r = JSON.parse(require("fs").readFileSync(0, "utf8")); process.exit(r.domains.some((d) => d.domain === "app.test" && d.cert?.path?.endsWith("cert.pem") && d.cert.days > 0) ? 0 : 1)'; } || { echo "$out" | head -60; die "certs finds the file certificate"; }
+pass "certs finds app.test's certificate"
+out=$(lf check app.test --resolve "127.0.0.1:$HTTPS_PORT" --json) && die "check fails on a self-signed certificate"
+{ echo "$out" | has '"status": 200' && echo "$out" | has '"valid": false'; } || { echo "$out"; die "check reads status and certificate"; }
+pass "check: status 200, self-signed certificate fails"
+
 echo "== prune"
 junk=$(printf 'FROM scratch\nLABEL junk=%s\n' "$RANDOM" | docker exec -i "$NAME" docker build -q - 2>/dev/null | tail -n1)
 [ -n "$junk" ] || die "build a dangling image"
@@ -461,6 +475,8 @@ job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":["ls","-
 { curl -s -b "$JAR" "$UI/api/jobs/$job" | has 'app'; } || die "ui job output"
 { curl -s -b "$JAR" "$UI/api/servers/box/facts" | has '"pkg":"apk"'; } || die "ui reads facts"
 { curl -s -b "$JAR" "$UI/api/servers/box/stats" | has '"containers":'; } || die "ui reads stats"
+{ curl -s -b "$JAR" "$UI/api/servers/box/traffic?since=1h" | has '"format":"json"'; } || die "ui reads traffic"
+{ curl -s -b "$JAR" "$UI/api/servers/box/certs" | has '"domains":'; } || die "ui reads certs"
 { curl -s -b "$JAR" "$UI/api/fs?path=$WORK/free" | has '"kind":"static"'; } || die "ui browses folders"
 mkdir -p "$WORK/up" && echo '<h1>up</h1>' > "$WORK/up/index.html"
 up=$(curl -s -b "$JAR" -F "file=@$WORK/up/index.html" -F "path=up/index.html" "$UI/api/upload")

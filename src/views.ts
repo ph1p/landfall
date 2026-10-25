@@ -2,7 +2,6 @@
  * What `--json` prints and the web UI's read API returns: one function per view, so the
  * page never knows more about a server than the CLI can tell a script.
  */
-import { httpsStatus } from "./commands/access";
 import { firewallState } from "./commands/firewall";
 import { domainDns, serverSettings, suggestDomains } from "./commands/server";
 import type { Server } from "./config";
@@ -11,6 +10,7 @@ import { pending, readJournal } from "./journal";
 import { prunePlan } from "./manage";
 import { diskUsage, stats } from "./stats";
 import { fullSystem } from "./system";
+import { certs, checkUrl, traffic } from "./traffic";
 import { effectiveSsh } from "./sshconfig";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
 
@@ -60,6 +60,12 @@ export async function updatesView(server: Server, refresh = false) {
 /** `lf domains --json`: where each domain points and whether it answers on https. */
 export async function dnsView(server: Server, domains: string[]) {
   const ips = await serverIps(server);
-  const [dns, https] = await Promise.all([checkDns(domains, ips), Promise.all(domains.map(httpsStatus))]);
+  const [dns, https] = await Promise.all([checkDns(domains, ips), Promise.all(domains.map((d) => checkUrl(d)))]);
   return { ips, domains: dns.map((d, i) => ({ ...d, https: https[i] })) };
 }
+
+/** `lf traffic --json`: Traefik's access log, aggregated per host and site on the server. */
+export const trafficView = (server: Server, secs: number) => traffic(server, secs);
+
+/** `lf certs --json`: each site domain's certificate and the last error getting one. */
+export const certsView = (server: Server) => certs(server);
