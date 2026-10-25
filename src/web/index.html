@@ -177,6 +177,15 @@ button.more { padding-inline: 8px; letter-spacing: .05em; }
 .meter .bar > i { display: block; height: 100%; background: var(--ok); border-radius: 3px; }
 .meter.warn .bar > i { background: var(--warn); } .meter.bad .bar > i { background: var(--bad); }
 .meter .t { font-size: var(--fs-xs); color: var(--faint); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tchart { position: relative; }
+.tchart svg { display: block; width: 100%; height: 120px; border-bottom: 1px solid var(--line); }
+.tchart .tmax { position: absolute; top: -2px; left: 0; font-size: var(--fs-xs); }
+.tticks { display: grid; grid-template-columns: 1fr 1fr 1fr; font-size: var(--fs-xs); margin-top: 4px; }
+.tlegend { display: flex; gap: 14px; font-size: var(--fs-xs); color: var(--dim); margin-top: 8px; }
+.tlegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px 16px; margin-top: 20px; }
+.cols .card + .card { margin-top: 0; }
+.cols + .card { margin-top: 20px; }
 .meter svg { flex: 1; min-width: 0; height: 26px; color: var(--accent); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .recent { list-style: none; margin: 0; padding: 0; }
@@ -220,7 +229,7 @@ td.acts button { margin-left: 4px; }
 .scroll { overflow-x: auto; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); margin-right: 7px; vertical-align: 1px; }
 .dot.up { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); } .dot.down { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); } .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
-.badge { display: inline-block; font-size: var(--fs-xs); font-weight: 500; line-height: 1.6; padding: 0 8px; border-radius: 99px; background: var(--hover); color: var(--dim); border: 1px solid var(--line); }
+.badge { display: inline-block; font-size: var(--fs-xs); font-weight: 500; line-height: 1.6; padding: 0 8px; border-radius: 99px; background: var(--hover); color: var(--dim); border: 1px solid var(--line); white-space: nowrap; }
 .badge.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
 .badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .badge.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
@@ -388,7 +397,11 @@ const S = {
   statsLog: {},          // name -> [{cpu, mem}], the last samples, for the sparklines
   disk: {},              // name -> {data: lf disk --json}, only on request: du takes a while
   settings: {},          // name -> {data: lf server config --json + dns of the main domain}
-  dns: {},               // name -> {data: {ips, domains: [{domain, ips, ok, https}]}}
+  dns: {},               // name -> {data: {ips, domains: [{domain, ips, ok, https: lf check}]}}; checked again each minute
+  traffic: {},           // name -> {data: lf traffic --json --since S.since}
+  since: "24h",          // the Traffic tab's range
+  errs: {},              // name -> {data: lf traffic --json --since 24h}, for the sites' errors card
+  certs: {},             // name -> {data: lf certs --json}
   open: new Set(),       // expanded site rows
   filter: "",            // server list filter
   reach: {},             // name -> {state: ok|login|down, detail, ms} from /api/reach
@@ -544,10 +557,10 @@ window.addEventListener("hashchange", route);
 
 // ---- loading -------------------------------------------------------------
 
-const STORE = { sites: "overview", tunnels: "overview", stats: "stats", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", system: "system", history: "history", settings: "settings" };
-const URLS = { sites: "", tunnels: "", stats: "/stats", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", system: "/system", history: "/history", settings: "/config" };
+const STORE = { sites: "overview", tunnels: "overview", stats: "stats", traffic: "traffic", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", system: "system", history: "history", settings: "settings" };
+const URLS = { sites: "", tunnels: "", stats: "/stats", traffic: "/traffic", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", system: "/system", history: "/history", settings: "/config" };
 // A server's sections, in the list and as tabs on phones; keys 1-9 switch between them.
-const SECTIONS = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["system", "System"], ["history", "History"], ["settings", "Settings"]];
+const SECTIONS = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traffic", "Traffic"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["system", "System"], ["history", "History"], ["settings", "Settings"]];
 
 // The overview and facts drive the header, so every tab needs them.
 const needs = (tab) => (STORE[tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab]);
@@ -557,7 +570,7 @@ function load(name, tab, force = false) {
     if (store[name] && !force) continue;
     // Keep what is shown while it reloads; views show a spinner only when they have nothing yet.
     store[name] = { ...store[name], loading: true, error: undefined };
-    http(`/api/servers/${encodeURIComponent(name)}${URLS[t]}`).then(
+    http(`/api/servers/${encodeURIComponent(name)}${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`).then(
       (data) => (t === "stats" && logStats(name, data), (store[name] = { data }), render()),
       (e) => ((store[name] = { error: e.message }), render()),
     );
@@ -565,6 +578,8 @@ function load(name, tab, force = false) {
 }
 function invalidate(name) {
   delete S.dns[name];
+  delete S.errs[name];
+  delete S.certs[name];
   // What is on screen reloads in place; other tabs reload when opened.
   const shown = new Set(S.sel === name ? needs(S.tab).map((t) => STORE[t]) : []);
   for (const k of Object.values(STORE)) if (!shown.has(k)) delete S[k][name];
@@ -1359,10 +1374,11 @@ function authDialog(n, m) {
   });
 }
 
-function ensureDns(n, o) {
-  if (S.dns[n] || !o?.sites.length) return;
+function ensureDns(n, o, force = false) {
+  if ((S.dns[n] && !force) || S.dns[n]?.loading || !o?.sites.length) return;
   const domains = [...new Set(o.sites.flatMap((x) => x.domains))];
-  S.dns[n] = { loading: true };
+  // A recheck keeps the last answer on screen.
+  S.dns[n] = { ...S.dns[n], loading: true };
   http(`/api/servers/${encodeURIComponent(n)}/dns?domains=${encodeURIComponent(domains.join(","))}`).then(
     (data) => ((S.dns[n] = { data }), render()),
     (e) => ((S.dns[n] = { error: e.message }), render()),
@@ -1374,10 +1390,12 @@ function domainChip(n, d) {
   const url = `https://${d}`;
   let dot = "", title = "checking…";
   if (c) {
-    const st = c.https.status;
+    const { status: st, ms, tls } = c.https;
+    const cert = tls ? (tls.valid ? ` · certificate ${plural(tls.days, "day")} left` : ` · certificate: ${tls.error}`) : "";
     if (!c.ips.length) (dot = "down"), (title = "DNS: does not resolve");
     else if (!c.ok) (dot = "warn"), (title = `DNS points at ${c.ips.join(", ")}, not this server`);
-    else if (st && st < 500) (dot = "up"), (title = `HTTPS ${st}${st === 401 ? " (login required)" : ""}`);
+    else if (st && st < 500 && tls && (!tls.valid || tls.days < 7)) (dot = "warn"), (title = `HTTPS ${st}${cert}`);
+    else if (st && st < 500) (dot = "up"), (title = `HTTPS ${st}${st === 401 ? " (login required)" : ""} in ${ms} ms${cert}`);
     else (dot = "down"), (title = `HTTPS: ${st ?? c.https.error}`);
   }
   return `<span class="chip"><span class="dot ${dot}" title="${esc(title)}"></span><a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}" onclick="event.stopPropagation()">${esc(d)}</a>${btn("⧉", () => copy(url), "ghost", "Copy the address")}</span>`;
@@ -1484,6 +1502,7 @@ const can = (n) => S.facts[n]?.data?.can ?? null;
 const SECTION_IF = {
   sites: (k) => k.docker || k.setup,
   tunnels: (k) => k.docker,
+  traffic: (k) => k.docker,
   traefik: (k) => k.docker,
   updates: (k) => k.packages || k.docker,
   firewall: (k) => k.firewall,
@@ -1621,6 +1640,7 @@ function renderMain() {
   else if (S.tab === "sites") view.innerHTML = sitesView(n, o);
   else if (S.tab === "tunnels") view.innerHTML = tunnelsView(n, o);
   else if (S.tab === "stats") view.innerHTML = statsView(n);
+  else if (S.tab === "traffic") view.innerHTML = trafficView(n);
   else if (S.tab === "traefik") view.innerHTML = traefikView(n);
   else if (S.tab === "updates") view.innerHTML = updatesView(n);
   else if (S.tab === "firewall") view.innerHTML = firewallView(n);
@@ -1804,7 +1824,7 @@ function sitesView(n, o) {
     .join("");
   return `<div class="card scroll"><table>
     <thead><tr><th>Site</th><th class="hide-sm">Domains</th><th class="hide-sm">Kind</th><th class="hide-sm">Deployed</th><th><span class="sr">Actions</span></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>${othersCard(n, o)}`;
+    <tbody>${rows}</tbody></table></div>${errorsCard(n)}${othersCard(n, o)}`;
 }
 
 /** Where a site lives on the server: docker compose works in its current folder. */
@@ -2472,6 +2492,124 @@ function statsView(n) {
   return `<div class="meters">${meters}</div>${ctrCard}${procCard}${diskCard(n)}${live}`;
 }
 
+// ---- traffic ---------------------------------------------------------------
+
+const TRAFFIC_SPANS = [["1h", "Last hour"], ["24h", "24 hours"], ["7d", "7 days"]];
+const CLASS_COLORS = { "2xx": "var(--accent)", "3xx": "var(--faint)", "4xx": "var(--warn)", "5xx": "var(--bad)" };
+const ms = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
+const count = (v) => v.toLocaleString();
+const sv2 = (n) => (S.state.defaults.default === n ? "" : ` -s ${n}`);
+
+/** One lazily fetched view per server, outside the tab stores: the sites' error card and certificates. */
+function ensure(store, n, url) {
+  if (S[store][n]) return;
+  S[store][n] = { loading: true };
+  http(`/api/servers/${encodeURIComponent(n)}${url}`).then(
+    (data) => ((S[store][n] = { data }), render()),
+    (e) => ((S[store][n] = { error: e.message }), render()),
+  );
+}
+
+/** Requests per minute or hour, stacked by status class; hover a bar for its numbers. */
+function trafficChart(series, bucket) {
+  const W = 600, H = 120;
+  const tot = series.map((x) => x["2xx"] + x["3xx"] + x["4xx"] + x["5xx"]);
+  const max = Math.max(1, ...tot);
+  const bw = W / series.length;
+  const gap = bw > 4 ? 1 : 0;
+  const when = (at) => (bucket === "hour" ? new Date(`${at}:00:00Z`) : new Date(`${at}:00Z`));
+  const label = (at) => (bucket === "hour" ? when(at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : when(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  const bars = series
+    .map((x, i) => {
+      let y = H;
+      const segs = ["2xx", "3xx", "4xx", "5xx"]
+        .filter((k) => x[k])
+        .map((k) => {
+          const h = Math.max(1, (x[k] / max) * (H - 4));
+          y -= h;
+          return `<rect x="${i * bw + gap / 2}" y="${y}" width="${Math.max(0.5, bw - gap)}" height="${h}" fill="${CLASS_COLORS[k]}"/>`;
+        })
+        .join("");
+      const tip = `${label(x.at)}: ${count(tot[i])} requests${["4xx", "5xx"].filter((k) => x[k]).map((k) => `, ${count(x[k])} ${k}`).join("")}`;
+      return `<g><title>${esc(tip)}</title><rect x="${i * bw}" y="0" width="${bw}" height="${H}" fill="transparent"/>${segs}</g>`;
+    })
+    .join("");
+  const ticks = [0, Math.floor(series.length / 2), series.length - 1].map((i, j) => `<span style="text-align:${["left", "center", "right"][j]}">${esc(label(series[i].at))}</span>`).join("");
+  return `<div class="tchart"><div class="tmax faint">${count(max)}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Requests per ${bucket}">${bars}</svg>
+    <div class="tticks faint">${ticks}</div>
+    <div class="tlegend">${Object.entries(CLASS_COLORS).map(([k, col]) => `<span><i style="background:${col}"></i>${k}</span>`).join("")}</div></div>`;
+}
+
+const errorCell = (status) => `<span class="badge ${status >= 500 ? "bad" : "warn"}">${status}</span>`;
+
+function trafficView(n) {
+  ensure("certs", n, "/certs");
+  const st = S.traffic[n] ?? { loading: true };
+  const spans = `<div class="actions" style="margin:0 0 14px">${TRAFFIC_SPANS.map(([v, l]) => btn(l, () => ((S.since = v), load(n, "traffic", true), render()), `sm${S.since === v ? " primary" : ""}`, `lf traffic --since ${v}`)).join("")}</div>`;
+  if (st.loading && !st.data) return `${spans}<div class="loading"><span class="spin"></span> reading Traefik's access log…</div>`;
+  if (st.error && !st.data) return `${spans}<div class="note bad">${esc(st.error)}</div>`;
+  const t = st.data;
+  if (!t.proxy) return `<div class="note">No Traefik on ${esc(n)}: nothing to count. Set up the server to install it.</div>`;
+  if (t.format === "common") {
+    return `<div class="note warn">Traefik writes its access log as plain text. ${t.own
+      ? `Add <span class="mono">--accesslog.format=json</span> to its command to see traffic here.`
+      : `${btn("Switch to JSON", () => run(["traefik", "setup", ...sv(n), "-y"], { server: n, after: () => (load(n, "traffic", true), []) }), "sm", "lf traefik setup: restarts Traefik for a moment")}`}</div>${certsCard(n)}`;
+  }
+  if (t.format === "none") return `${spans}<div class="card"><div class="body empty"><h2>No requests in this span</h2><p class="dim">Traefik's access log has nothing from the last ${esc(S.since)}.</p></div></div>${certsCard(n)}`;
+  const T = t.total;
+  const errs = T.classes["4xx"] + T.classes["5xx"];
+  const pct = (v) => (T.requests ? Math.round((v / T.requests) * 1000) / 10 : 0);
+  const meters = [
+    meter("Requests", null, count(T.requests), `${plural(t.sites.length, "site")} · ${size(T.bytes)} sent`),
+    meter("Server errors", null, `${count(T.classes["5xx"])}`, `${pct(T.classes["5xx"])}% · 5xx: the site failed`),
+    meter("Client errors", null, `${count(T.classes["4xx"])}`, `${pct(T.classes["4xx"])}% · 4xx: not found, denied`),
+    meter("Response time", null, ms(T.p50), `median · 95% within ${ms(T.p95)}`, "", "From Traefik receiving the request to the last byte sent"),
+  ].join("");
+  const other = t.hosts.filter((h) => !h.site);
+  const rowsOf = (label, x) => `<tr><td>${label}</td><td class="num">${count(x.requests)}</td><td class="num">${x.classes["4xx"] ? `<span class="badge warn">${count(x.classes["4xx"])}</span>` : `<span class="faint">0</span>`}</td><td class="num">${x.classes["5xx"] ? `<span class="badge bad">${count(x.classes["5xx"])}</span>` : `<span class="faint">0</span>`}</td><td class="num hide-sm">${ms(x.p50)}</td><td class="num hide-sm">${ms(x.p95)}</td><td class="num hide-sm">${size(x.bytes)}</td></tr>`;
+  const siteCard = `<div class="card"><h2>By site</h2><div class="scroll"><table>
+    <thead><tr><th>Site</th><th class="num">Requests</th><th class="num">4xx</th><th class="num">5xx</th><th class="num hide-sm">Median</th><th class="num hide-sm">95%</th><th class="num hide-sm">Sent</th></tr></thead>
+    <tbody>${t.sites.map((x) => rowsOf(`<b>${esc(x.site)}</b><div class="faint">${esc(x.hosts.join(" "))}</div>`, x)).join("")}${other.slice(0, 10).map((h) => rowsOf(`<span class="mono dim">${esc(h.host)}</span>`, h)).join("")}</tbody></table></div>
+    ${other.length ? `<div class="body faint" style="padding-top:0">Hosts without a site: bots asking for the server's IP or old domains${other.length > 10 ? `, ${other.length - 10} more` : ""}.</div>` : ""}</div>`;
+  const list = (title, rows, cols) => (rows.length ? `<div class="card"><h2>${title}</h2><div class="scroll"><table><thead><tr>${cols.map(([c, cls = ""]) => `<th class="${cls}">${c}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div></div>` : "");
+  const paths = list("Busiest paths", T.paths.map((p) => `<tr><td class="mono">${esc(p.path)}</td><td class="num">${count(p.count)}</td><td class="num">${p.errors ? `<span class="badge warn">${count(p.errors)}</span>` : ""}</td></tr>`), [["Path"], ["Requests", "num"], ["Failed", "num"]]);
+  const errors = list("Failing requests", T.errors.map((e) => `<tr><td>${errorCell(e.status)}</td><td class="mono">${esc(e.path)}</td><td class="num">${count(e.count)}</td></tr>`), [["Status"], ["Path"], ["Requests", "num"]]);
+  const ips = list("Clients", T.ips.map((i) => `<tr><td class="mono">${esc(i.ip)}</td><td class="num">${count(i.count)}</td></tr>`), [["IP"], ["Requests", "num"]]);
+  const reach = t.from && new Date(t.from) - (Date.now() - t.since * 1000) > (t.bucket === "hour" ? 2 * 3_600_000 : 120_000) ? ` · the log reaches back to ${new Date(t.from).toLocaleString()}` : "";
+  return `${spans}<div class="meters">${meters}</div>
+    <div class="card"><h2>Requests per ${t.bucket} ${errs ? `<span class="sub">${count(errs)} failed</span>` : ""}</h2><div class="body">${trafficChart(T.series, t.bucket)}</div></div>
+    ${siteCard}<div class="cols">${errors}${paths}</div>${ips}${certsCard(n)}
+    <p class="faint" style="margin-top:14px">${st.loading ? `<span class="spin"></span> ` : ""}from Traefik's access log, read ${new Date(t.at).toLocaleTimeString()}${reach} · <span class="mono">lf traffic --since ${esc(S.since)}${esc(sv2(n))}</span></p>`;
+}
+
+/** Each site domain's certificate: days left, who issued it, why getting one failed. */
+function certsCard(n) {
+  const st = S.certs[n];
+  const head = `<h2>Certificates <span class="sub">lf certs</span></h2>`;
+  if (!st || (st.loading && !st.data)) return `<div class="card">${head}<div class="loading"><span class="spin"></span> reading certificates…</div></div>`;
+  if (st.error) return `<div class="card">${head}<div class="body"><div class="note bad" style="margin:0">${esc(st.error)}</div></div></div>`;
+  const r = st.data;
+  if (!r.domains.length) return "";
+  const days = (c) => !c ? `<span class="badge bad">none</span>` : c.days < 7 ? `<span class="badge bad">${c.days < 0 ? "expired" : plural(c.days, "day")}</span>` : c.staging ? `<span class="badge warn">staging</span>` : `<span class="badge ${c.days < 30 ? "warn" : "ok"}">${plural(c.days, "day")}</span>`;
+  const rows = r.domains.map((d) => `<tr><td>${esc(d.domain)}${d.error && (!d.cert || d.cert.days < 30) ? `<div class="faint" style="color:var(--bad)">${esc(d.error.error)}</div>` : ""}</td><td class="hide-sm dim">${esc(d.site)}</td><td>${days(d.cert)}</td><td class="hide-sm dim">${d.cert ? esc(new Date(d.cert.expires).toLocaleDateString()) : ""}</td><td class="hide-sm faint">${esc(d.cert?.issuer ?? "")}</td></tr>`).join("");
+  return `<div class="card">${head}${r.denied.length ? `<div class="body"><div class="note warn" style="margin:0">${esc(r.denied.join(", "))} needs root to read: this login has no passwordless sudo.</div></div>` : ""}<div class="scroll"><table>
+    <thead><tr><th>Domain</th><th class="hide-sm">Site</th><th>Left</th><th class="hide-sm">Expires</th><th class="hide-sm">Issuer</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+/** The sites tab: what failed in the last 24 hours, only when something did. */
+function errorsCard(n) {
+  if (!can(n)?.docker) return "";
+  ensure("errs", n, "/traffic?since=24h");
+  const t = S.errs[n]?.data;
+  if (!t || t.format !== "json") return "";
+  const rows = t.hosts.flatMap((h) => h.errors.map((e) => ({ ...e, where: h.site ?? h.host, site: !!h.site }))).filter((e) => e.site || e.status >= 500).sort((a, b) => (b.status >= 500) - (a.status >= 500) || b.count - a.count).slice(0, 6);
+  if (!rows.length) return "";
+  const fives = t.total.classes["5xx"];
+  return `<div class="card"><h2>Errors in the last 24h <span class="sub">${fives ? `${count(fives)} server errors · ` : ""}${count(t.total.classes["4xx"])} client errors</span><span class="actions">${btn("Traffic", () => (location.hash = `#/${encodeURIComponent(n)}/traffic`), "sm")}</span></h2><div class="scroll"><table>
+    <thead><tr><th>Status</th><th>Site</th><th>Path</th><th class="num">Requests</th></tr></thead>
+    <tbody>${rows.map((e) => `<tr><td>${errorCell(e.status)}</td><td>${e.site ? `<b>${esc(e.where)}</b>` : `<span class="mono dim">${esc(e.where)}</span>`}</td><td class="mono">${esc(e.path)}</td><td class="num">${count(e.count)}</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+
 function loadDisk(n) {
   S.disk[n] = { ...S.disk[n], loading: true, error: undefined };
   render();
@@ -2620,6 +2758,12 @@ $("#filter").addEventListener("input", (e) => {
 $("#add-server").onclick = () => addServer();
 // Servers go up and down: check again each minute while the page is visible.
 setInterval(() => document.hidden || loadReach(), 60_000);
+// Sites answer or not: check their domains again each minute while their tab is open.
+setInterval(() => {
+  const n = S.sel;
+  if (document.hidden || !n || S.tab !== "sites") return;
+  ensureDns(n, S.overview[n]?.data, true);
+}, 60_000);
 // Live stats: a new sample every 5s while the tab is open, unless the last one is still running.
 setInterval(() => {
   const n = S.sel;

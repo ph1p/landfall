@@ -5,7 +5,7 @@ import { checkEmail, checkImage, defaults, checkInt, checkLoginName, DOMAIN, MIN
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../remote";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../tunnel";
-import { runScript, shq, writeFileCmd } from "../ssh";
+import { runScript, shq, sshExec, writeFileCmd } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, TUNNEL_PORT, type Proxy } from "../templates";
 import { askSecret, c, confirm, confirmRemoval, fail, info, ok, step, warn } from "../ui";
 import { adminLogin } from "../updates";
@@ -356,10 +356,15 @@ done | sort`,
 
 export const traefikLogs = defineCommand({
   name: "traefik logs",
-  summary: "Show traefik logs (certificate errors show up here).",
-  options: { server: serverOpt, ...logOpts },
+  summary: "Show traefik logs (certificate errors show up here).\nRequests are left out unless --access: lf traffic sums them up.",
+  options: { server: serverOpt, ...logOpts, access: { type: "boolean", desc: "include the access log (a JSON line per request)" } },
   async run(_, o) {
-    return dockerLogs(resolveServer(o.server).server, PROXY_CTR, o);
+    const { server } = resolveServer(o.server);
+    if (o.access) return dockerLogs(server, PROXY_CTR, o);
+    // Requests outnumber everything else: take the last lines from a larger window once they are dropped.
+    const n = checkInt(o.tail, "--tail", 1);
+    const drop = `awk '!/^\\{.*"DownstreamStatus":/ { print; fflush() }'`;
+    return sshExec(server, [o.follow ? `docker logs --tail ${n} -f ${PROXY_CTR} 2>&1 | ${drop}` : `docker logs --tail ${Math.max(n * 50, 5000)} ${PROXY_CTR} 2>&1 | ${drop} | tail -n ${n}`]);
   },
 });
 

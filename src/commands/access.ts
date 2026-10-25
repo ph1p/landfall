@@ -11,16 +11,6 @@ import { target } from "./sites";
 import { dnsView } from "../views";
 
 
-/** HTTPS status of a URL: the code, or why there is none. */
-export async function httpsStatus(domain: string): Promise<{ status?: number; error?: string }> {
-  try {
-    const res = await fetch(`https://${domain}`, { method: "HEAD", signal: AbortSignal.timeout(8000), redirect: "manual" });
-    return { status: res.status };
-  } catch (e: any) {
-    return { error: e?.cause?.code ?? e?.code ?? e?.message ?? String(e) };
-  }
-}
-
 /**
  * Domains other sites serve that `site` is about to: asks to move them, and returns what
  * takes them away, to run right before `site` is applied (one host, one router).
@@ -77,7 +67,8 @@ and update .landfall.json of remembered projects.`,
       if (o.json) return void console.log(JSON.stringify({ site, ips, domains: rows }, null, 2));
       for (const r of rows) {
         const dnsState = r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");
-        const h = r.https.status ? (r.https.status < 400 ? c.green : r.https.status === 401 ? c.cyan : c.yellow)(`https ${r.https.status}`) : c.red(`https ${r.https.error}`);
+        const { status, error, tls } = r.https;
+        const h = !status ? c.red(`https ${error}`) : tls && !tls.valid ? c.red(`https ${status}, certificate: ${tls.error}`) : (status < 400 ? c.green : status === 401 ? c.cyan : c.yellow)(`https ${status}`);
         console.log(`${c.cyan(`https://${r.domain}`)}  ${dnsState}  ${h}`);
       }
       if (rows.some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));

@@ -22,6 +22,7 @@ import {
   sitesTunnel,
 } from "./commands/sites";
 import { diskCmd, statsCmd } from "./commands/stats";
+import { certsCmd, checkCmd, trafficCmd } from "./commands/traffic";
 import { pruneCmd, rebootCmd } from "./commands/manage";
 import {
   bansList,
@@ -73,6 +74,9 @@ const commands: Command[] = [
   serverInfo,
   statsCmd,
   diskCmd,
+  trafficCmd,
+  certsCmd,
+  checkCmd,
   pruneCmd,
   rebootCmd,
   systemCmd,
@@ -149,6 +153,9 @@ const aliases: Record<string, string> = {
   upgrade: "update",
   "server stats": "stats",
   "server disk": "disk",
+  "server traffic": "traffic",
+  "server certs": "certs",
+  "sites check": "check",
   "server prune": "prune",
   "server reboot": "reboot",
   "server system": "system",
@@ -181,6 +188,7 @@ function help() {
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
+    ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update"]],
     ["History", ["history", "undo"]],
     ["landfall", ["config", "ui"]],

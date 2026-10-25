@@ -29,6 +29,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Firewall](#firewall)
 - [History and undo](#history-and-undo)
 - [Managing servers](#managing-servers)
+- [Traffic, certificates and checks](#traffic-certificates-and-checks)
 - [Server system](#server-system)
 - [Web UI](#web-ui)
 - [Using landfall from scripts and agents](#using-landfall-from-scripts-and-agents)
@@ -306,7 +307,7 @@ Version-pinned tags show the newest tag of the same shape (`traefik:v3.6` → `t
 
 ```sh
 lf traefik status                              # container state, routes, mode
-lf traefik logs -f                             # certificate errors show up here
+lf traefik logs -f                             # certificate errors show up here (--access adds requests)
 lf traefik setup --email you@example.com       # reconfigure (safe to re-run)
 lf traefik setup --dashboard traefik           # dashboard at traefik.<main domain> behind a login; `off` removes it
 lf traefik dashboard                           # the dashboard on localhost through an SSH tunnel, no domain needed
@@ -464,6 +465,33 @@ Non-interactive ssh sessions often lack `/usr/local/bin` (where DSM keeps `docke
 only steps in when the key does not work. It then puts the working `IdentityFile` first, drops lines whose file is
 gone, and keeps a backup as `~/.ssh/config.landfall-bak`.
 
+## Traffic, certificates and checks
+
+```sh
+lf traffic                          # last 24h per site: requests, 4xx/5xx, median and 95% response time, bytes sent
+lf traffic blog --since 1h          # one site (or a host): requests per minute, busiest paths, failing requests, clients
+lf certs                            # each site domain's certificate: days left, issuer, why getting one failed
+lf check                            # request every site over HTTPS from this machine; exits 1 when one fails
+lf check example.com --resolve 198.51.100.4   # one domain, against an address before DNS points there
+```
+
+`traffic` reads Traefik's access log (JSON lines on its stdout, written by `lf traefik setup`) and adds it up
+on the server with awk, so only the counts cross ssh. It reaches back as far as the container log does:
+`lf log-limit` caps it, `--since` takes up to 30d. Spans up to 6h count per minute, longer ones per hour;
+response times come from a histogram and are within about 20%. Traefik installed before this version logs
+plain text: `lf traefik setup` switches it to JSON (Traefik restarts for a moment). A server's own Traefik
+(`lf traefik use`) needs `--accesslog=true --accesslog.format=json` in its command.
+
+`certs` reads certificates from what Traefik mounts: `acme.json` (Let's Encrypt; needs root or passwordless
+sudo when it is root-owned) and certificate files in `dynamic/`. Only certificates leave the server, never
+keys. Errors come from Traefik's log of the last 7 days (`--since`). Let's Encrypt renews 30 days ahead, so
+under 30 days means renewal is due, under 7 that it is failing.
+
+`check` runs on your machine, the way a visitor sees a site: status, time to the response, and whether the
+certificate is trusted and valid for at least 7 more days. Give it domains and it needs no server, so it
+works from cron or CI. The web UI checks a server's domains each minute while its Sites tab is open (the
+dot on each domain; hover for the details).
+
 ## Server system
 
 ```sh
@@ -505,6 +533,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | Overview | `lf server list --check`, recent deploys, `lf config` (defaults, and where landfall puts things) |
 | Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `logs`, `restart`/`stop`/`start`, `env`, `domains`, `auth`, `tunnel`, `sites rm` |
 | Stats | `lf stats` (a new sample every 5s while the tab is open), `lf disk` on request, Clean up… (`lf prune`) |
+| Traffic | `lf traffic --since 1h/24h/7d`, `lf certs`; the Sites tab shows failing requests of the last 24h and `lf check` on each domain |
 | Updates | `lf updates`, `lf update` |
 | Firewall | `lf firewall` and its subcommands |
 | System | `lf system`, `services`, `keys`, `unban`, `swap`, `hostname`, `timezone`, `log-limit` |
@@ -573,6 +602,9 @@ lf undo -s box -y                           # revert the last run
 | `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
 | `lf stats [site] [-w] [--interval s] [--json]` | Shows live CPU, memory, swap, disks, network, the busiest processes and each container's CPU, memory, network and restarts. With a site, only its containers. `-w` refreshes until Ctrl-C. Alias: `server stats`. |
 | `lf disk [--json]` | Shows where disk space goes: filesystems, Docker images, containers, volumes and build cache (with what is reclaimable), each site and its releases, the largest volumes and container logs, the systemd journal. Alias: `server disk`. |
+| `lf traffic [site] [--since 24h] [--json]` | Shows requests, 4xx/5xx, median and 95% response time and bytes per site from Traefik's access log; with a site or host, requests per minute or hour, busiest paths, failing requests and clients. Alias: `server traffic`. |
+| `lf certs [--since 7d] [--json]` | Shows each site domain's certificate (days left, expiry, issuer, staging), other certificates Traefik has, and its recent certificate errors. Alias: `server certs`. |
+| `lf check [site\|domain…] [--resolve ip[:port]] [--json]` | Requests sites over HTTPS from this machine: status, response time, certificate trust and days left. Exits 1 when one fails. Domains need no server. Alias: `sites check`. |
 | `lf prune [--all] [--dry-run] [--json]` | Removes unused Docker images and the build cache. Keeps images in use (stopped containers too), release images for rollback and images undo needs. `--all` also removes unused tagged images (pulled again when needed) and all build cache. Journaled, not reversible. Alias: `server prune`. |
 | `lf reboot [--timeout s]` | Reboots the server (needs root or passwordless sudo), waits until ssh answers again (default 300s) and checks that the containers that ran before run again. Alias: `server reboot`. |
 | `lf system [--json]` | Shows the host name, time zone, clock sync, swap, Docker's log driver and limit, services, SSH keys and fail2ban bans, with hints (no swap on a small server, unlimited Docker logs). Alias: `server system`. |

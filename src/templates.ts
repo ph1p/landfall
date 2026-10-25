@@ -448,6 +448,9 @@ export function traefikCompose(o: TraefikOpts): string {
     "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
     "--log.level=INFO",
     "--accesslog=true",
+    // JSON lines: lf traffic aggregates them on the server; plain log lines without color codes for lf certs.
+    "--accesslog.format=json",
+    "--log.nocolor=true",
   ];
   // Optional: Let's Encrypt no longer mails expiry warnings, the address is only an account contact.
   if (o.email) cmd.push(`--certificatesresolvers.le.acme.email=${o.email}`);
