@@ -394,8 +394,11 @@ lf traefik setup --no-staging >/dev/null 2>&1
 { ! docker exec "$NAME" docker inspect traefik | has acme-staging; } || die "traefik left staging"
 lf undo -y >/dev/null 2>&1 || die "undo traefik setup"
 { docker exec "$NAME" docker inspect traefik | has acme-staging; } || die "undo restores traefik config"; pass "undo restores the traefik config"
+out=$(lf undo 1 -s box </dev/null 2>&1) && die "undo refuses when later runs changed the same things"
+{ grep -q "later runs changed the same things" <<<"$out"; } || { echo "$out"; die "undo names the clashing runs"; }
+pass "undo refuses when later runs changed the same things"
 # No TTY and no -y: shows what it would do, then cancels.
-out=$(lf undo 1 -s box </dev/null 2>&1) && die "undo without -y cancels"
+out=$(lf undo 1 -s box --force </dev/null 2>&1) && die "undo without -y cancels"
 { grep -q "later runs build on it" <<<"$out" && grep -q "created user deploy" <<<"$out"; } || { echo "$out"; die "undo preview"; }
 pass "undo previews and needs a yes"
 cd "$WORK/app"
