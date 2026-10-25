@@ -20,6 +20,7 @@ import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHo
 import { changes } from "../../src/dashboard";
 import { isPublic4, parseFacts, pickIp, sslipDomain, support } from "../../src/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/stats";
+import { parsePrunePlan, removable } from "../../src/manage";
 import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
@@ -858,5 +859,38 @@ describe("input checks", () => {
     expect(checkEmail("me@example.com")).toBe("me@example.com");
     expect(() => checkEmail("me@example.com'; rm -rf /")).toThrow();
     expect(() => checkEmail("$(id)@x.com")).toThrow();
+  });
+});
+
+describe("prune", () => {
+  const id = (c: string) => `sha256:${c.repeat(64)}`;
+  const site = { v: 2, name: "blog", releases: [{ id: "20260101-1", services: [{ name: "Web", build: true, networks: [] }, { name: "db", networks: [] }] }] };
+  const out = [
+    `IMG\t${id("a")}\tnginx\talpine\t50MB\t2026-01-01 10:00:00 +0000 UTC`,
+    `IMG\t${id("b")}\tblog-web\t20260101-1\t120MB\t2026-01-01`,
+    `IMG\t${id("c")}\t<none>\t<none>\t80MB\t2026-01-01`,
+    `IMG\t${id("d")}\t<none>\t<none>\t90MB\t2026-01-01`,
+    `IMG\t${id("e")}\t<none>\t<none>\t10MB\t2026-01-01`,
+    `IMG\t${id("f")}\tredis\t7\t40MB\t2026-01-01`,
+    `IMG\t${id("f")}\tredis\tlatest\t40MB\t2026-01-01`,
+    `USED\t${id("e")}`,
+    `KEEP\t${id("d")}`,
+    `SITE\t${JSON.stringify(site)}`,
+    "DF\tImages\t1.2GB (40%)",
+    "DF\tBuild Cache\t300MB (100%)",
+  ].join("\n");
+
+  test("keeps used, release and undo images; tagged ones only without --all", () => {
+    const p = parsePrunePlan(out);
+    const keep = Object.fromEntries(p.images.map((i) => [i.id.slice(7, 8), i.keep]));
+    expect(keep).toEqual({ a: "tagged", b: "release", c: undefined, d: "undo", e: "used", f: "tagged" });
+    expect(p.images.find((i) => i.id === id("f"))!.tags).toEqual(["redis:7", "redis:latest"]);
+    expect(p.buildCache).toBe(300e6);
+    expect(removable(p).map((i) => i.id)).toEqual([id("c")]);
+    expect(removable(parsePrunePlan(out, true)).map((i) => i.id).sort()).toEqual([id("a"), id("c"), id("f")]);
+  });
+
+  test("no docker", () => {
+    expect(parsePrunePlan("NODOCKER\n").docker).toBe(false);
   });
 });

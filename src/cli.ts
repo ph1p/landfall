@@ -22,6 +22,7 @@ import {
   sitesTunnel,
 } from "./commands/sites";
 import { diskCmd, statsCmd } from "./commands/stats";
+import { pruneCmd, rebootCmd } from "./commands/manage";
 import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
@@ -55,6 +56,8 @@ const commands: Command[] = [
   serverInfo,
   statsCmd,
   diskCmd,
+  pruneCmd,
+  rebootCmd,
   serverConfig,
   serverDomain,
   serverUse,
@@ -114,6 +117,8 @@ const aliases: Record<string, string> = {
   upgrade: "update",
   "server stats": "stats",
   "server disk": "disk",
+  "server prune": "prune",
+  "server reboot": "reboot",
 };
 
 const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));
@@ -129,7 +134,7 @@ function find(argv: string[]): { cmd?: Command; rest: string[] } {
 
 function help() {
   const groups: [string, string[]][] = [
-    ["Servers", ["setup", "server add", "server list", "server info", "stats", "disk", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
+    ["Servers", ["setup", "server add", "server list", "server info", "stats", "disk", "prune", "reboot", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],

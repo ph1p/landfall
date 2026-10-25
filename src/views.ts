@@ -8,6 +8,7 @@ import { domainDns, serverSettings, suggestDomains } from "./commands/server";
 import type { Server } from "./config";
 import { checkDns, facts, pickIp, serverIps, sslipDomain } from "./facts";
 import { pending, readJournal } from "./journal";
+import { prunePlan } from "./manage";
 import { diskUsage, stats } from "./stats";
 import { effectiveSsh } from "./sshconfig";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
@@ -37,6 +38,7 @@ export async function factsView(name: string, server: Server) {
 /** `lf stats --json` and `lf disk --json`. */
 export const statsView = (server: Server) => stats(server);
 export const diskView = (server: Server) => diskUsage(server);
+export const pruneView = (server: Server) => prunePlan(server);
 
 /** `lf history --json`: newest first, with how many steps each run can still undo. */
 export async function historyView(server: Server, n?: number) {

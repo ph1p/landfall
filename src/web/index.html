@@ -1581,6 +1581,8 @@ function renderMain() {
         ${menuBtn([
           { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
           { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) },
+          "-",
+          { label: "Reboot…", cls: "danger", hint: "lf reboot", run: () => confirmDlg({ title: `Reboot ${n}?`, text: "Its sites are offline for a minute or two. Waits until it is back and checks its containers run again.", ok: "Reboot", danger: true, onOk: () => run(["reboot", ...sv(n), "-y"], { server: n }) }) },
           s?.isDefault ? null : { label: "Make default", title: "Commands without -s use it", run: () => makeDefault(n) },
           s?.registered ? "-" : null,
           s?.registered ? { label: `Forget ${n}…`, cls: "danger", hint: "lf server rm", run: () => forget(n) } : null,
@@ -2286,6 +2288,22 @@ function loadDisk(n) {
     (e) => ((S.disk[n] = { error: e.message }), render()),
   );
 }
+function pruneFlow(n) {
+  http(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
+    const imgs = p.images.filter((i) => !i.keep);
+    const kept = (w) => p.images.filter((i) => i.keep === w).length;
+    const most = imgs.reduce((t, i) => t + i.size, 0) + p.buildCache;
+    const keep = [[kept("release"), "for rollback"], [kept("undo"), "for undo"], [kept("used"), "in use"]].filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ");
+    dialog({
+      title: `Clean up ${n}?`,
+      text: `${plural(imgs.length, "unused image")} and ${size(p.buildCache)} of build cache: up to ${size(most)}.${keep ? ` Kept: ${keep}.` : ""} Volumes and containers stay.`,
+      fields: kept("tagged") ? [{ name: "all", type: "check", label: `Also ${plural(kept("tagged"), "unused tagged image")}`, hint: "Pulled again when a site needs them" }] : [],
+      ok: "Clean up",
+      danger: true,
+      onOk: (v) => run(["prune", ...sv(n), "-y", ...(v.all ? ["--all"] : [])], { server: n, after: () => (loadDisk(n), []) }),
+    });
+  }, (e) => toast(e.message));
+}
 function diskCard(n) {
   const st = S.disk[n];
   const head = (acts) => `<h2>Disk usage <span class="sub">images, volumes, build cache, sites and logs</span><span class="actions">${acts}</span></h2>`;
@@ -2317,7 +2335,7 @@ function diskCard(n) {
     d.docker ? "" : "No access to Docker: images, volumes and logs are not shown.",
     d.root ? "" : "Without root or passwordless sudo, root-owned folders and container logs may be missing.",
   ].filter(Boolean);
-  return `<div class="card">${head(btn("↻", () => loadDisk(n), "sm", "Analyze again").replace("<button", `<button aria-label="Analyze again"`))}${docker}${sites}${volumes}${logs}
+  return `<div class="card">${head((d.docker ? btn("Clean up…", () => pruneFlow(n), "sm", "lf prune: remove unused images and the build cache") : "") + btn("↻", () => loadDisk(n), "sm", "Analyze again").replace("<button", `<button aria-label="Analyze again"`))}${docker}${sites}${volumes}${logs}
     ${notes.length ? `<div class="body faint">${notes.map(esc).join("<br>")}</div>` : `<div style="height:8px"></div>`}</div>`;
 }
 
