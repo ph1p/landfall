@@ -103,6 +103,9 @@ export function startJob(argv: string[], onChange: () => void, opts: { password?
     job.code = 1;
     onChange();
   });
+  // A multiplexed ssh hands its output to the shared ControlMaster, which outlives the stopped job and
+  // keeps writing (`logs -f`): close our end, so it gets EPIPE and the job finishes.
+  child.on("exit", () => job.stopped && (child.stdout!.destroy(), child.stderr!.destroy()));
   child.on("close", (code) => {
     out.flush();
     err.flush();
