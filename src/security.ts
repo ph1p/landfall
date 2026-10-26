@@ -197,13 +197,26 @@ if [ "$H_UPDATES" = 1 ]; then
       fi ;;
     dnf)
       pkg_has dnf-automatic || { log "installing dnf-automatic"; pkg_install dnf-automatic && record "installed dnf-automatic"; }
-      if systemctl cat dnf-automatic-install.timer >/dev/null 2>&1; then
-        if ! systemctl is-enabled -q dnf-automatic-install.timer 2>/dev/null; then
-          $SUDO systemctl enable --now dnf-automatic-install.timer >/dev/null
-          record "turned on automatic updates" '$SUDO systemctl disable --now dnf-automatic-install.timer'
-        fi
+      if dnf_auto_updates; then :
+      elif systemctl cat dnf-automatic-install.timer >/dev/null 2>&1; then
+        $SUDO systemctl enable --now dnf-automatic-install.timer >/dev/null
+        record "turned on automatic updates" '$SUDO systemctl disable --now dnf-automatic-install.timer'
       else
-        echo "set apply_updates = yes in /etc/dnf/automatic.conf, then: systemctl enable --now dnf5-automatic.timer" >&2; exit 1
+        # dnf5 (Fedora 41+): one timer, and automatic.conf says whether it installs.
+        log "turning on automatic updates"
+        f=/etc/dnf/automatic.conf
+        if ! dnf_applies; then
+          undo=$(saved $f)
+          if grep -q '^[[:space:]]*apply_updates' $f 2>/dev/null; then $SUDO sed -i 's/^[[:space:]]*apply_updates.*/apply_updates = yes/' $f
+          elif grep -q '^\[commands\]' $f 2>/dev/null; then $SUDO sed -i '/^\[commands\]/a apply_updates = yes' $f
+          else printf '[commands]\napply_updates = yes\n' | $SUDO tee -a $f >/dev/null; fi
+          record "automatic updates install, not only download" "$undo"
+        fi
+        t=dnf5-automatic.timer; systemctl cat $t >/dev/null 2>&1 || t=dnf-automatic.timer
+        if ! systemctl is-enabled -q $t 2>/dev/null; then
+          $SUDO systemctl enable --now $t >/dev/null
+          record "turned on automatic updates" "\$SUDO systemctl disable --now $t"
+        fi
       fi ;;
     *) echo "automatic updates: landfall knows apt, apk and dnf; on $(pkg_mgr) set them up by hand" >&2; exit 1 ;;
   esac

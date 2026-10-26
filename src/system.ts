@@ -65,10 +65,7 @@ if command -v apt-get >/dev/null 2>&1; then
 elif command -v apk >/dev/null 2>&1; then
   if apk_auto_updates; then kv auto_updates on; else kv auto_updates off; fi
 elif command -v dnf >/dev/null 2>&1 && [ "$init" = systemd ]; then
-  # dnf-automatic.timer only downloads unless automatic.conf says apply_updates.
-  if systemctl is-enabled -q dnf-automatic-install.timer 2>/dev/null \
-    || { { systemctl is-enabled -q dnf-automatic.timer 2>/dev/null || systemctl is-enabled -q dnf5-automatic.timer 2>/dev/null; } \
-      && grep -qiE '^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*(yes|true|1)' /etc/dnf/automatic.conf 2>/dev/null; }; then kv auto_updates on; else kv auto_updates off; fi
+  if dnf_auto_updates; then kv auto_updates on; else kv auto_updates off; fi
 fi
 # Keys of every user with a home: /root and /home/* (deploy users live there).
 for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do

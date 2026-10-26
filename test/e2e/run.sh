@@ -12,7 +12,7 @@ HTTPS_PORT=${HTTPS_PORT:-18443}
 cleanup() {
   [ -z "${UI_PID:-}" ] || kill "$UI_PID" 2>/dev/null || true
   [ "${KEEP:-}" = 1 ] && { echo "kept container $NAME and $WORK"; return; }
-  docker rm -f "$NAME" "$NAME-fresh" "$NAME-deb" >/dev/null 2>&1 || true
+  docker rm -f "$NAME" "$NAME-fresh" "$NAME-deb" "$NAME-fedora" "$NAME-rocky" >/dev/null 2>&1 || true
   [ -z "${FRESH_PORT:-}" ] || ssh-keygen -R "[127.0.0.1]:$FRESH_PORT" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -534,6 +534,13 @@ upath=$(echo "$up" | node --input-type=module -e 'console.log(JSON.parse((await 
 job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":["deploy","-y","-s","box","-n","up","-d","up.test","--no-save"],"server":"box","cwd":"'"$upath"'"}' "$UI/api/jobs" | node --input-type=module -e 'console.log(JSON.parse((await import("node:fs")).readFileSync(0, "utf8")).id)')
 { curl -s -N --max-time 60 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui deploys an upload"
 expect up.test / up
+# A security fix button: the advice's argv, run as a job.
+json() { node --input-type=module -e "const i = JSON.parse((await import('node:fs')).readFileSync(0, 'utf8')); console.log($1)"; }
+argv=$(curl -s -b "$JAR" "$UI/api/servers/box/system" | json 'JSON.stringify(i.advice.find((a) => a.id === "fail2ban").fix.argv)')
+job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":'"$argv"',"server":"box"}' "$UI/api/jobs" | json i.id)
+{ curl -s -N --max-time 120 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui runs a security fix: $argv"
+{ curl -s -b "$JAR" "$UI/api/servers/box/system" | json '!i.advice.some((a) => a.id === "fail2ban") && i.fail2ban' | has -x running; } \
+  || die "ui fix starts fail2ban"; pass "ui security fix button starts fail2ban"
 kill "$UI_PID"; wait "$UI_PID" 2>/dev/null || true
 pass "web dashboard: login, host check, servers, jobs"
 
@@ -664,5 +671,25 @@ lf harden updates -s deb >"$WORK/deb.log" 2>&1 || { cat "$WORK/deb.log"; die "ha
 { lf security -s deb --json | has '"autoUpdates": true'; } || die "harden updates turns them on"; pass "harden updates turns on unattended-upgrades"
 lf undo -s deb -y >/dev/null 2>&1 || die "undo updates"
 { lf security -s deb --json | has '"autoUpdates": false'; } || die "undo turns them off"; pass "undo turns automatic updates off"
+
+echo "== dnf: automatic updates"
+# systemd as PID 1. Fedora's dnf5 has one timer and automatic.conf; Rocky 9's dnf 4 has an installing timer.
+port=2225
+for base in fedora:42 rockylinux:9; do
+  n=${base%%:*}; n=${n%linux}
+  docker build -q --build-arg BASE=$base -t "landfall-e2e-rpm:$n" "$ROOT/test/e2e/rpm" >/dev/null
+  docker rm -f "$NAME-$n" >/dev/null 2>&1 || true
+  docker run -d --name "$NAME-$n" --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw -p "$port:22" \
+    -e AUTHORIZED_KEY="$(cat "$WORK/key.pub")" "landfall-e2e-rpm:$n" >/dev/null
+  for _ in $(seq 1 60); do ssh-keyscan -p "$port" 127.0.0.1 >/dev/null 2>&1 && break; sleep 1; done
+  lf server add "$n" --host 127.0.0.1 --port "$port" -i "$WORK/key" </dev/null >"$WORK/$n.log" 2>&1 || { cat "$WORK/$n.log"; die "server add $n"; }
+  { lf security -s "$n" --json | has '"id": "auto-updates"'; } || die "$n: security finds no automatic updates"
+  lf harden updates -s "$n" >"$WORK/$n.log" 2>&1 || { cat "$WORK/$n.log"; die "$n: harden updates"; }
+  { lf security -s "$n" --json | has '"autoUpdates": true'; } || die "$n: harden updates turns them on"
+  lf undo -s "$n" -y >/dev/null 2>&1 || die "$n: undo updates"
+  { lf security -s "$n" --json | has '"autoUpdates": false'; } || die "$n: undo turns them off"
+  pass "$n: harden updates turns on dnf-automatic, undo turns it off"
+  docker rm -f "$NAME-$n" >/dev/null; port=$((port + 1))
+done
 
 echo; pass "all e2e checks"
