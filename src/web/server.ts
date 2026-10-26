@@ -32,8 +32,12 @@ interface WebJob {
   opts: { server?: string; password?: string; cwd?: string };
 }
 
-// Next to this file in src/web, and copied next to the bundle in dist by the build.
-const page = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
+// The page and its scripts: in src/web/ui, and copied next to the bundle in dist by the build.
+const UI_DIR = new URL("./ui/", import.meta.url);
+const TYPES: Record<string, string> = { html: "text/html", css: "text/css", js: "text/javascript" };
+const assets = new Map(
+  fs.readdirSync(UI_DIR).map((f) => [f === "index.html" ? "/" : `/${f}`, { body: fs.readFileSync(new URL(f, UI_DIR)), type: `${TYPES[f.split(".").pop()!]}; charset=utf-8` }]),
+);
 const MAX_JOBS = 50;
 /** Jobs running at once: each is a process with its own ssh connections. */
 const MAX_RUNNING = 20;
@@ -250,7 +254,6 @@ async function api(req: Request, path: string[]): Promise<Response> {
   return failure("not found", 404);
 }
 
-
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 const cookieToken = (req: Request) =>
@@ -261,13 +264,13 @@ const cookieToken = (req: Request) =>
 
 const fingerprint = (secret: string) => createHash("sha256").update(`landfall-ui:${secret}`).digest("hex");
 
+/** webUi's port when none is given; taken by something else, the next free one after it. */
+const DEFAULT_PORT = 4777;
+
 /**
  * The web dashboard: a local page that runs landfall's commands.
  * It runs commands as `lf` child processes, exactly like typing them, and streams their output.
  */
-/** webUi's port when none is given; taken by something else, the next free one after it. */
-const DEFAULT_PORT = 4777;
-
 export async function webUi(o: { port?: number; open: boolean }): Promise<number> {
   setQuiet(true);
   const secret = token();
@@ -292,7 +295,8 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
     if (!same(cookieToken(req), secret)) {
       return new Response("Open the link `lf ui` printed (it logs this browser in).", { status: 401, headers: { "content-type": "text/plain" } });
     }
-    if (url.pathname === "/") return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    const asset = assets.get(url.pathname);
+    if (asset) return new Response(asset.body, { headers: { "content-type": asset.type, "cache-control": "no-store" } });
     if (url.pathname.startsWith("/api/")) {
       // SameSite=Strict still sends the cookie from other ports of 127.0.0.1 (same site), and an <img> sends
       // no Origin: only this page's own requests (or non-browser clients, which send no Sec-Fetch-Site) get in.
@@ -365,7 +369,6 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
   });
 }
 
-/** Serve a fetch-style handler with node:http; the request's signal aborts when the client goes away. */
 /** The request body, failing once it passes `limit` bytes (a chunked body has no length to check up front). */
 function capped(req: IncomingMessage, limit: number): Readable {
   let seen = 0;
@@ -379,6 +382,7 @@ function capped(req: IncomingMessage, limit: number): Readable {
   );
 }
 
+/** Serve a fetch-style handler with node:http; the request's signal aborts when the client goes away. */
 function listener(handler: (req: Request) => Promise<Response>) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const abort = new AbortController();
