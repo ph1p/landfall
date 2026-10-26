@@ -8,7 +8,7 @@ import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, rea
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { APP_IGNORE, composeFile, detectBuild, detectStaticDir, exposedPort, nodeApp, nodeDockerfile, rememberProject, slug } from "../projects";
+import { appDockerfile, composeFile, detectApp, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
@@ -41,15 +41,20 @@ export function nextReleaseId(taken: string[], now = new Date()): string {
 export const deploy = defineCommand({
   name: "deploy",
   args: "[dir]",
-  summary: `Deploy a Compose project, Node.js app, static folder, Dockerfile or image with HTTPS.
+  summary: `Deploy a Compose project, app, static folder, Dockerfile or image with HTTPS.
 
 Kinds:
   compose     the folder has a compose.yaml: its services run on the server as one
               project; x-landfall: { port: 3000 } on a service routes it through Traefik
   dockerfile  the folder has a Dockerfile: uploaded and built on the server
-  node        a server-rendering framework (Next.js, Nuxt, TanStack Start, SvelteKit
-              adapter-node, Astro Node, React Router, Remix, SolidStart, Express, …)
-              or --start: landfall writes the Dockerfile, built on the server
+  app         landfall writes the Dockerfile, built on the server, for
+              Node.js: a server-rendering framework (Next.js, Nuxt, TanStack Start,
+                SvelteKit adapter-node, Astro Node, React Router, Remix, SolidStart)
+                or a server (Express, Fastify, NestJS, ws, Socket.IO, any start script)
+              Python (Django, FastAPI, Flask, …), Go, Java/Kotlin (Maven, Gradle:
+              Spring Boot, Quarkus, …), Ruby (Rails, Rack), PHP (Laravel, Symfony),
+              Rust, .NET, Elixir (Phoenix), Deno; --start overrides the command
+              (a Procfile's web: process counts too)
   static      a folder of files (auto-detects dist/, build/, out/, public/ and the
               output of Vite, Astro, Next export, Nuxt generate, SvelteKit, Hugo, …)
   image       --image: run a prebuilt image (e.g. ghcr.io/me/app:1.2)
@@ -72,8 +77,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
-    build: { type: "string", short: "b", desc: "build command: static sites run it locally first, Node.js apps in their image ('' for none)" },
-    start: { type: "string", desc: "run as a Node.js app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
+    build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
+    start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
     keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
     host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
@@ -113,7 +118,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
 
     if (o.start && o.static) fail("--start and --static exclude each other");
     const buildCmd: string | undefined = o.build ?? project.build;
-    // --start turns a site saved as static into a Node.js app.
+    // --start turns a site saved as static into an app.
     const forceStatic = o.static ?? (o.start ? false : project.static);
     const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
     const image = imageArg && checkImage(imageArg);
@@ -126,8 +131,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
     const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
     if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
-    // Without a Dockerfile of its own: a Node.js app landfall writes one for.
-    const app = compose || image || forceStatic || ownDockerfile ? undefined : nodeApp(root, o.start ?? project.start);
+    // Without a Dockerfile of its own: an app landfall writes one for.
+    const app = compose || image || forceStatic || ownDockerfile ? undefined : detectApp(root, o.start ?? project.start);
     if (buildCmd && !app) {
       step(`building locally: ${buildCmd}`);
       const r = spawnSync(buildCmd, { shell: true, stdio: "inherit" });
@@ -142,13 +147,13 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
     }
     const port = KINDS[kind].port
-      ? checkInt(o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
+      ? checkInt(o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port) ?? 3000, "--port", 1, 65535)
       : undefined;
     const appBuild = app && (buildCmd ?? app.build);
-    if (app) info(c.dim(`Node.js app${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start} on port ${port}`));
+    if (app) info(c.dim(`${app.runtime} app${app.tool && app.tool !== app.runtime ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start} on port ${port}`));
     const spa = kind === "static" && !!(o.spa ?? project.spa);
 
-    step(`deploying ${c.bold(name)} (${app ? "node" : kind}) to ${c.bold(serverName)}`);
+    step(`deploying ${c.bold(name)} (${app ? app.runtime : kind}) to ${c.bold(serverName)}`);
     const site = await readSite(server, name);
     const { env: prevEnv, proxy, exists } = site;
     const old = site.meta && isOld(site.meta) ? site.meta : undefined;
@@ -163,15 +168,17 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if (o["env-file"]) env = mergeEnv(env, await readEnvFile(o["env-file"]));
       if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env));
     }
+    // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
+    if (app?.note && (app.secret ? !new RegExp(`^${app.secret}=.`, "m").test(env ?? prevEnv ?? "") : !prev)) warn(app.note);
 
     // A takeover removes the old layout's release folders: the new id must not be one of them.
     const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id));
     const releaseDir = `${siteDir(name)}/releases/${id}`;
     const generated: Record<string, string> =
-      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image, node: !!app }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
+      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image, app: app?.runtime }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
     if (app) {
-      generated.Dockerfile = nodeDockerfile(root, { tool: app.tool, build: appBuild, start: app.start, port: port! });
-      if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = APP_IGNORE.join("\n") + "\n";
+      generated.Dockerfile = appDockerfile(root, app, { build: appBuild, start: app.start, port: port! });
+      if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = app.ignore.join("\n") + "\n";
     }
 
     // Anything that fails from the upload until the site switches takes the half-made release away again.
@@ -182,7 +189,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         step(`uploading ${relative(cwd, dir) || "."}`);
         // A redeploy starts from the live release's files and sends only what changed.
         const seedRelease = prev?.kind === kind ? prev.current : undefined;
-        const sent = await upload(server, dir, releaseDir + files, seedRelease && `${siteDir(name)}/current${files}`, app ? APP_IGNORE : []);
+        const sent = await upload(server, dir, releaseDir + files, seedRelease && `${siteDir(name)}/current${files}`, app ? app.ignore : []);
         if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
         else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
         else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
