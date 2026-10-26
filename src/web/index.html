@@ -389,6 +389,7 @@ const S = {
   tab: "sites",
   overview: {},          // name -> {data} | {error} | {loading}
   firewall: {},
+  det: {},               // project folder -> what /api/fs detected there (null while reading, false if it failed)
   system: {},            // name -> {data: lf system --json}
   history: {},
   updates: {},
@@ -1118,7 +1119,7 @@ function autoDomain(n, name) {
 const slugify = (s) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
 const tilde = (p) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
 
-function describe(d) {
+function describe(d, before = true) {
   const built = d.build ? ` · builds with <code>${esc(d.build)}</code> first` : "";
   const what =
     d.kind === "compose" ? `Compose project <code>${esc(d.compose ?? "compose.yaml")}</code>: built and started on the server; x-landfall picks the routed service`
@@ -1128,8 +1129,7 @@ function describe(d) {
     : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.tool ? ` (where ${esc(d.tool)} builds the site)` : ""}${d.spa ? " (single-page app)" : ""}${built}`
     : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
     : `<span style="color:var(--warn)">No compose.yaml, Dockerfile, index.html or build script here.</span>`;
-  const before = d.project?.server ? ` <span class="dim">· deployed before to ${esc(d.project.server)}</span>` : "";
-  return what + before;
+  return what + (before && d.project?.server ? ` <span class="dim">· deployed before to ${esc(d.project.server)}</span>` : "");
 }
 
 /**
@@ -1279,6 +1279,17 @@ function openAfter(j) {
 async function browse(path) {
   return http(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`);
 }
+
+/** What a site's folder holds and how it builds: detected once per folder, for the site details. */
+const detected = (path) => {
+  if (!(path in S.det)) (S.det[path] = null), browse(path).then((x) => ((S.det[path] = x.detected), render()), () => (S.det[path] = false));
+  return S.det[path];
+};
+/** Edit how a site builds and starts (build, start, port, static or Node.js), then redeploy. */
+const buildSettings = (path, site) => {
+  delete S.det[path];
+  browse(path).then((x) => deployDialog(x.detected, { site }), (e) => toast(e.message));
+};
 
 function deployHere() {
   browse(S.state.cwd).then((b) => deployDialog(b.detected), (e) => toast(e.message));
@@ -1851,6 +1862,7 @@ function sitesView(n, o) {
             ? { label: "Stop…", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${x.service} of ${name}?`, text: "It stays stopped until you start it again.", ok: "Stop it", danger: true, onOk: () => run(["stop", name, x.service, ...sv(n)]) }) }
             : { label: "Start", hint: "lf start", run: () => run(["start", name, x.service, ...sv(n)]) },
         ], `${x.service} of ${name}`, "sm ghost");
+      const editBuild = () => buildSettings(proj.path, { server: n, name, domains: m.domains ?? [], old });
       const acts = [
         proj && !m.adopted
           ? btn("Redeploy", () => confirmDlg({ title: `Redeploy ${name}?`, text: `From ${tilde(proj.path)}${proj.kind === "static" ? " (runs its build first, if it has one)" : ""}.`, ok: "Deploy", onOk: () => run(["deploy", "-y", ...sv(n)], { server: n, cwd: proj.path, after: openAfter }) }), "sm primary", `lf deploy in ${proj.path}`)
@@ -1870,6 +1882,7 @@ function sitesView(n, o) {
           main ? { label: "Domains…", hint: "lf domains", run: () => domainsDialog(n, m) } : null,
           managed ? { label: m.auth?.length ? "Login…" : "Password…", hint: "lf auth", title: "Protect the site with a user and password", run: () => authDialog(n, m) } : null,
           managed ? { label: "Environment…", hint: "lf env", run: () => envDialog(n, name) } : null,
+          proj && !m.adopted ? { label: "Build settings…", hint: "lf deploy --build --start", title: "What it builds and starts with, its port, static or Node.js", run: editBuild } : null,
           "-",
           { label: m.adopted ? `Forget ${name}…` : `Delete ${name}…`, cls: "danger", hint: "lf sites rm", run: deleteSite },
         ], `More for ${name}`),
@@ -1877,6 +1890,7 @@ function sitesView(n, o) {
       const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
       const live = m.releases?.find((r) => r.id === m.current);
       const svcDomains = (svc) => (svc === main ? m.domains : (live?.services?.find((x) => x.name === svc)?.domains ?? []));
+      const det = open && proj && !m.adopted ? detected(proj.path) : undefined;
       const detail = open
         ? `<tr class="detail"><td colspan="5"><dl class="kv">
             ${old ? `<dt>Old site</dt><dd class="dim">Deployed before sites were Compose projects: ${proj ? "redeploy it" : `run <span class="mono">lf deploy</span> for it`} once to manage it again.</dd>` : ""}
@@ -1887,6 +1901,7 @@ function sitesView(n, o) {
             ${m.adopted ? "" : `<dt>Source</dt><dd>${proj
               ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· redeploy runs there</span>`
               : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved): Redeploy… picks the folder"}</span>`}</dd>`}
+            ${det !== undefined ? `<dt>Build</dt><dd>${det ? `${describe(det, false)} ${btn("Edit…", editBuild, "sm ghost", "Build settings: lf deploy --build --start")}` : `<span class="faint">${det === false ? "cannot read its folder" : "reading its folder…"}</span>`}</dd>` : ""}
             <dt>Kind</dt><dd>${esc(kind)}${main || !managed ? "" : ` <span class="dim">· domains set in compose.yaml</span>`}</dd>
             ${managed ? `<dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>` : ""}
             <dt>Created</dt><dd>${esc(ago(m.createdAt))} · updated ${esc(ago(m.updatedAt))}</dd>
