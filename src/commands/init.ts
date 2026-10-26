@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand } from "../cmd";
 import { checkInt } from "../config";
-import { APP_IGNORE, detectProject, nodeDockerfile } from "../projects";
+import { appDockerfile, detectApp, detectProject } from "../projects";
 import { c, fail, info, ok } from "../ui";
 
 export const init = defineCommand({
@@ -13,13 +13,14 @@ export const init = defineCommand({
   compose.yaml           what runs on the server; x-landfall routes a service through Traefik
   compose.override.yaml  local only (docker compose merges it, lf deploy leaves it out):
                          publishes the port on localhost
-  Dockerfile             a Node.js app (Next.js, Nuxt, TanStack Start, …) without one:
-                         the one lf deploy would generate, to change it here
+  Dockerfile             an app without one (Next.js, Express, Django, Spring Boot, Go,
+                         Rails, Laravel, …): the one lf deploy would generate, to
+                         change it here
 
 \`docker compose up\` then runs the site locally, \`lf deploy\` on a server. Existing
 files are never overwritten.`,
   options: {
-    port: { type: "string", desc: "container port (default: EXPOSE, the saved port or 3000)" },
+    port: { type: "string", desc: "container port (default: EXPOSE, the saved port or the app's usual one)" },
     postgres: { type: "boolean", desc: "add a Postgres service with a volume; the app gets DATABASE_URL" },
   },
   async run([dirArg], o) {
@@ -32,9 +33,10 @@ files are never overwritten.`,
     if (taken.length) fail(`${taken.join(" and ")} exist already`);
 
     const port = d.kind === "static" ? 80 : checkInt(o.port ?? d.port ?? 3000, "--port", 1, 65535);
-    if (d.start) {
-      files.Dockerfile = nodeDockerfile(root, { tool: d.tool, build: d.build, start: d.start, port });
-      if (!fs.existsSync(join(root, ".dockerignore"))) files[".dockerignore"] = APP_IGNORE.join("\n") + "\n";
+    const found = d.start ? detectApp(root, d.start) : undefined;
+    if (found) {
+      files.Dockerfile = appDockerfile(root, found, { build: d.build, start: d.start!, port });
+      if (!fs.existsSync(join(root, ".dockerignore"))) files[".dockerignore"] = found.ignore.join("\n") + "\n";
     }
     const local = d.kind === "static" ? 8080 : port;
     const db = !!o.postgres;
@@ -108,6 +110,7 @@ services:
     ok(`wrote ${Object.keys(files).join(", ")} in ${at}`);
     if (db && !fs.existsSync(join(root, ".env"))) info(`locally: put POSTGRES_PASSWORD=… in ${join(at, ".env")} (keep it out of git)`);
     info(`run it:    docker compose up${d.kind === "static" ? "" : " --build"}   → http://localhost:${local}`);
+    if (found?.note) info(found.note);
     info(`deploy it: lf deploy${db ? " -e POSTGRES_PASSWORD=<secret>   (the first time)" : ""}`);
   },
 });

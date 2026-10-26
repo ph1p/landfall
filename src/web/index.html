@@ -1124,7 +1124,7 @@ function describe(d, before = true) {
   const what =
     d.kind === "compose" ? `Compose project <code>${esc(d.compose ?? "compose.yaml")}</code>: built and started on the server; x-landfall picks the routed service`
     : d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from .landfall.json)`
-    : d.kind === "dockerfile" && d.start ? `Node.js app${d.tool ? ` (${esc(d.tool)})` : ""}: built on the server${d.build ? ` with <code>${esc(d.build)}</code>` : ""}, started with <code>${esc(d.start)}</code> on port ${esc(d.port)}`
+    : d.kind === "dockerfile" && d.start ? `${esc(d.runtime ?? "Node.js")} app${d.tool && d.tool !== d.runtime ? ` (${esc(d.tool)})` : ""}: built on the server${d.build ? ` with <code>${esc(d.build)}</code>` : ""}, started with <code>${esc(d.start)}</code> on port ${esc(d.port)}${d.note ? `<br><span style="color:var(--warn)">${esc(d.note)}</span>` : ""}`
     : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${esc(d.port)}`
     : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.tool ? ` (where ${esc(d.tool)} builds the site)` : ""}${d.spa ? " (single-page app)" : ""}${built}`
     : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
@@ -1145,7 +1145,8 @@ function deployDialog(det, o = {}) {
   const main = mainDomain(target);
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
   const keeps = re && !p?.domains ? re.domains : null;
-  // Static files or a Node.js app: what to build and run is landfall's to decide, and editable here.
+  // Static files or an app without a Dockerfile: what to build and run is landfall's to decide, and editable here.
+  const runtime = det.runtime ?? "Node.js";
   const modal = det.kind === "static" || !!det.start;
   dialog({
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
@@ -1168,9 +1169,9 @@ function deployDialog(det, o = {}) {
       ...(modal
         ? [
             ...(det.node || det.start
-              ? [{ name: "mode", label: "Deploy as", type: "select", value: det.start ? "node" : "static", options: [{ value: "node", label: "Node.js app (runs on the server)" }, { value: "static", label: "Static files" }] }]
+              ? [{ name: "mode", label: "Deploy as", type: "select", value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
               : []),
-            { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", hint: "Static files: runs here, before the upload. A Node.js app: runs on the server, in its image." },
+            { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", hint: `Static files: runs here, before the upload. ${runtime === "Node.js" ? "A Node.js app" : `The ${runtime} app`}: runs on the server, in its image.` },
             {
               legend: "Static files", id: "static",
               fields: [
@@ -1182,13 +1183,13 @@ function deployDialog(det, o = {}) {
               ],
             },
             {
-              legend: "Node.js app", id: "node",
+              legend: `${runtime} app`, id: "node",
               fields: [
                 {
                   name: "start", label: "Start command", value: det.start ?? "", placeholder: "node server.js",
                   hint: `${det.start && det.tool ? `Detected: ${det.tool}. ` : ""}landfall writes the Dockerfile (install, build, start); lf init puts it into the project to change it.`,
                 },
-                { name: "port", label: "Port it listens on", value: String(det.port ?? 3000), hint: "The app gets it as PORT, with HOST=0.0.0.0." },
+                { name: "port", label: "Port it listens on", value: String(det.port ?? 3000), hint: runtime === "Node.js" ? "The app gets it as PORT, with HOST=0.0.0.0." : "The app gets it as PORT." },
               ],
             },
           ]

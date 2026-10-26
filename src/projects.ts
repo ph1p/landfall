@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, loadProject, saveProject, type ProjectConfig } from "./config";
 import { COMPOSE_FILES, type SiteKind } from "./compose";
+import { detectRuntime, packageManager, type Runtime } from "./runtimes";
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
 
@@ -41,24 +42,37 @@ const reader = (cwd: string) => {
 
 const configs = (base: string) => ["ts", "mts", "js", "mjs", "cjs"].map((x) => `${base}.${x}`);
 
-/** The package manager its lockfile names, and how it runs a package.json script. */
-function packageManager(has: (f: string) => boolean) {
-  const name = has("bun.lock") || has("bun.lockb") ? "bun" : has("pnpm-lock.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : "npm";
-  const run = (script: string) => (name === "bun" ? `bun run ${script}` : name === "npm" ? (script === "start" ? "npm start" : `npm run ${script}`) : `${name} ${script}`);
-  return { name, run };
-}
+/** Packages that make a package.json a server of its own: HTTP, WebSocket and realtime servers. */
+const SERVERS = [
+  "express", "fastify", "koa", "hono", "@hono/node-server", "@nestjs/core", "h3", "@adonisjs/core", "polka", "restify", "@hapi/hapi", "elysia",
+  "@apollo/server", "graphql-yoga", "@feathersjs/feathers", "ws", "socket.io", "uWebSockets.js", "@hocuspocus/server", "y-websocket", "colyseus", "peer",
+];
 
-/** Packages that make a package.json with a start script a server of its own. */
-const SERVERS = ["express", "fastify", "koa", "hono", "@hono/node-server", "@nestjs/core", "h3", "@adonisjs/core"];
+/** Commands that serve files while developing, or a desktop or mobile app: a start script with one is no server. */
+const DEV_TOOLS = new Set([
+  "vite", "react-scripts", "parcel", "webpack", "webpack-dev-server", "vue-cli-service", "ng", "serve", "http-server", "live-server", "lite-server",
+  "browser-sync", "gatsby", "docusaurus", "eleventy", "astro", "hugo", "expo", "react-native", "electron", "electron-forge", "storybook",
+  "start-storybook", "tauri", "snowpack", "nuxt", "ember", "next", "hexo", "vuepress", "vitepress", "quasar", "ionic", "slidev",
+]);
+
+/** Whether a start script runs a server, not a dev server, a static file server or `npm run dev`. */
+function startsServer(script: string) {
+  return script.split(/&&|\|\||;/).every((part) => {
+    const words = part.trim().split(/\s+/).filter((w) => !/^\w+=/.test(w) && !["npx", "cross-env", "env", "bunx", "pnpx", "dotenv", "--"].includes(w));
+    return !DEV_TOOLS.has(words[0] ?? "") && !/\bdev\b/.test(part);
+  });
+}
 
 /** The generator's output from package.json and its config, the build script with the project's package manager. */
 export function detectBuild(cwd: string): Build {
   const { has, read, first, pkg } = reader(cwd);
   const scripts = pkg.scripts ?? {};
-  if (scripts.build || scripts.start) {
+  const dep = (n: string) => n in { ...pkg.dependencies, ...pkg.devDependencies };
+  // A server without a start script: its main file, or one of the usual names.
+  const entry = !scripts.start && SERVERS.some(dep) ? [pkg.main, "server.js", "server.mjs", "index.js", "index.mjs", "app.js", "main.js"].find((f) => f && has(f)) : undefined;
+  if (scripts.build || scripts.start || entry) {
     const pm = packageManager(has);
     const build: string | undefined = scripts.build ? pm.run("build") : undefined;
-    const dep = (n: string) => n in { ...pkg.dependencies, ...pkg.devDependencies };
     const bin = (cmd: string) => `./node_modules/.bin/${cmd}`;
     const out = (tool: string, dir: string) => ({ tool, dir, build });
     const server = (tool: string, start: string) => ({ tool, build, start });
@@ -100,7 +114,8 @@ export function detectBuild(cwd: string): Build {
       } catch {}
       return out("Angular", dir);
     }
-    if (scripts.start && SERVERS.some(dep)) return server("Node.js", scripts["start:prod"] ? pm.run("start:prod") : pm.run("start"));
+    if (entry) return server("Node.js", `node ${entry}`);
+    if (scripts.start && (SERVERS.some(dep) || startsServer(scripts.start))) return server("Node.js", scripts["start:prod"] ? pm.run("start:prod") : pm.run("start"));
     if (scripts.build) {
       if (dep("gatsby")) return out("Gatsby", "public");
       if (dep("@docusaurus/core")) return out("Docusaurus", "build");
@@ -119,15 +134,41 @@ export function detectBuild(cwd: string): Build {
   return {};
 }
 
-/** A Node.js app landfall writes the Dockerfile for: one with `start` (saved or given) or a server-rendering framework. */
-export function nodeApp(root: string, start?: string): (Build & { start: string }) | undefined {
-  const b = detectBuild(root);
-  start ||= b.start;
-  return start ? { ...b, tool: b.start ? b.tool : undefined, start } : undefined;
-}
-
 /** Never in a Node.js app's image: local installs and build output (made again inside it). */
 export const APP_IGNORE = ["node_modules", ".git", ".next", ".nuxt", ".output", ".svelte-kit", ".vinxi", ".react-router", ".tanstack", ".astro"];
+
+/** An app landfall writes the Dockerfile for: what runs it, how it builds and starts, its default port. */
+export interface App {
+  /** The language: Node.js, Python, Go, Java, … */
+  runtime: string;
+  tool?: string;
+  build?: string;
+  start: string;
+  port: number;
+  ignore: string[];
+  note?: string;
+  secret?: string;
+  /** Another language than JavaScript: writes its Dockerfile. */
+  other?: Runtime;
+}
+
+/**
+ * The app in a folder: another language by its build files (Python, Go, Java, Ruby, PHP, Rust, .NET, Elixir, Deno),
+ * else a Node.js server or server-rendering framework. `start` (saved or given) makes any folder one, a Node.js app
+ * when nothing else is found.
+ */
+export function detectApp(root: string, start?: string): App | undefined {
+  const r = detectRuntime(root);
+  if (r) return { runtime: r.name, tool: r.tool, build: r.build, start: start || r.start, port: r.port, ignore: r.ignore, note: r.note, secret: r.secret, other: r };
+  const b = detectBuild(root);
+  start ||= b.start;
+  return start ? { runtime: "Node.js", tool: b.start ? b.tool : undefined, build: b.build, start, port: 3000, ignore: APP_IGNORE } : undefined;
+}
+
+/** The Dockerfile that builds and starts an app, with its build and start commands as given. */
+export function appDockerfile(cwd: string, app: App, o: { build?: string; start: string; port: number }): string {
+  return app.other ? app.other.dockerfile(o) : nodeDockerfile(cwd, { tool: app.tool, ...o });
+}
 
 /**
  * A Dockerfile that installs, builds and starts a Node.js app, for a folder without one.
@@ -151,7 +192,7 @@ export function nodeDockerfile(cwd: string, o: { tool?: string; build?: string; 
     `# Generated by landfall${o.tool ? ` for ${o.tool}` : ""}: \`lf init\` writes it into the project, to change it there.`,
     `FROM node:${major}-slim`,
     "WORKDIR /app",
-    ...(pm.name === "bun" ? ["RUN npm install -g bun"] : pm.name !== "npm" ? [`RUN corepack enable || npm install -g ${pm.name}`] : []),
+    ...(pm.name === "bun" || /^bunx?\b/.test(o.start) ? ["RUN npm install -g bun"] : pm.name !== "npm" ? [`RUN corepack enable || npm install -g ${pm.name}`] : []),
     ...(install && !whole ? [`COPY ${manifests.join(" ")} ./`, `RUN ${install}`, "COPY . ."] : ["COPY . .", ...(install ? [`RUN ${install}`] : [])]),
     ...(o.build ? [`RUN ${o.build}`] : []),
     // Set after the build: dev dependencies (the build tools) install, and the frameworks read HOST/PORT.
@@ -193,8 +234,12 @@ export interface Detected {
   build?: string;
   /** The site generator that writes `dir`, e.g. Vite; or the framework that runs the app. */
   tool?: string;
-  /** A Node.js app without a Dockerfile: the command that starts it (landfall writes the Dockerfile). */
+  /** An app without a Dockerfile: the command that starts it (landfall writes the Dockerfile). */
   start?: string;
+  /** Such an app's language: Node.js, Python, Go, Java, … */
+  runtime?: string;
+  /** What such an app needs that landfall cannot know, e.g. a secret in the site's .env. */
+  note?: string;
   /** It has a package.json: it could run as a Node.js app. */
   node?: boolean;
   /** Its .landfall.json, when it was deployed before. */
@@ -223,8 +268,11 @@ export function detectProject(path: string): Detected {
   const found = project?.dir ?? detectStaticDir(path, b);
   const dir = found !== "." || has("index.html") ? found : undefined;
   const node = has("package.json");
-  const app = project?.static ? undefined : nodeApp(path, project?.start);
-  if (app) return { path, name, kind: "dockerfile", ...app, build: project?.build ?? app.build, port: project?.port ?? 3000, dir, node, project };
+  const app = project?.static ? undefined : detectApp(path, project?.start);
+  if (app) {
+    const { runtime, tool, start, note } = app;
+    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, project };
+  }
   return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool: !project?.dir || project.dir === b.dir ? b.tool : undefined, project };
 }
 

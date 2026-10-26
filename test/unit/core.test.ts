@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
-import { detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
+import { appDockerfile, detectApp, detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
@@ -790,6 +790,71 @@ describe("folders and access", () => {
     fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { postinstall: "nuxt prepare" } }));
     const g = nodeDockerfile(d, { start: "node .output/server/index.mjs", port: 3000 });
     expect(g).toContain("FROM node:24-slim\nWORKDIR /app\nCOPY . .\nRUN npm install\nENV");
+  });
+
+  test("websocket and plain Node.js servers", () => {
+    const d = tmp();
+    const pkg = (o: object) => fs.writeFileSync(join(d, "package.json"), JSON.stringify(o));
+    // a server dependency and an entry file, no scripts at all
+    pkg({ dependencies: { ws: "8" } });
+    fs.writeFileSync(join(d, "server.js"), "");
+    expect(detectBuild(d)).toEqual({ tool: "Node.js", build: undefined, start: "node server.js" });
+    fs.rmSync(join(d, "server.js"));
+    fs.mkdirSync(join(d, "src"));
+    fs.writeFileSync(join(d, "src/main.js"), "");
+    pkg({ main: "src/main.js", dependencies: { "socket.io": "4" } });
+    expect(detectBuild(d).start).toBe("node src/main.js");
+    // any start script that is not a dev server runs as an app
+    pkg({ scripts: { start: "NODE_ENV=production node dist/index.js" } });
+    expect(detectBuild(d).start).toBe("npm start");
+    for (const dev of ["vite", "npx serve -s build", "react-scripts start", "npm run dev"]) {
+      pkg({ scripts: { start: dev } });
+      expect(detectBuild(d).start).toBeUndefined();
+    }
+  });
+
+  test("other languages", () => {
+    const app = (fs_: Record<string, string>) => {
+      const d = tmp();
+      for (const [f, body] of Object.entries(fs_)) {
+        fs.mkdirSync(join(d, f, ".."), { recursive: true });
+        fs.writeFileSync(join(d, f), body);
+      }
+      const a = detectApp(d)!;
+      return { ...a, file: a && appDockerfile(d, a, { build: a.build, start: a.start, port: a.port }) };
+    };
+    const flask = app({ "requirements.txt": "flask\n", "app.py": "from flask import Flask\napp = Flask(__name__)\n" });
+    expect(flask).toMatchObject({ runtime: "Python", tool: "Flask", port: 8000, start: "gunicorn app:app --bind 0.0.0.0:$PORT" });
+    expect(flask.file).toContain("FROM python:3.13-slim");
+    expect(app({ "requirements.txt": "fastapi\n", "main.py": "app = FastAPI()\n" }).start).toMatch(/^uvicorn main:app /);
+    expect(app({ "requirements.txt": "django\n", "manage.py": "", "mysite/wsgi.py": "" }).start).toMatch(/^gunicorn mysite\.wsgi/);
+
+    const go = app({ "go.mod": "module x\n\ngo 1.23.4\n", "main.go": "package main\nfunc main() {}\n" });
+    expect(go).toMatchObject({ runtime: "Go", port: 8080, start: "app" });
+    expect(go.file).toContain("FROM golang:1.23");
+    // Hugo sites carry a go.mod too
+    expect(app({ "go.mod": "module x\n", "hugo.toml": "" }).runtime).not.toBe("Go");
+
+    const rust = app({ "Cargo.toml": '[package]\nname = "srv"\n', "src/main.rs": "fn main() {}" });
+    expect(rust).toMatchObject({ runtime: "Rust", start: "srv" });
+    expect(rust.file).toContain("cp target/release/srv /out/");
+
+    const spring = app({ "pom.xml": "<parent><artifactId>spring-boot-starter-parent</artifactId></parent><properties><java.version>17</java.version></properties>" });
+    expect(spring).toMatchObject({ runtime: "Java", tool: "Spring Boot (Maven)", start: "java -jar app.jar", build: "mvn -B -DskipTests package" });
+    expect(spring.file).toContain("FROM maven:3-eclipse-temurin-17 AS build");
+    expect(spring.file).toContain("FROM eclipse-temurin:17-jre");
+    const ktor = app({ "build.gradle.kts": 'plugins { kotlin("jvm") }\ndependencies { implementation("io.ktor:ktor-server-netty") }\nkotlin { jvmToolchain(22) }', gradlew: "" });
+    expect(ktor).toMatchObject({ runtime: "Kotlin", build: "./gradlew --no-daemon buildFatJar" });
+    expect(ktor.file).toContain("FROM eclipse-temurin:25-jdk AS build");
+    expect(app({ "build.gradle": "apply plugin: 'com.android.application'" }).runtime).toBeUndefined();
+
+    expect(app({ "Api.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"><TargetFramework>net9.0</TargetFramework></Project>' })).toMatchObject({ runtime: ".NET", start: "dotnet Api.dll" });
+    expect(app({ Gemfile: "gem 'rails'\n", "config/application.rb": "" })).toMatchObject({ runtime: "Ruby", secret: "RAILS_MASTER_KEY" });
+    expect(app({ "composer.json": '{"require":{"laravel/framework":"11"}}', "public/index.php": "", artisan: "" })).toMatchObject({ runtime: "PHP", port: 80, secret: "APP_KEY" });
+    expect(app({ "mix.exs": ":phoenix" }).runtime).toBe("Elixir");
+    expect(app({ "deno.json": '{"tasks":{"start":"deno run -A main.ts"}}' })).toMatchObject({ runtime: "Deno", start: "deno task start" });
+    // a Procfile names the start command
+    expect(app({ "requirements.txt": "", Procfile: "web: python -m srv --port $PORT\n" }).start).toBe("python -m srv --port $PORT");
   });
 
   test("upload paths stay inside", () => {
