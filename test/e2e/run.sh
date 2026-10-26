@@ -378,6 +378,13 @@ lf harden fail2ban -s box >"$WORK/f2b.log" 2>&1 || { cat "$WORK/f2b.log"; die "h
   || die "harden fail2ban runs it"; pass "harden fail2ban installs and starts it"
 lf undo -s box -y >/dev/null 2>&1 || die "undo fail2ban"
 { ! docker exec "$NAME" fail2ban-client ping >/dev/null 2>&1; } || die "undo stops fail2ban"; pass "undo stops fail2ban"
+{ lf security -s box --json | has '"id": "auto-updates"'; } || die "security finds no apk updates"
+lf harden updates -s box >"$WORK/upd.log" 2>&1 || { cat "$WORK/upd.log"; die "harden updates on alpine"; }
+{ lf security -s box --json | has '"autoUpdates": true' && docker exec "$NAME" pidof crond >/dev/null; } || die "harden updates: cron job and crond"
+pass "harden updates on alpine: daily apk upgrade, crond running"
+lf undo -s box -y >/dev/null 2>&1 || die "undo apk updates"
+{ lf security -s box --json | has '"autoUpdates": false' && ! docker exec "$NAME" test -e /etc/periodic/daily/landfall-upgrade; } \
+  || die "undo apk updates"; pass "undo removes the apk upgrade job"
 
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
