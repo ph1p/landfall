@@ -7,8 +7,7 @@ function traefikView(n) {
   const wait = pending(st, "reading the settings…");
   if (wait) return wait;
   const x = st.data;
-  const reload = { server: n, after: ifOk(() => (load(n, "traefik", true), render())) };
-  const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  const reload = { server: n, after: ifOk(() => load(n, "traefik", true)) };
   const P = S.state.paths;
   const dashboard = () =>
     dialog({
@@ -78,7 +77,7 @@ function traefikView(n) {
   return `
     <div class="card">
       <h2>Dashboard <span class="actions">${foreign ? "" : btn(dash.hosts.length ? "Domain & login…" : "Put on a domain…", dashboard, "sm")}</span></h2>
-      <div class="body">${rows([
+      <div class="body">${kv([
         ["domain", dash.hosts.length ? `${dash.hosts.map(link).join(", ")} <span class="dim">(with its login)</span>` : `<span class="dim">none${foreign ? "" : ": only through the tunnel"}</span>`],
         ["tunnel", dash.tunnel
           ? `${tunnelBtn(n, dashArgv, "Open via tunnel")} <span class="dim mono">lf traefik dashboard</span>`
@@ -88,7 +87,7 @@ function traefikView(n) {
     </div>
     <div class="card">
       <h2>Traefik <span class="actions">${btn("Status", () => run(["traefik", "status", ...sv(n)]), "sm", "lf traefik status")}${foreign ? "" : btn("Settings…", traefikDialog, "sm")}</span></h2>
-      <div class="body">${foreign ? `<div class="note">Sites go through <b class="mono">${esc(foreign)}</b>, a Traefik landfall did not install and never changes: it is configured in its own files.</div>` : ""}${rows([
+      <div class="body">${foreign ? `<div class="note">Sites go through <b class="mono">${esc(foreign)}</b>, a Traefik landfall did not install and never changes: it is configured in its own files.</div>` : ""}${kv([
         ["image", esc(x.traefik.summary)],
         ["e-mail", esc(x.traefik.email ?? "none")],
         ["HTTP/3", x.traefik.http3 ? `on <span class="dim">(443/udp)</span>` : `<span class="dim">off</span>`],
@@ -103,8 +102,7 @@ function settingsView(n) {
   const wait = pending(st, "reading the settings…");
   if (wait) return wait;
   const x = st.data;
-  const reload = { server: n, after: ifOk(() => (load(n, "settings", true), render())) };
-  const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  const reload = { server: n, after: ifOk(() => load(n, "settings", true)) };
   const dnsRow = (d) => `${esc(d.domain)} ${d.ok ? `<span class="badge ok">dns ok</span>` : d.ips.length ? `<span class="badge warn">dns → ${esc(d.ips.join(", "))}</span>` : `<span class="badge bad">no dns</span>`}`;
   const addDomain = () =>
     promptDlg(`Add a main domain to ${n}`, `${x.domains.length ? "The first main domain stays the primary." : "The first main domain is the primary: new sites get <site>.<domain>, and a bare name like blog means blog.<domain>."}\nPoint <domain> and *.<domain> (A records) at the server once.`, { label: "Domain", placeholder: "example.com", type: "text", value: "" }, (d) => {
@@ -123,7 +121,7 @@ function settingsView(n) {
       text: cur ? `${cur} serves ${d} now; it moves to the site you pick, which keeps its other domains.` : `The site keeps its other domains. ${d} needs an A record pointing at the server.`,
       fields: [{ name: "site", label: "Site", type: "select", options: pick.map((s) => ({ value: s.meta.name, label: `${s.meta.name} (${s.domains.join(", ")})` })), value: pick[0].meta.name }],
       ok: "Serve it",
-      onOk: (v) => run(["domains", v.site, ...sv(n), "--add", d, "-y"], { server: n, after: ifOk(() => (load(n, "settings", true), load(n, "sites", true), render())) }),
+      onOk: (v) => run(["domains", v.site, ...sv(n), "--add", d, "-y"], { server: n, after: ifOk(() => (load(n, "settings", true), load(n, "sites", true))) }),
     });
   };
   const P = S.state.paths;
@@ -155,7 +153,7 @@ function settingsView(n) {
     </div>
     <div class="card">
       <h2>On the server <span class="dim mono" style="font-weight:400">${esc(P.root)}</span></h2>
-      <div class="body">${rows([
+      <div class="body">${kv([
         ["sites", `<span class="mono">${esc(P.sites)}/&lt;site&gt;/</span> <span class="dim">one folder per site: releases, compose file, .env</span>`],
         ["traefik", `<span class="mono">${esc(P.traefik)}/</span>`],
         ["history", `<span class="mono">${esc(P.journal)}</span> <span class="dim">every change with its undo</span>`],
@@ -163,11 +161,11 @@ function settingsView(n) {
     </div>
     <div class="card">
       <h2>landfall config <span class="dim mono" style="font-weight:400">${esc(x.configFile)}</span></h2>
-      <div class="body">${saved.length ? rows(saved) : `<p class="dim">Not registered — an ssh alias landfall reads from ~/.ssh/config.</p>`}</div>
+      <div class="body">${saved.length ? kv(saved) : `<p class="dim">Not registered — an ssh alias landfall reads from ~/.ssh/config.</p>`}</div>
     </div>
     <div class="card">
       <h2>SSH <span class="dim mono" style="font-weight:400">ssh -G ${esc(x.saved?.host ?? n)}</span></h2>
-      <div class="body">${rows([
+      <div class="body">${kv([
         ["login", `<span class="mono">${esc(`${x.ssh.user}@${x.ssh.hostname}:${x.ssh.port}`)}</span>`],
         ...x.ssh.keys.map((k) => ["key", `<span class="mono">${esc(k.file)}</span>${k.exists ? "" : ` <span class="badge bad">missing</span>`}`]),
       ])}

@@ -212,14 +212,20 @@ function fetchInto(store, n, url, then) {
   );
 }
 /** A spinner while st has nothing to show yet, or its error; "" once there is data. what is HTML. */
-const pending = (st, what) =>
-  !st || (st.loading && !st.data) ? `<div class="loading"><span class="spin"></span> ${what}</div>` : st.error ? `<div class="note bad">${esc(st.error)}</div>` : "";
+const pending = (st, what, retry) =>
+  !st || (st.loading && !st.data)
+    ? `<div class="loading"><span class="spin"></span> ${what}</div>`
+    : st.error
+      ? `<div class="note bad">${esc(st.error)}</div>${retry ? `<div class="actions" style="margin:0">${btn("Retry", retry)}</div>` : ""}`
+      : "";
+/** Label/value rows; values are HTML. */
+const kv = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
 
+/** Fetch what a tab needs (again when forced), showing it as loading right away. */
 function load(name, tab, force = false) {
-  for (const t of needs(tab)) {
-    if (S[STORE[t]][name] && !force) continue;
-    fetchInto(STORE[t], name, `${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`, t === "stats" ? (data) => logStats(name, data) : undefined);
-  }
+  const todo = needs(tab).filter((t) => force || !S[STORE[t]][name]);
+  for (const t of todo) fetchInto(STORE[t], name, `${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`, t === "stats" ? (data) => logStats(name, data) : undefined);
+  if (todo.length) render();
 }
 function invalidate(name) {
   delete S.dns[name];

@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { enableBlocks, parseRule, probeServer, reachability, ruleFor, type Probe, type Reach, type Rule } from "./inventory";
 import { effectiveSsh } from "./sshconfig";
-import { adminLogin } from "./privilege";
+import { rootLogin } from "./privilege";
 import { confirmRisky, fail } from "./ui";
 
 export interface FirewallState {
@@ -23,7 +23,8 @@ export async function firewallState(server: Server): Promise<FirewallState> {
   let login = server;
   let probe = await probeServer(login);
   if (probe.values.sudo !== "1") {
-    login = await adminLogin(server, "the firewall");
+    // The probe already showed no sudo: straight to the logins that may have it.
+    login = (await rootLogin(server)) ?? fail("the firewall needs root or passwordless sudo, and root's key login does not work");
     probe = await probeServer(login);
   }
   const v = probe.values;

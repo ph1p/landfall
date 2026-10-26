@@ -1,6 +1,6 @@
-import { defineCommand, serverOpt } from "../cmd";
+import { defineCommand, paintStatus, serverOpt } from "../cmd";
 import { checkInt, projectServer } from "../config";
-import { isUp, paintStatus } from "../compose";
+import { isUp } from "../compose";
 import { bytes, duration } from "../facts";
 import { diskUsage, stats, type DiskUsage, type Stats } from "../stats";
 import { ROOT } from "../templates";

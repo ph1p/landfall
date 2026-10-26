@@ -2,11 +2,11 @@ import { defineCommand, logOpts, serverOpt } from "../cmd";
 import { checkEmail, checkInt, resolveServer } from "../config";
 import { assessTraefik, foreignProxy, probeServer } from "../inventory";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../remote";
+import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikState, useProxy } from "../traefik";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../tunnel";
 import { runScript, shq, sshExec } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../templates";
 import { c, confirm, confirmRemoval, fail, info, ok } from "../ui";
-import { DEFAULT_USER, traefikSettings, installTraefik, useProxy, traefikState, removeTraefik } from "../traefik";
 
 export const traefikSetup = defineCommand({
   name: "traefik setup",

@@ -24,8 +24,8 @@ const engineLine = (have, latest, old, how) =>
 
 function updatesView(n) {
   const st = S.updates[n];
-  const wait = pending(st, st?.refreshing ? "refreshing package lists…" : "checking packages and images…");
-  if (wait) return st?.error ? `${wait}<div class="actions" style="margin:0">${btn("Retry", () => (load(n, "updates", true), render()))}</div>` : wait;
+  const wait = pending(st, st?.refreshing ? "refreshing package lists…" : "checking packages and images…", () => load(n, "updates", true));
+  if (wait) return wait;
   const { packages: p, images, engine: e } = st.data;
   const s = sv(n);
   const sec = p.updates.filter((u) => u.security);

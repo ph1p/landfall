@@ -253,7 +253,6 @@ export const serverInfo = defineCommand({
   },
 });
 
-
 export const serverConfig = defineCommand({
   name: "server config",
   args: "[name]",
@@ -284,7 +283,6 @@ and the Host block in ~/.ssh/config. Nothing connects to the server.`,
     } else console.log(`\n${c.bold("ssh config")} ${c.dim("no Host block; ssh uses its defaults")}`);
   },
 });
-
 
 export const serverDomain = defineCommand({
   name: "server domain",

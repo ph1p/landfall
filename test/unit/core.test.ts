@@ -27,7 +27,7 @@ import { detectProject } from "../../src/projects";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
-import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, type Release, type SiteMeta } from "../../src/compose";
+import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -1163,4 +1163,15 @@ describe("system", () => {
     expect(TIMEZONE.test("Europe/Berlin") && TIMEZONE.test("Etc/GMT+1") && !TIMEZONE.test("../etc/passwd") && !TIMEZONE.test("a b")).toBe(true);
     expect(UNIT.test("docker.service") && UNIT.test("getty@tty1") && !UNIT.test("x; rm -rf /")).toBe(true);
   });
+});
+
+test("statusKind: unhealthy, starting and restarting containers are warnings", () => {
+  expect(statusKind("Up 3 hours")).toBe("up");
+  expect(statusKind("Up 3 hours (healthy)")).toBe("up");
+  expect(statusKind("Up 3 hours (unhealthy)")).toBe("warn");
+  expect(statusKind("Up 5 seconds (health: starting)")).toBe("warn");
+  expect(statusKind("Restarting (1) 5 seconds ago")).toBe("warn");
+  expect(statusKind("Exited (0) 2 minutes ago")).toBe("done");
+  expect(statusKind("Exited (1) 2 minutes ago")).toBe("down");
+  expect(statusKind("not running")).toBe("down");
 });

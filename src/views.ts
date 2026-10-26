@@ -2,9 +2,9 @@
  * What `--json` prints and the web UI's read API returns: one function per view, so the
  * page never knows more about a server than the CLI can tell a script.
  */
-import { firewallState } from "./firewall";
 import fs from "node:fs";
 import { join } from "node:path";
+import { firewallState } from "./firewall";
 import { CONFIG_PATH, configDir, DEFAULT_KEEP, expandHome, isTunnelOnly, loadConfig, tildify, type Server } from "./config";
 import { describeTraefik, traefikSettings } from "./traefik";
 import { checkDns, domainDns, facts, suggestDomains, pickIp, serverCaps, serverIps, sslipDomain } from "./facts";

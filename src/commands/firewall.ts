@@ -1,12 +1,12 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../config";
 import { noUfw } from "../facts";
+import { firewallState, guardSsh, type FirewallState } from "../firewall";
 import { parseRule, type Rule } from "../inventory";
 import { runScript, shq } from "../ssh";
 import { PRELUDE } from "../templates";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn } from "../ui";
 import { firewallView } from "../views";
-import { firewallState, guardSsh, type FirewallState } from "../firewall";
 
 const PORT = /^\d+(:\d+)?(,\d+(:\d+)?)*(\/(tcp|udp))?$/;
 const ADDR = /^[0-9a-fA-F.:]+(\/\d+)?$/;
@@ -54,7 +54,6 @@ function ufwUsable(fw: FirewallState) {
   if (why) fail(why);
 }
 const NEEDS_UFW = `command -v ufw >/dev/null || { echo "ufw is not installed (lf firewall enable installs it)" >&2; exit 1; }`;
-
 
 function pick(fw: FirewallState, which: string): { rule: Rule; n: number } {
   const n = /^\d+$/.test(which) ? Number(which) : fw.rules.findIndex((r) => r.spec === which) + 1;
