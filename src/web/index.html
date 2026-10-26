@@ -932,6 +932,7 @@ function openDlg(cls = "") {
   const dlg = $("#dlg");
   if (dlg.open) dlg.close();
   dlg.className = cls;
+  dlg.site = undefined;
   return dlg;
 }
 const confirmDlg = (o) => dialog({ ...o, onOk: () => o.onOk() });
@@ -1124,28 +1125,37 @@ function describe(d) {
   return what + before;
 }
 
-/** Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json. */
+/**
+ * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
+ * site: an existing site ({ server, name, domains, old }) this folder redeploys.
+ */
 function deployDialog(det, o = {}) {
   const p = det.project;
+  const re = o.site;
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
-  const target = p?.server ?? defaultServer();
-  const name = o.name ?? det.name;
+  const target = re?.server ?? p?.server ?? defaultServer();
+  const name = re?.name ?? o.name ?? det.name;
   const main = mainDomain(target);
+  // A redeploy keeps the site's domains unless .landfall.json or the field names others.
+  const keeps = re && !p?.domains ? re.domains : null;
   dialog({
-    title: `Deploy ${name}`,
-    text: o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`,
+    title: re ? `Redeploy ${name}` : `Deploy ${name}`,
+    text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
+      + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back… returns to the current one."}` : ""),
     extra: `<div class="detected">${describe(det)}</div>`,
     fields: [
-      { name: "name", label: "Site name", value: name },
+      { name: "name", label: "Site name", value: name, hint: re ? "Another name deploys a new site instead." : "" },
       { name: "server", label: "Server", type: "select", options: servers, value: target },
       {
         name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "),
-        placeholder: autoDomain(target, name) || "example.com www.example.com",
-        hint: main
+        placeholder: keeps ? keeps.join(" ") || "none" : autoDomain(target, name) || "example.com www.example.com",
+        hint: keeps
+          ? `Empty: keeps ${keeps.length ? keeps.join(", ") : "no domain (tunnel only)"}.`
+          : main
           ? `Empty: <name>.${main}. A bare name like blog means blog.${main}, @ means ${main} itself (another site serving it hands it over). Other domains need an A record pointing at the server.`
           : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
       },
-      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
+      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
       ...(det.kind === "static"
         ? [
             { name: "build", label: "Build command (runs here, before upload)", value: det.build ?? "", placeholder: "none" },
@@ -1164,14 +1174,14 @@ function deployDialog(det, o = {}) {
         ],
       },
     ],
-    ok: "Deploy",
+    ok: re ? "Redeploy" : "Deploy",
     onOk: (v) => {
       const n = v.name.trim();
       if (!n) return invalid("name", "Give the site a name");
       if (!v.server) return invalid("server", "Pick a server");
       const domains = v.domains.split(/[\s,]+/).filter(Boolean);
       // The server's default would leave it unrouted though the box is unticked.
-      if (!v.noDomain && !domains.length && !p?.domains?.length && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
+      if (!v.noDomain && !domains.length && !p?.domains?.length && !(keeps && n === re.name && v.server === re.server) && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d]))];
       if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
       if (v.spa && !p?.spa) argv.push("--spa");
@@ -1216,8 +1226,11 @@ function deployHere() {
   browse(S.state.cwd).then((b) => deployDialog(b.detected), (e) => toast(e.message));
 }
 
-/** Pick a folder on this machine: recent projects, a folder browser, or drop/choose files to upload. */
-async function folderDialog(path) {
+/**
+ * Pick a folder on this machine: recent projects, a folder browser, or drop/choose files to upload.
+ * site: an existing site the folder redeploys (one this machine does not remember a folder for).
+ */
+async function folderDialog(path, site) {
   let b;
   try {
     b = await browse(path);
@@ -1225,12 +1238,15 @@ async function folderDialog(path) {
     return toast(e.message);
   }
   const dlg = openDlg("wide");
-  const recent = (S.state.projects ?? []).slice(0, 8);
+  // Files dropped while it is open redeploy the site too.
+  dlg.site = site;
+  const recent = site ? [] : (S.state.projects ?? []).slice(0, 8);
   const parts = b.path.split("/").filter(Boolean);
   const crumbs = `<button type="button" class="ghost sm" data-path="/">/</button>` + parts.map((x, i) =>
     `<button type="button" class="ghost sm" data-path="${esc("/" + parts.slice(0, i + 1).join("/"))}">${esc(x)}</button>`).join(`<span class="faint">/</span>`);
   dlg.innerHTML = `<form method="dialog">
-    <h2>Deploy a folder</h2>
+    <h2>${site ? `Redeploy ${esc(site.name)}` : "Deploy a folder"}</h2>
+    ${site ? `<div class="text">This machine does not know which folder ${esc(site.name)} on ${esc(site.server)} was deployed from. Pick it: this machine remembers it, so the next redeploy is one click. Dropped files are not remembered.</div>` : ""}
     ${recent.length ? `<fieldset><legend>Recent</legend><div class="list">${recent
       .map((r, i) => `<button type="button" class="row" data-recent="${i}" title="Deploy again"><b>${esc(r.name)}</b><span class="dim">→ ${esc(r.server)}${r.domains[0] ? ` · ${esc(r.domains[0])}` : ""}</span><span class="faint mono">${esc(tilde(r.path))}</span></button>`)
       .join("")}</div></fieldset>` : ""}
@@ -1244,24 +1260,24 @@ async function folderDialog(path) {
       <label>choose a .zip<input type="file" id="pick-zip" accept=".zip,.tar,.tgz,.gz" hidden></label></div>
     <div class="btns">
       <button type="button" class="ghost" id="dlg-cancel">Cancel</button>
-      <button type="submit" class="primary">Deploy this folder…</button>
+      <button type="submit" class="primary">${site ? "Redeploy from this folder…" : "Deploy this folder…"}</button>
     </div>
   </form>`;
   $("#dlg-cancel", dlg).onclick = () => dlg.close();
-  $("form", dlg).onsubmit = (e) => (e.preventDefault(), deployDialog(b.detected));
+  $("form", dlg).onsubmit = (e) => (e.preventDefault(), deployDialog(b.detected, { site }));
   $("form", dlg).onclick = (e) => {
     const el = e.target.closest("[data-path],[data-recent]");
     if (!el) return;
-    if (el.dataset.path) return void folderDialog(el.dataset.path);
+    if (el.dataset.path) return void folderDialog(el.dataset.path, site);
     browse(recent[el.dataset.recent].path).then((x) => deployDialog(x.detected), (err) => toast(err.message));
   };
   $("#pick-dir", dlg).onchange = (e) => {
     const files = [...e.target.files];
-    upload(files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]), files[0]?.webkitRelativePath.split("/")[0]);
+    upload(files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]), files[0]?.webkitRelativePath.split("/")[0], site);
   };
   $("#pick-zip", dlg).onchange = (e) => {
     const f = e.target.files[0];
-    if (f) upload([[f, f.name]], f.name);
+    if (f) upload([[f, f.name]], f.name, site);
   };
   if (!dlg.open) dlg.showModal();
 }
@@ -1285,7 +1301,7 @@ async function droppedFiles(roots) {
   return out;
 }
 
-async function upload(pairs, label = "site") {
+async function upload(pairs, label = "site", site) {
   if (!pairs.length) return toast("Nothing to upload");
   const fd = new FormData();
   for (const [f, path] of pairs) fd.append("file", f), fd.append("path", path);
@@ -1295,7 +1311,7 @@ async function upload(pairs, label = "site") {
     const data = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
     if (!r.ok) throw new Error(data.error);
     toast(`Uploaded ${plural(data.files, "file")}`);
-    deployDialog(data.detected, { upload: true, files: data.files, name: slugify(label) });
+    deployDialog(data.detected, { upload: true, files: data.files, name: slugify(label), site });
   } catch (e) {
     toast(`Upload failed: ${e.message}`);
   }
@@ -1318,7 +1334,9 @@ window.addEventListener("drop", (e) => {
   const roots = [...e.dataTransfer.items].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
   const label = roots[0]?.name ?? e.dataTransfer.files[0]?.name;
   const files = roots.length ? droppedFiles(roots) : Promise.resolve([...e.dataTransfer.files].map((f) => [f, f.name]));
-  files.then((pairs) => upload(pairs, label), (err) => toast(err.message));
+  const dlg = $("#dlg");
+  const site = dlg.open ? dlg.site : undefined;
+  files.then((pairs) => upload(pairs, label, site), (err) => toast(err.message));
 });
 
 // ---- domains & login ---------------------------------------------------------
@@ -1774,7 +1792,8 @@ function sitesView(n, o) {
       const acts = [
         proj && !m.adopted
           ? btn("Redeploy", () => confirmDlg({ title: `Redeploy ${name}?`, text: `From ${tilde(proj.path)}${proj.kind === "static" ? " (runs its build first, if it has one)" : ""}.`, ok: "Deploy", onOk: () => run(["deploy", "-y", ...sv(n)], { server: n, cwd: proj.path, after: openAfter }) }), "sm primary", `lf deploy in ${proj.path}`)
-          : "",
+          : m.adopted || m.kind === "image" ? ""
+          : btn("Redeploy…", () => folderDialog(S.state.cwd, { server: n, name, domains: m.domains ?? [], old }), "sm", "Pick the folder it was deployed from"),
         old ? "" : btn("Logs", () => run(["logs", name, ...sv(n), "-f"]), "sm", "Follow the logs of all its services"),
         menuBtn([
           old ? null : { label: "Restart", hint: "lf restart", run: () => run(["restart", name, ...sv(n)]) },
@@ -1805,7 +1824,7 @@ function sitesView(n, o) {
             <dt>On ${esc(n)}</dt><dd>${siteFiles(m, state)}</dd>
             ${m.adopted ? "" : `<dt>Source</dt><dd>${proj
               ? `<span class="mono">${esc(tilde(proj.path))}</span> <span class="dim">· redeploy runs there</span>`
-              : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved)"}</span>`}</dd>`}
+              : `<span class="dim">not deployed from this machine${m.kind === "image" ? "" : " (or the folder moved): Redeploy… picks the folder"}</span>`}</dd>`}
             <dt>Kind</dt><dd>${esc(kind)}${main || !managed ? "" : ` <span class="dim">· domains set in compose.yaml</span>`}</dd>
             ${managed ? `<dt>Login</dt><dd>${m.auth?.length ? `${esc(m.auth.map((a) => a.split(":")[0]).join(", "))} (basic auth)` : `<span class="dim">public</span>`}</dd>` : ""}
             <dt>Created</dt><dd>${esc(ago(m.createdAt))} · updated ${esc(ago(m.updatedAt))}</dd>
