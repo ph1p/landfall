@@ -66,7 +66,7 @@ export const setup = defineCommand({
 
 Turns a fresh box into a deploy target (safe to re-run):
   1. create a dedicated SSH key (~/.ssh/landfall_<name>) and install it (asks for the password once)
-  2. install Docker, firewall (ufw: ssh/80/443), fail2ban, unattended-upgrades
+  2. install Docker, rsync, firewall (ufw: ssh/80/443), fail2ban, unattended-upgrades
   3. create a deploy user with docker access, disable SSH password login
   4. write \`Host <name>\` to ~/.ssh/config so \`ssh <name>\` just works
   5. install Traefik with automatic Let's Encrypt certificates

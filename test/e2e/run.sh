@@ -24,7 +24,12 @@ die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 has() { grep "$@" >/dev/null; }
 lf() { node "$ROOT/dist/cli.mjs" "$@"; }
 get() { curl -sk --max-time 10 --resolve "$1:$HTTPS_PORT:127.0.0.1" "https://$1:$HTTPS_PORT${2:-/}"; }
-code() { curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$1:$HTTPS_PORT:127.0.0.1" "${@:2}" "https://$1:$HTTPS_PORT/"; }
+# code <host> [/path] [curl args...]
+code() {
+  local host=$1 path=/; shift
+  [[ ${1-} == /* ]] && { path=$1; shift; }
+  curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$host:$HTTPS_PORT:127.0.0.1" "$@" "https://$host:$HTTPS_PORT$path"
+}
 # Traefik answers only hosts it has a certificate for, and Let's Encrypt cannot issue one for
 # *.test: give it a self-signed one, the way users drop their own certs into dynamic/.
 trust_test_hosts() {
@@ -82,15 +87,20 @@ lf server rm ownbox -y >/dev/null
 echo "== static"
 mkdir -p "$WORK/site/dist" && cd "$WORK/site"
 echo '<h1>v1</h1>' > dist/index.html
+echo old > dist/old.txt
 lf deploy -d site.test -y
 expect site.test / v1
 { grep -q '"site.test"' .landfall.json; } || die ".landfall.json written"; pass ".landfall.json written"
 echo '<h1>v2</h1>' > dist/index.html   # same second as v1 on purpose: release ids must not collide
-lf deploy -y
+rm dist/old.txt
+out=$(lf deploy -y 2>&1) || { echo "$out"; die "redeploy static site"; }
+has "only what changed" <<<"$out" || die "redeploy sends only changes"; pass "redeploy sends only changes"
 expect site.test / v2
-{ [ "$(curl -sk -o /dev/null -w '%{http_code}' --resolve site.test:$HTTPS_PORT:127.0.0.1 https://site.test:$HTTPS_PORT/nope)" = 404 ]; } || die "unknown path 404s"; pass "unknown path 404s"
+[ "$(code site.test /nope)" = 404 ] || die "unknown path 404s"; pass "unknown path 404s"
+[ "$(code site.test /old.txt)" = 404 ] || die "a file deleted locally is gone after redeploy"; pass "a file deleted locally is gone after redeploy"
 lf rollback -y
 expect site.test / v1
+[ "$(code site.test /old.txt)" = 200 ] || die "the older release keeps its files"; pass "the older release keeps its files"
 # A host no site serves has no certificate: the handshake fails, no 404 and no wrong certificate.
 [ "$(code nope.invalid)" = 000 ] || die "unknown host answered"; pass "unknown host fails the handshake"
 { lf ls | has site; } || die "sites list shows site"; pass "sites list shows site"
@@ -395,8 +405,14 @@ lf undo -s box -y >/dev/null 2>&1 || die "undo firewall allow"
 { lf history -s box 2>&1 | has "undone"; } || die "history marks undone"; pass "history marks the step undone"
 cd "$WORK/site"
 echo '<h1>v3</h1>' > dist/index.html
-lf deploy -y >/dev/null 2>&1
+# A server without rsync still takes the redeploy, whole, and says how to get it.
+srv mv /usr/bin/rsync /usr/bin/rsync.off
+rc=0; out=$(lf deploy -y 2>&1) || rc=$?
+srv mv /usr/bin/rsync.off /usr/bin/rsync
+[ $rc = 0 ] || { echo "$out"; die "redeploy to a server without rsync"; }
+has "has no rsync" <<<"$out" || { echo "$out"; die "redeploy names the missing rsync"; }
 expect site.test / v3
+pass "redeploy without rsync on the server uploads everything"
 lf undo -y >/dev/null 2>&1 || die "undo redeploy"
 expect site.test / v1
 pass "undo of a redeploy brings the previous release back"

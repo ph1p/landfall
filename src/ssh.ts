@@ -51,15 +51,18 @@ function controlDir() {
   return muxDir;
 }
 
-export function sshArgs(s: Server, o: SshOpts = {}): string[] {
+/** ssh's options without the destination: what rsync's -e takes. */
+function sshOptions(s: Server, o: SshOpts = {}): string[] {
   const a = [...targetArgs(s), "-o", "ServerAliveInterval=15"];
   if (o.batch || quiet) a.push("-o", "BatchMode=yes", "-o", "ConnectTimeout=10");
   // Reuse one TCP/SSH session across the many calls a deploy makes.
   if (o.noMux) a.push("-o", "ControlPath=none");
   else a.push("-o", "ControlMaster=auto", "-o", `ControlPath=${controlDir()}/%C`, "-o", "ControlPersist=60");
-  a.push(o.tty ? "-t" : "-T", dest(s));
+  a.push(o.tty ? "-t" : "-T");
   return a;
 }
+
+export const sshArgs = (s: Server, o: SshOpts = {}) => [...sshOptions(s, o), dest(s)];
 
 /** Close the multiplexed session to `s`, if one lingers (it keeps a login of that user alive). */
 export function closeMux(s: Server): Promise<void> {
@@ -189,7 +192,7 @@ export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-logi
 }
 
 /** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-const DEFAULT_EXCLUDES = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", "compose.override.*", "docker-compose.override.*"];
+const EXCLUDE_ARGS = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", "compose.override.*", "docker-compose.override.*"].flatMap((e) => ["--exclude", e]);
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
@@ -201,10 +204,36 @@ async function bsdtarFlags(): Promise<string[]> {
   return bsdtar;
 }
 
-/** Stream a local directory into a remote directory via tar over ssh. */
-export async function upload(s: Server, localDir: string, remoteDir: string, excludes = DEFAULT_EXCLUDES) {
+let localRsync: Promise<boolean> | undefined;
+const hasRsync = () => (localRsync ??= spawnP("rsync", ["--version"], { capture: true, silent: true }).then((r) => r.code === 0, () => false));
+
+/** How upload sent the files: rsync (only the changes) or tar (everything, and why). */
+export type Sent = "rsync" | "tar" | "tar:no-local-rsync" | "tar:no-server-rsync";
+
+/** Uploads localDir to remoteDir. With a seed (the live release's copy on the server), rsync sends only what changed. */
+export async function upload(s: Server, localDir: string, remoteDir: string, seed?: string): Promise<Sent> {
   if (!fs.existsSync(localDir)) fail(`directory not found: ${localDir}`);
-  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...excludes.flatMap((e) => ["--exclude", e]), "-C", localDir, "."];
+  const tar = async (sent: Sent) => (await tarUpload(s, localDir, remoteDir), sent);
+  if (!seed) return tar("tar");
+  if (!(await hasRsync())) return tar("tar:no-local-rsync");
+  const { stdout } = await runScript(
+    s,
+    `if ! command -v rsync >/dev/null; then echo no-rsync; elif [ -d ${shq(seed)} ]; then mkdir -p ${shq(remoteDir)} && echo ok; fi`,
+    { capture: true },
+  );
+  const answer = stdout.trim();
+  if (answer === "no-rsync") return tar("tar:no-server-rsync");
+  if (answer !== "ok") return tar("tar");
+  // --copy-dest copies unchanged files from the seed: real copies, since landfall rewrites some release files in place.
+  const shell = ["ssh", ...sshOptions(s)].map(shq).join(" ");
+  const args = ["-rlptz", `--copy-dest=${seed}`, ...EXCLUDE_ARGS, "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
+  const { code } = await spawnP("rsync", args, {});
+  if (code !== 0) throw new Error(`rsync failed (exit ${code})`);
+  return "rsync";
+}
+
+async function tarUpload(s: Server, localDir: string, remoteDir: string) {
+  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...EXCLUDE_ARGS, "-C", localDir, "."];
   const remote = `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`;
   await new Promise<void>((resolve, reject) => {
     // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.

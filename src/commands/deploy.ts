@@ -164,7 +164,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       const files = KINDS[kind].files;
       if (files !== undefined) {
         step(`uploading ${relative(cwd, dir) || "."}`);
-        await upload(server, dir, releaseDir + files);
+        // A redeploy starts from the live release's files and sends only what changed.
+        const seedRelease = prev?.kind === kind ? prev.current : undefined;
+        const sent = await upload(server, dir, releaseDir + files, seedRelease && `${siteDir(name)}/current${files}`);
+        if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
+        else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
+        else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
       }
       const prepared = await prepareRelease(server, name, id, { file: compose, generated, env });
       const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
