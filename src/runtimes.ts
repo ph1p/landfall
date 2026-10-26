@@ -20,6 +20,8 @@ export interface Runtime {
   note?: string;
   /** The variable in the site's .env the note asks for: once there, the note is not repeated. */
   secret?: string;
+  /** Folders in the container whose files outlive a deploy (named volumes), e.g. a SQLite database. */
+  volumes?: string[];
   dockerfile(o: { build?: string; start: string; port: number }): string;
 }
 
@@ -92,8 +94,8 @@ export function nodeStage(f: Files, bun: boolean, as = ""): string[] {
 }
 const dockerfile = (lines: (string | false | undefined)[]) => lines.filter((l) => typeof l === "string").join("\n");
 
-/** The `web:` process of a Procfile (Heroku and its kind), which knows best how the app starts. */
-const procfile = (f: Files) => f.read("Procfile").match(/^web:\s*(.+)$/m)?.[1].trim();
+/** The start command given, else the `web:` process of a Procfile (Heroku and its kind), which knows best how the app starts. */
+const procfile = (f: Files, given?: string) => given || f.read("Procfile").match(/^web:\s*(.+)$/m)?.[1].trim();
 
 // ---------------------------------------------------------------- Python
 
@@ -101,9 +103,10 @@ const procfile = (f: Files) => f.read("Procfile").match(/^web:\s*(.+)$/m)?.[1].t
 const PY_ENTRIES = ["main.py", "app.py", "server.py", "api.py", "asgi.py", "wsgi.py", "app/main.py", "app/__init__.py", "src/main.py", "src/app.py"];
 const pyModule = (file: string) => file.replace(/\.py$/, "").replace(/\/__init__$/, "").replace(/\//g, ".");
 
-function python(f: Files): Runtime | undefined {
-  const deps = ["requirements.txt", "pyproject.toml", "Pipfile", "setup.py"].map(f.read).join("\n");
-  if (!deps && !f.has("manage.py")) return;
+function python(f: Files, given?: string): Runtime | undefined {
+  const manifests = ["requirements.txt", "pyproject.toml", "Pipfile", "setup.py"].filter(f.has);
+  if (!manifests.length && !f.has("manage.py")) return;
+  const deps = manifests.map(f.read).join("\n");
   const dep = (n: string) => new RegExp(`(^|[^\\w-])${n}(?![\\w-])`, "im").test(deps);
   const app = (re: RegExp) => {
     for (const file of PY_ENTRIES) {
@@ -138,7 +141,7 @@ function python(f: Files): Runtime | undefined {
       if (file) [tool, start] = ["Streamlit", `streamlit run ${file} --server.address 0.0.0.0 --server.port $PORT --server.headless true`];
     }
   }
-  start = procfile(f) ?? start;
+  start = procfile(f, given) ?? start;
   // Anything else runs its own entry, but only in a folder that is not a Node.js project or a MkDocs site.
   if (!start && !f.has("package.json") && !f.has("mkdocs.yml")) {
     const file = ["main.py", "app.py", "server.py"].find(f.has);
@@ -348,19 +351,21 @@ function dotnet(f: Files): Runtime | undefined {
 
 // ---------------------------------------------------------------- Ruby
 
-function ruby(f: Files): Runtime | undefined {
+function ruby(f: Files, given?: string): Runtime | undefined {
   const gems = f.read("Gemfile");
   if (!gems) return;
   const gem = (n: string) => new RegExp(`^\\s*gem\\s+['"]${n}['"]`, "m").test(gems);
   const rails = gem("rails") && f.has("config/application.rb");
   let tool: string | undefined, start: string | undefined;
-  if (rails) [tool, start] = ["Rails", "bundle exec rails server -b 0.0.0.0 -p $PORT"];
+  // Rails 8's default: SQLite in storage/, which outlives deploys in a volume and is made or migrated on start.
+  const sqlite = rails && gem("sqlite3") && /^\s*database:\s*storage\//m.test(f.read("config/database.yml"));
+  if (rails) [tool, start] = ["Rails", `${sqlite ? "bundle exec rails db:prepare && " : ""}bundle exec rails server -b 0.0.0.0 -p $PORT`];
   else if (f.has("config.ru")) {
     tool = gem("sinatra") ? "Sinatra" : gem("roda") ? "Roda" : gem("hanami") ? "Hanami" : "Rack";
     start = gem("puma") ? "bundle exec puma -b tcp://0.0.0.0:$PORT" : "bundle exec rackup -o 0.0.0.0 -p $PORT";
   }
   // A Gemfile alone is a Jekyll site or tooling, unless a Procfile starts something.
-  start = procfile(f) ?? start;
+  start = procfile(f, given) ?? start;
   if (!start) return;
   const version = (f.read(".ruby-version").match(/(\d+\.\d+)/) ?? gems.match(/^ruby\s+['"](\d+\.\d+)/m))?.[1] ?? "3.4";
   const assets = rails && ["propshaft", "sprockets-rails", "importmap-rails", "jsbundling-rails", "cssbundling-rails", "tailwindcss-rails"].some(gem);
@@ -368,6 +373,7 @@ function ruby(f: Files): Runtime | undefined {
     name: "Ruby", tool, start, port: 3000,
     build: assets ? "SECRET_KEY_BASE_DUMMY=1 bundle exec rails assets:precompile" : undefined,
     secret: rails ? "RAILS_MASTER_KEY" : undefined,
+    volumes: sqlite ? ["/app/storage"] : undefined,
     note: rails ? "Rails needs its key: lf deploy -e RAILS_MASTER_KEY=$(cat config/master.key) (once, it stays in the site's .env)" : undefined,
     ignore: [".git", ".bundle", "vendor/bundle", "log", "tmp", "node_modules"],
     dockerfile: (o) =>
@@ -439,11 +445,11 @@ function php(f: Files): Runtime | undefined {
 
 // ---------------------------------------------------------------- Elixir
 
-function elixir(f: Files): Runtime | undefined {
+function elixir(f: Files, given?: string): Runtime | undefined {
   const mix = f.read("mix.exs");
   if (!mix) return;
   const phoenix = /:phoenix\b/.test(mix);
-  const start = procfile(f) ?? (phoenix ? "mix phx.server" : undefined);
+  const start = procfile(f, given) ?? (phoenix ? "mix phx.server" : undefined);
   if (!start) return;
   const version = f.read(".tool-versions").match(/^elixir\s+(\d+\.\d+)/m)?.[1] ?? "1.18";
   const tool = phoenix ? "Phoenix" : "Elixir";
@@ -474,10 +480,10 @@ function elixir(f: Files): Runtime | undefined {
  * An app in another language than JavaScript, by the files its build tool keeps.
  * The order settles mixed folders: Laravel, Rails or Django with a package.json for their assets.
  */
-export function detectRuntime(cwd: string): Runtime | undefined {
+export function detectRuntime(cwd: string, start?: string): Runtime | undefined {
   const f = files(cwd);
   for (const detect of [java, go, rust, dotnet, elixir, php, python, ruby]) {
-    const r = detect(f);
+    const r = detect(f, start);
     if (r) return r;
   }
 }

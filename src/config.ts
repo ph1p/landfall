@@ -222,6 +222,10 @@ export interface ProjectConfig {
   build?: string;
   /** A Node.js app without a Dockerfile: its start command (default: the framework's). */
   start?: string;
+  /** App, Dockerfile or image: folders in the container that outlive deploys (named volumes). */
+  volumes?: string[];
+  /** App, Dockerfile or image: runs without a port or a domain (a bot, a queue consumer). */
+  worker?: boolean;
 }
 
 /** The project file in a directory: .landfall.json, or the older one. */

@@ -135,7 +135,7 @@ export const APP_IGNORE = ["node_modules", ".git", ".next", ".nuxt", ".output", 
  * app when nothing else is found. A framework named like its language (Go, Rust, …) is no framework: `tool` is unset.
  */
 export function detectApp(root: string, start?: string, b?: Build): Runtime | undefined {
-  const app = detectRuntime(root) ?? nodeApp(root, start, b ?? detectBuild(root));
+  const app = detectRuntime(root, start) ?? nodeApp(root, start, b ?? detectBuild(root));
   if (!app) return;
   return { ...app, start: start || app.start, tool: app.tool === app.name ? undefined : app.tool };
 }

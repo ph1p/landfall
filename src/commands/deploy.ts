@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
-import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
+import { analyze, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, fail, info, interactive, ok, report, step, warn } from "../ui";
@@ -55,6 +55,7 @@ Kinds:
               Spring Boot, Quarkus, …), Ruby (Rails, Rack), PHP (Laravel, Symfony),
               Rust, .NET, Elixir (Phoenix); --start overrides the command
               (a Procfile's web: process counts too)
+              --volume keeps a folder across deploys, --worker runs it without a domain
   static      a folder of files (auto-detects dist/, build/, out/, public/ and the
               output of Vite, Astro, Next export, Nuxt generate, SvelteKit, Hugo, …)
   image       --image: run a prebuilt image (e.g. ghcr.io/me/app:1.2)
@@ -79,6 +80,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
+    volume: { type: "string", multiple: true, desc: "app/dockerfile/image: a folder in the container that outlives deploys, e.g. /app/data (a named volume)" },
+    worker: { type: "boolean", desc: "app/dockerfile/image: run without a port or a domain (a bot, a queue consumer; --no-worker serves one again)" },
     keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
     host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
@@ -146,11 +149,17 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
       warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
     }
+    if ((o.volume?.length || o.worker) && !KINDS[kind].port) fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
+    const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
+    const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])] : [];
+    const notPath = volumes.filter((v) => !/^\/[\w.\/-]*\w/.test(v));
+    if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
     const port = KINDS[kind].port
       ? checkInt(o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port) ?? 3000, "--port", 1, 65535)
       : undefined;
     const appBuild = app && (buildCmd ?? app.build);
-    if (app) info(c.dim(`${app.name} app${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start} on port ${port}`));
+    if (app) info(c.dim(`${app.name} ${worker ? "worker" : "app"}${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start}${worker ? "" : ` on port ${port}`}`));
+    if (volumes.length) info(c.dim(`kept across deploys: ${volumes.join(", ")}`));
     const spa = kind === "static" && !!(o.spa ?? project.spa);
 
     step(`deploying ${c.bold(name)} (${app ? app.name : kind}) to ${c.bold(serverName)}`);
@@ -175,7 +184,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id));
     const releaseDir = `${siteDir(name)}/releases/${id}`;
     const generated: Record<string, string> =
-      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image, app: app?.name }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
+      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
     if (app) {
       generated.Dockerfile = app.dockerfile({ build: appBuild, start: app.start, port: port! });
       if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = app.ignore.join("\n") + "\n";
@@ -228,7 +237,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (unrouted) info(c.dim(`${name} serves no domain: reach it with lf tunnel ${name}, give it one with lf domains ${name} --add <domain>`));
         if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
         if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
-      } else if (domainArgs?.length) warn(`-d ignored: every routed service of ${name} names its own x-landfall.domains`);
+      } else if (domainArgs?.length) warn(`-d ignored: ${release.services.some(routed) ? `every routed service of ${name} names its own x-landfall.domains` : `${name} serves no domain`}`);
 
       move = await claimDomains(server, serverName, name, [...domains, ...fixed], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
     } catch (e) {
@@ -275,6 +284,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (spa) saved.spa = true;
         if (forceStatic && kind === "static") saved.static = true;
       }
+      if (volumes.length && (o.volume?.length || project.volumes)) saved.volumes = volumes;
+      if (worker) saved.worker = true;
       if (buildCmd || (app && buildCmd === "")) saved.build = buildCmd;
       saveProject(cwd, saved);
       rememberProject({ path: cwd, name, server: serverName, domains: all, kind });

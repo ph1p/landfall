@@ -27,6 +27,7 @@ import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } fr
 import { safeParts } from "../../src/web/local";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
 import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, type Release, type SiteMeta } from "../../src/compose";
+import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -151,6 +152,11 @@ describe("templates", () => {
     expect(generatedCompose("static")).toContain("./public:/usr/share/nginx/html:ro");
     expect(generatedCompose("image", { image: "ghcr.io/x/y:1", port: 4000 })).toContain('image: "ghcr.io/x/y:1"');
     expect(generatedCompose("dockerfile", { port: 4000 })).toContain("port: 4000");
+    // a worker is not routed; volumes are named after their folder and outlive the release
+    const worker = generatedCompose("dockerfile", { app: "Python", volumes: ["/app/data"] });
+    expect(worker).not.toContain("x-landfall");
+    expect(YAML.parse(worker)).toMatchObject({ services: { app: { volumes: ["app-data:/app/data"] } }, volumes: { "app-data": {} } });
+    expect(analyze(YAML.parse(worker), "/x")).toMatchObject({ errors: [], warnings: [expect.stringMatching(/no service is routed/)] });
     expect(nginxConf(false)).toContain("=404;");
     expect(nginxConf(true)).toContain("/index.html;");
   });
@@ -185,7 +191,7 @@ describe("templates", () => {
     expect(bad.errors.join("\n")).toMatch(/port must be a port number/);
     expect(bad.errors.join("\n")).toMatch(/db publishes 5432:5432/);
     expect(bad.errors.join("\n")).toMatch(/writes to \.\/data/);
-    expect(analyze({ services: { db: { image: "p" } } }, dir).errors).toEqual([expect.stringMatching(/no service is routed/)]);
+    expect(analyze({ services: { db: { image: "p" } } }, dir)).toMatchObject({ errors: [], warnings: [expect.stringMatching(/no service is routed/)] });
   });
 
   test("traefik dashboard escapes $ for compose", async () => {
@@ -879,6 +885,13 @@ describe("folders and access", () => {
     expect(app({ "mix.exs": ":phoenix" }).name).toBe("Elixir");
     // a Procfile names the start command
     expect(app({ "requirements.txt": "", Procfile: "web: python -m srv --port $PORT\n" }).start).toBe("python -m srv --port $PORT");
+    // a start command given makes any entry an app of its language
+    const bot = tmp();
+    fs.writeFileSync(join(bot, "requirements.txt"), "discord.py\n");
+    expect(detectApp(bot, "python bot.py")).toMatchObject({ name: "Python", start: "python bot.py" });
+    // Rails 8 on SQLite: storage/ outlives deploys and the database is prepared on start
+    const rails = app({ Gemfile: "gem 'rails'\ngem 'sqlite3'\n", "config/application.rb": "", "config/database.yml": "production:\n  database: storage/production.sqlite3\n" });
+    expect(rails).toMatchObject({ volumes: ["/app/storage"], start: expect.stringMatching(/^bundle exec rails db:prepare && /) });
   });
 
   test("upload paths stay inside", () => {
