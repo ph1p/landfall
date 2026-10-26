@@ -91,8 +91,9 @@ export function readSiteLine(line: string): SiteMeta | undefined {
   }
 }
 
-/** A container status in color: green when up, dim when done, red when down. */
-export const paintStatus = (status: string) => (isUp(status) ? c.green(status) : isDone(status) ? c.dim(status) : c.red(status));
+/** A container status in color: green when up, yellow when up but unhealthy or restarting, dim when done, red when down. */
+export const paintStatus = (status: string) =>
+  isUp(status) ? (/unhealthy|restarting/i.test(status) ? c.yellow(status) : c.green(status)) : isDone(status) ? c.dim(status) : c.red(status);
 
 /** Every domain a site answers on now. */
 export function siteDomains(meta: SiteMeta): string[] {
