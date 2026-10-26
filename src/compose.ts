@@ -1,5 +1,4 @@
 import { DOMAIN } from "./config";
-import { c } from "./ui";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
 /**
@@ -82,8 +81,9 @@ export const isUp = (status: string) => /^up/i.test(status);
 export const isDone = (status: string) => /^exited \(0\)/i.test(status);
 /** Shell that prints each site's site.json on one line, after SITE and a tab. */
 export const SITE_LINES = `for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done`;
-/** The site.json in a SITE_LINES line; undefined when it is corrupt. */
+/** The site.json in a SITE_LINES line; undefined for other lines and when it is corrupt. */
 export function readSiteLine(line: string): SiteMeta | undefined {
+  if (!line.startsWith("SITE\t")) return undefined;
   try {
     return JSON.parse(line.slice("SITE\t".length));
   } catch {
@@ -91,9 +91,12 @@ export function readSiteLine(line: string): SiteMeta | undefined {
   }
 }
 
-/** A container status in color: green when up, yellow when up but unhealthy or restarting, dim when done, red when down. */
-export const paintStatus = (status: string) =>
-  isUp(status) ? (/unhealthy|restarting/i.test(status) ? c.yellow(status) : c.green(status)) : isDone(status) ? c.dim(status) : c.red(status);
+/** A container status read as: up, up but not healthy (yet) or restarting, a one-shot that finished, or down. */
+export type StatusKind = "up" | "warn" | "done" | "down";
+export const statusKind = (status: string): StatusKind =>
+  /^restarting|\((unhealthy|health: starting)\)/i.test(status) ? "warn" : isUp(status) ? "up" : isDone(status) ? "done" : "down";
+/** Higher is worse: what a group of containers shows as its one status. */
+export const STATUS_RANK: Record<StatusKind, number> = { up: 0, done: 1, warn: 2, down: 3 };
 
 /** Every domain a site answers on now. */
 export function siteDomains(meta: SiteMeta): string[] {

@@ -100,5 +100,5 @@ function forget(n) {
 }
 
 function makeDefault(n) {
-  run(["server", "use", n], { server: n, after: ifOk(() => refreshState()) });
+  run(["server", "use", n], { server: n, after: ifOk(refreshState) });
 }

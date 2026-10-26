@@ -1,7 +1,7 @@
 import { promises as dns } from "node:dns";
+import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { guessDomains, type Server } from "./config";
-import { randomBytes } from "node:crypto";
 import { runScript } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";

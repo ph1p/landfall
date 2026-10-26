@@ -25,8 +25,8 @@ function meter(label, p, value, sub, line = "", hint = "") {
 /** Live usage of one server: meters, the busiest processes and containers, disk usage on request. */
 function statsView(n) {
   const st = S.stats[n];
-  const wait = pending(st, `measuring ${esc(n)} for a second…`);
-  if (wait) return st?.error ? `${wait}<div class="actions" style="margin:0">${btn("Retry", () => (load(n, "stats", true), render()))}</div>` : wait;
+  const wait = pending(st, `measuring ${esc(n)} for a second…`, () => load(n, "stats", true));
+  if (wait) return wait;
   const s = st.data;
   const log = S.statsLog[n] ?? [];
   const memUsed = s.mem.total - s.mem.available;

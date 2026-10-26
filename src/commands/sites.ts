@@ -1,6 +1,6 @@
-import { defineCommand, logOpts, serverOpt } from "../cmd";
+import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../config";
-import { COMPOSE_FILES, currentRelease, isOld, paintStatus, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
+import { COMPOSE_FILES, currentRelease, isOld, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
 import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, info, ok, table } from "../ui";
@@ -12,7 +12,7 @@ export function target(name: string | undefined, server: string | undefined) {
   const project = loadProject(process.cwd());
   const site = name ?? project?.name;
   if (!site) fail("which site? pass a name or run inside a folder with .landfall.json");
-  return { site: site!, ...resolveServer(server ?? project?.server) };
+  return { site: site!, ...projectServer(server) };
 }
 
 export const sitesList = defineCommand({

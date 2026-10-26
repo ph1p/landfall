@@ -185,9 +185,8 @@ function siteOf(sites: Map<string, string>, host: string): string | undefined {
 function siteHosts(out: string): Map<string, string> {
   const sites = new Map<string, string>();
   for (const line of out.split("\n")) {
-    if (!line.startsWith("SITE\t")) continue;
     const meta = readSiteLine(line);
-    for (const d of meta ? siteDomains(meta) : []) sites.set(d.toLowerCase(), meta!.name);
+    if (meta) for (const d of siteDomains(meta)) sites.set(d.toLowerCase(), meta.name);
   }
   return sites;
 }

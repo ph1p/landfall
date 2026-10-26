@@ -5,7 +5,6 @@ import {
   builtImage,
   COMPOSE_FILES,
   currentRelease,
-  isDone,
   isOld,
   isUp,
   kindOf,
@@ -21,6 +20,8 @@ import {
   siteDomains,
   siteMain,
   SITE_LINES,
+  STATUS_RANK,
+  statusKind,
   readSiteLine,
   type Release,
   type SiteMeta,
@@ -191,8 +192,8 @@ export function externals(
     e.domains = [...new Set([...e.domains, ...hosts])];
     e.containers.push(name);
     const st = status.get(name) ?? "not running";
-    // A group is up only if all its routed containers are.
-    if (!e.status || !isUp(st)) e.status = st;
+    // A group shows its worst container.
+    if (!e.status || STATUS_RANK[statusKind(st)] > STATUS_RANK[statusKind(e.status)]) e.status = st;
     out.set(key, e);
   }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -200,14 +201,17 @@ export function externals(
 
 /**
  * One status for a site: the first routed service that is not up, else any other service that
- * is neither up nor done (one-shot jobs exit 0), else the routed service's.
+ * is down (one-shot jobs exit 0), else any unhealthy one, else the routed service's.
  */
 function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
   if (!services.length) return "not running";
   const r = currentRelease(meta);
   const names = new Set(r?.services.filter(routed).map((s) => s.name));
   const main = services.filter((s) => names.has(s.service));
-  const bad = main.find((s) => !isUp(s.status)) ?? services.find((s) => !names.has(s.service) && !isUp(s.status) && !isDone(s.status));
+  const bad =
+    main.find((s) => !isUp(s.status)) ??
+    services.find((s) => !names.has(s.service) && statusKind(s.status) === "down") ??
+    services.find((s) => statusKind(s.status) === "warn");
   return (bad ?? main[0] ?? services[0]).status;
 }
 

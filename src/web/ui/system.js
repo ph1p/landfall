@@ -14,14 +14,13 @@ function systemView(n) {
   const i = st.data;
   const s = sv(n);
   const go_ = (argv) => run([...argv, ...s], { server: n });
-  const rows = (pairs) => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
 
   const swapTotal = i.swap.reduce((t, x) => t + x.size, 0);
   const d = i.docker;
   // Change buttons only where the CLI would do it: as admin, and not on a system that keeps it itself.
   const adm = i.root, set = adm && !i.managed;
   const may = (ok, html) => (ok ? html : "");
-  const basics = `<div class="card"><h2>Basics</h2><div class="body">${rows([
+  const basics = `<div class="card"><h2>Basics</h2><div class="body">${kv([
     ["Host name", `<span class="mono">${esc(i.hostname)}</span> ${may(set, btn("Change", () => renameHost(n, i.hostname), "ghost sm"))}`],
     ["Time zone", `${esc(i.timezone)} <span class="faint">· ${esc(i.time)}</span> ${may(set, btn("Change", () => changeTz(n, i.timezone), "ghost sm"))}`],
     ["Clock", i.ntp === true ? `<span class="badge ok">synced</span>` : i.ntp === false ? `<span class="badge warn">not synced</span>` : `<span class="faint">unknown</span>`],

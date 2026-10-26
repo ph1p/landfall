@@ -63,7 +63,7 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
     else if (f[0] === "KEEP" && f[1]) undo.add(f[1]);
     else if (f[0] === "SITE") {
       const m = readSiteLine(line);
-      for (const r of m?.releases ?? []) for (const s of r.services ?? []) if (s.build) release.add(builtImage(m!.name, s.name, r.id));
+      if (m) for (const r of m.releases) for (const s of r.services ?? []) if (s.build) release.add(builtImage(m.name, s.name, r.id));
     } else if (f[0] === "DF" && /build/i.test(f[1] ?? "")) plan.buildCache = parseSize((f[2] ?? "").split(" ")[0]);
   }
   for (const img of byId.values()) {

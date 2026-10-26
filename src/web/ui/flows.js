@@ -94,7 +94,7 @@ function passwordFor(args, base) {
 }
 
 function addServer() {
-  const known = (name) => S.state.servers.some((s) => s.name === name);
+  const known = (name) => !!serverNamed(name);
   dialog({
     title: "Add a server",
     text: "Use an alias from ~/.ssh/config (like vps), or pick a new name and give the machine's address, fresh or already in use. landfall writes the ssh config entry for it.",

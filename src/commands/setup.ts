@@ -9,6 +9,7 @@ import { PLATFORM, support } from "../facts";
 import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
+import { rootLogin } from "../privilege";
 import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "../traefik";
 
@@ -123,11 +124,8 @@ dashboard unless given as flags.`,
     // deploy user, but bootstrapping needs root, which kept key-only access.
     // Root may be locked: then the sudo user that bootstrapped it the first time.
     if (!o.user && o["deploy-user"] && effectiveSsh(login).user === o["deploy-user"]) {
-      let admin: string | undefined;
-      for (const user of ["root", existing?.admin]) {
-        if (!admin && user && (await canLogin({ ...login, user }))) admin = user;
-      }
-      if (admin) login.user = admin;
+      const admin = await rootLogin({ ...login, admin: existing?.admin });
+      if (admin) login.user = admin.user;
       else warn(`${o["deploy-user"]} can't change the system and root's key login does not work; pass -u <a sudo user> if setup fails`);
     }
     const eff = effectiveSsh(login);

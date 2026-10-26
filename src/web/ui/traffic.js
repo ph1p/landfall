@@ -47,7 +47,7 @@ const errorCell = (status) => `<span class="badge ${status >= 500 ? "bad" : "war
 function trafficView(n) {
   ensure("certs", n, "/certs");
   const st = S.traffic[n];
-  const spans = `<div class="actions" style="margin:0 0 14px">${TRAFFIC_SPANS.map(([v, l]) => btn(l, () => ((S.since = v), load(n, "traffic", true), render()), `sm${S.since === v ? " primary" : ""}`, `lf traffic --since ${v}`)).join("")}</div>`;
+  const spans = `<div class="actions" style="margin:0 0 14px">${TRAFFIC_SPANS.map(([v, l]) => btn(l, () => ((S.since = v), load(n, "traffic", true)), `sm${S.since === v ? " primary" : ""}`, `lf traffic --since ${v}`)).join("")}</div>`;
   const wait = pending(st, "reading Traefik's access log…");
   if (wait) return spans + wait;
   const t = st.data;

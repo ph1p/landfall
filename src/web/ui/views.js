@@ -119,9 +119,9 @@ function errorHint(error) {
 }
 
 const isUp = (status) => /^up/i.test(status);
-// A one-off service that finished (Exited (0)) is not down: grey, not red.
+// Same rule as statusKind in compose.ts. A one-off service that finished (Exited (0)) is not down: grey, not red.
 const statusDot = (status) => {
-  const [cls, word] = isUp(status) ? (/unhealthy|restarting/i.test(status) ? ["warn", "unhealthy"] : ["up", "running"]) : /^exited \(0\)/i.test(status) ? ["", "finished"] : ["down", "down"];
+  const [cls, word] = /^restarting|\((unhealthy|health: starting)\)/i.test(status) ? ["warn", "not healthy"] : isUp(status) ? ["up", "running"] : /^exited \(0\)/i.test(status) ? ["", "finished"] : ["down", "down"];
   return `<span class="dot ${cls}" role="img" aria-label="${word}" title="${esc(status)}"></span>`;
 };
 
@@ -192,7 +192,7 @@ function renderMain() {
       <div class="actions">
         ${!k || k.setup ? btn("Set up / check", () => setupFlow([n]), "", "Shows what is installed and what setup would change; asks before applying") : ""}
         ${btn("Run…", () => runCommand(n), "", "Run a shell command over ssh")}
-        ${btn("↻", () => (load(n, S.tab, true), render()), "", "Reload", "reload", `aria-label="Reload"`)}
+        ${btn("↻", () => load(n, S.tab, true), "", "Reload", "reload", `aria-label="Reload"`)}
         ${menuBtn([
           { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
           !k || k.docker ? { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) } : null,
@@ -212,7 +212,7 @@ function renderMain() {
   else if (ov.error) {
     const hint = errorHint(ov.error);
     view.innerHTML = `<div class="note bad"><b>Cannot reach ${esc(n)}.</b> ${esc(hint)}<div class="mono" style="margin-top:6px">${esc(ov.error)}</div></div>
-      <div class="actions" style="margin:0">${btn("Set up", () => setupFlow([n]), "primary")} ${btn("Retry", () => (load(n, S.tab, true), render()))}</div>`;
+      <div class="actions" style="margin:0">${btn("Set up", () => setupFlow([n]), "primary")} ${btn("Retry", () => load(n, S.tab, true))}</div>`;
   } else if (!o) view.innerHTML = "";
   else if (S.tab === "sites") view.innerHTML = sitesView(n, o);
   else if (S.tab === "tunnels") view.innerHTML = tunnelsView(n, o);

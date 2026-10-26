@@ -35,7 +35,7 @@ interface WebJob {
 const UI_DIR = new URL("./ui/", import.meta.url);
 const TYPES: Record<string, string> = { html: "text/html", css: "text/css", js: "text/javascript" };
 const assets = new Map(
-  fs.readdirSync(UI_DIR).map((f) => [f === "index.html" ? "/" : `/${f}`, { body: fs.readFileSync(new URL(f, UI_DIR)), type: `${TYPES[f.split(".").pop()!]}; charset=utf-8` }]),
+  fs.readdirSync(UI_DIR).map((f) => [f === "index.html" ? "/" : `/${f}`, { body: fs.readFileSync(new URL(f, UI_DIR)), type: `${TYPES[f.split(".").pop()!] ?? "application/octet-stream"}; charset=utf-8` }]),
 );
 const MAX_JOBS = 50;
 /** Jobs running at once: each is a process with its own ssh connections. */

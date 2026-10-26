@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { statusKind } from "./compose";
 import { c, fail } from "./ui";
 
 type OptSpec = {
@@ -82,3 +83,7 @@ export const logOpts = {
   follow: { type: "boolean", short: "f", desc: "follow" },
   tail: { type: "string", short: "n", desc: "lines", default: "100" },
 } as const;
+
+const STATUS_COLOR = { up: c.green, warn: c.yellow, done: c.dim, down: c.red };
+/** A container status in its color: green up, yellow unhealthy or restarting, dim finished, red down. */
+export const paintStatus = (status: string) => STATUS_COLOR[statusKind(status)](status);
