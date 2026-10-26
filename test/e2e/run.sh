@@ -353,6 +353,27 @@ lf log-limit 10m --files 2 -s box >/dev/null 2>&1 || die "log-limit"
 lf undo -s box -y >/dev/null 2>&1 || die "undo log-limit"
 { ! docker exec "$NAME" grep -qs max-size /etc/docker/daemon.json; } || die "undo restores daemon.json"; pass "log-limit, undo restores daemon.json"
 
+echo "== security"
+# A user who logs in with a password only, and sshd taking passwords again.
+docker exec "$NAME" sh -c 'rm -f /etc/ssh/sshd_config.d/00-landfall.conf && adduser -D alice && echo alice:e2e-pw | chpasswd'
+out=$(lf security -s box --json) || die "security --json"
+{ echo "$out" | has '"passwordLogin": true' && echo "$out" | has '"id": "password-login"' && echo "$out" | has '"--generate"'; } \
+  || { echo "$out"; die "security finds password login and offers a key for alice"; }
+{ lf security -s box 2>&1 | has "SSH accepts passwords"; } || die "security prints the advice"; pass "security finds password login, offers a key for alice"
+out=$(lf harden ssh -s box 2>&1) && die "harden ssh refuses to lock alice out"
+{ grep -q "alice" <<<"$out"; } || die "harden ssh names alice: $out"; pass "harden ssh refuses to lock alice out"
+mkdir -p "$WORK/home"
+HOME="$WORK/home" lf keys add --generate -u alice -s box </dev/null >"$WORK/gen.log" 2>&1 || { cat "$WORK/gen.log"; die "keys add --generate"; }
+[ -f "$WORK/home/.ssh/box_alice" ] || die "keys add --generate writes ~/.ssh/box_alice"
+[ "$(ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes -o IdentitiesOnly=yes -i "$WORK/home/.ssh/box_alice" -p "$SSH_PORT" alice@127.0.0.1 id -un)" = alice ] \
+  || die "alice logs in with the new key"; pass "keys add --generate: alice logs in with the new key"
+lf harden ssh -s box -y >"$WORK/harden.log" 2>&1 || { cat "$WORK/harden.log"; die "harden ssh"; }
+{ lf security -s box --json | has '"passwordLogin": false'; } || die "harden ssh turns passwords off"
+{ ! lf security -s box --json | has '"password-login"'; } || die "no password advice after harden"; pass "harden ssh: keys only"
+lf undo -s box -y >/dev/null 2>&1 || die "undo harden"
+{ lf security -s box --json | has '"passwordLogin": true'; } || die "undo turns passwords back on"; pass "undo harden turns passwords back on"
+lf harden ssh -s box -y >/dev/null 2>&1 || die "harden ssh again"
+
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
 { lf updates -s box --no-refresh 2>&1 | has "newer version traefik:v3."; } || die "updates names the newer traefik tag"; pass "updates names the newer traefik tag"

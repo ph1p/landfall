@@ -40,11 +40,16 @@ export const keyFile = (name: string) => join(homedir(), ".ssh", `landfall_${che
 
 export function ensureKey(name: string): { path: string; created: boolean } {
   const path = keyFile(name);
-  if (fs.existsSync(path)) return { path, created: false };
+  return { path, created: keygen(path, `landfall-${name}`) };
+}
+
+/** An ed25519 pair at `path` unless one is there; `passphrase`: ssh-keygen asks for one. True if it made one. */
+export function keygen(path: string, comment: string, passphrase = false): boolean {
+  if (fs.existsSync(path)) return false;
   fs.mkdirSync(join(homedir(), ".ssh"), { recursive: true, mode: 0o700 });
-  const r = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-f", path, "-N", "", "-C", `landfall-${name}`], { stdio: "inherit" });
+  const r = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-f", path, "-C", comment, ...(passphrase ? [] : ["-N", ""])], { stdio: "inherit" });
   if (r.status !== 0) fail("ssh-keygen failed");
-  return { path, created: true };
+  return true;
 }
 
 /**

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, expandHome, loadProject, resolveServer } from "../config";
+import { checkInt, expandHome, loadProject, resolveServer, tildify } from "../config";
+import { generateKey } from "../security";
 import { bytes } from "../facts";
 import { sshExec } from "../ssh";
 import { effectiveSsh } from "../sshconfig";
@@ -29,9 +30,9 @@ import {
   type SystemInfo,
 } from "../system";
 import { adminLogin } from "../updates";
-import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn } from "../ui";
+import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn } from "../ui";
 
-const target = (o: Record<string, any>) => resolveServer(o.server ?? loadProject(process.cwd())?.server);
+export const target = (o: Record<string, any>) => resolveServer(o.server ?? loadProject(process.cwd())?.server);
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 
 const failed = (s: Service) => s.active === "failed" || s.active === "crashed";
@@ -42,7 +43,7 @@ function stateColor(s: Service) {
   return failed(s) ? c.red(s.sub || s.active) : running(s) ? c.green(s.sub || s.active) : c.dim(s.sub || s.active);
 }
 
-function limitedNote(i: SystemInfo) {
+export function limitedNote(i: SystemInfo) {
   if (!i.root) info(c.dim(`${i.user} has no passwordless sudo: other users' keys, bans and daemon.json may be missing`));
 }
 
@@ -164,18 +165,34 @@ function readKey(arg: string): string {
 
 export const keysAdd = defineCommand({
   name: "keys add",
-  args: "<key|file.pub>",
-  summary: "Let another SSH key log in (to the login user, or --user).",
-  options: { server: serverOpt, user: { type: "string", short: "u", desc: "whose authorized_keys (default: the login user)" } },
+  args: "[key|file.pub]",
+  summary: `Let another SSH key log in (to the login user, or --user).
+
+With --generate lf makes a new pair at ~/.ssh/<server>_<user> (asking for a
+passphrase in a terminal) and adds its public key: hand the private key to
+whoever logs in as that user, or keep it if that is you.`,
+  options: {
+    server: serverOpt,
+    user: { type: "string", short: "u", desc: "whose authorized_keys (default: the login user)" },
+    generate: { type: "boolean", desc: "make a new key pair here instead of passing one" },
+  },
   async run([arg], o) {
-    if (!arg) fail("usage: lf keys add <key|file.pub>");
-    const line = readKey(arg);
+    if (!arg && !o.generate) fail("usage: lf keys add <key|file.pub>, or --generate");
     const { name, server } = target(o);
-    const user = o.user ?? effectiveSsh(server).user;
+    const eff = effectiveSsh(server);
+    const user = o.user ?? eff.user;
+    const made = o.generate ? generateKey(name, user) : undefined;
+    const line = made ? made.pub : readKey(arg);
     const admin = await adminLogin(server, "adding a key");
     await addKey(admin, user, line);
     const k = parseKeyLine(line)!;
     ok(`${k.comment || shortFp(k)} may log in to ${name} as ${user}`);
+    if (made) {
+      info(`${made.created ? "private key" : "used the existing key"}: ${tildify(made.path)}`);
+      info(`log in: ssh -i ${tildify(made.path)}${eff.port !== 22 ? ` -p ${eff.port}` : ""} ${user}@${eff.hostname}`);
+      if (made.created && !made.passphrase) info(c.dim(`it has no passphrase; add one with ssh-keygen -p -f ${tildify(made.path)}`));
+      report({ keyFile: made.path });
+    }
   },
 });
 

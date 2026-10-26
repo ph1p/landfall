@@ -3,7 +3,7 @@ import fs from "node:fs";
 import type { Server } from "./config";
 import { canLogin, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { PRELUDE } from "./templates";
+import { PKG_MGR, PRELUDE } from "./templates";
 import { fail } from "./ui";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
@@ -51,6 +51,21 @@ if command -v fail2ban-client >/dev/null 2>&1; then
     done
   else kv fail2ban stopped; fi
 else kv fail2ban missing; fi
+# Security: what sshd really uses (sshd -T needs root), who has a password, firewall, updates.
+$S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
+[ "$R" = 1 ] && kv password_users "$($S awk -F: '$2 ~ /^\$/ { printf "%s ", $1 }' /etc/shadow 2>/dev/null)"
+${PKG_MGR}
+kv pkg "$(pkg_mgr)"
+if command -v ufw >/dev/null 2>&1; then kv ufw "$($S ufw status 2>/dev/null | awk 'NR == 1 { print $2 }')"; else kv ufw missing; fi
+kv reboot "$([ -f /var/run/reboot-required ] && echo 1)"
+if command -v apt-get >/dev/null 2>&1; then
+  if dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; then kv auto_updates on; else kv auto_updates off; fi
+elif command -v dnf >/dev/null 2>&1 && [ "$init" = systemd ]; then
+  # dnf-automatic.timer only downloads unless automatic.conf says apply_updates.
+  if systemctl is-enabled -q dnf-automatic-install.timer 2>/dev/null \
+    || { { systemctl is-enabled -q dnf-automatic.timer 2>/dev/null || systemctl is-enabled -q dnf5-automatic.timer 2>/dev/null; } \
+      && grep -qiE '^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*(yes|true|1)' /etc/dnf/automatic.conf 2>/dev/null; }; then kv auto_updates on; else kv auto_updates off; fi
+fi
 # Keys of every user with a home: /root and /home/* (deploy users live there).
 for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
   u=$(printf %s "$f" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#')
@@ -95,6 +110,20 @@ export interface Jail {
   ips: string[];
 }
 
+/** What sshd and the system allow; undefined = could not tell (sshd -T and /etc/shadow need root). */
+export interface Security {
+  /** sshd accepts passwords (PasswordAuthentication or KbdInteractiveAuthentication). */
+  passwordLogin?: boolean;
+  rootLogin?: string;
+  /** Users with a password set: those may log in with it while passwordLogin is on. */
+  passwordUsers?: string[];
+  pkg?: string;
+  /** ufw's state; undefined when ufw status needs a root this login lacks. */
+  firewall?: "active" | "inactive" | "missing";
+  autoUpdates?: boolean;
+  reboot: boolean;
+}
+
 export interface SystemInfo {
   /** Root or passwordless sudo: without, keys of other users, bans and daemon.json may be missing. */
   root: boolean;
@@ -114,6 +143,7 @@ export interface SystemInfo {
   fail2ban: "running" | "stopped" | "missing";
   jails: Jail[];
   keys: AuthorizedKey[];
+  security: Security;
   /** Set where the system keeps host name, time zone, swap and Docker's settings itself (Synology DSM). */
   managed?: string;
 }
@@ -166,7 +196,7 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
   const v: Record<string, string> = {};
   const info: SystemInfo = {
     root: false, user: "", hostname: "", timezone: "", time: "", init: "other", swap: [], diskFree: 0, mem: 0,
-    services: [], fail2ban: "missing", jails: [], keys: [],
+    services: [], fail2ban: "missing", jails: [], keys: [], security: { reboot: false },
   };
   const enabled = new Map<string, string>();
   let daemon: string | undefined;
@@ -199,6 +229,16 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     mem: +v.mem || 0,
     fail2ban: (["running", "stopped"].includes(v.fail2ban) ? v.fail2ban : "missing") as SystemInfo["fail2ban"],
   });
+  const pw = [v.sshd_passwordauthentication, v.sshd_kbdinteractiveauthentication].filter(Boolean);
+  info.security = {
+    passwordLogin: pw.length ? pw.includes("yes") : undefined,
+    rootLogin: v.sshd_permitrootlogin || undefined,
+    passwordUsers: v.password_users?.split(/\s+/).filter(Boolean),
+    pkg: v.pkg || undefined,
+    firewall: ["active", "inactive", "missing"].includes(v.ufw) ? (v.ufw as Security["firewall"]) : undefined,
+    autoUpdates: v.auto_updates ? v.auto_updates === "on" : undefined,
+    reboot: v.reboot === "1",
+  };
   if (v.platform === "synology") info.managed = "DSM keeps this itself: change it in Control Panel (Regional Options, Info Center, Container Manager)";
   if (v.log_driver !== undefined) {
     let d: Record<string, unknown> = {};

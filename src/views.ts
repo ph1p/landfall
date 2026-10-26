@@ -9,7 +9,7 @@ import { checkDns, facts, pickIp, serverCaps, serverIps, sslipDomain } from "./f
 import { pending, readJournal } from "./journal";
 import { prunePlan } from "./manage";
 import { diskUsage, stats } from "./stats";
-import { fullSystem } from "./system";
+import { securityOf } from "./security";
 import { certs, checkUrl, traffic } from "./traffic";
 import { effectiveSsh } from "./sshconfig";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
@@ -42,7 +42,9 @@ export const diskView = (server: Server) => diskUsage(server);
 export const pruneView = (server: Server) => prunePlan(server);
 
 /** `lf system --json`. */
-export const systemView = (server: Server) => fullSystem(server);
+export async function systemView(name: string, server: Server) {
+  return securityOf(name, server);
+}
 
 /** `lf history --json`: newest first, with how many steps each run can still undo. */
 export async function historyView(server: Server, n?: number) {

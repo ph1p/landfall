@@ -41,6 +41,7 @@ import {
   timezoneCmd,
   unbanCmd,
 } from "./commands/system";
+import { hardenCmd, securityCmd } from "./commands/security";
 import { ui } from "./commands/ui";
 import { update, updatesList } from "./commands/updates";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
@@ -80,6 +81,8 @@ const commands: Command[] = [
   pruneCmd,
   rebootCmd,
   systemCmd,
+  securityCmd,
+  hardenCmd,
   servicesList,
   servicesRestart,
   servicesStart,
