@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand } from "../cmd";
 import { checkInt } from "../config";
-import { appDockerfile, detectApp, detectProject } from "../projects";
+import { detectApp, detectProject } from "../projects";
 import { c, fail, info, ok } from "../ui";
 
 export const init = defineCommand({
@@ -35,7 +35,7 @@ files are never overwritten.`,
     const port = d.kind === "static" ? 80 : checkInt(o.port ?? d.port ?? 3000, "--port", 1, 65535);
     const found = d.start ? detectApp(root, d.start) : undefined;
     if (found) {
-      files.Dockerfile = appDockerfile(root, found, { build: d.build, start: d.start!, port });
+      files.Dockerfile = found.dockerfile({ build: d.build, start: d.start!, port });
       if (!fs.existsSync(join(root, ".dockerignore"))) files[".dockerignore"] = found.ignore.join("\n") + "\n";
     }
     const local = d.kind === "static" ? 8080 : port;

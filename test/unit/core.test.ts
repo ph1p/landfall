@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
-import { appDockerfile, detectApp, detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
+import { detectApp, detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
@@ -764,8 +764,8 @@ describe("folders and access", () => {
     expect(detectBuild(d)).toEqual({ tool: "React Router (ssr: false)", dir: "build/client", build: "npm run build" });
     // a server of its own needs no build script
     pkg({ express: "5" }, { start: "node server.js" });
-    expect(detectBuild(d)).toEqual({ tool: "Node.js", build: undefined, start: "npm start" });
-    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", tool: "Node.js", start: "npm start", port: 3000, node: true });
+    expect(detectBuild(d)).toEqual({ tool: undefined, build: undefined, start: "npm start" });
+    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", runtime: "Node.js", tool: undefined, start: "npm start", port: 3000, node: true });
     // saved as static, it stays static; a saved start command makes any folder an app
     fs.writeFileSync(join(d, ".landfall.json"), JSON.stringify({ name: "x", domains: [], static: true }));
     expect(detectProject(d)).toMatchObject({ kind: "static", node: true });
@@ -798,7 +798,7 @@ describe("folders and access", () => {
     // a server dependency and an entry file, no scripts at all
     pkg({ dependencies: { ws: "8" } });
     fs.writeFileSync(join(d, "server.js"), "");
-    expect(detectBuild(d)).toEqual({ tool: "Node.js", build: undefined, start: "node server.js" });
+    expect(detectBuild(d)).toEqual({ tool: undefined, build: undefined, start: "node server.js" });
     fs.rmSync(join(d, "server.js"));
     fs.mkdirSync(join(d, "src"));
     fs.writeFileSync(join(d, "src/main.js"), "");
@@ -813,6 +813,31 @@ describe("folders and access", () => {
     }
   });
 
+  test("Bun", () => {
+    const d = tmp();
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ module: "index.ts", devDependencies: { "@types/bun": "1" }, packageManager: "bun@1.2.21" }));
+    fs.writeFileSync(join(d, "index.ts"), "Bun.serve({ fetch: () => new Response('ok') })");
+    fs.writeFileSync(join(d, "bun.lock"), "");
+    const app = detectApp(d)!;
+    expect(app).toMatchObject({ name: "Bun", tool: undefined, start: "bun index.ts", port: 3000 });
+    const f = app.dockerfile({ start: app.start, port: 3000 });
+    expect(f).toContain("FROM oven/bun:1.2.21-slim\nWORKDIR /app\nCOPY package.json bun.lock ./\nRUN bun install --frozen-lockfile\n");
+    expect(f).toContain("CMD bun index.ts\n");
+    // a script, not a server
+    fs.writeFileSync(join(d, "index.ts"), "console.log('hi')");
+    expect(detectApp(d)).toBeUndefined();
+    // Elysia runs on Bun only, and so does a start script with bun
+    fs.rmSync(join(d, "bun.lock"));
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { start: "bun src/index.ts" }, dependencies: { elysia: "1" } }));
+    expect(detectApp(d)).toMatchObject({ name: "Bun", tool: undefined, start: "bun run start" });
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { start: "bun src/index.ts" }, dependencies: { hono: "4" } }));
+    expect(detectApp(d)).toMatchObject({ name: "Bun", start: "bun run start" });
+    fs.writeFileSync(join(d, "bun.lock"), "");
+    // a Next.js app with Bun's lockfile runs on Bun's image
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "next build", start: "next start" }, dependencies: { next: "15" } }));
+    expect(detectApp(d)).toMatchObject({ name: "Bun", tool: "Next.js", build: "bun run build" });
+  });
+
   test("other languages", () => {
     const app = (fs_: Record<string, string>) => {
       const d = tmp();
@@ -821,38 +846,37 @@ describe("folders and access", () => {
         fs.writeFileSync(join(d, f), body);
       }
       const a = detectApp(d)!;
-      return { ...a, file: a && appDockerfile(d, a, { build: a.build, start: a.start, port: a.port }) };
+      return { ...a, file: a?.dockerfile({ build: a.build, start: a.start, port: a.port }) };
     };
     const flask = app({ "requirements.txt": "flask\n", "app.py": "from flask import Flask\napp = Flask(__name__)\n" });
-    expect(flask).toMatchObject({ runtime: "Python", tool: "Flask", port: 8000, start: "gunicorn app:app --bind 0.0.0.0:$PORT" });
+    expect(flask).toMatchObject({ name: "Python", tool: "Flask", port: 8000, start: "gunicorn app:app --bind 0.0.0.0:$PORT" });
     expect(flask.file).toContain("FROM python:3.13-slim");
     expect(app({ "requirements.txt": "fastapi\n", "main.py": "app = FastAPI()\n" }).start).toMatch(/^uvicorn main:app /);
     expect(app({ "requirements.txt": "django\n", "manage.py": "", "mysite/wsgi.py": "" }).start).toMatch(/^gunicorn mysite\.wsgi/);
 
     const go = app({ "go.mod": "module x\n\ngo 1.23.4\n", "main.go": "package main\nfunc main() {}\n" });
-    expect(go).toMatchObject({ runtime: "Go", port: 8080, start: "app" });
+    expect(go).toMatchObject({ name: "Go", port: 8080, start: "app" });
     expect(go.file).toContain("FROM golang:1.23");
     // Hugo sites carry a go.mod too
-    expect(app({ "go.mod": "module x\n", "hugo.toml": "" }).runtime).not.toBe("Go");
+    expect(app({ "go.mod": "module x\n", "hugo.toml": "" }).name).not.toBe("Go");
 
     const rust = app({ "Cargo.toml": '[package]\nname = "srv"\n', "src/main.rs": "fn main() {}" });
-    expect(rust).toMatchObject({ runtime: "Rust", start: "srv" });
+    expect(rust).toMatchObject({ name: "Rust", start: "srv" });
     expect(rust.file).toContain("cp target/release/srv /out/");
 
     const spring = app({ "pom.xml": "<parent><artifactId>spring-boot-starter-parent</artifactId></parent><properties><java.version>17</java.version></properties>" });
-    expect(spring).toMatchObject({ runtime: "Java", tool: "Spring Boot (Maven)", start: "java -jar app.jar", build: "mvn -B -DskipTests package" });
+    expect(spring).toMatchObject({ name: "Java", tool: "Spring Boot (Maven)", start: "java -jar app.jar", build: "mvn -B -DskipTests package" });
     expect(spring.file).toContain("FROM maven:3-eclipse-temurin-17 AS build");
     expect(spring.file).toContain("FROM eclipse-temurin:17-jre");
     const ktor = app({ "build.gradle.kts": 'plugins { kotlin("jvm") }\ndependencies { implementation("io.ktor:ktor-server-netty") }\nkotlin { jvmToolchain(22) }', gradlew: "" });
-    expect(ktor).toMatchObject({ runtime: "Kotlin", build: "./gradlew --no-daemon buildFatJar" });
+    expect(ktor).toMatchObject({ name: "Kotlin", build: "./gradlew --no-daemon buildFatJar" });
     expect(ktor.file).toContain("FROM eclipse-temurin:25-jdk AS build");
-    expect(app({ "build.gradle": "apply plugin: 'com.android.application'" }).runtime).toBeUndefined();
+    expect(app({ "build.gradle": "apply plugin: 'com.android.application'" }).name).toBeUndefined();
 
-    expect(app({ "Api.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"><TargetFramework>net9.0</TargetFramework></Project>' })).toMatchObject({ runtime: ".NET", start: "dotnet Api.dll" });
-    expect(app({ Gemfile: "gem 'rails'\n", "config/application.rb": "" })).toMatchObject({ runtime: "Ruby", secret: "RAILS_MASTER_KEY" });
-    expect(app({ "composer.json": '{"require":{"laravel/framework":"11"}}', "public/index.php": "", artisan: "" })).toMatchObject({ runtime: "PHP", port: 80, secret: "APP_KEY" });
-    expect(app({ "mix.exs": ":phoenix" }).runtime).toBe("Elixir");
-    expect(app({ "deno.json": '{"tasks":{"start":"deno run -A main.ts"}}' })).toMatchObject({ runtime: "Deno", start: "deno task start" });
+    expect(app({ "Api.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"><TargetFramework>net9.0</TargetFramework></Project>' })).toMatchObject({ name: ".NET", start: "dotnet Api.dll" });
+    expect(app({ Gemfile: "gem 'rails'\n", "config/application.rb": "" })).toMatchObject({ name: "Ruby", secret: "RAILS_MASTER_KEY" });
+    expect(app({ "composer.json": '{"require":{"laravel/framework":"11"}}', "public/index.php": "", artisan: "" })).toMatchObject({ name: "PHP", port: 80, secret: "APP_KEY" });
+    expect(app({ "mix.exs": ":phoenix" }).name).toBe("Elixir");
     // a Procfile names the start command
     expect(app({ "requirements.txt": "", Procfile: "web: python -m srv --port $PORT\n" }).start).toBe("python -m srv --port $PORT");
   });

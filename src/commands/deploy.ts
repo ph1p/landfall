@@ -4,11 +4,11 @@ import { basename, dirname, join, normalize, relative, resolve } from "node:path
 import { defineCommand, serverOpt } from "../cmd";
 import { checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { analyze, generatedCompose, isOld, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
-import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
+import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { appDockerfile, composeFile, detectApp, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { composeFile, detectApp, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
@@ -48,12 +48,12 @@ Kinds:
               project; x-landfall: { port: 3000 } on a service routes it through Traefik
   dockerfile  the folder has a Dockerfile: uploaded and built on the server
   app         landfall writes the Dockerfile, built on the server, for
-              Node.js: a server-rendering framework (Next.js, Nuxt, TanStack Start,
+              Node.js or Bun: a server-rendering framework (Next.js, Nuxt, TanStack Start,
                 SvelteKit adapter-node, Astro Node, React Router, Remix, SolidStart)
                 or a server (Express, Fastify, NestJS, ws, Socket.IO, any start script)
               Python (Django, FastAPI, Flask, …), Go, Java/Kotlin (Maven, Gradle:
               Spring Boot, Quarkus, …), Ruby (Rails, Rack), PHP (Laravel, Symfony),
-              Rust, .NET, Elixir (Phoenix), Deno; --start overrides the command
+              Rust, .NET, Elixir (Phoenix); --start overrides the command
               (a Procfile's web: process counts too)
   static      a folder of files (auto-detects dist/, build/, out/, public/ and the
               output of Vite, Astro, Next export, Nuxt generate, SvelteKit, Hugo, …)
@@ -150,10 +150,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       ? checkInt(o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port) ?? 3000, "--port", 1, 65535)
       : undefined;
     const appBuild = app && (buildCmd ?? app.build);
-    if (app) info(c.dim(`${app.runtime} app${app.tool && app.tool !== app.runtime ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start} on port ${port}`));
+    if (app) info(c.dim(`${app.name} app${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start} on port ${port}`));
     const spa = kind === "static" && !!(o.spa ?? project.spa);
 
-    step(`deploying ${c.bold(name)} (${app ? app.runtime : kind}) to ${c.bold(serverName)}`);
+    step(`deploying ${c.bold(name)} (${app ? app.name : kind}) to ${c.bold(serverName)}`);
     const site = await readSite(server, name);
     const { env: prevEnv, proxy, exists } = site;
     const old = site.meta && isOld(site.meta) ? site.meta : undefined;
@@ -169,15 +169,15 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env));
     }
     // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
-    if (app?.note && (app.secret ? !new RegExp(`^${app.secret}=.`, "m").test(env ?? prevEnv ?? "") : !prev)) warn(app.note);
+    if (app?.note && (app.secret ? !parseEnvPairs(dotenvLines(env ?? prevEnv ?? ""))[app.secret] : !prev)) warn(app.note);
 
     // A takeover removes the old layout's release folders: the new id must not be one of them.
     const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id));
     const releaseDir = `${siteDir(name)}/releases/${id}`;
     const generated: Record<string, string> =
-      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image, app: app?.runtime }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
+      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image, app: app?.name }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
     if (app) {
-      generated.Dockerfile = appDockerfile(root, app, { build: appBuild, start: app.start, port: port! });
+      generated.Dockerfile = app.dockerfile({ build: appBuild, start: app.start, port: port! });
       if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = app.ignore.join("\n") + "\n";
     }
 
