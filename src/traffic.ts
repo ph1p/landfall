@@ -1,9 +1,9 @@
 import { X509Certificate } from "node:crypto";
 import https from "node:https";
 import type { Server } from "./config";
-import { siteDomains, type SiteMeta } from "./compose";
+import { SITE_LINES, siteDomains, readSiteLine } from "./compose";
 import { runScript } from "./ssh";
-import { PROXY_CTR, PROXY_FILE, SITES } from "./templates";
+import { PROXY_CTR, PROXY_FILE } from "./templates";
 import { fail } from "./ui";
 
 /** `24h`, `30m`, `7d`, `90s` → seconds; at most 30 days, what a container log keeps at best. */
@@ -20,9 +20,6 @@ export const spanLabel = (secs: number) => (secs % 86400 === 0 ? `${secs / 86400
 
 /** Up to 6 hours per minute, longer spans per hour: a chart stays at a few hundred points. */
 const bucketLen = (secs: number) => (secs <= 6 * 3600 ? 16 : 13);
-
-/** Site and their hosts, the same way every view of a server reads them. */
-const SITE_LINES = `for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done`;
 
 /**
  * Traefik's JSON access log, aggregated on the server: only counts cross ssh, never a line per request.
@@ -189,10 +186,8 @@ function siteHosts(out: string): Map<string, string> {
   const sites = new Map<string, string>();
   for (const line of out.split("\n")) {
     if (!line.startsWith("SITE\t")) continue;
-    try {
-      const meta = JSON.parse(line.slice(5)) as SiteMeta;
-      for (const d of siteDomains(meta)) sites.set(d.toLowerCase(), meta.name);
-    } catch {}
+    const meta = readSiteLine(line);
+    for (const d of meta ? siteDomains(meta) : []) sites.set(d.toLowerCase(), meta!.name);
   }
   return sites;
 }
@@ -273,7 +268,7 @@ export function siteTraffic(t: Traffic, site: string): Detail | null {
  * (dynamic/). Only certificates leave the server, never keys: from acme.json the "certificate" fields,
  * from files the first CERTIFICATE block. Plus the proxy's ACME errors in the span.
  */
-export const CERTS = (secs: number) => String.raw`
+const CERTS = (secs: number) => String.raw`
 set +e
 P=${PROXY_CTR}
 if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi

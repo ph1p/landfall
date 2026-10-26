@@ -1,5 +1,5 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, loadProject, resolveServer } from "../config";
+import { DOMAIN, projectServer } from "../config";
 import { bytes } from "../facts";
 import { overview } from "../remote";
 import { CERT_DAYS_BAD, certs, checkUrl, parseSince, siteTraffic, spanLabel, traffic, type Cert, type Check, type Detail, type Summary } from "../traffic";
@@ -56,7 +56,7 @@ export const trafficCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run([site], o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     const secs = parseSince(o.since);
     const t = await traffic(server, secs);
     if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
@@ -125,7 +125,7 @@ export const certsCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     const r = await certs(server, parseSince(o.since));
     if (o.json) return void console.log(JSON.stringify(r, null, 2));
     if (!r.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
@@ -164,7 +164,7 @@ export const checkCmd = defineCommand({
     let targets = args.filter(isDomain).map((domain) => ({ domain, site: undefined as string | undefined }));
     const sites = args.filter((a) => !isDomain(a));
     if (!args.length || sites.length) {
-      const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+      const { name, server } = projectServer(o.server);
       const ov = await overview(server);
       for (const s of sites) if (!ov.sites.some((x) => x.meta.name === s)) fail(`no site "${s}" on ${name}. See \`lf ls\``);
       const pick = ov.sites.filter((x) => !sites.length || sites.includes(x.meta.name));

@@ -62,7 +62,7 @@ const SUBJECT = new RegExp(`${reEsc(SITES)}/[A-Za-z0-9._-]+|${reEsc(TRAEFIK_DIR)
  * What an undo shell puts back: site folders, traefik, and files it restores by absolute path.
  * Undos are full snapshots, so two steps on the same subject only undo newest first.
  */
-export function subjects(undo: string): Set<string> {
+function subjects(undo: string): Set<string> {
   const out = new Set<string>();
   for (const m of undo.matchAll(SUBJECT)) out.add(m[0]);
   for (const m of undo.matchAll(/restore_file \S+ '?(\/[^\s';]+)/g)) out.add(m[1]);

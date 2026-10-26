@@ -1,15 +1,15 @@
 import type { Server } from "./config";
-import { builtImage, type SiteMeta } from "./compose";
+import { builtImage, SITE_LINES, readSiteLine } from "./compose";
 import { parseSize } from "./stats";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
-import { JOURNAL, PRELUDE, SITES } from "./templates";
+import { JOURNAL, PRELUDE } from "./templates";
 
 /**
  * What `lf prune` may remove. Kept: images any container uses (stopped ones too: `lf start` needs them),
  * images built for a site release (rollback runs them without rebuilding) and image IDs the journal
  * names (undo of `lf update` re-tags the image it replaced, which is dangling by then).
  */
-export const PRUNE_PLAN = String.raw`
+const PRUNE_PLAN = String.raw`
 set +e
 command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || { echo "NODOCKER"; exit 0; }
 docker image ls -a --no-trunc --format 'IMG\t{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}'
@@ -19,7 +19,7 @@ ids=$(docker ps -aq)
 { cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null; } | awk -F'\t' '{ print $NF }' \
   | while IFS= read -r b; do [ -n "$b" ] && printf %s "$b" | base64 -d 2>/dev/null; echo; done \
   | grep -o 'sha256:[0-9a-f]\{64\}' | sort -u | sed 's/^/KEEP\t/'
-for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\t'; tr -d '\n' < "$f"; echo; done
+${SITE_LINES}
 docker system df --format 'DF\t{{.Type}}\t{{.Reclaimable}}' 2>/dev/null
 exit 0
 `;
@@ -62,10 +62,8 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
     } else if (f[0] === "USED" && f[1]) used.add(f[1]);
     else if (f[0] === "KEEP" && f[1]) undo.add(f[1]);
     else if (f[0] === "SITE") {
-      try {
-        const m = JSON.parse(f.slice(1).join("\t")) as SiteMeta;
-        for (const r of m.releases ?? []) for (const s of r.services ?? []) if (s.build) release.add(builtImage(m.name, s.name, r.id));
-      } catch {}
+      const m = readSiteLine(line);
+      for (const r of m?.releases ?? []) for (const s of r.services ?? []) if (s.build) release.add(builtImage(m!.name, s.name, r.id));
     } else if (f[0] === "DF" && /build/i.test(f[1] ?? "")) plan.buildCache = parseSize((f[2] ?? "").split(" ")[0]);
   }
   for (const img of byId.values()) {

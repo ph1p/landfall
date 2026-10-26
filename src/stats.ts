@@ -1,11 +1,11 @@
 import type { Server } from "./config";
-import type { SiteMeta } from "./compose";
+import { SITE_LINES, readSiteLine } from "./compose";
 import { siteProject } from "./remote";
 import { runScript } from "./ssh";
 import { ROOT, SITES } from "./templates";
 
 /** Two samples a second apart: CPU and network are rates, a single read has none. */
-export const STATS = String.raw`
+const STATS = String.raw`
 set +e
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 kv() { printf '%s=%s\n' "$1" "$2"; }
@@ -38,7 +38,7 @@ if [ -n "$D" ]; then
   docker ps -a --format 'CTR\t{{.Names}}\t{{.Status}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.Image}}'
   ids=$(docker ps -aq)
   [ -z "$ids" ] || docker inspect -f 'RST{{"\t"}}{{.Name}}{{"\t"}}{{.RestartCount}}' $ids 2>/dev/null
-  for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\t'; tr -d '\n' < "$f"; echo; done
+  ${SITE_LINES}
 fi
 exit 0
 `;
@@ -120,10 +120,8 @@ export function parseStats(out: string, now = new Date()): Stats {
     else if (k === "RST") restarts.set(f[1].replace(/^\//, ""), Number(f[2]) || 0);
     else if (k === "CTR") ctrs.push(f);
     else if (k === "SITE") {
-      try {
-        const meta = JSON.parse(line.slice(5)) as SiteMeta;
-        sites.set(siteProject(meta), meta.name);
-      } catch {}
+      const meta = readSiteLine(line);
+      if (meta) sites.set(siteProject(meta), meta.name);
     } else if (line.includes("=")) v[line.slice(0, line.indexOf("="))] = line.slice(line.indexOf("=") + 1).trim();
   }
   const cpus = Number(v.cpus) || 1;

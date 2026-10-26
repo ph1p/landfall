@@ -4,11 +4,11 @@ import { parseRule, type Rule } from "../inventory";
 import { findRun, laterConflicts, pending, readJournal, undoSteps, type Run, type Step } from "../journal";
 import { JOURNAL } from "../templates";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn } from "../ui";
-import { firewallState, guardSsh } from "./firewall";
+import { firewallState, guardSsh } from "../firewall";
 import { historyView } from "../views";
 
 /** One step as `lf history` and `lf undo` print it. */
-export function stepLine(x: Step, i: number) {
+function stepLine(x: Step, i: number) {
   const n = c.dim(`${i + 1}.`.padStart(4));
   if (x.reverts) return `${n} ${c.dim("↩ " + x.what)}`;
   if (x.undone) return `${n} ${c.dim(`✓ ${x.what} (undone)`)}`;

@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import type { Server } from "./config";
-import { canLogin, runScript, shq } from "./ssh";
+import { runScript, shq } from "./ssh";
+import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
 import { fail } from "./ui";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
-export const SYSTEM = String.raw`
+const SYSTEM = String.raw`
 set +e
 kv() { printf '%s=%s\n' "$1" "$2"; }
 SUDO=""; R=1
@@ -184,7 +185,7 @@ export function parseKeyLine(line: string): Omit<AuthorizedKey, "user"> | undefi
 }
 
 /** Fingerprints of the public keys next to the identity files this machine uses for `s`. */
-export function localFingerprints(s: Server): Set<string> {
+function localFingerprints(s: Server): Set<string> {
   const out = new Set<string>();
   for (const f of effectiveSsh(s).identityFiles) {
     try {
@@ -273,9 +274,8 @@ export async function system(s: Server): Promise<SystemInfo> {
 export async function fullSystem(s: Server): Promise<SystemInfo> {
   const i = await system(s);
   if (i.root) return i;
-  const me = effectiveSsh(s).user;
-  for (const user of ["root", s.admin]) if (user && user !== me && (await canLogin({ ...s, user }))) return system({ ...s, user });
-  return i;
+  const root = await rootLogin(s);
+  return root ? system(root) : i;
 }
 
 // Changes. Each runs as a login with root or passwordless sudo (adminLogin) and journals its undo.
@@ -350,7 +350,7 @@ export function parseSwapSize(v: string): number {
 
 const FSTAB = "/swapfile none swap sw 0 0";
 
-export const ADD_SWAP = (mb: number) => String.raw`
+const ADD_SWAP = (mb: number) => String.raw`
 if [ -e /swapfile ]; then log "/swapfile exists already: lf swap off first"; exit 1; fi
 mk() { # fallocate is instant but makes files swapon refuses on some filesystems (btrfs, older xfs): dd then
   { $SUDO fallocate -l ${mb}M /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=${mb} status=none; } &&
@@ -370,7 +370,7 @@ fi
 
 export const addSwap = (s: Server, bytes: number) => runScript(s, PRELUDE + ADD_SWAP(Math.round(bytes / 1024 / 1024)));
 
-export const REMOVE_SWAP = String.raw`
+const REMOVE_SWAP = String.raw`
 [ -e /swapfile ] || { log "no /swapfile: landfall only removes the swap file it made"; exit 1; }
 $SUDO swapoff /swapfile
 $SUDO rm -f /swapfile

@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { addKeyFirst, harden, HARDEN_PARTS, lockedOutOn, printAdvice, securityOf, type HardenPart } from "../security";
 import { effectiveSsh } from "../sshconfig";
-import { adminLogin } from "../updates";
+import { adminLogin } from "../privilege";
 import { c, confirm, fail, ok, report, table } from "../ui";
 import { limitedNote, target } from "./system";
 

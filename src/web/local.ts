@@ -16,7 +16,7 @@ export function browse(path?: string) {
   return { path: dir, parent: dirname(dir) === dir ? null : dirname(dir), home: homedir(), dirs, detected: detectProject(dir) };
 }
 
-export const isDir = (p: string) => {
+const isDir = (p: string) => {
   try {
     return fs.statSync(p).isDirectory();
   } catch {

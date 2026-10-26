@@ -13,11 +13,10 @@ import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
 import { SITE_NAME, overview } from "../remote";
 import { parseSince } from "../traffic";
-import { configView, diskView, dnsView, factsView, firewallView, historyView, pruneView, statsView, systemView, trafficView, certsView, updatesView } from "../views";
+import { configView, defaultsView, diskView, dnsView, factsView, firewallView, historyView, pruneView, statsView, systemView, trafficView, certsView, updatesView } from "../views";
 import { newRunId, setQuiet } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../templates";
 import { c, openUrl } from "../ui";
-import { defaultsView } from "../commands/config";
 
 interface WebJob {
   id: string;

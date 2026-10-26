@@ -155,7 +155,7 @@ export const checkDomain = (d: string) => {
 };
 
 /** A Docker image reference; nothing a shell or YAML would read specially. */
-export const IMAGE = /^[a-z0-9][a-z0-9._\-/:@]*$/i;
+const IMAGE = /^[a-z0-9][a-z0-9._\-/:@]*$/i;
 
 export const checkImage = (image: string) => (IMAGE.test(image) ? image : fail(`not an image: ${image}`));
 
@@ -166,6 +166,8 @@ export function checkInt(v: unknown, what: string, min: number, max = Number.MAX
   return n;
 }
 
+/** list with add appended and rm taken out, without duplicates. */
+export const editList = (list: string[], add: string[], rm: string[]) => [...new Set([...list, ...add])].filter((d) => !rm.includes(d));
 /** The main domains with `d` (if given) first. */
 export const withPrimary = (domains: string[] | undefined, d?: string) => (d ? [...new Set([d, ...(domains ?? [])])] : domains);
 
@@ -229,7 +231,7 @@ export interface ProjectConfig {
 }
 
 /** The project file in a directory: .landfall.json, or the older one. */
-export const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
+const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
 export function loadProject(cwd: string): ProjectConfig | undefined {
   try {
@@ -238,6 +240,9 @@ export function loadProject(cwd: string): ProjectConfig | undefined {
     return undefined;
   }
 }
+
+/** The server from --server, else the one in ./.landfall.json, else the default. */
+export const projectServer = (server?: string) => resolveServer(server ?? loadProject(process.cwd())?.server);
 
 export function saveProject(cwd: string, p: ProjectConfig) {
   fs.writeFileSync(join(cwd, PROJECT_FILE), JSON.stringify(p, null, 2) + "\n");

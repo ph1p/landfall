@@ -1,20 +1,7 @@
 import { builtImage } from "./compose";
 import type { Server } from "./config";
-import { canLogin, runScript, shq } from "./ssh";
-import { effectiveSsh } from "./sshconfig";
+import { runScript, shq } from "./ssh";
 import { COMPOSE_INSTALL, COMPOSE_PLUGIN, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
-import { fail } from "./ui";
-
-/** The login that may run root commands: the server's own if it is root or has sudo, else root's key login. */
-export async function adminLogin(s: Server, what: string): Promise<Server> {
-  const { stdout } = await runScript(s, `{ [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; } && echo yes || true`, { capture: true });
-  if (stdout.trim() === "yes") return s;
-  const me = effectiveSsh(s).user;
-  for (const user of ["root", s.admin]) {
-    if (user && user !== me && (await canLogin({ ...s, user }))) return { ...s, user };
-  }
-  return fail(`${what} needs root or passwordless sudo; ${me} has neither and root's key login does not work`);
-}
 
 // ---------------------------------------------------------------- OS packages
 
@@ -95,7 +82,7 @@ export async function pkgStatus(s: Server, refresh = true): Promise<PkgStatus> {
 }
 
 /** Upgrade all packages, or only ONLY (names). Not reversible. Env: ONLY WHAT REBOOT */
-export const PKG_UPGRADE = String.raw`
+const PKG_UPGRADE = String.raw`
 if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then echo "upgrading packages needs root or passwordless sudo" >&2; exit 1; fi
 keep="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 case "$(pkg_mgr)" in
@@ -156,7 +143,6 @@ const MANIFESTS = [
   "application/vnd.oci.image.manifest.v1+json",
 ].join(", ");
 
-/** The digest a tag points to now, asked from the registry anonymously (no pull). Undefined: private or unreachable. */
 /** A registry API call, with the anonymous token dance registries ask for. Undefined when unreachable. */
 async function registry(r: ImageRef, path: string, method = "GET"): Promise<Response | undefined> {
   const url = path.startsWith("https://") ? path : `https://${r.registry}/v2/${r.repo}/${path}`;
@@ -183,14 +169,15 @@ async function registry(r: ImageRef, path: string, method = "GET"): Promise<Resp
   }
 }
 
-export async function remoteDigest(ref: string): Promise<string | undefined> {
+/** The digest a tag points to now, asked from the registry anonymously (no pull). Undefined: private or unreachable. */
+async function remoteDigest(ref: string): Promise<string | undefined> {
   const r = parseRef(ref);
   if (r.digest) return r.digest;
   return (await registry(r, `manifests/${r.tag}`, "HEAD"))?.headers.get("docker-content-digest") || undefined;
 }
 
 /** Every tag of the image's repository (a few pages at most). */
-export async function remoteTags(ref: string): Promise<string[]> {
+async function remoteTags(ref: string): Promise<string[]> {
   const r = parseRef(ref);
   const tags: string[] = [];
   let next: string | undefined = "tags/list?n=1000";
@@ -239,7 +226,7 @@ export const withTag = (ref: string, tag: string) => `${ref.slice(0, ref.lastInd
 
 const latest = new Map<string, Promise<string | undefined>>();
 /** The newest release of a GitHub project, from the /releases/latest redirect (no API rate limit). */
-export function latestRelease(repo: string): Promise<string | undefined> {
+function latestRelease(repo: string): Promise<string | undefined> {
   if (!latest.has(repo))
     latest.set(
       repo,

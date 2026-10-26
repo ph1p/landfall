@@ -115,7 +115,7 @@ function hostProxy(port: number, to: number, as: AsHost, host: string) {
 }
 
 /** This machine's IPv4 addresses on its networks (Wi-Fi, ethernet, VPN): where other devices reach it. */
-export const lanAddresses = () =>
+const lanAddresses = () =>
   Object.values(os.networkInterfaces())
     .flatMap((l) => l ?? [])
     .filter((a) => a.family === "IPv4" && !a.internal)

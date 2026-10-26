@@ -1,49 +1,12 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer, type Server } from "../config";
+import { resolveServer } from "../config";
 import { noUfw } from "../facts";
-import { enableBlocks, parseRule, probeServer, reachability, ruleFor, type Probe, type Reach, type Rule } from "../inventory";
+import { parseRule, type Rule } from "../inventory";
 import { runScript, shq } from "../ssh";
-import { effectiveSsh } from "../sshconfig";
 import { PRELUDE } from "../templates";
-import { adminLogin } from "../updates";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn } from "../ui";
 import { firewallView } from "../views";
-
-export interface FirewallState {
-  /** The login that may change the firewall: the server's own if it has sudo, else root. */
-  login: Server;
-  ufw: "active" | "inactive" | "missing";
-  /** Default for incoming traffic: DROP, REJECT or ACCEPT. */
-  policy: string;
-  sshPort: number;
-  rules: Rule[];
-  ports: Reach[];
-  /** What `firewall enable` would cut off. */
-  blocked: string[];
-  probe: Probe;
-}
-
-/** Reads the firewall as root or with sudo; a deploy user without sudo falls back to root's key login. */
-export async function firewallState(server: Server): Promise<FirewallState> {
-  let login = server;
-  let probe = await probeServer(login);
-  if (probe.values.sudo !== "1") {
-    login = await adminLogin(server, "the firewall");
-    probe = await probeServer(login);
-  }
-  const v = probe.values;
-  const sshPort = Number(v.ssh_port) || effectiveSsh(server).port;
-  return {
-    login,
-    ufw: v.ufw === "active" ? "active" : v.ufw === "missing" ? "missing" : "inactive",
-    policy: v.ufw_in || "DROP",
-    sshPort,
-    rules: probe.rules.map(parseRule),
-    ports: reachability(probe),
-    blocked: enableBlocks(probe, [sshPort]).blocked,
-    probe,
-  };
-}
+import { firewallState, guardSsh, type FirewallState } from "../firewall";
 
 const PORT = /^\d+(:\d+)?(,\d+(:\d+)?)*(\/(tcp|udp))?$/;
 const ADDR = /^[0-9a-fA-F.:]+(\/\d+)?$/;
@@ -69,11 +32,11 @@ export function ruleArgs(r: NewRule): string[] {
 const ufwAdd = (args: string[]) => `ufw_add ${args.map(shq).join(" ")}`;
 /** Adds a rule; a deny goes first so it wins over an allow for the same port (ufw rejects prepend on an empty list). */
 const addRule = (args: string[]) => (args[0] === "deny" ? `${ufwAdd(["prepend", ...args])} 2>/dev/null || ${ufwAdd(args)}` : ufwAdd(args));
-/** Journals the delete of an existing rule with the shell that adds it back. */
 /** Re-adds a deleted rule: at its old number when known, else where its action belongs. */
 const readd = (r: Rule, at?: number) =>
   `${at ? `$SUDO ufw insert ${at} ${r.spec} >/dev/null 2>&1 || ` : ""}$SUDO ufw ${r.action === "allow" || r.action === "limit" ? "" : "prepend "}${r.spec} >/dev/null 2>&1 || $SUDO ufw ${r.spec} >/dev/null`;
 
+/** Journals the delete of an existing rule with the shell that adds it back. */
 const deleteRule = (r: Rule, at?: number) =>
   `$SUDO ufw --force delete ${r.spec} >/dev/null
 record ${shq(`ufw delete ${r.spec}`)} ${shq(readd(r, at))}`;
@@ -92,16 +55,6 @@ function ufwUsable(fw: FirewallState) {
 }
 const NEEDS_UFW = `command -v ufw >/dev/null || { echo "ufw is not installed (lf firewall enable installs it)" >&2; exit 1; }`;
 
-/** Refuses a change that leaves ssh blocked while ufw is on, unless --force or the user says so. */
-export async function guardSsh(fw: FirewallState, after: Rule[], force?: boolean) {
-  if (fw.ufw !== "active") return;
-  const ssh = { proto: "tcp" as const, port: fw.sshPort };
-  const r = ruleFor(after, ssh)?.rule;
-  if (r && (r.action === "allow" || r.action === "limit") && !r.from) return;
-  const why = r?.from ? `only ${r.from} could still reach ssh port ${fw.sshPort}` : `this blocks ssh port ${fw.sshPort} and can lock you out`;
-  if (force || (await confirmRisky(`${why}. Do it anyway?`))) return;
-  fail(`${why} (--force to do it anyway)`);
-}
 
 function pick(fw: FirewallState, which: string): { rule: Rule; n: number } {
   const n = /^\d+$/.test(which) ? Number(which) : fw.rules.findIndex((r) => r.spec === which) + 1;

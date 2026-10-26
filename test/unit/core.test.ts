@@ -7,16 +7,17 @@ import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
 import { detectApp, detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
 import { portScheme, routerPort } from "../../src/tunnel";
-import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
-import { htpasswd, traefikSettings } from "../../src/commands/traefik";
+import { ruleArgs } from "../../src/commands/firewall";
+import { guardSsh, type FirewallState } from "../../src/firewall";
+import { htpasswd, traefikSettings } from "../../src/traefik";
 import { defineCommand, journalCmd, parse, secretEnv } from "../../src/cmd";
-import { baseDomain, checkEmail, checkLoginName, checkImage, checkInt, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
+import { baseDomain, checkEmail, checkLoginName, checkImage, checkInt, expandDomain, guessDomains, withPrimary } from "../../src/config";
 import { findRun, laterConflicts, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
 import { containerPorts, dashboardHosts, dotenvLines, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
 import { secretsOut } from "../../src/web/server";
 import { shq, writeFileCmd } from "../../src/ssh";
-import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
+import { removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
 import { changes } from "../../src/dashboard";
 import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/stats";
@@ -779,6 +780,20 @@ describe("folders and access", () => {
     pkg({ vite: "7" });
     fs.writeFileSync(join(d, ".landfall.json"), JSON.stringify({ name: "x", domains: [], start: "node srv.js", port: 8080 }));
     expect(detectProject(d)).toMatchObject({ kind: "dockerfile", start: "node srv.js", tool: undefined, port: 8080, build: "npm run build" });
+    // saved volumes and worker come back, for an app as for a Dockerfile
+    fs.writeFileSync(join(d, ".landfall.json"), JSON.stringify({ name: "x", domains: [], start: "node worker.js", worker: true, volumes: ["/app/data"] }));
+    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", worker: true, volumes: ["/app/data"] });
+    fs.writeFileSync(join(d, "Dockerfile"), "FROM x\n");
+    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", worker: true, volumes: ["/app/data"] });
+    // saved empty (--volume ''): no volumes, not the app's defaults
+    const rails = tmp();
+    fs.writeFileSync(join(rails, "Gemfile"), "gem 'rails'\ngem 'sqlite3'\n");
+    fs.mkdirSync(join(rails, "config"));
+    fs.writeFileSync(join(rails, "config/application.rb"), "");
+    fs.writeFileSync(join(rails, "config/database.yml"), "production:\n  database: storage/production.sqlite3\n");
+    expect(detectProject(rails).volumes).toEqual(["/app/storage"]);
+    fs.writeFileSync(join(rails, ".landfall.json"), JSON.stringify({ name: "x", domains: [], volumes: [] }));
+    expect(detectProject(rails).volumes).toEqual([]);
   });
 
   test("the Dockerfile for a Node.js app", () => {

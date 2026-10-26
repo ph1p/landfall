@@ -16,7 +16,7 @@ export const PROXY_FILE = `${ROOT}/proxy.env`;
 /** Append-only log of every change landfall made, each with the shell that reverts it (lf log, lf undo). */
 export const JOURNAL = `${ROOT}/journal.log`;
 /** Backups `saved` keeps per file; undo of an older change leaves that file as it is. */
-export const KEEP_BACKUPS = 10;
+const KEEP_BACKUPS = 10;
 /** sshd drop-in written by setup's hardening. */
 export const SSHD_CONF = "/etc/ssh/sshd_config.d/00-landfall.conf";
 
@@ -48,7 +48,6 @@ export const proxyFile = (p: Proxy) =>
   `# landfall routes its sites through this existing traefik; delete the file to let landfall run its own\n` +
   `container=${p.container}\nnetwork=${p.network}\nentrypoint=${p.entrypoint}\nresolver=${p.resolver}\n`;
 
-/** Shared shell helpers prepended to every remote script. */
 /** Sets PRETTY_NAME, ID and VERSION_ID; needs kv(). Prints platform for systems that install their own way. */
 export const OS_RELEASE = `PRETTY_NAME=unknown; ID=; VERSION_ID=; ID_LIKE=; . /etc/os-release 2>/dev/null
 # Synology DSM has no os-release, only /etc/VERSION.
@@ -96,6 +95,7 @@ dnf_auto_updates() {
 apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/crontabs/root 2>/dev/null || true; } | grep 'apk .*upgrade' >/dev/null; }
 `;
 
+/** Shared shell helpers prepended to every remote script. */
 export const PRELUDE = String.raw`
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
 SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
@@ -252,10 +252,6 @@ pw=$(sshd_passwords)
 [ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
 `;
 
-/**
- * Idempotent bootstrap: Docker, deploy user with our key, firewall, SSH hardening.
- * Env: PUBKEY DEPLOY_USER SSH_PORT HARDEN FIREWALL
- */
 /** Where setup puts the official compose plugin when the distro has none (or only v1). */
 export const COMPOSE_PLUGIN = "/usr/local/lib/docker/cli-plugins/docker-compose";
 
@@ -274,7 +270,7 @@ compose_install() {
 `;
 
 /** /opt/landfall/README: how to run everything here without landfall. Rewritten by every setup. */
-export const SERVER_README = `This server is run by landfall (https://www.npmjs.com/package/landfall).
+const SERVER_README = `This server is run by landfall (https://www.npmjs.com/package/landfall).
 Everything here works without it: it is plain Docker Compose.
 
 ${TRAEFIK_DIR}/          Traefik: docker-compose.yml, letsencrypt/ (certificates), dynamic/ (file provider)
@@ -295,6 +291,10 @@ Named volumes (databases, uploads) belong to the project, not the release: they 
 deploys and rollbacks. "lf sites rm" keeps them; "lf sites rm --volumes" deletes them.
 `;
 
+/**
+ * Idempotent bootstrap: Docker, deploy user with our key, firewall, SSH hardening.
+ * Env: PUBKEY DEPLOY_USER SSH_PORT HARDEN FIREWALL
+ */
 export const BOOTSTRAP = String.raw`
 ${COMPOSE_INSTALL}
 if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then

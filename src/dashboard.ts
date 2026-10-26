@@ -14,7 +14,7 @@ export interface Entry {
 const GIT_HOSTS = /(^|\.)(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht|dev\.azure\.com|visualstudio\.com)$|^(git|gitlab|gitea|forgejo)\./i;
 
 /** An ssh alias for a git host: by its name, the HostName it resolves to, or `User git`. */
-export function isGitHost(alias: string): boolean {
+function isGitHost(alias: string): boolean {
   if (GIT_HOSTS.test(alias)) return true;
   try {
     const eff = effectiveSsh({ host: alias });
@@ -27,7 +27,7 @@ export function isGitHost(alias: string): boolean {
 const LOOPBACK = /^(localhost|127(\.\d+){3}|::1|0:0:0:0:0:0:0:1)$/i;
 
 /** An ssh alias for this machine (a Colima/Lima/OrbStack VM forwarded to 127.0.0.1): no public IP, not a server. */
-export function isLocalHost(alias: string): boolean {
+function isLocalHost(alias: string): boolean {
   if (LOOPBACK.test(alias)) return true;
   try {
     return LOOPBACK.test(effectiveSsh({ host: alias }).hostname);
