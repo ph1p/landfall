@@ -1,0 +1,264 @@
+import { useEffect, type ReactNode } from "react";
+import { S, plural, sv, type Any } from "../lib/store";
+import { ensure, load } from "../lib/api";
+import { run } from "../lib/jobs";
+import { Actions, Badge, Body, Btn, Card, CardHead, Empty, Note, Scroll, Spin, Sub, pending, cx, NUM, HIDE } from "../ui/kit";
+import { can, size } from "./shared";
+import { Meter, Meters } from "./stats";
+
+// ---- traffic ---------------------------------------------------------------
+
+const TRAFFIC_SPANS = [["1h", "Last hour"], ["24h", "24 hours"], ["7d", "7 days"]] as const;
+const CLASSES = ["2xx", "3xx", "4xx", "5xx"] as const;
+const CLASS_COLORS: Record<string, string> = { "2xx": "var(--accent)", "3xx": "var(--faint)", "4xx": "var(--warn)", "5xx": "var(--bad)" };
+const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
+const count = (v: number) => v.toLocaleString();
+const sv2 = (n: string) => (S.state.defaults.default === n ? "" : ` -s ${n}`);
+
+/** Requests per minute or hour, stacked by status class; hover a bar for its numbers. */
+function TrafficChart({ series, bucket }: { series: Any[]; bucket: string }) {
+  const W = 600, H = 120;
+  const tot = series.map((x) => x["2xx"] + x["3xx"] + x["4xx"] + x["5xx"]);
+  const max = Math.max(1, ...tot);
+  const bw = W / series.length;
+  const gap = bw > 4 ? 1 : 0;
+  const when = (at: string) => (bucket === "hour" ? new Date(`${at}:00:00Z`) : new Date(`${at}:00Z`));
+  const label = (at: string) => (bucket === "hour" ? when(at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : when(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  return (
+    <div className="relative">
+      <div className="absolute top-[-2px] left-0 text-xs faint">{count(max)}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Requests per ${bucket}`} className="block w-full h-[120px] border-b border-line">
+        {series.map((x, i) => {
+          let y = H;
+          const tip = `${label(x.at)}: ${count(tot[i])} requests${(["4xx", "5xx"] as const).filter((k) => x[k]).map((k) => `, ${count(x[k])} ${k}`).join("")}`;
+          return (
+            <g key={x.at}>
+              <title>{tip}</title>
+              <rect x={i * bw} y={0} width={bw} height={H} fill="transparent" />
+              {CLASSES.filter((k) => x[k]).map((k) => {
+                const h = Math.max(1, (x[k] / max) * (H - 4));
+                y -= h;
+                return <rect key={k} x={i * bw + gap / 2} y={y} width={Math.max(0.5, bw - gap)} height={h} fill={CLASS_COLORS[k]} />;
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="grid grid-cols-3 text-xs faint mt-1">
+        {[0, Math.floor(series.length / 2), series.length - 1].map((i, j) => (
+          <span key={j} className={["text-left", "text-center", "text-right"][j]}>{label(series[i].at)}</span>
+        ))}
+      </div>
+      <div className="flex gap-3.5 text-xs text-dim mt-2">
+        {Object.entries(CLASS_COLORS).map(([k, col]) => (
+          <span key={k}><i className="inline-block w-2.5 h-2.5 rounded-[2px] mr-[5px] align-[-1px]" style={{ background: col }} />{k}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const ErrorCell = ({ status }: { status: number }) => <Badge kind={status >= 500 ? "bad" : "warn"}>{status}</Badge>;
+const Zero = () => <span className="faint">0</span>;
+
+/** A card with a table, or nothing when there are no rows. */
+function List({ title, cols, rows }: { title: string; cols: [string, string?][]; rows: ReactNode[] }) {
+  if (!rows.length) return null;
+  return (
+    <Card>
+      <CardHead>{title}</CardHead>
+      <Scroll>
+        <table>
+          <thead><tr>{cols.map(([c, cls]) => <th key={c} className={cls}>{c}</th>)}</tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+      </Scroll>
+    </Card>
+  );
+}
+
+/** Traefik's access log: requests, errors, response times, by site and path. */
+export function TrafficView({ n }: { n: string }) {
+  useEffect(() => ensure("certs", n, "/certs"));
+  const st = S.traffic[n];
+  const spans = (
+    <Actions className="m-0 mb-3.5">
+      {TRAFFIC_SPANS.map(([v, l]) => (
+        <Btn key={v} cls={`sm${S.since === v ? " primary" : ""}`} title={`lf traffic --since ${v}`} on={() => ((S.since = v), load(n, "traffic", true))}>{l}</Btn>
+      ))}
+    </Actions>
+  );
+  const wait = pending(st, "reading Traefik's access log…");
+  if (wait) return <>{spans}{wait}</>;
+  const t = st.data;
+  if (!t.proxy) return <Note>No Traefik on {n}: nothing to count. Set up the server to install it.</Note>;
+  if (t.format === "common")
+    return (
+      <>
+        <Note kind="warn">
+          Traefik writes its access log as plain text.{" "}
+          {t.own ? (
+            <>Add <span className="mono">--accesslog.format=json</span> to its command to see traffic here.</>
+          ) : (
+            <Btn cls="sm" title="lf traefik setup: restarts Traefik for a moment" on={() => run(["traefik", "setup", ...sv(n), "-y"], { server: n, after: () => (load(n, "traffic", true), []) })}>Switch to JSON</Btn>
+          )}
+        </Note>
+        <CertsCard n={n} />
+      </>
+    );
+  if (t.format === "none")
+    return (
+      <>
+        {spans}
+        <Card><Empty title="No requests in this span"><p className="dim">Traefik's access log has nothing from the last {S.since}.</p></Empty></Card>
+        <CertsCard n={n} />
+      </>
+    );
+  const T = t.total;
+  const errs = T.classes["4xx"] + T.classes["5xx"];
+  const pct = (v: number) => (T.requests ? Math.round((v / T.requests) * 1000) / 10 : 0);
+  const other = t.hosts.filter((h: Any) => !h.site);
+  const row = (key: string, label: ReactNode, x: Any) => (
+    <tr key={key}>
+      <td>{label}</td>
+      <td className={NUM}>{count(x.requests)}</td>
+      <td className={NUM}>{x.classes["4xx"] ? <Badge kind="warn">{count(x.classes["4xx"])}</Badge> : <Zero />}</td>
+      <td className={NUM}>{x.classes["5xx"] ? <Badge kind="bad">{count(x.classes["5xx"])}</Badge> : <Zero />}</td>
+      <td className={cx(NUM, HIDE)}>{ms(x.p50)}</td>
+      <td className={cx(NUM, HIDE)}>{ms(x.p95)}</td>
+      <td className={cx(NUM, HIDE)}>{size(x.bytes)}</td>
+    </tr>
+  );
+  const reach = t.from && +new Date(t.from) - (Date.now() - t.since * 1000) > (t.bucket === "hour" ? 2 * 3_600_000 : 120_000) ? ` · the log reaches back to ${new Date(t.from).toLocaleString()}` : "";
+  return (
+    <>
+      {spans}
+      <Meters>
+        <Meter label="Requests" p={null} value={count(T.requests)} sub={`${plural(t.sites.length, "site")} · ${size(T.bytes)} sent`} />
+        <Meter label="Server errors" p={null} value={count(T.classes["5xx"])} sub={`${pct(T.classes["5xx"])}% · 5xx: the site failed`} />
+        <Meter label="Client errors" p={null} value={count(T.classes["4xx"])} sub={`${pct(T.classes["4xx"])}% · 4xx: not found, denied`} />
+        <Meter label="Response time" p={null} value={ms(T.p50)} sub={`median · 95% within ${ms(T.p95)}`} hint="From Traefik receiving the request to the last byte sent" />
+      </Meters>
+      <Card>
+        <CardHead>Requests per {t.bucket} {errs ? <Sub>{count(errs)} failed</Sub> : null}</CardHead>
+        <Body><TrafficChart series={T.series} bucket={t.bucket} /></Body>
+      </Card>
+      <Card>
+        <CardHead>By site</CardHead>
+        <Scroll>
+          <table>
+            <thead>
+              <tr>
+                <th>Site</th><th className={NUM}>Requests</th><th className={NUM}>4xx</th><th className={NUM}>5xx</th>
+                <th className={cx(NUM, HIDE)}>Median</th><th className={cx(NUM, HIDE)}>95%</th><th className={cx(NUM, HIDE)}>Sent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {t.sites.map((x: Any) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x))}
+              {other.slice(0, 10).map((h: Any) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h))}
+            </tbody>
+          </table>
+        </Scroll>
+        {other.length > 0 && (
+          <Body className="faint pt-0">Hosts without a site: bots asking for the server's IP or old domains{other.length > 10 ? `, ${other.length - 10} more` : ""}.</Body>
+        )}
+      </Card>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-x-4 gap-y-5 mt-5 [&>.card]:mt-0! [&+.card]:mt-5">
+        <List
+          title="Failing requests"
+          cols={[["Status"], ["Path"], ["Requests", NUM]]}
+          rows={T.errors.map((e: Any, i: number) => <tr key={i}><td><ErrorCell status={e.status} /></td><td className="mono">{e.path}</td><td className={NUM}>{count(e.count)}</td></tr>)}
+        />
+        <List
+          title="Busiest paths"
+          cols={[["Path"], ["Requests", NUM], ["Failed", NUM]]}
+          rows={T.paths.map((p: Any) => <tr key={p.path}><td className="mono">{p.path}</td><td className={NUM}>{count(p.count)}</td><td className={NUM}>{p.errors ? <Badge kind="warn">{count(p.errors)}</Badge> : null}</td></tr>)}
+        />
+      </div>
+      <List title="Clients" cols={[["IP"], ["Requests", NUM]]} rows={T.ips.map((i: Any) => <tr key={i.ip}><td className="mono">{i.ip}</td><td className={NUM}>{count(i.count)}</td></tr>)} />
+      <CertsCard n={n} />
+      <p className="faint mt-3.5">
+        {st.loading && <><Spin />{" "}</>}
+        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}{reach} · <span className="mono">lf traffic --since {S.since}{sv2(n)}</span>
+      </p>
+    </>
+  );
+}
+
+/** Each site domain's certificate: days left, who issued it, why getting one failed. */
+export function CertsCard({ n }: { n: string }) {
+  const st = S.certs[n];
+  const head = <CardHead>Certificates <Sub>lf certs</Sub></CardHead>;
+  const wait = pending(st, "reading certificates…");
+  if (wait) return <Card>{head}{st?.error ? <Body>{wait}</Body> : wait}</Card>;
+  const r = st!.data;
+  if (!r.domains.length) return null;
+  const days = (c: Any) =>
+    !c ? <Badge kind="bad">none</Badge>
+    : c.days < 7 ? <Badge kind="bad">{c.days < 0 ? "expired" : plural(c.days, "day")}</Badge>
+    : c.staging ? <Badge kind="warn">staging</Badge>
+    : <Badge kind={c.days < 30 ? "warn" : "ok"}>{plural(c.days, "day")}</Badge>;
+  return (
+    <Card>
+      {head}
+      {r.denied.length > 0 && <Body><Note kind="warn" className="m-0">{r.denied.join(", ")} needs root to read: this login has no passwordless sudo.</Note></Body>}
+      <Scroll>
+        <table>
+          <thead><tr><th>Domain</th><th className={HIDE}>Site</th><th>Left</th><th className={HIDE}>Expires</th><th className={HIDE}>Issuer</th></tr></thead>
+          <tbody>
+            {r.domains.map((d: Any) => (
+              <tr key={d.domain}>
+                <td>{d.domain}{d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}</td>
+                <td className={cx(HIDE, "dim")}>{d.site}</td>
+                <td>{days(d.cert)}</td>
+                <td className={cx(HIDE, "dim")}>{d.cert ? new Date(d.cert.expires).toLocaleDateString() : ""}</td>
+                <td className={cx(HIDE, "faint")}>{d.cert?.issuer ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Scroll>
+    </Card>
+  );
+}
+
+/** The sites tab: what failed in the last 24 hours, only when something did. */
+export function ErrorsCard({ n }: { n: string }) {
+  const docker = !!can(n)?.docker;
+  useEffect(() => {
+    if (docker) ensure("errs", n, "/traffic?since=24h");
+  });
+  if (!docker) return null;
+  const t = S.errs[n]?.data;
+  if (!t || t.format !== "json") return null;
+  const rows = t.hosts
+    .flatMap((h: Any) => h.errors.map((e: Any) => ({ ...e, where: h.site ?? h.host, site: !!h.site })))
+    .filter((e: Any) => e.site || e.status >= 500)
+    .sort((a: Any, b: Any) => +(b.status >= 500) - +(a.status >= 500) || b.count - a.count)
+    .slice(0, 6);
+  if (!rows.length) return null;
+  const fives = t.total.classes["5xx"];
+  return (
+    <Card>
+      <CardHead>
+        Errors in the last 24h <Sub>{fives ? `${count(fives)} server errors · ` : ""}{count(t.total.classes["4xx"])} client errors</Sub>
+        <Actions><Btn cls="sm" on={() => (location.hash = `#/${encodeURIComponent(n)}/traffic`)}>Traffic</Btn></Actions>
+      </CardHead>
+      <Scroll>
+        <table>
+          <thead><tr><th>Status</th><th>Site</th><th>Path</th><th className={NUM}>Requests</th></tr></thead>
+          <tbody>
+            {rows.map((e: Any, i: number) => (
+              <tr key={i}>
+                <td><ErrorCell status={e.status} /></td>
+                <td>{e.site ? <b>{e.where}</b> : <span className="mono dim">{e.where}</span>}</td>
+                <td className="mono">{e.path}</td>
+                <td className={NUM}>{count(e.count)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Scroll>
+    </Card>
+  );
+}

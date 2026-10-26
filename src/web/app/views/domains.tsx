@@ -1,16 +1,24 @@
-"use strict";
+import { S, plural, sv, type Any } from "../lib/store";
+import { fetchInto, go, refreshState } from "../lib/api";
+import { run, ifOk } from "../lib/jobs";
+import { toast } from "../ui/toast";
+import { Btn, Dot } from "../ui/kit";
+import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words } from "../ui/dialog";
+import { autoDomain, mainDomain } from "./flows";
+
 // ---- domains & login ---------------------------------------------------------
 
-function copy(text) {
+export function copy(text: string) {
   navigator.clipboard?.writeText(text).then(() => toast(`Copied ${text}`), () => toast(text)) ?? toast(text);
 }
 
-const servedByOther = (n, site, d) => S.overview[n]?.data?.sites.find((s) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
+const servedByOther = (n: string, site: string, d: string): string | undefined =>
+  S.overview[n]?.data?.sites.find((s: Any) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
 
-function domainsDialog(n, m) {
+export function domainsDialog(n: string, m: Any) {
   const main = mainDomain(n);
   const free = autoDomain(n, m.name);
-  const ips = S.dns[n]?.data?.ips ?? [];
+  const ips: string[] = S.dns[n]?.data?.ips ?? [];
   dialog({
     title: `Domains of ${m.name}`,
     text: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
@@ -20,24 +28,28 @@ function domainsDialog(n, m) {
         check: (x) => words(x).filter((d) => !domainOk(d)).map((d) => `Not a domain: ${d}`)[0],
       },
       { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !m.domains.length, hint: "Nothing is served on the internet; the site keeps running. Open via tunnel reaches it." },
-      ...(main && !m.domains.includes(main) ? [{ name: "apex", label: `Also serve ${main}`, type: "check", value: false, when: (v) => !v.noDomain, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }] : []),
-      ...(free && !m.domains.includes(free) ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, when: (v) => !v.noDomain, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }] : []),
+      ...(main && !m.domains.includes(main)
+        ? [{ name: "apex", label: `Also serve ${main}`, type: "check" as const, value: false, when: (v: Any) => !v.noDomain, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }]
+        : []),
+      ...(free && !m.domains.includes(free)
+        ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check" as const, value: false, when: (v: Any) => !v.noDomain, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }]
+        : []),
     ],
     ok: "Save",
     onOk: (v) => {
-      const domains = v.noDomain ? [] : v.domains.split(/[\s,]+/).filter(Boolean);
-      if (v.free && !v.noDomain) domains.push(free);
-      if (v.apex && !v.noDomain) domains.push(main);
+      const domains: string[] = v.noDomain ? [] : v.domains.split(/[\s,]+/).filter(Boolean);
+      if (v.free && !v.noDomain) domains.push(free!);
+      if (v.apex && !v.noDomain) domains.push(main!);
       // None left: the site keeps running, unrouted.
-      const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
+      const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d: string) => ["--rm", d]);
       if (!args.length) return;
       run(["domains", m.name, ...sv(n), ...args, "-y"], { server: n });
     },
   });
 }
 
-function authDialog(n, m) {
-  const users = (m.auth ?? []).map((a) => a.split(":")[0]);
+export function authDialog(n: string, m: Any) {
+  const users: string[] = (m.auth ?? []).map((a: string) => a.split(":")[0]);
   dialog({
     title: `Password for ${m.name}`,
     text: users.length
@@ -60,14 +72,16 @@ function authDialog(n, m) {
   });
 }
 
-function ensureDns(n, o, force = false) {
+/** Check the sites' domains (DNS and HTTPS) once, again when forced. Call it from an effect. */
+export function ensureDns(n: string, o: Any, force = false) {
   if ((S.dns[n] && !force) || S.dns[n]?.loading || !o?.sites.length) return;
-  const domains = [...new Set(o.sites.flatMap((x) => x.domains))];
+  const domains = [...new Set(o.sites.flatMap((x: Any) => x.domains))];
   fetchInto("dns", n, `/dns?domains=${encodeURIComponent(domains.join(","))}`);
 }
 
-function domainChip(n, d) {
-  const c = S.dns[n]?.data?.domains.find((x) => x.domain === d);
+/** A site's domain as a link, with a dot for its DNS and HTTPS check and a copy button. */
+export function DomainChip({ n, d }: { n: string; d: string }) {
+  const c = S.dns[n]?.data?.domains.find((x: Any) => x.domain === d);
   const url = `https://${d}`;
   let dot = "", title = "checking…";
   if (c) {
@@ -79,16 +93,22 @@ function domainChip(n, d) {
     else if (st && st < 500) (dot = "up"), (title = `HTTPS ${st}${st === 401 ? " (login required)" : ""} in ${ms} ms${cert}`);
     else (dot = "down"), (title = `HTTPS: ${st ?? c.https.error}`);
   }
-  return `<span class="chip"><span class="dot ${dot}" title="${esc(title)}"></span><a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}" onclick="event.stopPropagation()">${esc(d)}</a>${btn("⧉", () => copy(url), "ghost", "Copy the address")}</span>`;
+  return (
+    <span className="group inline-flex items-center gap-0.5 max-w-full">
+      <Dot kind={dot} title={title} />
+      <a href={url} target="_blank" rel="noopener" title={title} className="overflow-hidden text-ellipsis whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{d}</a>
+      <Btn cls="ghost px-[5px]! py-0! text-sm! min-w-6 min-h-6 text-faint! group-hover:text-fg! focus-visible:text-fg!" title="Copy the address" on={() => copy(url)}>⧉</Btn>
+    </span>
+  );
 }
 
-function runCommand(n) {
+export function runCommand(n: string) {
   promptDlg(`Run a command on ${n}`, "Runs through ssh as the server's login; output shows on the right.", { label: "Command", placeholder: "df -h", type: "text" }, (cmd) => {
     if (cmd) run(["ssh", n, "--", cmd], { server: n });
   }, "Run");
 }
 
-function forget(n) {
+export function forget(n: string) {
   confirmDlg({
     title: `Forget ${n}?`,
     text: "Removes it from landfall (and the Host block landfall wrote to ~/.ssh/config).\nNothing on the server is changed.",
@@ -99,6 +119,6 @@ function forget(n) {
   });
 }
 
-function makeDefault(n) {
+export function makeDefault(n: string) {
   run(["server", "use", n], { server: n, after: ifOk(refreshState) });
 }

@@ -1,0 +1,106 @@
+import type { ReactNode, ButtonHTMLAttributes, HTMLAttributes } from "react";
+import type { Slot } from "../lib/store";
+
+/** Joins class names, skipping the falsy ones. */
+export const cx = (...c: (string | false | null | undefined | 0)[]) => c.filter(Boolean).join(" ");
+
+// Shared class strings for what many views repeat.
+export const NUM = "text-right tabular-nums whitespace-nowrap";
+/** A table's action cell: buttons in a row on the right, wrapping on phones. */
+export const ACTS = "text-right whitespace-nowrap [&_button]:ml-1 max-[760px]:whitespace-normal max-[760px]:[&_button]:my-0.5";
+/** Hidden when main is narrow (a phone, or squeezed by the job panel), and the reverse. */
+export const HIDE = "narrow:hidden";
+export const SHOW = "hidden! narrow:flex!";
+export const MONO = "font-mono text-sm";
+export const SR = "sr-only";
+
+// Button looks, by the words the old markup used: "sm primary", "danger solid", "ghost sm"…
+const LOOK: Record<string, string> = {
+  sm: "px-[9px]! py-0.5! text-sm!",
+  primary: "bg-accent-solid! border-accent-solid! text-white! hover:brightness-110",
+  danger: "text-bad hover:bg-bad-bg",
+  ghost: "border-transparent! bg-transparent! text-dim shadow-none! hover:text-fg hover:bg-hover!",
+  more: "px-2! tracking-[.05em]",
+};
+const SOLID = "bg-bad-solid! border-bad-solid! text-white! hover:brightness-110";
+export function btnClass(cls = "") {
+  const words = cls.split(/\s+/).filter(Boolean);
+  const solid = words.includes("danger") && words.includes("solid");
+  return cx(...words.map((w) => (w === "danger" && solid ? SOLID : w === "solid" ? "" : (LOOK[w] ?? w))));
+}
+
+type BtnProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "onClick"> & { cls?: string; on?: (e: React.MouseEvent<HTMLButtonElement>) => void };
+/** A button that runs on(); cls picks its look (see LOOK) plus any utility classes. */
+export function Btn({ cls, on, children, type = "button", ...rest }: BtnProps) {
+  return (
+    <button type={type} className={btnClass(cls)} onClick={on && ((e) => (e.preventDefault(), e.stopPropagation(), on(e)))} {...rest}>
+      {children}
+    </button>
+  );
+}
+
+const BADGE: Record<string, string> = {
+  "": "bg-hover text-dim border-line",
+  ok: "bg-ok-bg text-ok border-transparent",
+  warn: "bg-warn-bg text-warn border-transparent",
+  bad: "bg-bad-bg text-bad border-transparent",
+  accent: "bg-accent-bg text-accent border-transparent",
+};
+export const badgeClass = (kind = "") => cx("inline-block text-xs font-medium leading-[1.6] px-2 rounded-full border whitespace-nowrap", BADGE[kind] ?? BADGE[""]);
+export const Badge = ({ kind = "", children, className, title }: { kind?: string; children: ReactNode; className?: string; title?: string }) => (
+  <span className={cx(badgeClass(kind), className)} title={title}>{children}</span>
+);
+
+/** A status dot: grey unless up, warn or down. */
+export const Dot = ({ kind = "", className, ...rest }: { kind?: string } & HTMLAttributes<HTMLSpanElement>) => <span className={cx("dot", kind, className)} {...rest} />;
+export const Spin = ({ className, ...rest }: HTMLAttributes<HTMLSpanElement>) => <span className={cx("spin", className)} {...rest} />;
+
+const NOTE: Record<string, string> = { "": "bg-warn-bg text-warn", warn: "bg-warn-bg text-warn", bad: "bg-bad-bg text-bad", info: "bg-accent-bg text-accent" };
+export const noteClass = (kind = "") => cx("px-3.5 py-[11px] rounded-md mb-4 border border-[color-mix(in_srgb,currentColor_18%,transparent)]", NOTE[kind]);
+export const Note = ({ kind = "", className, children, ...rest }: { kind?: string } & HTMLAttributes<HTMLDivElement>) => (
+  <div className={cx(noteClass(kind), className)} {...rest}>{children}</div>
+);
+
+export const Card = ({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) => (
+  <div className={cx("card bg-panel border border-line rounded-lg shadow-xs overflow-clip [.card+&]:mt-5", className)} {...rest}>{children}</div>
+);
+export const CardHead = ({ className, children }: { className?: string; children: ReactNode }) => (
+  <h2 className={cx("m-0 px-[18px] py-3.5 text-[14px] font-semibold border-b border-line flex flex-wrap items-center gap-x-2.5 gap-y-1.5", className)}>{children}</h2>
+);
+/** The quiet part of a card's heading. */
+export const Sub = ({ children, className }: { children: ReactNode; className?: string }) => <span className={cx("font-normal text-dim", className)}>{children}</span>;
+export const Actions = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={cx("flex flex-wrap gap-1.5 ml-auto font-normal", className)}>{children}</span>
+);
+export const Body = ({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) => <div className={cx("px-[18px] py-4", className)} {...rest}>{children}</div>;
+export const Lede = ({ children }: { children: ReactNode }) => <div className="px-[18px] py-2.5 text-dim text-md border-b border-line">{children}</div>;
+export const Scroll = ({ className, children }: { className?: string; children: ReactNode }) => <div className={cx("overflow-x-auto", className)}>{children}</div>;
+export const Empty = ({ title, children, className }: { title: ReactNode; children?: ReactNode; className?: string }) => (
+  <div className={cx("text-dim text-center px-5 py-[72px]", className)}>
+    <h2 className="text-fg text-[18px] font-semibold tracking-[-.01em] m-0 mb-1.5">{title}</h2>
+    {children}
+  </div>
+);
+export const Loading = ({ children }: { children: ReactNode }) => (
+  <div className="text-dim py-10 text-center"><Spin /> {children}</div>
+);
+
+/** A spinner while st has nothing to show yet, or its error; null once there is data. */
+export function pending(st: Slot | undefined, what: ReactNode, retry?: () => void): ReactNode {
+  if (!st || (st.loading && !st.data)) return <Loading>{what}</Loading>;
+  if (st.error)
+    return (
+      <>
+        <Note kind="bad">{st.error}</Note>
+        {retry && <Actions className="m-0"><Btn on={retry}>Retry</Btn></Actions>}
+      </>
+    );
+  return null;
+}
+
+/** Label/value rows. */
+export const Kv = ({ pairs, className }: { pairs: [string, ReactNode][]; className?: string }) => (
+  <dl className={cx("grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-1.5 text-md m-0", className)}>
+    {pairs.map(([k, v]) => [<dt key={`k${k}`} className="text-faint">{k}</dt>, <dd key={`v${k}`} className="m-0 wrap-anywhere">{v}</dd>])}
+  </dl>
+);

@@ -2,7 +2,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
 import pkg from "../../package.json";
 import { secretEnv } from "../cmd";
@@ -31,11 +32,17 @@ interface WebJob {
   opts: { server?: string; password?: string; cwd?: string };
 }
 
-// The page and its scripts: in src/web/ui, and copied next to the bundle in dist by the build.
-const UI_DIR = new URL("./ui/", import.meta.url);
-const TYPES: Record<string, string> = { html: "text/html", css: "text/css", js: "text/javascript" };
+// The page, built by vite into dist/ui next to the bundle; run from src (tsx), the last build's.
+const UI_DIR = [new URL("./ui/", import.meta.url), new URL("../../dist/ui/", import.meta.url)].find((u) => fs.existsSync(u));
+const TYPES: Record<string, string> = { html: "text/html", css: "text/css", js: "text/javascript", svg: "image/svg+xml", json: "application/json" };
 const assets = new Map(
-  fs.readdirSync(UI_DIR).map((f) => [f === "index.html" ? "/" : `/${f}`, { body: fs.readFileSync(new URL(f, UI_DIR)), type: `${TYPES[f.split(".").pop()!] ?? "application/octet-stream"}; charset=utf-8` }]),
+  UI_DIR
+    ? fs.readdirSync(UI_DIR, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => {
+        const rel = join(e.parentPath, e.name).slice(fileURLToPath(UI_DIR).length).split(sep).join("/");
+        const body = fs.readFileSync(join(e.parentPath, e.name));
+        return [rel === "index.html" ? "/" : `/${rel}`, { body, type: `${TYPES[e.name.split(".").pop()!] ?? "application/octet-stream"}; charset=utf-8` }];
+      })
+    : [],
 );
 const MAX_JOBS = 50;
 /** Jobs running at once: each is a process with its own ssh connections. */
@@ -295,7 +302,10 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
       return new Response("Open the link `lf ui` printed (it logs this browser in).", { status: 401, headers: { "content-type": "text/plain" } });
     }
     const asset = assets.get(url.pathname);
-    if (asset) return new Response(asset.body, { headers: { "content-type": asset.type, "cache-control": "no-store" } });
+    // Vite puts a content hash in every asset's name: only the page itself has to be fetched again.
+    const cache = url.pathname.startsWith("/assets/") ? "private, max-age=31536000, immutable" : "no-store";
+    if (asset) return new Response(asset.body, { headers: { "content-type": asset.type, "cache-control": cache } });
+    if (url.pathname === "/") return new Response("The page is not built: run pnpm build.", { status: 500, headers: { "content-type": "text/plain" } });
     if (url.pathname.startsWith("/api/")) {
       // SameSite=Strict still sends the cookie from other ports of 127.0.0.1 (same site), and an <img> sends
       // no Origin: only this page's own requests (or non-browser clients, which send no Sec-Fetch-Site) get in.
