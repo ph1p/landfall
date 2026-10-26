@@ -12,7 +12,7 @@ HTTPS_PORT=${HTTPS_PORT:-18443}
 cleanup() {
   [ -z "${UI_PID:-}" ] || kill "$UI_PID" 2>/dev/null || true
   [ "${KEEP:-}" = 1 ] && { echo "kept container $NAME and $WORK"; return; }
-  docker rm -f "$NAME" "$NAME-fresh" >/dev/null 2>&1 || true
+  docker rm -f "$NAME" "$NAME-fresh" "$NAME-deb" >/dev/null 2>&1 || true
   [ -z "${FRESH_PORT:-}" ] || ssh-keygen -R "[127.0.0.1]:$FRESH_PORT" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -329,10 +329,8 @@ pass "prune removes unused images, keeps built images, journals it"
 echo "== system"
 # deploy has no sudo here: root's keys and daemon.json come through root's key login.
 out=$(lf system -s box --json) || die "system --json"
-{ echo "$out" | has '"init": "other"' && echo "$out" | has '"mine": true' && echo "$out" | has '"driver": "json-file"'; } || { echo "$out" | head -60; die "system lists init, keys, docker logs"; }
+{ echo "$out" | has '"init": "openrc"' && echo "$out" | has '"mine": true' && echo "$out" | has '"driver": "json-file"'; } || { echo "$out" | head -60; die "system lists init, keys, docker logs"; }
 pass "system lists init, keys and docker logs"
-out=$(lf services restart docker -s box -y 2>&1) && die "services without systemd"
-{ grep -q "no systemd or OpenRC" <<<"$out"; } || die "services without systemd: $out"; pass "services refuse without systemd or OpenRC"
 ssh-keygen -q -t ed25519 -N "" -C e2e-extra -f "$WORK/extra" </dev/null
 lf keys add "$WORK/extra.pub" --user root -s box >/dev/null 2>&1 || die "keys add"
 { docker exec "$NAME" grep -q e2e-extra /root/.ssh/authorized_keys; } || die "keys add writes the key"; pass "keys add"
@@ -375,6 +373,11 @@ lf harden ssh -s box -y >"$WORK/harden.log" 2>&1 || { cat "$WORK/harden.log"; di
 lf undo -s box -y >/dev/null 2>&1 || die "undo harden"
 { lf security -s box --json | has '"passwordLogin": true'; } || die "undo turns passwords back on"; pass "undo harden turns passwords back on"
 lf harden ssh -s box -y >/dev/null 2>&1 || die "harden ssh again"
+lf harden fail2ban -s box >"$WORK/f2b.log" 2>&1 || { cat "$WORK/f2b.log"; die "harden fail2ban"; }
+{ docker exec "$NAME" fail2ban-client ping | has pong && lf security -s box --json | has '"fail2ban": "running"'; } \
+  || die "harden fail2ban runs it"; pass "harden fail2ban installs and starts it"
+lf undo -s box -y >/dev/null 2>&1 || die "undo fail2ban"
+{ ! docker exec "$NAME" fail2ban-client ping >/dev/null 2>&1; } || die "undo stops fail2ban"; pass "undo stops fail2ban"
 
 echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
@@ -638,5 +641,21 @@ mkdir -p "$WORK/freshsite" && echo "fresh site" > "$WORK/freshsite/index.html"
 docker exec "$NAME-fresh" sh -c 'id deploy >/dev/null && docker inspect traefik >/dev/null && [ -f /opt/landfall/sites/freshsite/site.json ]' \
   || { cat "$WORK/fresh-deploy.log"; die "deploy --host: setup, traefik, site"; }
 pass "deploy --host sets up a new server with the password, then deploys"
+
+echo "== debian: automatic updates"
+# apt's unattended-upgrades and no init system, which the Alpine box cannot show. No 20auto-upgrades: they start off.
+DEB_PORT=${DEB_PORT:-2224}
+docker build -q -t landfall-e2e-debian "$ROOT/test/e2e/debian" >/dev/null
+docker rm -f "$NAME-deb" >/dev/null 2>&1 || true
+docker run -d --name "$NAME-deb" -p "$DEB_PORT:22" -e AUTHORIZED_KEY="$(cat "$WORK/key.pub")" landfall-e2e-debian >/dev/null
+for _ in $(seq 1 30); do ssh-keyscan -p "$DEB_PORT" 127.0.0.1 >/dev/null 2>&1 && break; sleep 1; done
+lf server add deb --host 127.0.0.1 --port "$DEB_PORT" -i "$WORK/key" </dev/null >"$WORK/deb.log" 2>&1 || { cat "$WORK/deb.log"; die "server add deb"; }
+{ lf security -s deb --json | has '"id": "auto-updates"'; } || die "security finds no automatic updates"; pass "security finds no automatic updates on debian"
+out=$(lf services restart ssh -s deb -y 2>&1) && die "services without systemd"
+{ grep -q "no systemd or OpenRC" <<<"$out"; } || die "services without systemd: $out"; pass "services refuse without systemd or OpenRC"
+lf harden updates -s deb >"$WORK/deb.log" 2>&1 || { cat "$WORK/deb.log"; die "harden updates"; }
+{ lf security -s deb --json | has '"autoUpdates": true'; } || die "harden updates turns them on"; pass "harden updates turns on unattended-upgrades"
+lf undo -s deb -y >/dev/null 2>&1 || die "undo updates"
+{ lf security -s deb --json | has '"autoUpdates": false'; } || die "undo turns them off"; pass "undo turns automatic updates off"
 
 echo; pass "all e2e checks"

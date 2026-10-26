@@ -203,11 +203,12 @@ const EOL: Record<string, string> = {
 };
 
 /** Systems that bring their own way of installing things: setup stays away from them. */
-const PLATFORM: Record<string, { name: string; docker: string; firewall?: string }> = {
+export const PLATFORM: Record<string, { name: string; docker: string; firewall?: string; bans?: string }> = {
   synology: {
     name: "Synology DSM manages its packages, users, ssh and firewall itself",
     docker: "install Container Manager in Package Center",
     firewall: "DSM has its own firewall: Control Panel → Security → Firewall",
+    bans: "DSM bans addresses that keep failing to log in itself: Control Panel → Security → Protection → Auto Block",
   },
   steamos: { name: "SteamOS resets the system on every OS update", docker: "install Docker in your home directory" },
 };

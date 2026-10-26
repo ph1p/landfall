@@ -120,10 +120,12 @@ export interface Security {
   /** Users with a password set: those may log in with it while passwordLogin is on. */
   passwordUsers?: string[];
   pkg?: string;
-  /** ufw's state; undefined when ufw status needs a root this login lacks. */
+  /** ufw's state, as ufw.conf says. */
   firewall?: "active" | "inactive" | "missing";
   autoUpdates?: boolean;
   reboot: boolean;
+  /** synology: a system that brings its own firewall and login bans (facts.ts PLATFORM). */
+  platform?: string;
 }
 
 export interface SystemInfo {
@@ -240,6 +242,7 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     firewall: ["active", "inactive", "missing"].includes(v.ufw) ? (v.ufw as Security["firewall"]) : undefined,
     autoUpdates: v.auto_updates ? v.auto_updates === "on" : undefined,
     reboot: v.reboot === "1",
+    platform: v.platform || undefined,
   };
   if (v.platform === "synology") info.managed = "DSM keeps this itself: change it in Control Panel (Regional Options, Info Center, Container Manager)";
   if (v.log_driver !== undefined) {

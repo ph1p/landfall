@@ -1,7 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { addKeyFirst, harden, HARDEN_PARTS, lockedOut, printAdvice, securityOf, type HardenPart } from "../security";
+import { addKeyFirst, harden, HARDEN_PARTS, lockedOutOn, printAdvice, securityOf, type HardenPart } from "../security";
 import { effectiveSsh } from "../sshconfig";
-import { system } from "../system";
 import { adminLogin } from "../updates";
 import { c, confirm, fail, ok, report, table } from "../ui";
 import { limitedNote, target } from "./system";
@@ -50,10 +49,8 @@ Each change is journaled: lf undo takes it back.`,
     const { name, server } = target(o);
     const admin = await adminLogin(server, "hardening");
     if (parts.includes("ssh") && !o.force) {
-      const locked = lockedOut(await system(admin), effectiveSsh(server).user);
-      if (locked.length) {
-        fail(`${addKeyFirst(locked)} Or --force.`);
-      }
+      const locked = await lockedOutOn(admin, effectiveSsh(server).user);
+      if (locked.length) fail(`${addKeyFirst(locked)} Or --force.`);
     }
     if (parts.includes("ssh") && !(await confirm(`Only keys log in to ${name} afterwards (lf undo turns passwords back on). Go on?`))) return;
     await harden(admin, parts);

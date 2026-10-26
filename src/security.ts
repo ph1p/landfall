@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { checkAlias, type Server } from "./config";
+import { PLATFORM } from "./facts";
 import { keygen } from "./login";
 import { runScript } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
@@ -38,6 +39,13 @@ export const passwordOnly = (passwordUsers: string[], keyUsers: string[], exempt
 export const lockedOut = (i: SystemInfo, loginUser: string) =>
   passwordOnly(i.security.passwordUsers ?? [], i.keys.map((k) => k.user), [loginUser]);
 
+/** lockedOut, read with two shell checks instead of the whole system check. `admin`: root or sudo. */
+export async function lockedOutOn(admin: Server, loginUser: string) {
+  const { stdout } = await runScript(admin, `${PRELUDE}\necho "$(password_users)"; echo "$(key_users)"`, { capture: true });
+  const [pw = [], keys = []] = stdout.split("\n").map((l) => l.split(/\s+/).filter(Boolean));
+  return passwordOnly(pw, keys, [loginUser]);
+}
+
 /** What to fix on a server, worst first. Pure: `lf security`, setup and the web UI share it. */
 export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }): Advice[] {
   const s = i.security;
@@ -45,6 +53,8 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
   const out: Advice[] = [];
   // Where landfall installs ufw and fail2ban itself.
   const installs = s.pkg === "apt-get" || s.pkg === "apk";
+  // Systems like DSM that have their own firewall and bans: point there instead.
+  const own = s.platform ? PLATFORM[s.platform] : undefined;
   if (s.passwordLogin) {
     const locked = lockedOut(i, ctx.loginUser);
     out.push({
@@ -67,7 +77,12 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
       fix: { label: "Turn it on", argv: ["firewall", "enable", ...srv] },
     });
   } else if (s.firewall === "missing") {
-    out.push({ id: "firewall", level: "info", title: "No ufw", why: "Use firewalld or your provider's firewall to let in only ssh, 80 and 443." });
+    out.push({
+      id: "firewall",
+      level: "info",
+      title: own?.firewall ? "Firewall: the system's own" : "No ufw",
+      why: own?.firewall ? `${own.firewall}. Let in only ssh, 80 and 443.` : "Use firewalld or your provider's firewall to let in only ssh, 80 and 443.",
+    });
   }
   if (i.root && i.fail2ban !== "running" && (i.fail2ban === "stopped" || installs)) {
     out.push({
@@ -77,6 +92,8 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
       why: "It bans addresses that keep failing to log in: it slows password guessing and keeps the logs readable.",
       fix: { label: i.fail2ban === "missing" ? "Install it" : "Start it", argv: ["harden", "fail2ban", ...srv] },
     });
+  } else if (i.fail2ban === "missing" && own?.bans) {
+    out.push({ id: "fail2ban", level: "info", title: "Login bans: the system's own", why: own.bans });
   }
   if (s.autoUpdates === false) {
     out.push({

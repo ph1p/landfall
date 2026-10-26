@@ -69,11 +69,22 @@ export const PKG_MGR = String.raw`pkg_mgr() { for m in apt-get dnf yum apk zyppe
  */
 export const SEC_CHECKS = String.raw`
 S() { if [ -n "$SUDO" ]; then sudo -n "$@"; else "$@"; fi; }
-ufw_state() { if command -v ufw >/dev/null 2>&1; then S ufw status 2>/dev/null | awk 'NR == 1 {print $2}'; else echo missing; fi; }
+# ufw.conf, not ufw status: that starts Python (slow) and needs root. ufw enable/disable write ENABLED.
+ufw_state() {
+  if ! command -v ufw >/dev/null 2>&1; then echo missing
+  elif grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf 2>/dev/null; then echo active
+  else echo inactive; fi
+}
 password_users() { S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null; }
 # What sshd really uses (a Match block or an earlier file can override ours): "no", "" without root, else passwords work.
 sshd_passwords() { S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n'; }
 key_file_user() { printf %s "$1" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#'; }
+# Users with a key: keys-only ssh does not lock them out.
+key_users() {
+  for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
+    S grep -q '^[^#[:space:]]' "$f" 2>/dev/null && printf '%s ' "$(key_file_user "$f")"
+  done; return 0
+}
 apt_auto_updates() { dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; }
 `;
 
@@ -410,12 +421,7 @@ pw=$(sshd_passwords)
 if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi
 kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
 kv password_users "$(password_users)"
-# Users with a key: keys-only ssh does not lock them out.
-ku=""
-for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
-  S grep -q '^[^#[:space:]]' "$f" 2>/dev/null && ku="$ku $(key_file_user "$f")"
-done
-kv key_users "$ku"
+kv key_users "$(key_users)"
 f=${TRAEFIK_DIR}/docker-compose.yml
 if [ ! -f "$f" ]; then kv traefik_compose none
 elif grep -q "managed by landfall" "$f"; then kv traefik_compose landfall
