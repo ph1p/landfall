@@ -1156,8 +1156,13 @@ function deployDialog(det, o = {}) {
             { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
           ]
         : []),
-      { name: "authPassword", label: `Login password (optional, at least ${S.state.rules.minPassword} characters)`, type: "password", hint: "Visitors log in with the user below and this password (HTTP basic auth). Empty: no change; set or remove it later with Password… on the site." },
-      { name: "authUser", label: "Login user", value: "admin", placeholder: "admin" },
+      {
+        legend: "Login (optional)",
+        fields: [
+          { name: "authUser", label: "User", value: "admin", placeholder: "admin" },
+          { name: "authPassword", label: `Password (at least ${S.state.rules.minPassword} characters)`, type: "password", hint: "Visitors log in with this user and password (HTTP basic auth). Empty: no change; set or remove it later with Password… on the site." },
+        ],
+      },
     ],
     ok: "Deploy",
     onOk: (v) => {
@@ -2282,8 +2287,13 @@ function traefikView(n) {
       text: "Serves the dashboard on a domain behind a login. Without one it stays reachable through an SSH tunnel only (Open via tunnel).\nRuns lf traefik setup, which reconfigures landfall's Traefik.",
       fields: [
         { name: "domain", label: "Domain", value: x.traefik.dashboard ?? "", placeholder: x.domains[0] ? `traefik.${x.domains[0]}` : "traefik.example.com", hint: x.traefik.dashboard ? "Empty: take the dashboard off its domain." : "Needs an A record pointing at the server." },
-        { name: "user", label: "Login user", value: "admin", placeholder: "admin" },
-        { name: "password", label: `Login password (at least ${S.state.rules.minPassword} characters)`, type: "password", hint: x.traefik.dashboard ? "Empty: keeps the current one." : "Empty: a generated one, shown in the output." },
+        {
+          legend: "Login",
+          fields: [
+            { name: "user", label: "User", value: "admin", placeholder: "admin" },
+            { name: "password", label: `Password (at least ${S.state.rules.minPassword} characters)`, type: "password", hint: x.traefik.dashboard ? "Empty: keeps the current one." : "Empty: a generated one, shown in the output." },
+          ],
+        },
       ],
       ok: "Apply",
       onOk: (v) => {

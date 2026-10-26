@@ -1,6 +1,6 @@
 # Throwaway "server" for end-to-end tests: sshd + its own Docker daemon.
 FROM docker:28-dind
-RUN apk add --no-cache openssh bash shadow curl musl-utils coreutils ufw openssl \
+RUN apk add --no-cache openssh bash shadow curl musl-utils coreutils ufw openssl rsync \
  && ssh-keygen -A \
  && mkdir /e2e && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj /CN=e2e \
       -addext "subjectAltName=DNS:*.test,DNS:*.box.test,DNS:*.127-0-0-1.sslip.io" -keyout /e2e/key.pem -out /e2e/cert.pem 2>/dev/null \

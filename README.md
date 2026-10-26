@@ -40,7 +40,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 
 ## Install
 
-You need Node.js 22.4+ plus `ssh`, `ssh-copy-id` and `tar` on your machine. The server must run Ubuntu or Debian
+You need Node.js 22.4+ plus `ssh`, `ssh-copy-id` and `tar` on your machine (`rsync` makes redeploys faster). The server must run Ubuntu or Debian
 and accept a login as root or as a user with passwordless sudo. landfall installs Docker itself.
 
 ```sh
@@ -74,7 +74,7 @@ lf setup vps --host 203.0.113.7
 ```
 
 1. Creates `~/.ssh/landfall_vps` and installs it with `ssh-copy-id`. You type the root password once.
-2. Installs Docker, ufw (allowing ssh, 80 and 443, plus 443/udp for HTTP/3), fail2ban and unattended-upgrades.
+2. Installs Docker, rsync, ufw (allowing ssh, 80 and 443, plus 443/udp for HTTP/3), fail2ban and unattended-upgrades.
 3. Creates the user `deploy` in the docker group and disables ssh password login. Root keeps key-only access.
 4. Writes `Host vps` to `~/.ssh/config`, creating the file if needed. `ssh vps` now logs in as `deploy`.
 5. Starts Traefik, which gets Let's Encrypt certificates for every site.
@@ -164,6 +164,9 @@ The first deploy writes `.landfall.json`. Commit it:
 
 Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
 `-e`/`--env-file`, or later with `lf env`. `--env-file -` reads the lines from stdin, so secrets stay out of `ps`.
+Changed something locally? Run `lf deploy` again (or **Redeploy** in `lf ui`). When both sides have `rsync`, a redeploy sends
+only the files that changed and copies the rest from the live release on the server (files you removed stay
+removed); otherwise it uploads the whole folder. Either way it becomes a new release, so `lf rollback` still goes back.
 `--keep 10` keeps more releases. A deploy is refused when another Compose project on the server already uses the
 site's project name, since `docker compose` would otherwise take over its containers.
 
@@ -711,7 +714,7 @@ On the server:
 /etc/ssh/sshd_config.d/00-landfall.conf   ssh hardening from `lf setup`
 ```
 
-`lf setup` also installs Docker with the compose plugin, ufw, fail2ban and unattended-upgrades, and creates the
+`lf setup` also installs Docker with the compose plugin, rsync, ufw, fail2ban and unattended-upgrades, and creates the
 `deploy` user (group docker). Before changing a file, landfall keeps a backup next to it as
 `.<file>.landfall-<run>` (the newest 10). `lf config` and the web UI's *Overview* list all of these places.
 
