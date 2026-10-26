@@ -86,6 +86,12 @@ key_users() {
   done; return 0
 }
 apt_auto_updates() { dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; }
+# dnf 4's dnf-automatic-install.timer installs; the other timers only download unless automatic.conf says apply_updates.
+dnf_applies() { grep -qiE '^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*(yes|true|1)' /etc/dnf/automatic.conf 2>/dev/null; }
+dnf_auto_updates() {
+  systemctl is-enabled -q dnf-automatic-install.timer 2>/dev/null \
+    || { { systemctl is-enabled -q dnf-automatic.timer 2>/dev/null || systemctl is-enabled -q dnf5-automatic.timer 2>/dev/null; } && dnf_applies; }
+}
 # Alpine: crond runs a job that runs apk upgrade (lf harden updates puts one in /etc/periodic/daily).
 apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/crontabs/root 2>/dev/null || true; } | grep 'apk .*upgrade' >/dev/null; }
 `;
@@ -102,7 +108,8 @@ ${REBOOT_NEEDED}
 pkg_has() {
   case "$(pkg_mgr)" in
     apt-get) dpkg -s "$1" ;;
-    dnf|yum|zypper) rpm -q "$1" ;;
+    # --whatprovides: dnf5's plugin provides dnf-automatic under another name.
+    dnf|yum|zypper) rpm -q --whatprovides "$1" ;;
     apk) apk info -e "$1" ;;
     *) false ;;
   esac >/dev/null 2>&1
