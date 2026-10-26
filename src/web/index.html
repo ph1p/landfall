@@ -948,6 +948,8 @@ function setupFlow(args, base = args) {
     server: args[0],
     after: (j) => {
       if (j.info.code !== 0) return;
+      // Synology and other systems without a package manager: nothing for setup to apply.
+      if (rep(j).refuse) return [{ label: "Back to the server", run: () => ((S.job = null), go(args[0], "sites")) }];
       if (rep(j).needsKey) {
         return [{ label: "Enter the password to install a key", run: () => passwordFor(args, base) }];
       }
@@ -1803,6 +1805,10 @@ function othersCard(n, o) {
 
 function sitesView(n, o) {
   ensureDns(n, o);
+  if (!o.ready && can(n) && !can(n).setup) {
+    return `<div class="card"><div class="body empty"><h2>Not ready for sites</h2>
+      <p>${esc(S.facts[n]?.data?.why?.setup ?? "")}, so landfall cannot set it up: sites need ${esc("/opt/landfall")} and Traefik, which setup creates.</p></div></div>`;
+  }
   if (!o.ready) {
     return `<div class="card"><div class="body empty"><h2>Not set up for landfall yet</h2>
       <p>Setup installs Docker and Traefik, a deploy user and (if you want) a firewall. It shows what it would change first.</p>
@@ -1965,6 +1971,10 @@ function refreshUpdates(n) {
   );
 }
 
+/** "24.0.2 → 29.9.2 · how to get it", or "· newest" when it is (and the newest is known). */
+const engineLine = (have, latest, old, how) =>
+  `<span class="mono">${esc(have)}</span>${old ? ` <span class="dim">→</span> <span class="mono">${esc(latest)}</span>${how ? ` <span class="faint">· ${esc(how)}</span>` : ""}` : latest ? ` <span class="faint">· newest</span>` : ""}`;
+
 function updatesView(n) {
   const st = S.updates[n] ?? { loading: true };
   if (st.loading && !st.data) return `<div class="loading"><span class="spin"></span> ${st.refreshing ? "refreshing package lists…" : "checking packages and images…"}</div>`;
@@ -2026,9 +2036,12 @@ function updatesView(n) {
       ${pkgOk ? "" : `<p class="dim">${esc(S.facts[n]?.data?.why?.packages ?? "")}</p>`}
     </div>`}
     ${!e.docker && can(n) && !can(n).docker ? "" : `<div class="card">
-      <h2>Docker <span class="badge ${!e.docker || e.dockerNote || e.composeNote ? "warn" : "ok"}">${e.docker ? `${esc(e.docker)} · compose ${esc(e.compose || "missing")}` : "not installed"}</span>
+      <h2>Docker <span class="badge ${!e.docker || e.dockerNote || e.composeNote ? "warn" : "ok"}">${!e.docker ? "not installed" : e.dockerNote || e.composeNote ? "update available" : "up to date"}</span>
         <span class="actions">${e.composeUpdate ? btn("Update compose", () => run(["update", "--compose", ...s, "-y"], { server: n }), "sm primary") : ""}</span></h2>
-      ${[e.dockerNote, e.composeNote].filter(Boolean).map((t) => `<p class="dim">${esc(t)}</p>`).join("")}
+      ${e.docker ? `<div class="body"><dl class="kv">
+        <dt>Docker</dt><dd>${engineLine(e.docker, e.latestDocker, e.dockerNote, e.dockerHow)}</dd>
+        <dt>Compose</dt><dd>${e.compose ? engineLine(e.compose, e.latestCompose, e.composeNote, e.composeHow) : `<span class="badge warn">missing</span> <span class="faint">lf setup installs it</span>`}</dd>
+      </dl></div>` : ""}
     </div>
     <div class="card">
       <h2>Images <span class="dim" style="font-weight:400">Traefik and sites</span>

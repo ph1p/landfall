@@ -288,19 +288,19 @@ exit 0`;
 }
 
 /** What to tell about the engine, and whether landfall can update compose itself. */
-export function engineNotes(e: Engine): { dockerNote?: string; composeNote?: string; composeUpdate: boolean } {
+export function engineNotes(e: Engine): { dockerNote?: string; composeNote?: string; composeUpdate: boolean; dockerHow?: string; composeHow?: string } {
   const old = (have: string, want?: string) => !!have && !!want && cmpVersion(have, want) < 0;
-  const from = e.synology ? " (comes with Container Manager updates in Package Center)" : undefined;
-  const dockerNote = old(e.docker, e.latestDocker)
-    ? `docker ${e.docker}, ${e.latestDocker} is current${from ?? (e.dockerCe ? " (comes with the package upgrades)" : " (distro package: switch to Docker's repo for the newest)")}`
-    : undefined;
+  const from = e.synology ? "comes with Container Manager updates in Package Center" : undefined;
+  const dockerHow = old(e.docker, e.latestDocker) ? (from ?? (e.dockerCe ? "comes with the package upgrades" : "distro package: switch to Docker's repo for the newest")) : undefined;
   const composeUpdate = old(e.compose, e.latestCompose) && e.composePath === COMPOSE_PLUGIN && !e.synology;
+  const composeHow = old(e.compose, e.latestCompose) && !composeUpdate ? (from ?? (e.dockerCe ? "comes with the package upgrades" : `from ${e.composePath || "the distro"}`)) : undefined;
+  const dockerNote = dockerHow && `docker ${e.docker}, ${e.latestDocker} is current (${dockerHow})`;
   const composeNote = !e.compose
     ? "docker compose missing: lf setup installs it"
     : old(e.compose, e.latestCompose)
-      ? `compose ${e.compose}, ${e.latestCompose} is current${composeUpdate ? "" : (from ?? (e.dockerCe ? " (comes with the package upgrades)" : ` (from ${e.composePath || "the distro"})`))}`
+      ? `compose ${e.compose}, ${e.latestCompose} is current${composeHow ? ` (${composeHow})` : ""}`
       : undefined;
-  return { dockerNote, composeNote, composeUpdate };
+  return { dockerNote, composeNote, composeUpdate, dockerHow, composeHow };
 }
 
 export async function updateCompose(s: Server) {
