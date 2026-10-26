@@ -63,9 +63,24 @@ export const REBOOT_NEEDED = String.raw`reboot_needed() { [ -f /var/run/reboot-r
 
 export const PKG_MGR = String.raw`pkg_mgr() { for m in apt-get dnf yum apk zypper; do command -v $m >/dev/null 2>&1 && { echo $m; return 0; }; done; echo none; }`;
 
+/**
+ * Read-only security checks shared by setup's probe, lf system and lf harden. Needs $SUDO (empty as
+ * root, or where sudo would ask: then the root-only checks print nothing).
+ */
+export const SEC_CHECKS = String.raw`
+S() { if [ -n "$SUDO" ]; then sudo -n "$@"; else "$@"; fi; }
+ufw_state() { if command -v ufw >/dev/null 2>&1; then S ufw status 2>/dev/null | awk 'NR == 1 {print $2}'; else echo missing; fi; }
+password_users() { S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null; }
+# What sshd really uses (a Match block or an earlier file can override ours): "no", "" without root, else passwords work.
+sshd_passwords() { S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n'; }
+key_file_user() { printf %s "$1" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#'; }
+apt_auto_updates() { dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; }
+`;
+
 export const PRELUDE = String.raw`
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
 SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+${SEC_CHECKS}
 # Files a container wrote may be root's.
 rmf() { rm -rf "$@" 2>/dev/null || $SUDO rm -rf "$@"; }
 # The distro's package manager, and installing with it.
@@ -117,6 +132,13 @@ ensure_network() {
 ensure_running() {
   [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ] && return 0
   log "$1 failed to start, last logs:"; docker logs --tail 30 "$1" >&2 || true; return 1
+}
+# svc <start|stop|restart|enable|disable> <name>; enable/disable: start at boot or not.
+svc() {
+  if [ -d /run/systemd/system ]; then $SUDO systemctl "$1" "$2"
+  elif command -v rc-service >/dev/null 2>&1; then
+    case "$1" in enable) $SUDO rc-update add "$2" default ;; disable) $SUDO rc-update del "$2" default ;; *) $SUDO rc-service "$2" "$1" ;; esac
+  else log "no systemd or OpenRC: cannot $1 $2"; return 1; fi
 }
 sshd_reload() { $SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd 2>/dev/null || $SUDO service ssh reload 2>/dev/null || true; }
 
@@ -206,7 +228,7 @@ else
   log "sshd config test failed, putting the old config back"
   eval "$undo"
 fi
-pw=$($SUDO sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n')
+pw=$(sshd_passwords)
 [ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
 `;
 
@@ -263,7 +285,7 @@ missing=""; for p in $(base_pkgs); do pkg_has "$p" || missing="$missing $p"; don
 if [ -n "$missing" ]; then
   log "installing base packages:$missing"
   pkg_install $missing
-  $SUDO systemctl enable --now fail2ban >/dev/null 2>&1 || true
+  { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || true
   record "installed packages$missing"
 fi
 
@@ -352,7 +374,6 @@ log "bootstrap done"
  */
 export const PROBE = String.raw`
 set +e
-S() { if [ -n "$SUDO" ]; then sudo -n "$@"; else "$@"; fi; }
 kv() { printf '%s=%s
 ' "$1" "$2"; }
 yn() { if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
@@ -383,17 +404,16 @@ kv root_dir "$(yn test -d ${SITES})"
 kv sites "$(ls ${SITES} 2>/dev/null | wc -l | tr -d ' ')"
 kv network "$(yn S docker network inspect ${NETWORK})"
 kv proxy "$(grep -v '^#' ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
-if command -v ufw >/dev/null 2>&1; then kv ufw "$(S ufw status 2>/dev/null | awk 'NR == 1 {print $2}')"; else kv ufw missing; fi
-# Hardened = what sshd really uses (a Match block or an earlier file can override ours). Without
-# root, sshd -T prints nothing: then our file is all there is to go by.
-pw=$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n')
+kv ufw "$(ufw_state)"
+# Without root sshd -T prints nothing: then our file is all there is to go by.
+pw=$(sshd_passwords)
 if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi
 kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
-kv password_users "$(S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null)"
+kv password_users "$(password_users)"
 # Users with a key: keys-only ssh does not lock them out.
 ku=""
 for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
-  S grep -q '^[^#[:space:]]' "$f" 2>/dev/null && ku="$ku $(printf %s "$f" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#')"
+  S grep -q '^[^#[:space:]]' "$f" 2>/dev/null && ku="$ku $(key_file_user "$f")"
 done
 kv key_users "$ku"
 f=${TRAEFIK_DIR}/docker-compose.yml

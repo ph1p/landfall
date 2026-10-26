@@ -37,7 +37,6 @@ export interface PkgStatus {
 /** Read-only, except that it refreshes the package lists (apt update) when it may. Env: REFRESH */
 const PKG_LIST = String.raw`
 set +e
-S() { if [ -n "$SUDO" ]; then sudo -n "$@"; else "$@"; fi; }
 m=$(pkg_mgr); echo "mgr=$m"
 refresh() { [ "$REFRESH" = 1 ] && S true 2>/dev/null && "$@" >/dev/null 2>&1 && echo refreshed=1; }
 case "$m" in
