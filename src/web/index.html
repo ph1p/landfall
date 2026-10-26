@@ -288,7 +288,7 @@ aside.job { border-left: 1px solid var(--line); background: var(--panel); displa
 dialog { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow-lg); width: min(520px, calc(100vw - 32px)); }
 dialog[open] { animation: pop .15s ease-out; }
 dialog::backdrop { background: rgb(9 9 11 / .4); backdrop-filter: blur(2px); }
-dialog form { padding: 22px 24px; display: grid; gap: 14px; }
+dialog form { padding: 22px 24px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 dialog h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 dialog .text { color: var(--dim); white-space: pre-wrap; font-size: var(--fs); }
 dialog .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
@@ -301,6 +301,25 @@ legend { font-size: var(--fs-sm); font-weight: 600; padding: 0 4px; }
 .row-toggle:hover { background: none; text-decoration: underline; text-underline-offset: 2px; }
 .jobs-btn .spin { width: 10px; height: 10px; margin-right: 4px; }
 .dlg-err { margin: 0; }
+/* Long forms scroll between the title and the buttons, which stay in view. */
+dialog[open] { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); overflow: hidden; }
+dialog > form { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 0; }
+dialog .btns { position: sticky; bottom: 0; z-index: 1; background: var(--panel); margin: 0 -24px; padding: 12px 24px 18px; border-top: 1px solid var(--line); }
+.field-err { color: var(--bad); font-size: var(--fs-sm); font-weight: 450; margin-top: 4px; }
+.field-err::before { content: "⚠ "; }
+[aria-invalid="true"] { border-color: var(--bad) !important; }
+[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
+.hint.preview { color: var(--dim); font-family: var(--mono); overflow-wrap: anywhere; }
+label[hidden], fieldset[hidden], details[hidden], .form-row[hidden] { display: none; }
+details.fs { border: 1px solid var(--line); border-radius: var(--r); }
+details.fs > summary { cursor: pointer; padding: 10px 14px; font-size: var(--fs-sm); font-weight: 600; list-style: none; display: flex; gap: 8px; align-items: baseline; border-radius: var(--r); }
+details.fs > summary::-webkit-details-marker { display: none; }
+details.fs > summary::before { content: "›"; color: var(--faint); transition: transform .15s; display: inline-block; width: 8px; }
+details.fs[open] > summary::before { transform: rotate(90deg); }
+details.fs > summary:hover { background: var(--hover); }
+details.fs > summary .faint { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.fs > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+.fs-body { padding: 2px 14px 12px; display: grid; gap: 10px; }
 .server-pick { display: none; }
 .facts { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--faint); font-size: var(--fs-sm); margin-top: 6px; }
 .facts b { color: var(--text); font-weight: 500; }
@@ -717,21 +736,18 @@ function tunnelOptions(n, argv, ports = []) {
   // A choice only when there is one to make: else free text, empty meaning the CLI's default.
   const port = ports.length > 1
     ? { name: "port", label: "Container port", type: "select", value: String(ports[0]), options: ports.map((p) => ({ value: String(p), label: String(p) })) }
-    : { name: "port", label: "Container port", placeholder: ports[0] ? String(ports[0]) : "the one Traefik routes to, else the one it exposes", value: "" };
+    : { name: "port", label: "Container port", type: "number", placeholder: ports[0] ? String(ports[0]) : "the one Traefik routes to, else the one it exposes", value: "", check: portError };
   dialog({
     title: argv[0] === "traefik" ? "Tunnel to the Traefik dashboard" : `Tunnel to ${argv.slice(1).filter((a, i, l) => a !== "-s" && l[i - 1] !== "-s").join(" · ")}`,
     text: `Forwards a port on this machine to it until you close it: lf ${argv.join(" ")}`,
     ok: "Open tunnel",
     fields: [
       ...(argv[0] === "tunnel" ? [port] : []),
-      { name: "local", label: "Local port", placeholder: "the container's port, else a free one", value: "", hint: "Fails if something else listens on it." },
+      { name: "local", label: "Local port", type: "number", placeholder: "the container's port, else a free one", value: "", hint: "Fails if something else listens on it.", check: portError },
       { name: "lan", label: "Reachable from my network too", type: "check", value: false, hint: "Open it from a phone or another device on the same Wi-Fi. Anyone on that network can reach it." },
     ],
     onOk: (v) => {
-      const isPort = (x) => /^\d+$/.test(x) && +x >= 1 && +x <= 65535;
       const to = v.port?.trim() ?? "", local = v.local.trim();
-      if (to && !isPort(to)) return invalid("port", "A port from 1 to 65535");
-      if (local && !isPort(local)) return invalid("local", "A port from 1 to 65535");
       run([...argv, ...(to ? ["--port", to] : []), ...(local ? ["-l", local] : []), ...(v.lan ? ["--lan"] : [])], { server: n });
     },
   });
@@ -845,28 +861,52 @@ function renderJob() {
 // ---- dialogs -------------------------------------------------------------
 
 /**
- * A modal form. fields: [{name, label, value, type: text|password|textarea|select|check, options, hint, placeholder}].
- * onOk(values) runs on submit; return false to keep it open, or {field, error} to keep it open and show why.
+ * A modal form. fields: [{name, label, value, type: text|number|password|textarea|select|check, options, hint, placeholder}],
+ * plus, per field: required (true or its message), check(value, values): what is wrong with it, shown under it;
+ * when(values): shown only then; off(values): greyed out then; preview(values): a live line under it; mono.
+ * Groups: {legend, fields, collapsed, when} (collapsed: a section that opens on click), rows: {row: [fields]}.
+ * onOk(values) runs on submit once every shown field checks out; return false to keep it open, or {field, error} to show why.
  * typeToConfirm: a name the user types before the (dangerous) action is enabled.
  */
 function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk, extra = "", after = "", typeToConfirm = "" }) {
   const dlg = openDlg();
+  const flat = (list) => list.flatMap((f) => (f.fields ? flat(f.fields) : f.row ? flat(f.row) : [f]));
+  const specs = flat(fields);
+  // Whatever shows, hides or greys out with the values: its element id and the rule.
+  const live = [];
+  const cond = (f) => {
+    if (!f.when) return "";
+    live.push({ id: `c${live.length}`, when: f.when });
+    return ` id="c${live.length - 1}"`;
+  };
   const field = (f) => {
     const id = `f-${f.name}`;
     const hint = f.hint ? `<div class="hint">${esc(f.hint)}</div>` : "";
+    const below = `${f.preview ? `<div class="hint preview" id="${id}-p" aria-live="polite" hidden></div>` : ""}<div class="field-err" id="${id}-e" hidden></div>`;
+    const attrs = `id="${id}" name="${f.name}" aria-describedby="${id}-e"${f.required ? " aria-required=\"true\"" : ""}`;
     if (f.type === "check") {
-      return `<label class="check"><input type="checkbox" id="${id}" name="${f.name}" ${f.value ? "checked" : ""}><span>${esc(f.label)}${hint}</span></label>`;
+      return `<label class="check" data-name="${f.name}"${cond(f)}><input type="checkbox" ${attrs} ${f.value ? "checked" : ""}><span>${esc(f.label)}${hint}${below}</span></label>`;
     }
+    const label = (input) => `<label data-name="${f.name}"${cond(f)}>${esc(f.label)}${input}${hint}${below}</label>`;
     if (f.type === "select") {
-      return `<label>${esc(f.label)}<select id="${id}" name="${f.name}">${f.options
-        .map((o) => `<option value="${esc(o.value)}" ${o.value === f.value ? "selected" : ""}>${esc(o.label)}</option>`)
-        .join("")}</select>${hint}</label>`;
+      return label(`<select ${attrs}>${f.options.map((o) => `<option value="${esc(o.value)}" ${o.value === f.value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>`);
     }
-    if (f.type === "password") return `<label>${esc(f.label)}${secretInput(id, f)}${hint}</label>`;
-    if (f.type === "textarea") return `<label>${esc(f.label)}<textarea id="${id}" name="${f.name}" placeholder="${esc(f.placeholder)}">${esc(f.value)}</textarea>${hint}</label>`;
-    return `<label>${esc(f.label)}<input id="${id}" name="${f.name}" type="${f.type || "text"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="off" spellcheck="false">${hint}</label>`;
+    if (f.type === "password") return label(secretInput(attrs, f));
+    const cls = f.mono ? ` class="mono"` : "";
+    if (f.type === "textarea") return label(`<textarea ${attrs}${cls} placeholder="${esc(f.placeholder)}" spellcheck="false">${esc(f.value)}</textarea>`);
+    const num = f.type === "number" ? ` inputmode="numeric"` : "";
+    return label(`<input ${attrs}${cls}${num} type="text" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false">`);
   };
-  const group = (f) => (f.legend ? `<fieldset${f.id ? ` id="fs-${f.id}"` : ""}><legend>${esc(f.legend)}</legend>${f.fields.map(field).join("")}</fieldset>` : field(f));
+  const group = (f) => {
+    if (f.row) return `<div class="form-row"${cond(f)}>${f.row.map(field).join("")}</div>`;
+    if (!f.legend) return field(f);
+    const id = f.id ? ` data-group="${f.id}"` : "";
+    const inner = f.fields.map(group).join("");
+    if (f.collapsed !== undefined) {
+      return `<details class="fs"${id}${cond(f)}${f.collapsed ? "" : " open"}><summary>${esc(f.legend)}${f.note ? ` <span class="faint">${esc(f.note)}</span>` : ""}</summary><div class="fs-body">${inner}</div></details>`;
+    }
+    return `<fieldset${id}${cond(f)}><legend>${esc(f.legend)}</legend>${inner}</fieldset>`;
+  };
   dlg.innerHTML = `<form method="dialog" novalidate>
     <h2 id="dlg-title">${esc(title)}</h2>
     ${text ? `<div class="text">${esc(text)}</div>` : ""}
@@ -882,52 +922,107 @@ function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk
   </form>`;
   const form = $("form", dlg);
   const submit = $("button[type=submit]", form);
+  const el = (name) => form.elements[name];
+  const values = () => Object.fromEntries(specs.map((f) => [f.name, f.type === "check" ? el(f.name).checked : el(f.name).value]));
+  // Hidden or greyed out: neither checked nor reported.
+  const inPlay = (f) => !el(f.name).disabled && !el(f.name).closest("[hidden]");
+  const sync = () => {
+    const v = values();
+    for (const c of live) $(`#${c.id}`, form).hidden = !c.when(v);
+    for (const f of specs) {
+      if (f.off) el(f.name).disabled = !!f.off(v);
+      if (f.preview) {
+        const p = $(`#f-${f.name}-p`, form), line = inPlay(f) ? f.preview(v) : "";
+        p.textContent = line || "";
+        p.hidden = !line;
+      }
+    }
+  };
+  const show = (name, error) => {
+    const input = el(name), box = $(`#f-${name}-e`, form);
+    if (!input) {
+      const err = $("#dlg-err", dlg);
+      err.textContent = error;
+      err.hidden = false;
+      return;
+    }
+    box.textContent = error ?? "";
+    box.hidden = !error;
+    if (!error) return void input.removeAttribute("aria-invalid");
+    input.setAttribute("aria-invalid", "true");
+    // A collapsed section opens to show what is wrong in it.
+    const sec = input.closest("details");
+    if (sec) sec.open = true;
+  };
+  const problem = (f, v) => {
+    if (!inPlay(f)) return "";
+    const value = v[f.name];
+    if (f.required && f.type !== "check" && !String(value).trim()) return f.required === true ? `${f.label} is needed` : f.required;
+    return f.check?.(typeof value === "string" ? value.trim() : value, v) || "";
+  };
+  const recheck = (name) => {
+    const f = specs.find((s) => s.name === name);
+    if (f) show(name, problem(f, values()));
+  };
   $("#dlg-cancel", dlg).onclick = () => dlg.close();
   if (typeToConfirm) {
     submit.disabled = true;
     $("#dlg-confirm", dlg).oninput = (e) => (submit.disabled = e.target.value.trim() !== typeToConfirm);
   }
-  form.oninput = (e) => e.target.removeAttribute?.("aria-invalid");
+  form.oninput = (e) => {
+    sync();
+    // Once wrong, a field says so until it is right; before that, only when it is left.
+    if (e.target.getAttribute?.("aria-invalid")) recheck(e.target.name);
+    $("#dlg-err", dlg).hidden = true;
+  };
+  form.onchange = (e) => (sync(), e.target.type === "checkbox" || e.target.tagName === "SELECT" ? recheck(e.target.name) : undefined);
+  form.addEventListener("focusout", (e) => e.target.name && e.target.value?.trim() && recheck(e.target.name));
+  // Cmd/Ctrl+Enter sends from a text area too.
+  form.onkeydown = (e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && (e.preventDefault(), form.requestSubmit());
   form.onsubmit = (e) => {
     e.preventDefault();
     if (submit.disabled) return;
-    const values = {};
-    for (const f of fields.flatMap((f) => f.fields ?? [f])) {
-      const el = form.elements[f.name];
-      values[f.name] = f.type === "check" ? el.checked : el.value;
-    }
-    const r = onOk(values);
+    const v = values();
+    const bad = specs.map((f) => [f.name, problem(f, v)]);
+    for (const [name, error] of bad) show(name, error);
+    const first = bad.find(([, error]) => error);
+    if (first) return void el(first[0]).focus();
+    const r = onOk(v);
     if (r === false) return;
     if (r?.error) {
-      const err = $("#dlg-err", dlg), el = r.field && form.elements[r.field];
-      err.textContent = r.error;
-      err.hidden = false;
-      el?.setAttribute("aria-invalid", "true");
-      el?.focus();
+      show(r.field, r.error);
+      el(r.field)?.focus();
       return;
     }
     // Empty before closing: browsers offer to save a password they still see when the form goes away.
-    for (const el of form.querySelectorAll(".secret")) el.value = "";
+    for (const x of form.querySelectorAll(".secret")) x.value = "";
     dlg.close();
   };
+  sync();
   dlg.showModal();
   // A dangerous confirm starts on Cancel, so a stray Enter does not delete anything.
-  const first = $("input:not([type=checkbox]), textarea, select", form);
+  const first = [...form.querySelectorAll("input:not([type=checkbox]), textarea, select")].find((x) => !x.disabled && !x.closest("[hidden], details:not([open])"));
   (first || (danger ? $("#dlg-cancel", dlg) : submit)).focus();
 }
 const invalid = (field, error) => ({ field, error });
-/** What is wrong with a login (lf newLogin's rules), as [field, message]. */
-const loginError = (user, password, { loginName, minPassword } = S.state.rules) =>
-  !new RegExp(loginName).test(user) ? ["user", "Only letters, digits and . _ @ -"]
-  : password.length < minPassword ? ["password", `The password needs at least ${minPassword} characters`]
-  : null;
+/** For a field's check: what is wrong with a site name (lf deploy's rule). */
+const siteNameError = (x) => !new RegExp(S.state.rules.siteName).test(x) && "Lowercase letters, digits and dashes";
+/** Space or comma separated words. */
+const words = (s) => s.split(/[\s,]+/).filter(Boolean);
+/** A domain the CLI takes (a leading *. for a wildcard). */
+const domainOk = (d) => new RegExp(S.state.rules.domain, "i").test(d.replace(/^\*\./, ""));
+/** For a field's check: what is wrong with a port (empty is the field's own business). */
+const portError = (x) => x && !(/^\d+$/.test(x) && +x >= 1 && +x <= 65535) && "A port from 1 to 65535";
+/** For a field's check: what is wrong with a login's user or password (lf newLogin's rules). */
+const userError = (user) => !new RegExp(S.state.rules.loginName).test(user) && "Only letters, digits and . _ @ -";
+const passwordError = (pw) => pw.length < S.state.rules.minPassword && `The password needs at least ${S.state.rules.minPassword} characters`;
 /**
  * Passwords here are for servers and sites, not for this page: a masked text field, so browsers
  * and password managers do not offer to save them. Browsers without text masking get a password field.
  */
 const MASK = CSS.supports("-webkit-text-security", "disc");
-const secretInput = (id, f) =>
-  `<input id="${id}" name="${f.name}" class="secret" type="${MASK ? "text" : "password"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="${MASK ? "off" : "new-password"}" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">`;
+const secretInput = (attrs, f) =>
+  `<input ${attrs} class="secret" type="${MASK ? "text" : "password"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="${MASK ? "off" : "new-password"}" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">`;
 /** The shared <dialog>, closed and reset so a new one can take its place. */
 function openDlg(cls = "") {
   const dlg = $("#dlg");
@@ -986,10 +1081,10 @@ function setupWizard(base) {
             ],
             hint: "If the server already runs a Traefik on 80/443, setup routes sites through it instead.",
           },
-          { name: "image", label: "Image", value: saved.traefikImage ?? S.state.defaultImage },
-          { name: "email", label: "Let's Encrypt e-mail (optional)", value: saved.email ?? "" },
-          { name: "dashboard", label: "Dashboard domain (optional)", value: "", placeholder: "traefik.example.com", hint: "Behind basic auth; the password is shown after setup." },
-          { name: "http3", label: "HTTP/3 (QUIC on 443/udp)", type: "check", value: saved.http3 !== false, hint: "Browsers that can't use it fall back to HTTP/2." },
+          { name: "email", label: "Let's Encrypt e-mail (optional)", value: saved.email ?? "", when: (v) => v.traefik !== "none", check: (x) => x && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) && "An e-mail address" },
+          { name: "dashboard", label: "Dashboard domain (optional)", value: "", placeholder: "traefik.example.com", mono: true, hint: "Behind basic auth; the password is shown after setup.", when: (v) => v.traefik !== "none", check: (x) => x && !domainOk(x) && "Not a domain" },
+          { name: "http3", label: "HTTP/3 (QUIC on 443/udp)", type: "check", value: saved.http3 !== false, hint: "Browsers that can't use it fall back to HTTP/2.", when: (v) => v.traefik !== "none" },
+          { name: "image", label: "Image", value: saved.traefikImage ?? S.state.defaultImage, mono: true, when: (v) => v.traefik !== "none" },
         ],
       },
       { name: "firewall", label: "Enable ufw: deny incoming except ssh, 80 and 443", type: "check", value: true, hint: "Skipped automatically if it would block ports in use." },
@@ -1036,18 +1131,25 @@ function passwordFor(args, base) {
 }
 
 function addServer() {
+  const known = (name) => S.state.servers.some((s) => s.name === name);
   dialog({
     title: "Add a server",
     text: "Use an alias from ~/.ssh/config (like vps), or pick a new name and give the machine's address, fresh or already in use. landfall writes the ssh config entry for it.",
     fields: [
-      { name: "name", label: "Name", placeholder: "vps" },
-      { name: "host", label: "IP or hostname (not needed for an ssh alias)", placeholder: "203.0.113.7" },
+      {
+        row: [
+          { name: "name", label: "Name", placeholder: "vps", required: "Give the server a name", preview: (v) => known(v.name.trim()) && "✓ in your ssh config" },
+          {
+            name: "host", label: "IP or hostname", placeholder: "203.0.113.7", mono: true, hint: "Not needed for an ssh alias.",
+            check: (h, v) => !h && !known(v.name.trim()) && `${v.name.trim()} is not in your ssh config: give its IP or hostname`,
+          },
+        ],
+      },
       {
         legend: "Login (for a new address)",
         fields: [
-          { name: "user", label: "User", placeholder: "root" },
-          { name: "port", label: "SSH port", placeholder: "22" },
-          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", hint: "Without one, landfall creates ~/.ssh/landfall_<name> and installs it with the password." },
+          { row: [{ name: "user", label: "User", placeholder: "root" }, { name: "port", label: "SSH port", type: "number", placeholder: "22", check: portError }] },
+          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", mono: true, hint: "Without one, landfall creates ~/.ssh/landfall_<name> and installs it with the password." },
           { name: "password", label: "Password (optional)", type: "password", hint: "Used once to install the key, never stored. Leave empty if the key already works." },
         ],
       },
@@ -1056,10 +1158,6 @@ function addServer() {
     ok: "Add",
     onOk: (v) => {
       const [name, host, user, port, key] = [v.name, v.host, v.user, v.port, v.key].map((x) => x.trim());
-      if (!name) return invalid("name", "Give the server a name");
-      const known = S.state.servers.some((s) => s.name === name);
-      if (!known && !host) return invalid("host", `${name} is not in your ssh config: give its IP or hostname`);
-      if (port && !/^\d+$/.test(port)) return invalid("port", "The port is a number");
       const args = [name, ...(host ? ["--host", host] : []), ...(user ? ["-u", user] : []), ...(port ? ["-p", port] : []), ...(key ? ["-i", key] : [])];
       // With a password: install the key now, then the setup wizard needs nothing but the alias.
       const then = (j) => (j.info.code === 0 ? void (v.setup ? setupWizard([name]) : go(name)) : undefined);
@@ -1085,7 +1183,7 @@ function defaultsDialog() {
       { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
       { name: "tunnelOnly", label: "New sites get no domain: tunnel only", type: "check", value: d.tunnelOnly, hint: "Nothing is served on the internet until a site gets a domain. A server's Settings can override it." },
       { name: "email", label: "Let's Encrypt e-mail (optional)", value: d.email ?? "", hint: "For servers that set none, when landfall installs Traefik." },
-      { name: "keep", label: "Releases to keep for rollback", value: String(d.keep), placeholder: "5" },
+      { name: "keep", label: "Releases to keep for rollback", type: "number", value: String(d.keep), placeholder: "5", check: (k) => k && (!/^\d+$/.test(k) || !Number(k)) && "A whole number from 1 up" },
     ],
     after: whereList(d.locations),
     ok: "Save",
@@ -1096,7 +1194,6 @@ function defaultsDialog() {
       const email = v.email.trim();
       if (email !== (d.email ?? "")) argv.push(...(email ? ["--email", email] : ["--unset", "email"]));
       const keep = v.keep.trim();
-      if (keep && (!/^\d+$/.test(keep) || !Number(keep))) return invalid("keep", "A whole number from 1 up");
       if (keep !== String(d.keep)) argv.push(...(keep ? ["--keep", keep] : ["--unset", "keep"]));
       if (argv.length === 1) return;
       run(argv, { after: (j) => (j.info.code === 0 ? void (S.sel && load(S.sel, "settings", true), refreshState()) : undefined) });
@@ -1142,82 +1239,125 @@ function deployDialog(det, o = {}) {
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
   const target = re?.server ?? p?.server ?? defaultServer();
   const name = re?.name ?? o.name ?? det.name;
-  const main = mainDomain(target);
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
   const keeps = re && !p?.domains ? re.domains : null;
+  const keeping = (v) => keeps && v.name.trim() === re.name && v.server === re.server;
   // Static files or an app without a Dockerfile: what to build and run is landfall's to decide, and editable here.
   const runtime = det.runtime ?? "Node.js";
   const modal = det.kind === "static" || !!det.start;
+  const runs = det.kind === "dockerfile" || det.kind === "image";
+  const isApp = (v) => (modal ? (v.mode ?? (det.start ? "node" : "static")) === "node" : runs);
+  const served = (v) => !(isApp(v) && v.worker);
+  const volumes = det.volumes ?? [];
+  /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
+  const addresses = (v) => {
+    const main = mainDomain(v.server);
+    const given = words(v.domains);
+    if (!given.length) return [keeping(v) ? keeps : [autoDomain(v.server, v.name.trim())].filter(Boolean)];
+    const out = given.map((d) => (d === "@" ? main : !d.includes(".") && main ? `${d}.${main}` : d)?.toLowerCase());
+    if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
+    const bad = out.find((d) => !domainOk(d));
+    return [out, bad && `Not a domain: ${bad}`];
+  };
+  const app = [
+    { name: "worker", label: "Background worker: no port, no domain", type: "check", value: !!det.worker, hint: "A bot, a queue consumer, a scheduler: it runs, nothing routes to it." },
+    { name: "port", label: "Port it listens on", type: "number", value: String(det.port ?? 3000), hint: modal ? "The app gets it as PORT." : "", when: (v) => !v.worker, required: "Which port does it listen on?", check: portError },
+    {
+      name: "volumes", label: "Folders to keep", value: volumes.join(" "), placeholder: "/app/data", mono: true,
+      hint: "In the container, space separated: their files outlive deploys and rollbacks (a Docker volume each). Empty: none.",
+      check: (x) => words(x).filter((d) => !/^\/[\w./-]*\w$/.test(d)).map((d) => `${d} is not a folder like /app/data`)[0],
+    },
+  ];
   dialog({
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
     text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
       + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back… returns to the current one."}` : ""),
     extra: `<div class="detected">${describe(det)}</div>`,
     fields: [
-      { name: "name", label: "Site name", value: name, hint: re ? "Another name deploys a new site instead." : "" },
-      { name: "server", label: "Server", type: "select", options: servers, value: target },
       {
-        name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "),
-        placeholder: keeps ? keeps.join(" ") || "none" : autoDomain(target, name) || "example.com www.example.com",
-        hint: keeps
-          ? `Empty: keeps ${keeps.length ? keeps.join(", ") : "no domain (tunnel only)"}.`
-          : main
-          ? `Empty: <name>.${main}. A bare name like blog means blog.${main}, @ means ${main} itself (another site serving it hands it over). Other domains need an A record pointing at the server.`
-          : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
+        row: [
+          {
+            name: "name", label: "Site name", value: name, required: "Give the site a name",
+            check: siteNameError,
+            hint: re ? "Another name deploys a new site." : "",
+          },
+          { name: "server", label: "Server", type: "select", options: servers, value: target, required: "Pick a server" },
+        ],
       },
-      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
+      ...(modal && (det.node || det.start)
+        ? [{ name: "mode", label: "Deploy as", type: "select", value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
+        : []),
+      {
+        legend: "Address", when: served,
+        fields: [
+          {
+            name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "), off: (v) => v.noDomain,
+            placeholder: keeps ? keeps.join(" ") || "none" : "empty: the address below",
+            hint: mainDomain(target) ? "A bare name like blog is under the main domain, @ is the main domain itself. Others need an A record pointing at the server." : "Own domains need an A record pointing at the server.",
+            check: (_, v) => addresses(v)[1],
+            preview: (v) => {
+              const [out, bad] = addresses(v);
+              return bad ? "" : out.length ? `→ ${out.map((d) => `https://${d}`).join("  ")}` : "→ no domain: tunnel only";
+            },
+          },
+          { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
+        ],
+      },
       ...(modal
         ? [
-            ...(det.node || det.start
-              ? [{ name: "mode", label: "Deploy as", type: "select", value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
-              : []),
-            { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", hint: `Static files: runs here, before the upload. The ${runtime} app: runs on the server, in its image.` },
+            { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", mono: true, hint: `Static files: runs here, before the upload. The ${runtime} app: runs on the server, in its image.` },
             {
-              legend: "Static files", id: "static",
+              legend: "Static files", id: "static", when: (v) => !isApp(v),
               fields: [
                 {
-                  name: "dir", label: "Folder to publish", value: det.dir ?? ".", placeholder: ".",
+                  name: "dir", label: "Folder to publish", value: det.dir ?? ".", placeholder: ".", mono: true,
                   hint: det.tool && !det.start ? `Detected: ${det.tool} writes the site to ${det.dir}/ (it need not exist before the build).` : "Relative to the project; it needs an index.html after the build.",
+                  check: (x) => (/^[/-]/.test(x) || x.split("/").includes("..")) && "A folder inside the project",
                 },
                 { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
               ],
             },
             {
-              legend: `${runtime} app`, id: "node",
+              legend: `${runtime} app`, id: "node", when: isApp,
               fields: [
                 {
-                  name: "start", label: "Start command", value: det.start ?? "", placeholder: "node server.js",
+                  name: "start", label: "Start command", value: det.start ?? "", placeholder: "node server.js", mono: true, required: "How does the app start? For example: node server.js",
                   hint: `${det.start && det.tool ? `Detected: ${det.tool}. ` : ""}landfall writes the Dockerfile (install, build, start); lf init puts it into the project to change it.`,
                 },
-                { name: "port", label: "Port it listens on", value: String(det.port ?? 3000), hint: "The app gets it as PORT." },
+                ...app,
               ],
             },
           ]
-        : det.kind === "dockerfile" || det.kind === "image"
-        ? [{ name: "port", label: "Port it listens on", value: String(det.port ?? 3000) }]
+        : runs
+        ? [{ legend: det.kind === "image" ? "Container" : "Dockerfile app", fields: app }]
         : []),
       {
-        legend: "Login (optional)",
+        legend: "Visitor login", collapsed: true, note: "optional: HTTP basic auth, set or remove it later with Password… on the site", when: served,
         fields: [
-          { name: "authUser", label: "User", value: "admin", placeholder: "admin" },
-          { name: "authPassword", label: `Password (at least ${S.state.rules.minPassword} characters)`, type: "password", hint: "Visitors log in with this user and password (HTTP basic auth). Empty: no change; set or remove it later with Password… on the site." },
+          {
+            row: [
+              { name: "authUser", label: "User", value: "admin", placeholder: "admin", check: (x, v) => v.authPassword && userError(x || "admin") },
+              { name: "authPassword", label: `Password (${S.state.rules.minPassword}+ characters)`, type: "password", check: (x) => x && passwordError(x) },
+            ],
+          },
         ],
       },
     ],
     ok: re ? "Redeploy" : "Deploy",
     onOk: (v) => {
       const n = v.name.trim();
-      if (!n) return invalid("name", "Give the site a name");
-      if (!v.server) return invalid("server", "Pick a server");
-      const domains = v.domains.split(/[\s,]+/).filter(Boolean);
-      // The server's default would leave it unrouted though the box is unticked.
-      if (!v.noDomain && !domains.length && !p?.domains?.length && !(keeps && n === re.name && v.server === re.server) && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
-      const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d]))];
-      const asNode = modal && (v.mode ?? (det.start ? "node" : "static")) === "node";
+      const asNode = isApp(v);
+      const worker = asNode && v.worker;
+      const argv = ["deploy", "-y", ...sv(v.server), "-n", n];
+      if (!worker) {
+        const domains = words(v.domains);
+        // The server's default would leave it unrouted though the box is unticked.
+        if (!v.noDomain && !domains.length && !p?.domains?.length && !keeping(v) && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
+        argv.push(...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d])));
+      }
       const build = v.build?.trim() ?? "";
-      if (asNode) {
+      if (modal && asNode) {
         const start = v.start.trim();
-        if (!start) return invalid("start", "How does the app start? For example: node server.js");
         if (start !== det.start) argv.push("--start", start);
         if (build !== (det.build ?? "")) argv.push("--build", build);
       } else if (modal) {
@@ -1225,49 +1365,21 @@ function deployDialog(det, o = {}) {
         if (build && build !== p?.build) argv.push("--build", build);
         if (v.spa && !p?.spa) argv.push("--spa");
         const dir = v.dir.trim().replace(/\/+$/, "") || ".";
-        if (/^[/-]/.test(dir) || dir.split("/").includes("..")) return invalid("dir", "A folder inside the project");
         if (dir !== (det.dir ?? ".")) argv.push(dir);
       }
-      if (v.port !== undefined && (asNode || !modal)) {
+      if (asNode) {
+        if (worker !== !!det.worker) argv.push(worker ? "--worker" : "--no-worker");
         const port = Number(v.port.trim());
-        if (!Number.isInteger(port) || port < 1 || port > 65535) return invalid("port", "A port from 1 to 65535");
-        if (port !== (det.port ?? 3000)) argv.push("--port", String(port));
+        if (!worker && port !== (det.port ?? 3000)) argv.push("--port", String(port));
+        const vols = words(v.volumes);
+        if (vols.join(" ") !== volumes.join(" ")) argv.push(...(vols.length ? vols.flatMap((x) => ["--volume", x]) : ["--volume", ""]));
       }
       // The login counts once there is a password; the user defaults to admin.
-      if (v.authPassword) {
-        const user = v.authUser.trim() || "admin";
-        const bad = loginError(user, v.authPassword);
-        if (bad) return invalid(bad[0] === "user" ? "authUser" : "authPassword", bad[1]);
-        argv.push("--auth-user", user, "--auth-password", v.authPassword);
-      }
+      if (!worker && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
   });
-  noDomainToggle();
-  modeToggle();
-}
-
-/** The open dialog's "deploy as" picks which settings show: the static folder's or the Node.js app's. */
-function modeToggle() {
-  const mode = $("#f-mode"), stat = $("#fs-static"), node = $("#fs-node");
-  if (!stat || !node) return;
-  const sync = () => {
-    const asNode = mode?.value === "node";
-    stat.hidden = asNode;
-    node.hidden = !asNode;
-  };
-  mode?.addEventListener("change", sync);
-  sync();
-}
-
-/** The open dialog's "no domain" box greys out its domains field: ticked, the site gets none. */
-function noDomainToggle() {
-  const box = $("#f-noDomain"), input = $("#f-domains");
-  if (!box || !input) return;
-  const sync = () => (input.disabled = box.checked);
-  box.addEventListener("change", sync);
-  sync();
 }
 
 /** After a deploy: offer the address it printed. */
@@ -1425,10 +1537,13 @@ function domainsDialog(n, m) {
     title: `Domains of ${m.name}`,
     text: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
     fields: [
-      { name: "domains", label: "Domains (space separated)", value: m.domains.join(" ") },
+      {
+        name: "domains", label: "Domains (space separated)", value: m.domains.join(" "), mono: true, off: (v) => v.noDomain,
+        check: (x) => words(x).filter((d) => !domainOk(d)).map((d) => `Not a domain: ${d}`)[0],
+      },
       { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !m.domains.length, hint: "Nothing is served on the internet; the site keeps running. Open via tunnel reaches it." },
-      ...(main && !m.domains.includes(main) ? [{ name: "apex", label: `Also serve ${main}`, type: "check", value: false, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }] : []),
-      ...(free && !m.domains.includes(free) ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }] : []),
+      ...(main && !m.domains.includes(main) ? [{ name: "apex", label: `Also serve ${main}`, type: "check", value: false, when: (v) => !v.noDomain, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }] : []),
+      ...(free && !m.domains.includes(free) ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, when: (v) => !v.noDomain, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }] : []),
     ],
     ok: "Save",
     onOk: (v) => {
@@ -1441,7 +1556,6 @@ function domainsDialog(n, m) {
       run(["domains", m.name, ...sv(n), ...args, "-y"], { server: n });
     },
   });
-  noDomainToggle();
 }
 
 function authDialog(n, m) {
@@ -1452,17 +1566,18 @@ function authDialog(n, m) {
       ? `Visitors log in as ${users.join(", ")}. Saving an existing user changes their password.`
       : "Visitors have to log in (HTTP basic auth) before they see the site.",
     fields: [
-      { name: "user", label: "User", value: users[0] ?? "admin" },
-      { name: "password", label: `Password (at least ${S.state.rules.minPassword} characters)`, type: "password", auto: "new-password" },
-      ...(users.length ? [{ name: "off", label: "Remove the login: the site is public again", type: "check", value: false }] : []),
+      { name: "off", label: "Remove the login: the site is public again", type: "check", value: false, when: () => users.length },
+      {
+        row: [
+          { name: "user", label: "User", value: users[0] ?? "admin", off: (v) => v.off, check: (x) => userError(x || "admin") },
+          { name: "password", label: `Password (${S.state.rules.minPassword}+ characters)`, type: "password", off: (v) => v.off, required: "Pick a password", check: passwordError },
+        ],
+      },
     ],
     ok: "Save",
     onOk: (v) => {
       if (v.off) return void run(["auth", m.name, ...sv(n), "--off", "-y"], { server: n });
-      const user = v.user.trim() || "admin";
-      const bad = loginError(user, v.password);
-      if (bad) return invalid(...bad);
-      run(["auth", m.name, ...sv(n), "-u", user, "--password", v.password], { server: n });
+      run(["auth", m.name, ...sv(n), "-u", v.user.trim() || "admin", "--password", v.password], { server: n });
     },
   });
 }
@@ -1943,7 +2058,7 @@ function adoptDialog(n, e) {
   dialog({
     title: `Adopt ${e.name}?`,
     text: `${e.name} keeps running from ${e.dir} with its own files and Traefik labels. landfall lists it as a site with logs, restart, stop and start; it does not deploy it or change its domains.`,
-    fields: [{ name: "name", label: "Site name", value: e.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, "") }],
+    fields: [{ name: "name", label: "Site name", value: e.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, ""), required: true, check: siteNameError }],
     ok: "Adopt",
     onOk: (v) => run(["adopt", e.name, ...sv(n), "--name", v.name.trim()], { server: n }),
   });
@@ -1954,7 +2069,10 @@ function envDialog(n, name) {
     title: `Environment of ${name}`,
     text: "Changes recreate the container. Leave both empty to only show the current values.",
     fields: [
-      { name: "set", label: "Set (KEY=VALUE, one per line)", type: "textarea", value: "", placeholder: "DATABASE_URL=postgres://…\nLOG_LEVEL=info" },
+      {
+        name: "set", label: "Set (KEY=VALUE, one per line)", type: "textarea", value: "", placeholder: "DATABASE_URL=postgres://…\nLOG_LEVEL=info",
+        check: (x) => x.split("\n").map((l) => l.trim()).filter((l) => l && !/^[^=]+=/.test(l)).map((l) => `Not KEY=VALUE: ${l.slice(0, 40)}`)[0],
+      },
       { name: "unset", label: "Remove (names, space separated)", value: "", placeholder: "OLD_KEY" },
     ],
     ok: "Apply",
@@ -2293,11 +2411,10 @@ function renameHost(n, old) {
   dialog({
     title: `Rename ${n}`,
     text: "The server's own host name: what its shell prompt and logs show. Your ssh alias stays as it is.",
-    fields: [{ name: "name", label: "Host name", value: old, placeholder: "web-1" }],
+    fields: [{ name: "name", label: "Host name", value: old, placeholder: "web-1", mono: true, required: true, check: (x) => !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(x) && "Letters, digits and -, up to 63, no dots" }],
     ok: "Rename",
     onOk: (v) => {
       const name = v.name.trim();
-      if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(name)) return { error: "Letters, digits and -, up to 63, no dots.", field: "name" };
       if (name !== old) run(["hostname", name, ...sv(n)], { server: n });
     },
   });
@@ -2306,11 +2423,13 @@ function changeTz(n, old) {
   dialog({
     title: `Time zone of ${n}`,
     text: "Cron jobs, logs and the clock in containers that read it follow it.",
-    fields: [{ name: "tz", label: "Time zone", value: old, placeholder: "Europe/Berlin, UTC", hint: `Yours is ${Intl.DateTimeFormat().resolvedOptions().timeZone}.` }],
+    fields: [{
+      name: "tz", label: "Time zone", value: old, placeholder: "Europe/Berlin, UTC", hint: `Yours is ${Intl.DateTimeFormat().resolvedOptions().timeZone}.`, required: true,
+      check: (x) => !/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+)*$/.test(x) && "A name like Europe/Berlin or UTC",
+    }],
     ok: "Change",
     onOk: (v) => {
       const tz = v.tz.trim();
-      if (!/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+)*$/.test(tz)) return { error: "A name like Europe/Berlin or UTC.", field: "tz" };
       if (tz !== old) run(["timezone", tz, ...sv(n)], { server: n });
     },
   });
@@ -2322,10 +2441,9 @@ function addSwapDlg(n, i) {
   dialog({
     title: `Add swap to ${n}`,
     text: `A swap file at /swapfile, on at boot. It keeps the server alive when memory runs out (slowly instead of killing processes). ${size(i.diskFree)} free on the disk.`,
-    fields: [{ name: "size", label: "Size", value: `${pick >= 1 ? pick + "G" : "512M"}`, placeholder: "1G, 512M" }],
+    fields: [{ name: "size", label: "Size", value: `${pick >= 1 ? pick + "G" : "512M"}`, placeholder: "1G, 512M", required: true, check: (x) => !/^\d+(\.\d+)?\s*[mg]$/i.test(x) && "A size like 1G or 512M" }],
     ok: "Add swap",
     onOk: (v) => {
-      if (!/^\d+(\.\d+)?\s*[mg]$/i.test(v.size.trim())) return { error: "A size like 1G or 512M.", field: "size" };
       run(["swap", v.size.trim(), ...sv(n)], { server: n });
     },
   });
@@ -2335,15 +2453,17 @@ function logLimitDlg(n, d) {
     title: `Docker log limit on ${n}`,
     text: "Caps the log Docker keeps per container. It applies to containers created afterwards: redeploy or restart sites to apply it to them.",
     fields: [
-      { name: "size", label: "Per file", value: d.maxSize ?? "10m", placeholder: "10m", hint: "k, m or g. Empty removes the limit." },
-      { name: "files", label: "Files kept", value: String(d.maxFile ?? 3), placeholder: "3" },
+      {
+        row: [
+          { name: "size", label: "Per file", value: d.maxSize ?? "10m", placeholder: "10m", hint: "k, m or g. Empty: no limit.", check: (x) => x && !/^\d+[kmg]$/i.test(x) && "A size like 10m" },
+          { name: "files", label: "Files kept", type: "number", value: String(d.maxFile ?? 3), placeholder: "3", required: true, check: (x) => !/^\d+$/.test(x) && "A number" },
+        ],
+      },
       { name: "restart", type: "check", label: "Restart Docker now", hint: "Sites go down for a moment. Otherwise it applies on Docker's next start." },
     ],
     ok: "Save",
     onOk: (v) => {
       const sz = v.size.trim().toLowerCase();
-      if (sz && !/^\d+[kmg]$/.test(sz)) return { error: "A size like 10m.", field: "size" };
-      if (!/^\d+$/.test(v.files.trim())) return { error: "A number.", field: "files" };
       run(["log-limit", sz || "off", "--files", v.files.trim(), ...(v.restart ? ["--restart", "-y"] : []), ...sv(n)], { server: n });
     },
   });
@@ -2354,7 +2474,10 @@ function addKeyDlg(n, user = "", generate = false) {
     text: "Paste a public key (the .pub file, one line), or make a new pair on this computer. Whoever holds the private key can log in.",
     fields: [
       { name: "generate", label: "Make a new key pair", type: "check", value: generate, hint: `Saved as ~/.ssh/${n}_<user>, without a passphrase (add one with ssh-keygen -p). Hand it to whoever logs in as that user.` },
-      { name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… name@laptop", hint: "Not needed for a new pair." },
+      {
+        name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… name@laptop", when: (v) => !v.generate, required: "Paste the public key",
+        check: (k) => !/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(k.split("\n")[0]) && "That does not look like a public key (the .pub file)",
+      },
       { name: "user", label: "User", value: user, placeholder: "the login user", hint: "Whose account it logs in to. Empty: the user landfall logs in as." },
     ],
     ok: "Add key",
@@ -2362,7 +2485,6 @@ function addKeyDlg(n, user = "", generate = false) {
       const u = v.user.trim() ? ["--user", v.user.trim()] : [];
       if (v.generate) return void run(["keys", "add", "--generate", ...u, ...sv(n)], { server: n });
       const key = v.key.trim().split("\n")[0];
-      if (!/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(key)) return { error: "That does not look like a public key.", field: "key" };
       run(["keys", "add", key, ...u, ...sv(n)], { server: n });
     },
   });
@@ -2418,12 +2540,23 @@ function traefikView(n) {
       title: `Traefik dashboard on ${n}`,
       text: "Serves the dashboard on a domain behind a login. Without one it stays reachable through an SSH tunnel only (Open via tunnel).\nRuns lf traefik setup, which reconfigures landfall's Traefik.",
       fields: [
-        { name: "domain", label: "Domain", value: x.traefik.dashboard ?? "", placeholder: x.domains[0] ? `traefik.${x.domains[0]}` : "traefik.example.com", hint: x.traefik.dashboard ? "Empty: take the dashboard off its domain." : "Needs an A record pointing at the server." },
         {
-          legend: "Login",
+          name: "domain", label: "Domain", value: x.traefik.dashboard ?? "", mono: true, placeholder: x.domains[0] ? `traefik.${x.domains[0]}` : "traefik.example.com",
+          hint: x.traefik.dashboard ? "Empty: take the dashboard off its domain." : "Needs an A record pointing at the server.",
+          required: !x.traefik.dashboard && "Give a domain, or use the tunnel", check: (d) => d && !domainOk(d) && "Not a domain",
+        },
+        {
+          legend: "Login", when: (v) => v.domain.trim(),
           fields: [
-            { name: "user", label: "User", value: "admin", placeholder: "admin" },
-            { name: "password", label: `Password (at least ${S.state.rules.minPassword} characters)`, type: "password", hint: x.traefik.dashboard ? "Empty: keeps the current one." : "Empty: a generated one, shown in the output." },
+            {
+              row: [
+                { name: "user", label: "User", value: "admin", placeholder: "admin", check: (u) => userError(u || "admin") },
+                {
+                  name: "password", label: `Password (${S.state.rules.minPassword}+ characters)`, type: "password", check: (pw) => pw && passwordError(pw),
+                  hint: x.traefik.dashboard ? "Empty: keeps the current one." : "Empty: a generated one, shown in the output.",
+                },
+              ],
+            },
           ],
         },
       ],
@@ -2431,9 +2564,6 @@ function traefikView(n) {
       onOk: (v) => {
         const d = v.domain.trim();
         const user = v.user.trim() || "admin";
-        if (!d && !x.traefik.dashboard) return invalid("domain", "Give a domain, or use the tunnel");
-        const bad = d && loginError(user, v.password || "generated");
-        if (bad) return invalid(...bad);
         const argv = ["traefik", "setup", ...sv(n), "--dashboard", d || "off"];
         if (d) argv.push("--dashboard-user", user, ...(v.password ? ["--dashboard-password", v.password] : []));
         run(argv, reload);
