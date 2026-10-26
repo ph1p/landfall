@@ -1,8 +1,17 @@
-"use strict";
+import type { ReactNode } from "react";
+import { S, http, plural, render, serverNamed, sv, tilde, errorMessage, type Any } from "../lib/store";
+import { go, load, refreshState } from "../lib/api";
+import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
+import { toast } from "../ui/toast";
+import { Btn, cx } from "../ui/kit";
+import {
+  dialog, promptDlg, invalid, openDialog, closeDialog, D, siteNameError, words, domainOk, portError, userError, passwordError,
+  DFORM, DTITLE, DTEXT, DBTNS, type Values,
+} from "../ui/dialog";
+
 // ---- server flows ----------------------------------------------------------
 
-
-function setupFlow(args, base = args) {
+export function setupFlow(args: string[], base = args) {
   run(["setup", ...args, "--check"], {
     server: args[0],
     after: (j) => {
@@ -12,7 +21,7 @@ function setupFlow(args, base = args) {
       if (rep(j).needsKey) {
         return [{ label: "Enter the password to install a key", run: () => passwordFor(args, base) }];
       }
-      const todo = (rep(j).checks ?? []).filter((ch) => ch.status === "todo").length;
+      const todo = (rep(j).checks ?? []).filter((ch: Any) => ch.status === "todo").length;
       return [
         { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0], after: securityAfter(args[0]) }) },
         { label: "Change options", run: () => setupWizard(base) },
@@ -22,10 +31,10 @@ function setupFlow(args, base = args) {
 }
 
 /** After a job that ends with security advice: a way to its fixes. */
-const securityAfter = (n) => (j) =>
+export const securityAfter = (n: string) => (j: Job): JobAction[] | undefined =>
   j.info.code === 0 && rep(j).advice?.length ? [{ label: `Security: ${plural(rep(j).advice.length, "thing")} to look at`, run: () => go(n, "system") }] : undefined;
 
-function setupWizard(base) {
+export function setupWizard(base: string[]) {
   const saved = serverNamed(base[0])?.saved ?? {};
   dialog({
     title: `Set up ${base[0]}`,
@@ -55,7 +64,7 @@ function setupWizard(base) {
       { name: "user", label: "Deploy user", value: "deploy", hint: "landfall deploys as this user (docker group, your key). Empty keeps the login user." },
     ],
     onOk: (v) => {
-      const f = [];
+      const f: string[] = [];
       if (v.traefik === "none") f.push("--no-traefik");
       else {
         f.push(v.traefik === "host" ? "--host-network" : "--no-host-network");
@@ -72,7 +81,7 @@ function setupWizard(base) {
   });
 }
 
-function passwordFor(args, base) {
+function passwordFor(args: string[], base: string[]) {
   const host = args.includes("--host") ? `root@${args[args.indexOf("--host") + 1]}` : serverNamed(args[0])?.target ?? args[0];
   promptDlg(
     `Password for ${host}`,
@@ -93,8 +102,8 @@ function passwordFor(args, base) {
   );
 }
 
-function addServer() {
-  const known = (name) => !!serverNamed(name);
+export function addServer() {
+  const known = (name: string) => !!serverNamed(name);
   dialog({
     title: "Add a server",
     text: "Use an alias from ~/.ssh/config (like vps), or pick a new name and give the machine's address, fresh or already in use. landfall writes the ssh config entry for it.",
@@ -120,7 +129,7 @@ function addServer() {
     ],
     ok: "Add",
     onOk: (v) => {
-      const [name, host, user, port, key] = [v.name, v.host, v.user, v.port, v.key].map((x) => x.trim());
+      const [name, host, user, port, key] = [v.name, v.host, v.user, v.port, v.key].map((x: string) => x.trim());
       const args = [name, ...(host ? ["--host", host] : []), ...(user ? ["-u", user] : []), ...(port ? ["-p", port] : []), ...(key ? ["-i", key] : [])];
       // With a password: install the key now, then the setup wizard needs nothing but the alias.
       const then = ifOk(() => (v.setup ? setupWizard([name]) : go(name)));
@@ -131,24 +140,24 @@ function addServer() {
   });
 }
 
-const defaultServer = () => S.sel ?? S.state.servers.find((s) => s.isDefault)?.name;
-const mainDomain = (n) => serverNamed(n)?.saved?.domains?.[0];
+const defaultServer = (): string | undefined => S.sel ?? S.state.servers.find((s: Any) => s.isDefault)?.name;
+export const mainDomain = (n: string): string | undefined => serverNamed(n)?.saved?.domains?.[0];
 /** The server deploys new sites with no domain unless one is given: its own setting, else landfall's default. */
-const tunnelOnly = (n) => serverNamed(n)?.saved?.tunnelOnly ?? S.state.defaults.tunnelOnly;
+export const tunnelOnly = (n: string): boolean => serverNamed(n)?.saved?.tunnelOnly ?? S.state.defaults.tunnelOnly;
 
 /** landfall's defaults for every server (lf config); a server's own setting wins. */
-function defaultsDialog() {
+export function defaultsDialog() {
   const d = S.state.defaults;
   dialog({
     title: "landfall defaults",
     text: `For every server, unless it sets its own. Saved in ${d.configFile}.`,
     fields: [
-      { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
+      { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s: Any) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
       { name: "tunnelOnly", label: "New sites get no domain: tunnel only", type: "check", value: d.tunnelOnly, hint: "Nothing is served on the internet until a site gets a domain. A server's Settings can override it." },
       { name: "email", label: "Let's Encrypt e-mail (optional)", value: d.email ?? "", hint: "For servers that set none, when landfall installs Traefik." },
       { name: "keep", label: "Releases to keep for rollback", type: "number", value: String(d.keep), placeholder: "5", check: (k) => k && (!/^\d+$/.test(k) || !Number(k)) && "A whole number from 1 up" },
     ],
-    after: whereList(d.locations),
+    after: <WhereList loc={d.locations} />,
     ok: "Save",
     onOk: (v) => {
       const argv = ["config"];
@@ -163,91 +172,110 @@ function defaultsDialog() {
     },
   });
 }
+
+interface Where { path: string; what: string }
 /** Every place landfall writes to, from `lf config`: nothing it installs is hidden. */
-const whereList = (loc) => {
-  const kv = (list) => `<dl>${list.map((l) => `<dt class="mono">${esc(l.path)}</dt><dd class="dim">${esc(l.what)}</dd>`).join("")}</dl>`;
-  return `<details class="where"><summary>Where landfall puts things</summary>
-    <h3>On this machine</h3>${kv(loc.local)}<h3>On each server</h3>${kv(loc.server)}</details>`;
-};
+export function WhereList({ loc }: { loc: { local: Where[]; server: Where[] } }) {
+  const kv = (list: Where[]) => (
+    <dl className="m-0 text-sm">
+      {list.map((l) => [
+        <dt key={`t${l.path}`} className="mono wrap-anywhere mt-1.5">{l.path}</dt>,
+        <dd key={`d${l.path}`} className="dim m-0">{l.what}</dd>,
+      ])}
+    </dl>
+  );
+  const h3 = "text-sm font-semibold mt-3 mb-1.5";
+  return (
+    <details className="where">
+      <summary className="cursor-pointer text-faint text-sm">Where landfall puts things</summary>
+      <h3 className={h3}>On this machine</h3>{kv(loc.local)}<h3 className={h3}>On each server</h3>{kv(loc.server)}
+    </details>
+  );
+}
+
 /** What `lf deploy` picks without a domain: <site>.<main domain>, else the free sslip.io address. */
-function autoDomain(n, name) {
+export function autoDomain(n: string, name: string) {
   const main = mainDomain(n);
   if (main) return `${name}.${main}`;
   const suffix = S.facts[n]?.data?.sslipSuffix;
   return suffix ? `${name}.${suffix}` : "";
 }
-const slugify = (s) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
+const slugify = (s: string) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
 
-function describe(d, before = true) {
-  const built = d.build ? ` · builds with <code>${esc(d.build)}</code> first` : "";
-  const what =
-    d.kind === "compose" ? `Compose project <code>${esc(d.compose ?? "compose.yaml")}</code>: built and started on the server; x-landfall picks the routed service`
-    : d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from .landfall.json)`
-    : d.kind === "dockerfile" && d.start ? `${esc(d.runtime)} app${d.tool ? ` (${esc(d.tool)})` : ""}: built on the server${d.build ? ` with <code>${esc(d.build)}</code>` : ""}, started with <code>${esc(d.start)}</code> on port ${esc(d.port)}${d.note ? `<br><span style="color:var(--warn)">${esc(d.note)}</span>` : ""}`
-    : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${esc(d.port)}`
-    : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.tool ? ` (where ${esc(d.tool)} builds the site)` : ""}${d.spa ? " (single-page app)" : ""}${built}`
-    : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
-    : `<span style="color:var(--warn)">No compose.yaml, Dockerfile, index.html or build script here.</span>`;
-  return what + (before && d.project?.server ? ` <span class="dim">· deployed before to ${esc(d.project.server)}</span>` : "");
+/** What landfall found in a folder and how it deploys it. */
+export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
+  const built = d.build ? <> · builds with <code>{d.build}</code> first</> : null;
+  const what: ReactNode =
+    d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; x-landfall picks the routed service</>
+    : d.kind === "image" ? <>Docker image <code>{d.project?.image ?? ""}</code> (from .landfall.json)</>
+    : d.kind === "dockerfile" && d.start ? (
+      <>
+        {d.runtime} app{d.tool ? ` (${d.tool})` : ""}: built on the server{d.build ? <> with <code>{d.build}</code></> : ""}, started with <code>{d.start}</code> on port {d.port}
+        {d.note && <><br /><span className="text-warn">{d.note}</span></>}
+      </>
+    )
+    : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${d.port}`
+    : d.dir ? <>Static files from <code>{d.dir === "." ? "./" : d.dir + "/"}</code>{d.tool ? ` (where ${d.tool} builds the site)` : ""}{d.spa ? " (single-page app)" : ""}{built}</>
+    : d.build ? <>Static site, built with <code>{d.build}</code> first</>
+    : <span className="text-warn">No compose.yaml, Dockerfile, index.html or build script here.</span>;
+  return <>{what}{before && d.project?.server ? <> <span className="dim">· deployed before to {d.project.server}</span></> : null}</>;
 }
+const DETECTED = "text-md px-3 py-2.5 rounded-md bg-hover";
 
+interface DeployOpts { site?: Any; upload?: boolean; files?: number; name?: string }
 /**
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
  * site: an existing site ({ server, name, domains, old }) this folder redeploys.
  */
-function deployDialog(det, o = {}) {
+export function deployDialog(det: Any, o: DeployOpts = {}) {
   const p = det.project;
   const re = o.site;
-  const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
-  const target = re?.server ?? p?.server ?? defaultServer();
-  const name = re?.name ?? o.name ?? det.name;
+  const servers = S.state.servers.map((s: Any) => ({ value: s.name, label: s.name }));
+  const target: string = re?.server ?? p?.server ?? defaultServer();
+  const name: string = re?.name ?? o.name ?? det.name;
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
-  const keeps = re && !p?.domains ? re.domains : null;
-  const keeping = (v) => keeps && v.name.trim() === re.name && v.server === re.server;
+  const keeps: string[] | null = re && !p?.domains ? re.domains : null;
+  const keeping = (v: Values) => keeps && v.name.trim() === re.name && v.server === re.server;
   // Static files or an app without a Dockerfile: what to build and run is landfall's to decide, and editable here.
   const runtime = det.runtime ?? "Node.js";
   const modal = det.kind === "static" || !!det.start;
   const runs = det.kind === "dockerfile" || det.kind === "image";
-  const isApp = (v) => (modal ? (v.mode ?? (det.start ? "node" : "static")) === "node" : runs);
-  const served = (v) => !(isApp(v) && v.worker);
-  const volumes = det.volumes ?? [];
+  const isApp = (v: Values) => (modal ? (v.mode || (det.start ? "node" : "static")) === "node" : runs);
+  const served = (v: Values) => !(isApp(v) && v.worker);
+  const volumes: string[] = det.volumes ?? [];
   /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
-  const addresses = (v) => {
+  const addresses = (v: Values): [string[], string?] => {
     const main = mainDomain(v.server);
     const given = words(v.domains);
-    if (!given.length) return [keeping(v) ? keeps : [autoDomain(v.server, v.name.trim())].filter(Boolean)];
+    if (!given.length) return [keeping(v) ? keeps! : [autoDomain(v.server, v.name.trim())].filter(Boolean)];
     const out = given.map((d) => (d === "@" ? main : !d.includes(".") && main ? `${d}.${main}` : d)?.toLowerCase());
     if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
-    const bad = out.find((d) => !domainOk(d));
-    return [out, bad && `Not a domain: ${bad}`];
+    const bad = out.find((d) => !domainOk(d!));
+    return [out as string[], bad && `Not a domain: ${bad}`];
   };
   const app = [
-    { name: "worker", label: "Background worker: no port, no domain", type: "check", value: !!det.worker, hint: "A bot, a queue consumer, a scheduler: it runs, nothing routes to it." },
-    { name: "port", label: "Port it listens on", type: "number", value: String(det.port ?? 3000), hint: modal ? "The app gets it as PORT." : "", when: (v) => !v.worker, required: "Which port does it listen on?", check: portError },
+    { name: "worker", label: "Background worker: no port, no domain", type: "check" as const, value: !!det.worker, hint: "A bot, a queue consumer, a scheduler: it runs, nothing routes to it." },
+    { name: "port", label: "Port it listens on", type: "number" as const, value: String(det.port ?? 3000), hint: modal ? "The app gets it as PORT." : "", when: (v: Values) => !v.worker, required: "Which port does it listen on?", check: portError },
     {
       name: "volumes", label: "Folders to keep", value: volumes.join(" "), placeholder: "/app/data", mono: true,
       hint: "In the container, space separated: their files outlive deploys and rollbacks (a Docker volume each). Empty: none.",
-      check: (x) => words(x).filter((d) => !/^\/[\w./-]*\w$/.test(d)).map((d) => `${d} is not a folder like /app/data`)[0],
+      check: (x: string) => words(x).filter((d) => !/^\/[\w./-]*\w$/.test(d)).map((d) => `${d} is not a folder like /app/data`)[0],
     },
   ];
   dialog({
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
     text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
       + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back… returns to the current one."}` : ""),
-    extra: `<div class="detected">${describe(det)}</div>`,
+    extra: <div className={DETECTED}><Describe d={det} /></div>,
     fields: [
       {
         row: [
-          {
-            name: "name", label: "Site name", value: name, required: "Give the site a name",
-            check: siteNameError,
-            hint: re ? "Another name deploys a new site." : "",
-          },
+          { name: "name", label: "Site name", value: name, required: "Give the site a name", check: siteNameError, hint: re ? "Another name deploys a new site." : "" },
           { name: "server", label: "Server", type: "select", options: servers, value: target, required: "Pick a server" },
         ],
       },
       ...(modal && (det.node || det.start)
-        ? [{ name: "mode", label: "Deploy as", type: "select", value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
+        ? [{ name: "mode", label: "Deploy as", type: "select" as const, value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
         : []),
       {
         legend: "Address", when: served,
@@ -269,14 +297,14 @@ function deployDialog(det, o = {}) {
         ? [
             { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", mono: true, hint: `Static files: runs here, before the upload. The ${runtime} app: runs on the server, in its image.` },
             {
-              legend: "Static files", id: "static", when: (v) => !isApp(v),
+              legend: "Static files", id: "static", when: (v: Values) => !isApp(v),
               fields: [
                 {
                   name: "dir", label: "Folder to publish", value: det.dir ?? ".", placeholder: ".", mono: true,
                   hint: det.tool && !det.start ? `Detected: ${det.tool} writes the site to ${det.dir}/ (it need not exist before the build).` : "Relative to the project; it needs an index.html after the build.",
-                  check: (x) => (/^[/-]/.test(x) || x.split("/").includes("..")) && "A folder inside the project",
+                  check: (x: string) => (/^[/-]/.test(x) || x.split("/").includes("..")) && "A folder inside the project",
                 },
-                { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
+                { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check" as const, value: !!p?.spa },
               ],
             },
             {
@@ -291,8 +319,8 @@ function deployDialog(det, o = {}) {
             },
           ]
         : runs
-        ? [{ legend: det.kind === "image" ? "Container" : "Dockerfile app", fields: app }]
-        : []),
+          ? [{ legend: det.kind === "image" ? "Container" : "Dockerfile app", fields: app }]
+          : []),
       {
         legend: "Visitor login", collapsed: true, note: "optional: HTTP basic auth, set or remove it later with Password… on the site", when: served,
         fields: [
@@ -345,98 +373,147 @@ function deployDialog(det, o = {}) {
 }
 
 /** After a deploy: offer the address it printed. */
-function openAfter(j) {
+export function openAfter(j: Job): JobAction[] | undefined {
   if (j.info.code !== 0) return;
-  const url = rep(j).url;
-  if (url) return [{ label: `Open ${url.replace("https://", "")}`, run: () => window.open(url, "_blank", "noopener") }];
+  const url: string | undefined = rep(j).url;
+  if (url) return [{ label: `Open ${url.replace("https://", "")}`, run: () => void window.open(url, "_blank", "noopener") }];
 }
 
-async function browse(path) {
-  return http(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`);
-}
+export const browse = (path?: string): Promise<Any> => http(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`);
 
-/** What a site's folder holds and how it builds: detected once per folder, for the site details. */
-const detected = (path) => {
-  if (!(path in S.det)) (S.det[path] = null), browse(path).then((x) => ((S.det[path] = x.detected), render()), () => (S.det[path] = false));
-  return S.det[path];
-};
+/** What a site's folder holds and how it builds: detected once per folder, for the site details. Call from an effect. */
+export function detected(path: string) {
+  if (path in S.det) return;
+  S.det[path] = null;
+  browse(path).then((x) => ((S.det[path] = x.detected), render()), () => (S.det[path] = false));
+}
 /** Edit how a site builds and starts (build, start, port, static or Node.js), then redeploy. */
-const buildSettings = (path, site) => {
+export function buildSettings(path: string, site: Any) {
   delete S.det[path];
-  browse(path).then((x) => deployDialog(x.detected, { site }), (e) => toast(e.message));
-};
-
-function deployHere() {
-  browse(S.state.cwd).then((b) => deployDialog(b.detected), (e) => toast(e.message));
+  browse(path).then((x) => deployDialog(x.detected, { site }), (e) => toast(errorMessage(e)));
 }
+
+export function deployHere() {
+  browse(S.state.cwd).then((b) => deployDialog(b.detected), (e) => toast(errorMessage(e)));
+}
+
+// ---- picking a folder --------------------------------------------------------
+
+const ROW = "flex gap-2.5 items-baseline border-0 rounded-none shadow-none font-normal border-b border-line last:border-b-0 text-left bg-transparent px-3 py-[7px] min-w-0 hover:bg-hover";
+const LIST = "grid border border-line rounded-md max-h-[260px] overflow-auto";
+const PICK = "inline text-accent cursor-pointer text-md font-normal";
 
 /**
  * Pick a folder on this machine: recent projects, a folder browser, or drop/choose files to upload.
  * site: an existing site the folder redeploys (one this machine does not remember a folder for).
  */
-async function folderDialog(path, site) {
-  let b;
+export async function folderDialog(path?: string, site?: Any) {
+  let b: Any;
   try {
     b = await browse(path);
   } catch (e) {
-    return toast(e.message);
+    return toast(errorMessage(e));
   }
-  const dlg = openDlg("wide");
   // Files dropped while it is open redeploy the site too.
-  dlg.site = site;
-  const recent = site ? [] : (S.state.projects ?? []).slice(0, 8);
-  const parts = b.path.split("/").filter(Boolean);
-  const crumbs = `<button type="button" class="ghost sm" data-path="/">/</button>` + parts.map((x, i) =>
-    `<button type="button" class="ghost sm" data-path="${esc("/" + parts.slice(0, i + 1).join("/"))}">${esc(x)}</button>`).join(`<span class="faint">/</span>`);
-  dlg.innerHTML = `<form method="dialog">
-    <h2>${site ? `Redeploy ${esc(site.name)}` : "Deploy a folder"}</h2>
-    ${site ? `<div class="text">This machine does not know which folder ${esc(site.name)} on ${esc(site.server)} was deployed from. Pick it: this machine remembers it, so the next redeploy is one click. Dropped files are not remembered.</div>` : ""}
-    ${recent.length ? `<fieldset><legend>Recent</legend><div class="list">${recent
-      .map((r, i) => `<button type="button" class="row" data-recent="${i}" title="Deploy again"><b>${esc(r.name)}</b><span class="dim">→ ${esc(r.server)}${r.domains[0] ? ` · ${esc(r.domains[0])}` : ""}</span><span class="faint mono">${esc(tilde(r.path))}</span></button>`)
-      .join("")}</div></fieldset>` : ""}
-    <div class="crumbs mono">${crumbs} <button type="button" class="ghost sm" data-path="${esc(b.home)}" title="Home">~</button></div>
-    <div class="list">${b.parent ? `<button type="button" class="row" data-path="${esc(b.parent)}">↑ ..</button>` : ""}${b.dirs
-      .map((d) => `<button type="button" class="row" data-path="${esc(b.path.replace(/\/$/, "") + "/" + d)}">📁 ${esc(d)}</button>`)
-      .join("") || `<div class="row faint">no subfolders</div>`}</div>
-    <div class="detected"><b>${esc(b.detected.name)}</b>: ${describe(b.detected)}</div>
-    <div class="drop">Or drop a folder or .zip anywhere ·
-      <label>choose a folder<input type="file" id="pick-dir" webkitdirectory multiple hidden></label> ·
-      <label>choose a .zip<input type="file" id="pick-zip" accept=".zip,.tar,.tgz,.gz" hidden></label></div>
-    <div class="btns">
-      <button type="button" class="ghost" id="dlg-cancel">Cancel</button>
-      <button type="submit" class="primary">${site ? "Redeploy from this folder…" : "Deploy this folder…"}</button>
-    </div>
-  </form>`;
-  $("#dlg-cancel", dlg).onclick = () => dlg.close();
-  $("form", dlg).onsubmit = (e) => (e.preventDefault(), deployDialog(b.detected, { site }));
-  $("form", dlg).onclick = (e) => {
-    const el = e.target.closest("[data-path],[data-recent]");
-    if (!el) return;
-    if (el.dataset.path) return void folderDialog(el.dataset.path, site);
-    browse(recent[el.dataset.recent].path).then((x) => deployDialog(x.detected), (err) => toast(err.message));
-  };
-  $("#pick-dir", dlg).onchange = (e) => {
-    const files = [...e.target.files];
-    upload(files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]), files[0]?.webkitRelativePath.split("/")[0], site);
-  };
-  $("#pick-zip", dlg).onchange = (e) => {
-    const f = e.target.files[0];
-    if (f) upload([[f, f.name]], f.name, site);
-  };
-  if (!dlg.open) dlg.showModal();
+  openDialog(<FolderDialog b={b} site={site} />, "wide", site);
+}
+
+function FolderDialog({ b, site }: { b: Any; site?: Any }) {
+  const recent: Any[] = site ? [] : (S.state.projects ?? []).slice(0, 8);
+  const parts: string[] = b.path.split("/").filter(Boolean);
+  const to = (p: string) => () => void folderDialog(p, site);
+  const crumb = "px-1.5! py-px!";
+  return (
+    <form method="dialog" className={DFORM} onSubmit={(e) => (e.preventDefault(), deployDialog(b.detected, { site }))}>
+      <h2 id="dlg-title" className={DTITLE}>{site ? `Redeploy ${site.name}` : "Deploy a folder"}</h2>
+      {site && (
+        <div className={DTEXT}>
+          This machine does not know which folder {site.name} on {site.server} was deployed from. Pick it: this machine remembers it, so the next redeploy is one click. Dropped files are not remembered.
+        </div>
+      )}
+      {recent.length > 0 && (
+        <fieldset>
+          <legend>Recent</legend>
+          <div className={LIST}>
+            {recent.map((r) => (
+              <button key={r.path} type="button" className={ROW} title="Deploy again" onClick={() => browse(r.path).then((x) => deployDialog(x.detected), (err) => toast(errorMessage(err)))}>
+                <b>{r.name}</b>
+                <span className="dim">→ {r.server}{r.domains[0] ? ` · ${r.domains[0]}` : ""}</span>
+                <span className="faint mono ml-auto overflow-hidden text-ellipsis">{tilde(r.path)}</span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <div className="flex flex-wrap gap-0.5 items-center mono">
+        <Btn cls={cx("ghost sm", crumb)} on={to("/")}>/</Btn>
+        {parts.map((x, i) => [
+          i > 0 && <span key={`s${i}`} className="faint">/</span>,
+          <Btn key={i} cls={cx("ghost sm", crumb)} on={to("/" + parts.slice(0, i + 1).join("/"))}>{x}</Btn>,
+        ])}{" "}
+        <Btn cls={cx("ghost sm", crumb)} on={to(b.home)} title="Home">~</Btn>
+      </div>
+      <div className={LIST}>
+        {b.parent && <button type="button" className={ROW} onClick={to(b.parent)}>↑ ..</button>}
+        {b.dirs.length ? (
+          b.dirs.map((d: string) => (
+            <button key={d} type="button" className={ROW} onClick={to(b.path.replace(/\/$/, "") + "/" + d)}>📁 {d}</button>
+          ))
+        ) : (
+          <div className={cx(ROW, "faint hover:bg-transparent")}>no subfolders</div>
+        )}
+      </div>
+      <div className={DETECTED}><b>{b.detected.name}</b>: <Describe d={b.detected} /></div>
+      <div className="border-[1.5px] border-dashed border-line-strong rounded-md p-3.5 text-center text-dim text-md">
+        Or drop a folder or .zip anywhere ·{" "}
+        <label className={PICK}>
+          choose a folder
+          <input
+            type="file"
+            hidden
+            multiple
+            // @ts-expect-error not in React's types
+            webkitdirectory=""
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              upload(files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]), files[0]?.webkitRelativePath.split("/")[0], site);
+            }}
+          />
+        </label>{" "}
+        ·{" "}
+        <label className={PICK}>
+          choose a .zip
+          <input
+            type="file"
+            hidden
+            accept=".zip,.tar,.tgz,.gz"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) upload([[f, f.name]], f.name, site);
+            }}
+          />
+        </label>
+      </div>
+      <div className={DBTNS}>
+        <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
+        <button type="submit" className="bg-accent-solid! border-accent-solid! text-white! hover:brightness-110">{site ? "Redeploy from this folder…" : "Deploy this folder…"}</button>
+      </div>
+    </form>
+  );
 }
 
 // Dropped folders: walk the entries (skipping dependencies and VCS data), then upload with relative paths.
+type Pair = [File, string];
 const SKIP = new Set(["node_modules", ".git", ".DS_Store", "__MACOSX"]);
-const skipped = (rel) => rel.split("/").some((x) => SKIP.has(x));
-async function droppedFiles(roots) {
-  const out = [];
-  const walk = async (entry, prefix) => {
+const skipped = (rel: string) => rel.split("/").some((x) => SKIP.has(x));
+async function droppedFiles(roots: FileSystemEntry[]) {
+  const out: Pair[] = [];
+  const walk = async (entry: FileSystemEntry, prefix: string): Promise<void> => {
     if (SKIP.has(entry.name)) return;
-    if (entry.isFile) out.push([await new Promise((res, rej) => entry.file(res, rej)), prefix + entry.name]);
+    if (entry.isFile) out.push([await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej)), prefix + entry.name]);
     else if (entry.isDirectory) {
-      const reader = entry.createReader();
-      for (let batch; (batch = await new Promise((res, rej) => reader.readEntries(res, rej))).length; ) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      for (let batch; (batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))).length; ) {
         for (const e of batch) await walk(e, `${prefix}${entry.name}/`);
       }
     }
@@ -445,7 +522,7 @@ async function droppedFiles(roots) {
   return out;
 }
 
-async function upload(pairs, label = "site", site) {
+async function upload(pairs: Pair[], label = "site", site?: Any) {
   if (!pairs.length) return toast("Nothing to upload");
   const fd = new FormData();
   for (const [f, path] of pairs) fd.append("file", f), fd.append("path", path);
@@ -457,28 +534,31 @@ async function upload(pairs, label = "site", site) {
     toast(`Uploaded ${plural(data.files, "file")}`);
     deployDialog(data.detected, { upload: true, files: data.files, name: slugify(label), site });
   } catch (e) {
-    toast(`Upload failed: ${e.message}`);
+    toast(`Upload failed: ${errorMessage(e)}`);
   }
 }
 
-const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes("Files");
-window.addEventListener("dragover", (e) => {
-  if (!hasFiles(e)) return;
-  e.preventDefault();
-  document.body.classList.add("dragging");
-});
-window.addEventListener("dragleave", (e) => {
-  if (!e.relatedTarget) document.body.classList.remove("dragging");
-});
-window.addEventListener("drop", (e) => {
-  if (!hasFiles(e)) return;
-  e.preventDefault();
-  document.body.classList.remove("dragging");
-  // Entries must be taken while the event is live.
-  const roots = [...e.dataTransfer.items].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
-  const label = roots[0]?.name ?? e.dataTransfer.files[0]?.name;
-  const files = roots.length ? droppedFiles(roots) : Promise.resolve([...e.dataTransfer.files].map((f) => [f, f.name]));
-  const dlg = $("#dlg");
-  const site = dlg.open ? dlg.site : undefined;
-  files.then((pairs) => upload(pairs, label, site), (err) => toast(err.message));
-});
+/** A folder or .zip dropped anywhere on the page deploys it. */
+export function listenForDrops() {
+  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes("Files");
+  addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    document.body.classList.add("dragging");
+  });
+  addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget) document.body.classList.remove("dragging");
+  });
+  addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    document.body.classList.remove("dragging");
+    // Entries must be taken while the event is live.
+    const dt = e.dataTransfer!;
+    const roots = [...dt.items].map((i) => i.webkitGetAsEntry?.()).filter((x): x is FileSystemEntry => !!x);
+    const label = roots[0]?.name ?? dt.files[0]?.name;
+    const files = roots.length ? droppedFiles(roots) : Promise.resolve([...dt.files].map((f): Pair => [f, f.name]));
+    const site = D.node ? D.site : undefined;
+    files.then((pairs) => upload(pairs, label, site), (err) => toast(errorMessage(err)));
+  });
+}

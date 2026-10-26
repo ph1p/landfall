@@ -1,0 +1,242 @@
+import type { ReactNode } from "react";
+import { S, http, plural, render, sv, errorMessage, type Any } from "../lib/store";
+import { STATS_LOG, fetchInto, load } from "../lib/api";
+import { run } from "../lib/jobs";
+import { dialog } from "../ui/dialog";
+import { toast } from "../ui/toast";
+import { Badge, Body, Btn, Card, CardHead, Actions, Note, Scroll, Spin, Sub, Loading, pending, cx, NUM, HIDE } from "../ui/kit";
+import { StatusDot, isUp, size } from "./shared";
+
+// ---- stats ---------------------------------------------------------------------
+
+const pctOf = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
+/** A sparkline of 0-100 values, oldest left. */
+function Spark({ values }: { values: number[] }) {
+  if (values.length < 2) return null;
+  const pts = values.map((v, i) => `${((STATS_LOG - values.length + i) / (STATS_LOG - 1)) * 100},${24 - (Math.min(100, v) / 100) * 22}`).join(" ");
+  return (
+    <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true" className="flex-1 min-w-0 h-[26px] text-accent">
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/** A tile with a big value, a bar when p is a percentage, and a line under it. */
+export function Meter({ label, p, value, sub, line, hint }: { label: string; p: number | null; value: ReactNode; sub: ReactNode; line?: ReactNode; hint?: string }) {
+  const bar = p === null ? "" : p >= 90 ? "bg-bad" : p >= 70 ? "bg-warn" : "bg-ok";
+  return (
+    <div className="bg-panel border border-line rounded-md px-3.5 py-3 shadow-xs min-w-0" title={hint}>
+      <div className="flex justify-between gap-2 text-sm text-dim"><span className="overflow-hidden text-ellipsis whitespace-nowrap">{label}</span></div>
+      <div className="flex items-end gap-2.5 text-[20px] font-semibold tabular-nums mt-0.5 mb-1.5 whitespace-nowrap">{value}{line}</div>
+      {p !== null && (
+        <div className="h-1.5 rounded-[3px] bg-line overflow-hidden" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={p}>
+          <i className={cx("block h-full rounded-[3px]", bar)} style={{ width: `${Math.min(100, p)}%` }} />
+        </div>
+      )}
+      <div className="text-xs text-faint mt-1.5 overflow-hidden text-ellipsis whitespace-nowrap">{sub}</div>
+    </div>
+  );
+}
+export const Meters = ({ children }: { children: ReactNode }) => <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3 mb-5">{children}</div>;
+
+/** Live usage of one server: meters, the busiest processes and containers, disk usage on request. */
+export function StatsView({ n }: { n: string }) {
+  const st = S.stats[n];
+  const wait = pending(st, `measuring ${n} for a second…`, () => load(n, "stats", true));
+  if (wait) return wait;
+  const s = st.data;
+  const log = S.statsLog[n] ?? [];
+  const memUsed = s.mem.total - s.mem.available;
+  const swapUsed = s.mem.swapTotal - s.mem.swapFree;
+  const procs = s.procs.slice(0, 8);
+  const up = (x: Any) => isUp(x.status);
+  return (
+    <>
+      <Meters>
+        <Meter label="CPU" p={s.cpu} value={`${s.cpu}%`} sub={`${plural(s.cpus, "core")} · load ${s.load.join(" ")}`} line={<Spark values={log.map((x) => x.cpu)} />} hint="Busy share of all cores over one second; load is the 1, 5 and 15 minute average" />
+        <Meter label="Memory" p={pctOf(memUsed, s.mem.total)} value={`${pctOf(memUsed, s.mem.total)}%`} sub={`${size(memUsed)} of ${size(s.mem.total)}`} line={<Spark values={log.map((x) => x.mem)} />} hint="Used, without caches the kernel gives back when needed" />
+        {!!s.mem.swapTotal && <Meter label="Swap" p={pctOf(swapUsed, s.mem.swapTotal)} value={`${pctOf(swapUsed, s.mem.swapTotal)}%`} sub={`${size(swapUsed)} of ${size(s.mem.swapTotal)}`} />}
+        {s.disks.map((d: Any) => (
+          <Meter key={d.mount} label={`Disk ${d.mount}`} p={pctOf(d.used, d.total)} value={`${pctOf(d.used, d.total)}%`} sub={`${size(d.used)} of ${size(d.total)} · ${size(d.available)} free`} />
+        ))}
+        {s.net.map((x: Any) => <Meter key={x.iface} label={`Network ${x.iface}`} p={null} value={`↓ ${size(x.rx)}/s`} sub={`↑ ${size(x.tx)}/s`} />)}
+      </Meters>
+      {!s.docker ? (
+        <Note>No access to Docker on {n}: containers are not shown. Set up the server to fix that.</Note>
+      ) : (
+        s.containers.length > 0 && (
+          <Card>
+            <CardHead>Containers <Badge>{s.containers.length}</Badge></CardHead>
+            <Scroll>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Container</th><th className={HIDE}>Site</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th>
+                    <th className={cx(NUM, HIDE)} title="Received and sent since the container started">Network in / out</th><th className={cx(NUM, HIDE)}>Restarts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.containers.map((x: Any) => (
+                    <tr key={x.name}>
+                      <td><StatusDot status={x.status} /><span className="mono">{x.name}</span><div className="faint">{x.image}</div></td>
+                      <td className={HIDE}>{x.site ? <b>{x.site}</b> : <span className="faint">{x.project || "-"}</span>}</td>
+                      <td className={NUM}>{up(x) ? `${Math.round(x.cpu * 10) / 10}%` : ""}</td>
+                      <td className={NUM}>
+                        {up(x) ? (
+                          <>
+                            {size(x.mem)}
+                            {x.memLimit && x.memLimit < s.mem.total ? <div className="faint" title="Set by mem_limit or deploy.resources in its compose file">limit {size(x.memLimit)}</div> : null}
+                          </>
+                        ) : (
+                          <span className="faint">{x.status}</span>
+                        )}
+                      </td>
+                      <td className={cx(NUM, HIDE)} title="since the container started">{up(x) ? <>↓ {size(x.net.rx)} <span className="faint">·</span> ↑ {size(x.net.tx)}</> : ""}</td>
+                      <td className={cx(NUM, HIDE)}>{x.restarts ? <Badge kind="warn">{x.restarts}</Badge> : <span className="faint">0</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Scroll>
+          </Card>
+        )
+      )}
+      {procs.length > 0 && (
+        <Card>
+          <CardHead>Processes <Sub>busiest and largest · cpu 100% = one core</Sub></CardHead>
+          <Scroll>
+            <table>
+              <thead><tr><th>Name</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th><th className={cx(NUM, HIDE)}>PID</th></tr></thead>
+              <tbody>
+                {procs.map((p: Any) => (
+                  <tr key={p.pid}><td className="mono">{p.name}</td><td className={NUM}>{p.cpu}%</td><td className={NUM}>{size(p.rss)}</td><td className={cx(NUM, "faint", HIDE)}>{p.pid}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </Scroll>
+        </Card>
+      )}
+      <DiskCard n={n} />
+      <p className="faint my-3.5">
+        {st.loading && <><Spin />{" "}</>}
+        {st.error && <><span className="text-bad">last sample failed: {st.error}</span> · </>}
+        measured {new Date(s.at).toLocaleTimeString()} · new sample every 5s while this tab is open · <span className="mono">lf stats -w{S.state.defaults.default === n ? "" : ` -s ${n}`}</span>
+      </p>
+    </>
+  );
+}
+
+function loadDisk(n: string) {
+  fetchInto("disk", n, "/disk");
+  render();
+}
+function pruneFlow(n: string) {
+  http(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
+    const imgs = p.images.filter((i: Any) => !i.keep);
+    const kept = (w: string) => p.images.filter((i: Any) => i.keep === w).length;
+    const most = imgs.reduce((t: number, i: Any) => t + i.size, 0) + p.buildCache;
+    const keep = ([[kept("release"), "for rollback"], [kept("undo"), "for undo"], [kept("used"), "in use"]] as const).filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ");
+    dialog({
+      title: `Clean up ${n}?`,
+      text: `${plural(imgs.length, "unused image")} and ${size(p.buildCache)} of build cache: up to ${size(most)}.${keep ? ` Kept: ${keep}.` : ""} Volumes and containers stay.`,
+      fields: kept("tagged") ? [{ name: "all", type: "check", label: `Also ${plural(kept("tagged"), "unused tagged image")}`, hint: "Pulled again when a site needs them" }] : [],
+      ok: "Clean up",
+      danger: true,
+      onOk: (v) => run(["prune", ...sv(n), "-y", ...(v.all ? ["--all"] : [])], { server: n, after: () => (loadDisk(n), []) }),
+    });
+  }, (e) => toast(errorMessage(e)));
+}
+
+/** A table with [heading, class] columns. */
+function Tbl({ cols, children }: { cols: [string, string?][]; children: ReactNode }) {
+  return (
+    <Scroll>
+      <table>
+        <thead><tr>{cols.map(([c, cls]) => <th key={c} className={cls}>{c}</th>)}</tr></thead>
+        <tbody>{children}</tbody>
+      </table>
+    </Scroll>
+  );
+}
+const H3 = ({ children }: { children: ReactNode }) => <h3 className="mt-4 mx-[18px] mb-1.5 text-sm text-dim font-semibold">{children}</h3>;
+
+function DiskCard({ n }: { n: string }) {
+  const st = S.disk[n];
+  const head = (acts: ReactNode) => (
+    <CardHead>Disk usage <Sub>images, volumes, build cache, sites and logs</Sub><Actions>{acts}</Actions></CardHead>
+  );
+  if (!st)
+    return (
+      <Card>
+        {head(<Btn cls="sm" on={() => loadDisk(n)} title="lf disk: sums up folders, takes a few seconds">Analyze</Btn>)}
+        <Body className="dim">Where the space goes. Sums up folders on the server, so only on request.</Body>
+      </Card>
+    );
+  if (!st.data)
+    return (
+      <Card>
+        {head(st.loading ? null : <Btn cls="sm" on={() => loadDisk(n)}>Retry</Btn>)}
+        {st.loading ? <Loading>adding up folders…</Loading> : <Body><Note kind="bad" className="m-0">{st.error}</Note></Body>}
+      </Card>
+    );
+  const d = st.data;
+  const vols = d.volumes.filter((x: Any) => x.size > 0).slice(0, 10);
+  const lg = d.logs.filter((x: Any) => x.size > 0).slice(0, 10);
+  const notes = [
+    d.journald ? `systemd journal: ${size(d.journald)}` : "",
+    d.docker ? "" : "No access to Docker: images, volumes and logs are not shown.",
+    d.root ? "" : "Without root or passwordless sudo, root-owned folders and container logs may be missing.",
+  ].filter(Boolean);
+  return (
+    <Card>
+      {head(
+        <>
+          {d.docker && <Btn cls="sm" on={() => pruneFlow(n)} title="lf prune: remove unused images and the build cache">Clean up…</Btn>}
+          <Btn cls="sm" on={() => loadDisk(n)} title="Analyze again" aria-label="Analyze again">↻</Btn>
+        </>,
+      )}
+      {d.dockerDf.length > 0 && (
+        <>
+          <H3>Docker</H3>
+          <Tbl cols={[["Kind"], ["Count", NUM], ["In use", NUM], ["Size", NUM], ["Reclaimable", NUM]]}>
+            {d.dockerDf.map((x: Any) => (
+              <tr key={x.type}>
+                <td>{x.type}</td><td className={NUM}>{x.count}</td><td className={NUM}>{x.active}</td><td className={NUM}>{size(x.size)}</td>
+                <td className={NUM}>{x.reclaimable ? <Badge kind="warn">{size(x.reclaimable)}</Badge> : <span className="faint">0</span>}</td>
+              </tr>
+            ))}
+          </Tbl>
+        </>
+      )}
+      {d.sites.length > 0 && (
+        <>
+          <H3>Sites <span className="faint mono">{S.state.paths.sites}</span></H3>
+          <Tbl cols={[["Site"], ["Files", NUM], ["Releases", NUM]]}>
+            {d.sites.map((x: Any) => (
+              <tr key={x.name}><td>{x.name}</td><td className={NUM}>{size(x.size)}</td><td className={NUM}>{x.releases} · {size(x.releasesSize)}</td></tr>
+            ))}
+          </Tbl>
+        </>
+      )}
+      {vols.length > 0 && (
+        <>
+          <H3>Largest volumes</H3>
+          <Tbl cols={[["Volume"], ["Size", NUM], ["Used by", NUM]]}>
+            {vols.map((x: Any) => (
+              <tr key={x.name}><td className="mono">{x.name}</td><td className={NUM}>{size(x.size)}</td><td className={NUM}>{x.links ? plural(x.links, "container") : <Badge kind="warn">nothing</Badge>}</td></tr>
+            ))}
+          </Tbl>
+        </>
+      )}
+      {lg.length > 0 && (
+        <>
+          <H3>Largest container logs</H3>
+          <Tbl cols={[["Container"], ["Size", NUM]]}>
+            {lg.map((x: Any) => <tr key={x.container}><td className="mono">{x.container}</td><td className={NUM}>{size(x.size)}</td></tr>)}
+          </Tbl>
+        </>
+      )}
+      {notes.length ? <Body className="faint">{notes.map((x, i) => <div key={i}>{x}</div>)}</Body> : <div className="h-2" />}
+    </Card>
+  );
+}
