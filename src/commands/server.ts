@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import { defineCommand } from "../cmd";
 import { checkDomain, checkEmail, CONFIG_PATH, defaults, DOMAIN, isTunnelOnly, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
+import { securityNotes } from "../security";
 import { runScript, shq, sshExec } from "../ssh";
 import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
 import { bytes, checkDns, duration, facts, serverCaps, serverIps } from "../facts";
@@ -67,7 +68,10 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     saveConfig(cfg);
     ok(`added ${c.bold(name)}${cfg.default === name ? c.dim(" (default)") : ""}`);
     if (!keyPath) info(`then: ${c.bold(`lf setup ${name}`)} (asks for the password and installs a key)`);
-    else info(c.dim(`next: lf setup ${name} --check shows what setup would install`));
+    else {
+      info(c.dim(`next: lf setup ${name} --check shows what setup would install`));
+      await securityNotes(name, entry);
+    }
   },
 });
 

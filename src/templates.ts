@@ -58,13 +58,15 @@ if [ -f /etc/synoinfo.conf ]; then
 elif [ "$ID" = steamos ]; then PRETTY_NAME="SteamOS $VERSION_ID"; kv platform steamos
 fi`;
 
+export const PKG_MGR = String.raw`pkg_mgr() { for m in apt-get dnf yum apk zypper; do command -v $m >/dev/null 2>&1 && { echo $m; return 0; }; done; echo none; }`;
+
 export const PRELUDE = String.raw`
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
 SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 # Files a container wrote may be root's.
 rmf() { rm -rf "$@" 2>/dev/null || $SUDO rm -rf "$@"; }
 # The distro's package manager, and installing with it.
-pkg_mgr() { for m in apt-get dnf yum apk zypper; do command -v $m >/dev/null 2>&1 && { echo $m; return 0; }; done; echo none; }
+${PKG_MGR}
 pkg_has() {
   case "$(pkg_mgr)" in
     apt-get) dpkg -s "$1" ;;
@@ -171,6 +173,37 @@ ufw_enable() {
     *inactive*) $SUDO ufw --force enable >/dev/null; record "enabled ufw" '$SUDO ufw disable >/dev/null' ;;
   esac
 }
+`;
+
+/** Keys-only sshd (root keeps key login unless it was off), journaled; also run by lf harden. Needs PRELUDE. */
+export const HARDEN_SSH = String.raw`
+log "hardening sshd (keys only)"
+# Never loosen an admin's stricter root login setting.
+root_login=prohibit-password
+if [ "$($SUDO sshd -T 2>/dev/null | awk '$1 == "permitrootlogin" {print $2}')" = no ]; then root_login=no; fi
+# 00- so it wins over cloud-init's 50-cloud-init.conf: sshd keeps the first value it reads.
+want=$(printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login")
+undo=""
+if [ "$($SUDO cat ${SSHD_CONF} 2>/dev/null || true)" != "$want" ]; then
+  $SUDO install -d /etc/ssh/sshd_config.d
+  undo=$(saved ${SSHD_CONF})
+  printf '%s\n' "$want" | $SUDO tee ${SSHD_CONF} >/dev/null
+fi
+if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
+  if [ -n "$undo" ]; then undo="$undo; "; fi
+  undo="$undo$(saved /etc/ssh/sshd_config)"
+  printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
+fi
+if [ -z "$undo" ]; then :
+elif $SUDO sshd -t; then
+  sshd_reload
+  record "hardened sshd (keys only, root login $root_login)" "$undo; sshd_reload"
+else
+  log "sshd config test failed, putting the old config back"
+  eval "$undo"
+fi
+pw=$($SUDO sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n')
+[ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
 `;
 
 /**
@@ -302,33 +335,7 @@ if [ "$FIREWALL" = 1 ] && command -v ufw >/dev/null 2>&1; then
 fi
 
 if [ "$HARDEN" = 1 ] && [ -d /etc/ssh ]; then
-  log "hardening sshd (keys only)"
-  # Never loosen an admin's stricter root login setting.
-  root_login=prohibit-password
-  if [ "$($SUDO sshd -T 2>/dev/null | awk '$1 == "permitrootlogin" {print $2}')" = no ]; then root_login=no; fi
-  # 00- so it wins over cloud-init's 50-cloud-init.conf: sshd keeps the first value it reads.
-  want=$(printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login")
-  undo=""
-  if [ "$($SUDO cat ${SSHD_CONF} 2>/dev/null || true)" != "$want" ]; then
-    $SUDO install -d /etc/ssh/sshd_config.d
-    undo=$(saved ${SSHD_CONF})
-    printf '%s\n' "$want" | $SUDO tee ${SSHD_CONF} >/dev/null
-  fi
-  if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
-    if [ -n "$undo" ]; then undo="$undo; "; fi
-    undo="$undo$(saved /etc/ssh/sshd_config)"
-    printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
-  fi
-  if [ -z "$undo" ]; then :
-  elif $SUDO sshd -t; then
-    sshd_reload
-    record "hardened sshd (keys only, root login $root_login)" "$undo; sshd_reload"
-  else
-    log "sshd config test failed, putting the old config back"
-    eval "$undo"
-  fi
-  pw=$($SUDO sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n')
-  [ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
+${HARDEN_SSH}
 fi
 log "bootstrap done"
 `;

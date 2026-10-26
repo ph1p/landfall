@@ -196,7 +196,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
     if (method === "GET" && sub === "stats") return json(await statsView(server));
     if (method === "GET" && sub === "disk") return json(await diskView(server));
     if (method === "GET" && sub === "prune") return json(await pruneView(server));
-    if (method === "GET" && sub === "system") return json(await systemView(server));
+    if (method === "GET" && sub === "system") return json(await systemView(name, server));
     if (method === "GET" && sub === "updates") return json(await updatesView(server, new URL(req.url).searchParams.get("refresh") === "1"));
     if (method === "GET" && sub === "traffic") return json(await trafficView(server, parseSince(new URL(req.url).searchParams.get("since") ?? "24h")));
     if (method === "GET" && sub === "certs") return json(await certsView(server));

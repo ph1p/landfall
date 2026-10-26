@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
 import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, saveConfig, tildify, type Server } from "../config";
+import { securityNotes } from "../security";
 import { canLogin, runScript } from "../ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
@@ -246,5 +247,6 @@ dashboard unless given as flags.`,
       console.log(`\n${c.green("Done.")} Point a domain's A record at ${c.bold(eff.hostname)}, then:\n`);
       console.log(`  lf deploy ./dist --domain example.com --server ${name}\n`);
     }
+    await securityNotes(name, entry, login);
   },
 });

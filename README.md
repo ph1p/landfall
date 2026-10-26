@@ -31,6 +31,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Managing servers](#managing-servers)
 - [Traffic, certificates and checks](#traffic-certificates-and-checks)
 - [Server system](#server-system)
+- [Security](#security)
 - [Web UI](#web-ui)
 - [Using landfall from scripts and agents](#using-landfall-from-scripts-and-agents)
 - [Command reference](#command-reference)
@@ -519,6 +520,19 @@ started service, puts a removed key back, bans an unbanned IP again or restores 
 firewall does. Services work with systemd and OpenRC. The Docker log limit applies to containers created
 afterwards (and Docker restarts only with `--restart`), so redeploy or restart sites to apply it to them.
 
+## Security
+
+```sh
+lf security                       # ssh passwords, root login, firewall, fail2ban, automatic updates, pending reboot
+lf harden                         # all of: ssh (keys only), fail2ban, updates; or name the parts
+lf harden ssh                     # asks first; refuses while a user logs in with a password only (--force)
+lf keys add --generate -u anna    # new pair at ~/.ssh/<server>_anna, its public key on the server
+```
+
+`lf setup` and `lf server add` end with the same advice, and the web UI shows it on the system tab with a
+button per fix. Each fix is journaled, so `lf undo` takes it back. Automatic updates know apt
+(unattended-upgrades) and dnf (dnf-automatic). Without root or sudo landfall only checks sshd's settings.
+
 ## Web UI
 
 ```sh
@@ -615,7 +629,9 @@ lf undo -s box -y                           # revert the last run
 | `lf services restart\|start\|stop <service>` | Controls a service. Stopping ssh needs `--force`; stopping or restarting docker asks first. Start and stop can be undone. |
 | `lf services logs <service> [-f] [-n lines]` | Shows a service's log: journald, else its log file. |
 | `lf keys [--json]` | Lists the SSH keys in each user's `authorized_keys` (root and `/home/*`). ★ marks the key this machine logs in with. Alias: `keys ls`. |
-| `lf keys add <key\|file.pub> [--user u]` | Adds a public key, to the login user by default. Undoable. |
+| `lf keys add <key\|file.pub> [--user u] [--generate]` | Adds a public key, to the login user by default. `--generate` makes a new pair at `~/.ssh/<server>_<user>` instead. Undoable. |
+| `lf security [--json]` | Checks ssh password and root login, firewall, fail2ban, automatic updates and a pending reboot, and names the command that fixes each. |
+| `lf harden [ssh\|fail2ban\|updates…] [--force]` | Turns ssh passwords off, installs and starts fail2ban, turns on automatic security updates; all three without arguments. `ssh` refuses to lock out password-only users without `--force`. Undoable. |
 | `lf keys rm <fingerprint\|comment> [--user u]` | Removes a key by comment or fingerprint prefix. Refuses the key this machine uses without `--force`. Undoable. |
 | `lf bans [--json]` | Shows banned IPs per fail2ban jail. |
 | `lf unban <ip>` | Unbans an IP in every jail that bans it. Undo bans it again. |

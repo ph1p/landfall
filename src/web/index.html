@@ -953,12 +953,16 @@ function setupFlow(args, base = args) {
       }
       const todo = (rep(j).checks ?? []).filter((ch) => ch.status === "todo").length;
       return [
-        { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0] }) },
+        { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0], after: securityAfter(args[0]) }) },
         { label: "Change options", run: () => setupWizard(base) },
       ];
     },
   });
 }
+
+/** After a job that ends with security advice: a way to its fixes. */
+const securityAfter = (n) => (j) =>
+  j.info.code === 0 && rep(j).advice?.length ? [{ label: `Security: ${plural(rep(j).advice.length, "thing")} to look at`, run: () => go(n, "system") }] : undefined;
 
 function setupWizard(base) {
   const saved = S.state.servers.find((s) => s.name === base[0])?.saved ?? {};
@@ -1058,7 +1062,7 @@ function addServer() {
       const then = (j) => (j.info.code === 0 ? void (v.setup ? setupWizard([name]) : go(name)) : undefined);
       if (v.password) run(["server", "add", ...args], { server: name, password: v.password, after: then });
       else if (v.setup) setupWizard(args);
-      else run(["server", "add", ...args], { server: name, after: () => void go(name) });
+      else run(["server", "add", ...args], { server: name, after: (j) => void go(name, rep(j).advice?.length ? "system" : S.tab) });
     },
   });
 }
@@ -1643,7 +1647,7 @@ function renderMain() {
           { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
           !k || k.docker ? { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) } : null,
           !k || k.admin ? "-" : null,
-          !k || k.admin ? { label: "Reboot…", cls: "danger", hint: "lf reboot", run: () => confirmDlg({ title: `Reboot ${n}?`, text: "Its sites are offline for a minute or two. Waits until it is back and checks its containers run again.", ok: "Reboot", danger: true, onOk: () => run(["reboot", ...sv(n), "-y"], { server: n }) }) } : null,
+          !k || k.admin ? { label: "Reboot…", cls: "danger", hint: "lf reboot", run: () => rebootDlg(n) } : null,
           s?.isDefault ? null : { label: "Make default", title: "Commands without -s use it", run: () => makeDefault(n) },
           s?.registered ? "-" : null,
           s?.registered ? { label: `Forget ${n}…`, cls: "danger", hint: "lf server rm", run: () => forget(n) } : null,
@@ -2176,7 +2180,32 @@ function systemView(n) {
       <tbody>${banned.map((b) => `<tr><td class="mono">${esc(b.ip)}</td><td>${esc(b.jail)}</td><td class="acts">${may(adm, btn("Unban", () => go_(["unban", b.ip]), "sm"))}</td></tr>`).join("") || `<tr><td colspan="3" class="dim">nobody banned right now</td></tr>`}</tbody></table></div></div>`
     : `<div class="card"><h2>Bans</h2><div class="body dim">${i.fail2ban === "missing" ? "fail2ban is not installed." : "fail2ban is not running."}</div></div>`;
 
-  return basics + services + keys + bans;
+  return securityCard(n, i) + basics + services + keys + bans;
+}
+
+/** What `lf security` says, with its fixes as buttons. */
+function rebootDlg(n) {
+  confirmDlg({ title: `Reboot ${n}?`, text: "Its sites are offline for a minute or two. Waits until it is back and checks its containers run again.", ok: "Reboot", danger: true, onOk: () => run(["reboot", ...sv(n), "-y"], { server: n }) });
+}
+
+function securityCard(n, i) {
+  const adv = i.advice ?? [];
+  const cls = { risk: "bad", warn: "warn", info: "" };
+  const fix = (a) => {
+    const f = a.fix;
+    if (!f) return "";
+    // A key pair for someone else: say where it goes before making it.
+    if (f.user) return btn(`${f.label}…`, () => addKeyDlg(n, f.user, true), "sm");
+    if (f.argv[0] === "reboot") return btn(`${f.label}…`, () => rebootDlg(n), "sm");
+    return btn(f.confirm ? `${f.label}…` : f.label, () => f.confirm
+      ? confirmDlg({ title: `${a.title}: ${f.label.toLowerCase()} on ${n}?`, text: f.confirm, ok: f.label, onOk: () => run([...f.argv, "-y"], { server: n }) })
+      : run(f.argv, { server: n }), "sm");
+  };
+  const risks = adv.filter((a) => a.level === "risk").length;
+  return `<div class="card"><h2>Security ${adv.length ? `<span class="badge ${risks ? "bad" : "warn"}">${plural(adv.length, "thing")} to look at</span>` : `<span class="badge ok">nothing to fix</span>`} <span class="sub">lf security</span></h2>
+    ${adv.length ? `<div class="scroll"><table><tbody>${adv.map((a) => `<tr><td><span class="badge ${cls[a.level]}">${a.level}</span></td>
+      <td><b>${esc(a.title)}</b><div class="dim">${esc(a.why)}</div></td><td class="acts">${fix(a)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="body dim">SSH takes keys only${i.security.firewall === "active" ? ", the firewall is on" : ""}${i.fail2ban === "running" ? ", fail2ban runs" : ""}${i.security.autoUpdates ? " and security updates install themselves" : ""}.</div>`}</div>`;
 }
 
 function renameHost(n, old) {
@@ -2238,19 +2267,22 @@ function logLimitDlg(n, d) {
     },
   });
 }
-function addKeyDlg(n) {
+function addKeyDlg(n, user = "", generate = false) {
   dialog({
     title: `Add an SSH key to ${n}`,
-    text: "Paste a public key (the .pub file, one line). Whoever holds its private key can log in.",
+    text: "Paste a public key (the .pub file, one line), or make a new pair on this computer. Whoever holds the private key can log in.",
     fields: [
-      { name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… name@laptop" },
-      { name: "user", label: "User", value: "", placeholder: "the login user", hint: "Whose account it logs in to. Empty: the user landfall logs in as." },
+      { name: "generate", label: "Make a new key pair", type: "check", value: generate, hint: `Saved as ~/.ssh/${n}_<user>, without a passphrase (add one with ssh-keygen -p). Hand it to whoever logs in as that user.` },
+      { name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… name@laptop", hint: "Not needed for a new pair." },
+      { name: "user", label: "User", value: user, placeholder: "the login user", hint: "Whose account it logs in to. Empty: the user landfall logs in as." },
     ],
     ok: "Add key",
     onOk: (v) => {
+      const u = v.user.trim() ? ["--user", v.user.trim()] : [];
+      if (v.generate) return void run(["keys", "add", "--generate", ...u, ...sv(n)], { server: n });
       const key = v.key.trim().split("\n")[0];
       if (!/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(key)) return { error: "That does not look like a public key.", field: "key" };
-      run(["keys", "add", key, ...(v.user.trim() ? ["--user", v.user.trim()] : []), ...sv(n)], { server: n });
+      run(["keys", "add", key, ...u, ...sv(n)], { server: n });
     },
   });
 }
