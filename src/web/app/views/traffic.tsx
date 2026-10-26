@@ -1,9 +1,9 @@
 import { useEffect, type ReactNode } from "react";
-import { S, plural, sv, type Any } from "../lib/store";
+import { svText, S, plural, sv, type Any } from "../lib/store";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";
-import { Actions, Badge, Body, Btn, Card, CardHead, Empty, Note, Scroll, Spin, Sub, pending, cx, NUM, HIDE } from "../ui/kit";
-import { can, size } from "./shared";
+import { Actions, Badge, Body, Btn, Card, CardHead, Empty, Note, Spin, Sub, pending, cx, NUM, HIDE, Table } from "../ui/kit";
+import { Zero, can, size } from "./shared";
 import { Meter, Meters } from "./stats";
 
 // ---- traffic ---------------------------------------------------------------
@@ -13,7 +13,8 @@ const CLASSES = ["2xx", "3xx", "4xx", "5xx"] as const;
 const CLASS_COLORS: Record<string, string> = { "2xx": "var(--accent)", "3xx": "var(--faint)", "4xx": "var(--warn)", "5xx": "var(--bad)" };
 const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
 const count = (v: number) => v.toLocaleString();
-const sv2 = (n: string) => (S.state.defaults.default === n ? "" : ` -s ${n}`);
+const HOUR = new Intl.DateTimeFormat([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+const MINUTE = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
 
 /** Requests per minute or hour, stacked by status class; hover a bar for its numbers. */
 function TrafficChart({ series, bucket }: { series: Any[]; bucket: string }) {
@@ -23,7 +24,7 @@ function TrafficChart({ series, bucket }: { series: Any[]; bucket: string }) {
   const bw = W / series.length;
   const gap = bw > 4 ? 1 : 0;
   const when = (at: string) => (bucket === "hour" ? new Date(`${at}:00:00Z`) : new Date(`${at}:00Z`));
-  const label = (at: string) => (bucket === "hour" ? when(at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : when(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  const label = (at: string) => (bucket === "hour" ? HOUR : MINUTE).format(when(at));
   return (
     <div className="relative">
       <div className="absolute top-[-2px] left-0 text-xs faint">{count(max)}</div>
@@ -59,7 +60,6 @@ function TrafficChart({ series, bucket }: { series: Any[]; bucket: string }) {
 }
 
 const ErrorCell = ({ status }: { status: number }) => <Badge kind={status >= 500 ? "bad" : "warn"}>{status}</Badge>;
-const Zero = () => <span className="faint">0</span>;
 
 /** A card with a table, or nothing when there are no rows. */
 function List({ title, cols, rows }: { title: string; cols: [string, string?][]; rows: ReactNode[] }) {
@@ -67,12 +67,7 @@ function List({ title, cols, rows }: { title: string; cols: [string, string?][];
   return (
     <Card>
       <CardHead>{title}</CardHead>
-      <Scroll>
-        <table>
-          <thead><tr>{cols.map(([c, cls]) => <th key={c} className={cls}>{c}</th>)}</tr></thead>
-          <tbody>{rows}</tbody>
-        </table>
-      </Scroll>
+      <Table cols={cols}>{rows}</Table>
     </Card>
   );
 }
@@ -145,20 +140,10 @@ export function TrafficView({ n }: { n: string }) {
       </Card>
       <Card>
         <CardHead>By site</CardHead>
-        <Scroll>
-          <table>
-            <thead>
-              <tr>
-                <th>Site</th><th className={NUM}>Requests</th><th className={NUM}>4xx</th><th className={NUM}>5xx</th>
-                <th className={cx(NUM, HIDE)}>Median</th><th className={cx(NUM, HIDE)}>95%</th><th className={cx(NUM, HIDE)}>Sent</th>
-              </tr>
-            </thead>
-            <tbody>
-              {t.sites.map((x: Any) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x))}
-              {other.slice(0, 10).map((h: Any) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h))}
-            </tbody>
-          </table>
-        </Scroll>
+        <Table head={<><th>Site</th><th className={NUM}>Requests</th><th className={NUM}>4xx</th><th className={NUM}>5xx</th><th className={cx(NUM, HIDE)}>Median</th><th className={cx(NUM, HIDE)}>95%</th><th className={cx(NUM, HIDE)}>Sent</th></>}>
+          {t.sites.map((x: Any) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x))}
+          {other.slice(0, 10).map((h: Any) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h))}
+        </Table>
         {other.length > 0 && (
           <Body className="faint pt-0">Hosts without a site: bots asking for the server's IP or old domains{other.length > 10 ? `, ${other.length - 10} more` : ""}.</Body>
         )}
@@ -179,7 +164,7 @@ export function TrafficView({ n }: { n: string }) {
       <CertsCard n={n} />
       <p className="faint mt-3.5">
         {st.loading && <><Spin />{" "}</>}
-        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}{reach} · <span className="mono">lf traffic --since {S.since}{sv2(n)}</span>
+        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}{reach} · <span className="mono">lf traffic --since {S.since}{svText(n)}</span>
       </p>
     </>
   );
@@ -202,22 +187,17 @@ export function CertsCard({ n }: { n: string }) {
     <Card>
       {head}
       {r.denied.length > 0 && <Body><Note kind="warn" className="m-0">{r.denied.join(", ")} needs root to read: this login has no passwordless sudo.</Note></Body>}
-      <Scroll>
-        <table>
-          <thead><tr><th>Domain</th><th className={HIDE}>Site</th><th>Left</th><th className={HIDE}>Expires</th><th className={HIDE}>Issuer</th></tr></thead>
-          <tbody>
-            {r.domains.map((d: Any) => (
-              <tr key={d.domain}>
-                <td>{d.domain}{d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}</td>
-                <td className={cx(HIDE, "dim")}>{d.site}</td>
-                <td>{days(d.cert)}</td>
-                <td className={cx(HIDE, "dim")}>{d.cert ? new Date(d.cert.expires).toLocaleDateString() : ""}</td>
-                <td className={cx(HIDE, "faint")}>{d.cert?.issuer ?? ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Scroll>
+      <Table head={<><th>Domain</th><th className={HIDE}>Site</th><th>Left</th><th className={HIDE}>Expires</th><th className={HIDE}>Issuer</th></>}>
+        {r.domains.map((d: Any) => (
+          <tr key={d.domain}>
+            <td>{d.domain}{d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}</td>
+            <td className={cx(HIDE, "dim")}>{d.site}</td>
+            <td>{days(d.cert)}</td>
+            <td className={cx(HIDE, "dim")}>{d.cert ? new Date(d.cert.expires).toLocaleDateString() : ""}</td>
+            <td className={cx(HIDE, "faint")}>{d.cert?.issuer ?? ""}</td>
+          </tr>
+        ))}
+      </Table>
     </Card>
   );
 }
@@ -244,21 +224,16 @@ export function ErrorsCard({ n }: { n: string }) {
         Errors in the last 24h <Sub>{fives ? `${count(fives)} server errors · ` : ""}{count(t.total.classes["4xx"])} client errors</Sub>
         <Actions><Btn cls="sm" on={() => (location.hash = `#/${encodeURIComponent(n)}/traffic`)}>Traffic</Btn></Actions>
       </CardHead>
-      <Scroll>
-        <table>
-          <thead><tr><th>Status</th><th>Site</th><th>Path</th><th className={NUM}>Requests</th></tr></thead>
-          <tbody>
-            {rows.map((e: Any, i: number) => (
-              <tr key={i}>
-                <td><ErrorCell status={e.status} /></td>
-                <td>{e.site ? <b>{e.where}</b> : <span className="mono dim">{e.where}</span>}</td>
-                <td className="mono">{e.path}</td>
-                <td className={NUM}>{count(e.count)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Scroll>
+      <Table head={<><th>Status</th><th>Site</th><th>Path</th><th className={NUM}>Requests</th></>}>
+        {rows.map((e: Any, i: number) => (
+          <tr key={i}>
+            <td><ErrorCell status={e.status} /></td>
+            <td>{e.site ? <b>{e.where}</b> : <span className="mono dim">{e.where}</span>}</td>
+            <td className="mono">{e.path}</td>
+            <td className={NUM}>{count(e.count)}</td>
+          </tr>
+        ))}
+      </Table>
     </Card>
   );
 }

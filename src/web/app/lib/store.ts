@@ -68,6 +68,8 @@ export function ago(iso: string | Date) {
 }
 /** The -s flag for server n. */
 export const sv = (n: string) => ["-s", n];
+/** " -s n" for a shown command, or "" when n is the default server. */
+export const svText = (n: string) => (S.state.defaults.default === n ? "" : ` -s ${n}`);
 export const serverNamed = (n: string | null | undefined): Any => S.state?.servers.find((s: Any) => s.name === n);
 /** The open server. */
 export const server = () => serverNamed(S.sel);

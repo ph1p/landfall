@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Btn } from "./kit";
 
 // One live region in the top layer, so it shows (and is announced) above an open dialog too.
 // action: {label, run} adds a button, e.g. to open the job a toast is about.
@@ -45,13 +46,9 @@ export function ToastHost() {
       >
         {t?.msg}
         {t?.action && (
-          <button
-            type="button"
-            className="ml-2.5 px-[9px] py-0.5 text-sm bg-transparent! shadow-none border-[color-mix(in_srgb,var(--bg)_40%,transparent)] text-inherit"
-            onClick={() => (hide(), t.action!.run())}
-          >
+          <Btn cls="sm ml-2.5 bg-transparent shadow-none border-[color-mix(in_srgb,var(--bg)_40%,transparent)] text-inherit" on={() => (hide(), t.action!.run())}>
             {t.action.label}
-          </button>
+          </Btn>
         )}
       </div>
       <div className="sr-only" role="status">{live}</div>

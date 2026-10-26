@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { S, plural, render, sv, type Any } from "../lib/store";
 import { run } from "../lib/jobs";
-import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, SR, Scroll, Sub, cx, pending } from "../ui/kit";
+import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, SR, Scroll, Sub, cx, pending, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog } from "../ui/dialog";
 import { size } from "./shared";
@@ -97,12 +97,7 @@ export function SystemView({ n }: { n: string }) {
           Services {nFailed > 0 && <Badge kind="bad">{nFailed} failed</Badge>} <Sub>{i.init}</Sub>
           <Actions><Btn cls="sm" on={() => ((S.allSvcs = { ...S.allSvcs, [n]: !all }), render())}>{all ? "Fewer" : `All ${i.services.length}`}</Btn></Actions>
         </CardHead>
-        <Scroll>
-          <table>
-            <thead><tr><th>Service</th><th>State</th>{i.init === "systemd" && <th className={HIDE}>Boot</th>}<th className={HIDE}>Description</th><th><span className={SR}>Actions</span></th></tr></thead>
-            <tbody>{shown.length ? shown.map(row) : <tr><td colSpan={5} className="dim">none</td></tr>}</tbody>
-          </table>
-        </Scroll>
+        <Table head={<><th>Service</th><th>State</th>{i.init === "systemd" && <th className={HIDE}>Boot</th>}<th className={HIDE}>Description</th><th><span className={SR}>Actions</span></th></>}>{shown.length ? shown.map(row) : <tr><td colSpan={5} className="dim">none</td></tr>}</Table>
       </Card>
     );
   }
@@ -113,33 +108,28 @@ export function SystemView({ n }: { n: string }) {
         SSH keys <Badge>{i.keys.length}</Badge> <Sub>who may log in</Sub>
         <Actions><Btn cls="sm" on={() => addKeyDlg(n)}>Add key…</Btn></Actions>
       </CardHead>
-      <Scroll>
-        <table>
-          <thead><tr><th>User</th><th>Comment</th><th className={HIDE}>Key</th><th><span className={SR}>Actions</span></th></tr></thead>
-          <tbody>
-            {i.keys.length ? i.keys.map((k: Any) => {
-              const label = k.comment || k.fingerprint.slice(7, 19);
-              const rm = () => confirmDlg({
-                title: `Remove ${label} from ${k.user}?`,
-                text: k.mine ? "This is the key this machine logs in with: removing it can lock you out." : `${k.type} ${k.fingerprint}`,
-                ok: "Remove it", danger: true,
-                onOk: () => go_(["keys", "rm", k.fingerprint, "--user", k.user, "-y", ...(k.mine ? ["--force"] : [])]),
-              });
-              return (
-                <tr key={`${k.user}${k.fingerprint}`}>
-                  <td>{k.user}</td>
-                  <td>
-                    {k.mine && <><Badge kind="ok" title="This machine logs in with it">this machine</Badge> </>}{k.comment || ""}
-                    {k.options && <div className={cx("faint", MONO)}>{k.options}</div>}
-                  </td>
-                  <td className={cx(MONO, "faint", HIDE)}>{k.type.replace(/^ssh-/, "")} {k.fingerprint.slice(7, 23)}…</td>
-                  <td className={ACTS}>{may(adm || k.user === i.user, <Btn cls="sm danger" on={rm}>Remove</Btn>)}</td>
-                </tr>
-              );
-            }) : <tr><td colSpan={4} className="dim">no keys found</td></tr>}
-          </tbody>
-        </table>
-      </Scroll>
+      <Table head={<><th>User</th><th>Comment</th><th className={HIDE}>Key</th><th><span className={SR}>Actions</span></th></>}>
+        {i.keys.length ? i.keys.map((k: Any) => {
+          const label = k.comment || k.fingerprint.slice(7, 19);
+          const rm = () => confirmDlg({
+            title: `Remove ${label} from ${k.user}?`,
+            text: k.mine ? "This is the key this machine logs in with: removing it can lock you out." : `${k.type} ${k.fingerprint}`,
+            ok: "Remove it", danger: true,
+            onOk: () => go_(["keys", "rm", k.fingerprint, "--user", k.user, "-y", ...(k.mine ? ["--force"] : [])]),
+          });
+          return (
+            <tr key={`${k.user}${k.fingerprint}`}>
+              <td>{k.user}</td>
+              <td>
+                {k.mine && <><Badge kind="ok" title="This machine logs in with it">this machine</Badge> </>}{k.comment || ""}
+                {k.options && <div className={cx("faint", MONO)}>{k.options}</div>}
+              </td>
+              <td className={cx(MONO, "faint", HIDE)}>{k.type.replace(/^ssh-/, "")} {k.fingerprint.slice(7, 23)}…</td>
+              <td className={ACTS}>{may(adm || k.user === i.user, <Btn cls="sm danger" on={rm}>Remove</Btn>)}</td>
+            </tr>
+          );
+        }) : <tr><td colSpan={4} className="dim">no keys found</td></tr>}
+      </Table>
     </Card>
   );
 
@@ -147,20 +137,15 @@ export function SystemView({ n }: { n: string }) {
   const bans = i.fail2ban === "running" ? (
     <Card>
       <CardHead>Bans <Badge kind={banned.length ? "warn" : ""}>{banned.length}</Badge> <Sub>fail2ban · {i.jails.map((j: Any) => `${j.name}: ${j.total} in total`).join(", ")}</Sub></CardHead>
-      <Scroll>
-        <table>
-          <thead><tr><th>IP</th><th>Jail</th><th><span className={SR}>Actions</span></th></tr></thead>
-          <tbody>
-            {banned.length ? banned.map((b) => (
-              <tr key={`${b.jail}${b.ip}`}>
-                <td className={MONO}>{b.ip}</td>
-                <td>{b.jail}</td>
-                <td className={ACTS}>{may(adm, <Btn cls="sm" on={() => go_(["unban", b.ip])}>Unban</Btn>)}</td>
-              </tr>
-            )) : <tr><td colSpan={3} className="dim">nobody banned right now</td></tr>}
-          </tbody>
-        </table>
-      </Scroll>
+      <Table head={<><th>IP</th><th>Jail</th><th><span className={SR}>Actions</span></th></>}>
+        {banned.length ? banned.map((b) => (
+          <tr key={`${b.jail}${b.ip}`}>
+            <td className={MONO}>{b.ip}</td>
+            <td>{b.jail}</td>
+            <td className={ACTS}>{may(adm, <Btn cls="sm" on={() => go_(["unban", b.ip])}>Unban</Btn>)}</td>
+          </tr>
+        )) : <tr><td colSpan={3} className="dim">nobody banned right now</td></tr>}
+      </Table>
     </Card>
   ) : (
     <Card>

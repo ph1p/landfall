@@ -1,8 +1,7 @@
-import { S, ago, errorMessage, plural, tilde, type Any } from "../lib/store";
+import { S, ago, plural, tilde, type Any } from "../lib/store";
 import { go } from "../lib/api";
 import { Badge, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
-import { toast } from "../ui/toast";
-import { addServer, browse, defaultsDialog, deployDialog, folderDialog } from "./flows";
+import { addServer, defaultsDialog, deployFrom, folderDialog } from "./flows";
 import { ReachDot, REACH_KIND, REACH_WORD, Star, reachCount, reachRank } from "./shared";
 
 const H3 = "m-0 mb-2 text-xs font-medium text-faint uppercase tracking-[.04em]";
@@ -76,7 +75,7 @@ export function HomeView() {
                     <b>{r.name}</b> <span className="dim">→ {r.server}{r.domains[0] ? ` · ${r.domains[0]}` : " · tunnel only"}</span>
                     <div className="faint mono text-xs! overflow-hidden text-ellipsis whitespace-nowrap" title={r.path}>{tilde(r.path)} · {ago(r.at)}</div>
                   </div>
-                  <Btn cls="sm" title={`lf deploy from ${r.path}`} on={() => browse(r.path).then((x) => deployDialog(x.detected), (err) => toast(errorMessage(err)))}>Deploy again</Btn>
+                  <Btn cls="sm" title={`lf deploy from ${r.path}`} on={() => deployFrom(r.path)}>Deploy again</Btn>
                 </li>
               ))}
             </ul>

@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { S, render, plural, server, sv, useStore, type Any } from "../lib/store";
+import { S, render, plural, server, sv, tilde, useStore, type Any } from "../lib/store";
 import { go, load, loadReach, needs, SECTIONS, STORE } from "../lib/api";
 import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
 import { Badge, Btn, Card, Dot, Empty, Loading, Note, Spin, cx, MONO } from "../ui/kit";
@@ -63,7 +63,7 @@ function Header() {
           </Btn>
         )}
         <span className={cx("overflow-hidden text-ellipsis whitespace-nowrap max-w-[36vw] max-[760px]:hidden", MONO)} title={st.cwd}>
-          {p ? <><b>{p.name}</b> · {p.domains.join(", ")}</> : st.cwd.replace(/^\/(Users|home)\/[^/]+/, "~")}
+          {p ? <><b>{p.name}</b> · {p.domains.join(", ")}</> : tilde(st.cwd)}
         </span>
         <Btn on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder…</Btn>
         <Btn cls="primary" on={deployHere} title={p ? `lf deploy (.landfall.json in ${st.cwd})` : `lf deploy from ${st.cwd}`}>{p ? "Deploy" : "Deploy this folder"}</Btn>

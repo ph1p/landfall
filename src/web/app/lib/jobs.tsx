@@ -51,7 +51,7 @@ export function stream(j: Job) {
     const { from, lines, report } = JSON.parse(e.data);
     if (report) j.report = report;
     j.lines.length = Math.min(j.lines.length, from);
-    j.lines.push(...lines);
+    for (const l of lines) j.lines.push(l);
     j.onLines?.();
     // A tunnel's address shows in the lists once it is up.
     if (isTunnel(j.info) && !j.url && (j.url = tunnelUrl(j))) render();
@@ -120,7 +120,7 @@ export const rep = (j: Job): Any => j.report ?? j.info.report ?? {};
 export const tunnelUrl = (j: Job): string | undefined => rep(j).url;
 /** With --lan: the addresses other devices on the network open it at. */
 export const lanUrls = (j: Job): string[] => rep(j).lan ?? [];
-export const closeTunnel = (j: Job) => http(`/api/jobs/${j.info.id}/stop`, {}).catch((e) => toast(errorMessage(e)));
+export const stopJob = (id: string) => http(`/api/jobs/${id}/stop`, {}).catch((e) => toast(errorMessage(e)));
 
 /** Jobs started before a reload keep running on the server: list them, and show one still running. */
 export function resumeJobs(list: JobInfo[]) {
@@ -209,7 +209,7 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [] }: { n: s
         </>
       )}{" "}
       <Btn cls="sm ghost" on={() => showJob(j.info.id)}>Output</Btn>
-      <Btn cls="sm danger" title="Ends the tunnel" on={() => closeTunnel(j)}>Close</Btn>
+      <Btn cls="sm danger" title="Ends the tunnel" on={() => stopJob(j.info.id)}>Close</Btn>
     </>
   );
 }
@@ -228,10 +228,11 @@ function lineClass(l: string) {
 /** Adds the lines out does not show yet, keeping a reader's scroll position unless they are at the bottom. */
 function appendOutput(out: HTMLElement, j: Job) {
   const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
-  const shown = Number(out.dataset.n || 0);
-  if (shown > j.lines.length) out.textContent = "";
+  let shown = Number(out.dataset.n || 0);
+  if (shown === j.lines.length) return;
+  if (shown > j.lines.length) (out.textContent = ""), (shown = 0);
   const frag = document.createDocumentFragment();
-  for (const l of j.lines.slice(out.textContent ? shown : 0)) {
+  for (const l of j.lines.slice(shown)) {
     const div = document.createElement("div");
     const text = l.replace(ANSI, "") || " ";
     // Addresses (a tunnel's localhost one, a deployed site) open in a new tab.
@@ -291,7 +292,7 @@ export function JobPanel() {
   );
   const others = [...S.jobs.values()].reverse();
   const stop = () => {
-    const doStop = () => http(`/api/jobs/${info.id}/stop`, {}).catch((e) => toast(errorMessage(e)));
+    const doStop = () => stopJob(info.id);
     if (!info.undoable) return void doStop();
     confirmDlg({ title: `Stop lf ${info.argv[0]}?`, text: "What it changed so far stays. Undo it from History.", ok: "Stop it", danger: true, onOk: doStop });
   };

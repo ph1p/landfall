@@ -12,17 +12,20 @@ export const ACTS = "text-right whitespace-nowrap [&_button]:ml-1 max-[760px]:wh
 export const HIDE = "narrow:hidden";
 export const SHOW = "hidden! narrow:flex!";
 export const MONO = "font-mono text-sm";
+/** A table's name cell: the name and its small markers on one line. */
+export const NAME = "flex items-center gap-0.5 whitespace-nowrap";
 export const SR = "sr-only";
 
 // Button looks, by the words the old markup used: "sm primary", "danger solid", "ghost sm"…
 const LOOK: Record<string, string> = {
-  sm: "px-[9px]! py-0.5! text-sm!",
-  primary: "bg-accent-solid! border-accent-solid! text-white! hover:brightness-110",
+  sm: "px-[9px] py-0.5 text-sm",
+  primary: "bg-accent-solid border-accent-solid text-white hover:brightness-110",
   danger: "text-bad hover:bg-bad-bg",
-  ghost: "border-transparent! bg-transparent! text-dim shadow-none! hover:text-fg hover:bg-hover!",
+  ghost: "border-transparent bg-transparent text-dim shadow-none hover:text-fg hover:bg-hover",
+  // Beats sm's padding: "sm more".
   more: "px-2! tracking-[.05em]",
 };
-const SOLID = "bg-bad-solid! border-bad-solid! text-white! hover:brightness-110";
+const SOLID = "bg-bad-solid border-bad-solid text-white hover:brightness-110";
 export function btnClass(cls = "") {
   const words = cls.split(/\s+/).filter(Boolean);
   const solid = words.includes("danger") && words.includes("solid");
@@ -75,6 +78,15 @@ export const Actions = ({ children, className }: { children: ReactNode; classNam
 export const Body = ({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) => <div className={cx("px-[18px] py-4", className)} {...rest}>{children}</div>;
 export const Lede = ({ children }: { children: ReactNode }) => <div className="px-[18px] py-2.5 text-dim text-md border-b border-line">{children}</div>;
 export const Scroll = ({ className, children }: { className?: string; children: ReactNode }) => <div className={cx("overflow-x-auto", className)}>{children}</div>;
+/** A scrolling table: head is its <th>s, or cols gives them as [heading, class]. */
+export const Table = ({ head, cols, children }: { head?: ReactNode; cols?: [string, string?][]; children: ReactNode }) => (
+  <Scroll>
+    <table>
+      <thead><tr>{head ?? cols?.map(([c, cls]) => <th key={c} className={cls}>{c}</th>)}</tr></thead>
+      <tbody>{children}</tbody>
+    </table>
+  </Scroll>
+);
 export const Empty = ({ title, children, className }: { title: ReactNode; children?: ReactNode; className?: string }) => (
   <div className={cx("text-dim text-center px-5 py-[72px]", className)}>
     <h2 className="text-fg text-[18px] font-semibold tracking-[-.01em] m-0 mb-1.5">{title}</h2>

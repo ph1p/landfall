@@ -1,6 +1,6 @@
 import { S, sv, type Any } from "../lib/store";
 import { run } from "../lib/jobs";
-import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, MONO, Note, SR, Scroll, Sub, cx, pending } from "../ui/kit";
+import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, MONO, Note, SR, Sub, cx, pending, Table } from "../ui/kit";
 import { confirmDlg, dialog } from "../ui/dialog";
 
 // ---- firewall --------------------------------------------------------------
@@ -43,35 +43,30 @@ export function FirewallView({ n }: { n: string }) {
           ufw {badge} <Sub>incoming default: {fw.policy.toLowerCase()} · ssh on {fw.sshPort}{fw.asRoot ? " · as root" : ""}</Sub>
           <Actions>{toggle}</Actions>
         </CardHead>
-        <Scroll>
-          <table>
-            <thead><tr><th>#</th><th>Action</th><th>Port</th><th>From</th><th className={HIDE}>Comment</th><th><span className={SR}>Actions</span></th></tr></thead>
-            <tbody>
-              {fw.rules.length ? fw.rules.map((r: Any, i: number) => {
-                const num = String(i + 1);
-                const flip = r.action === "deny" || r.action === "reject" ? "allow" : "deny";
-                const kind = r.action === "allow" ? "ok" : r.action === "limit" ? "accent" : "bad";
-                return (
-                  <tr key={`${num}${r.spec}`}>
-                    <td className="faint">{num}</td>
-                    <td>
-                      <Btn cls="ghost sm" title={`Switch to ${flip}`} on={() => confirmDlg({ title: `Switch rule ${num} to ${flip}?`, text: `${r.spec}${r.from ? ` from ${r.from}` : ""}`, ok: `Switch to ${flip}`, danger: flip === "deny", onOk: () => fwRun(["firewall", "update", r.spec, "--action", flip, ...s]) })}>
-                        <Badge kind={kind}>{r.action}{r.out ? " out" : ""}</Badge>
-                      </Btn>
-                    </td>
-                    <td className={MONO}>{portOf(r) || r.spec}</td>
-                    <td>{r.from ? <span className={MONO}>{r.from}</span> : <span className="dim">anywhere</span>}</td>
-                    <td className={cx("dim", HIDE)}>{r.comment ?? ""}</td>
-                    <td className={ACTS}>
-                      <Btn cls="sm" on={() => editRule(n, num, r)}>Edit</Btn>
-                      <Btn cls="sm danger" on={() => confirmDlg({ title: `Remove rule ${num}?`, text: r.spec, ok: "Remove it", danger: true, onOk: () => fwRun(["firewall", "rm", r.spec, ...s, "-y"]) })}>Remove</Btn>
-                    </td>
-                  </tr>
-                );
-              }) : <tr><td colSpan={6} className="dim">no rules</td></tr>}
-            </tbody>
-          </table>
-        </Scroll>
+        <Table head={<><th>#</th><th>Action</th><th>Port</th><th>From</th><th className={HIDE}>Comment</th><th><span className={SR}>Actions</span></th></>}>
+          {fw.rules.length ? fw.rules.map((r: Any, i: number) => {
+            const num = String(i + 1);
+            const flip = r.action === "deny" || r.action === "reject" ? "allow" : "deny";
+            const kind = r.action === "allow" ? "ok" : r.action === "limit" ? "accent" : "bad";
+            return (
+              <tr key={`${num}${r.spec}`}>
+                <td className="faint">{num}</td>
+                <td>
+                  <Btn cls="ghost sm" title={`Switch to ${flip}`} on={() => confirmDlg({ title: `Switch rule ${num} to ${flip}?`, text: `${r.spec}${r.from ? ` from ${r.from}` : ""}`, ok: `Switch to ${flip}`, danger: flip === "deny", onOk: () => fwRun(["firewall", "update", r.spec, "--action", flip, ...s]) })}>
+                    <Badge kind={kind}>{r.action}{r.out ? " out" : ""}</Badge>
+                  </Btn>
+                </td>
+                <td className={MONO}>{portOf(r) || r.spec}</td>
+                <td>{r.from ? <span className={MONO}>{r.from}</span> : <span className="dim">anywhere</span>}</td>
+                <td className={cx("dim", HIDE)}>{r.comment ?? ""}</td>
+                <td className={ACTS}>
+                  <Btn cls="sm" on={() => editRule(n, num, r)}>Edit</Btn>
+                  <Btn cls="sm danger" on={() => confirmDlg({ title: `Remove rule ${num}?`, text: r.spec, ok: "Remove it", danger: true, onOk: () => fwRun(["firewall", "rm", r.spec, ...s, "-y"]) })}>Remove</Btn>
+                </td>
+              </tr>
+            );
+          }) : <tr><td colSpan={6} className="dim">no rules</td></tr>}
+        </Table>
         <Body className="border-t border-line">
           <form className="flex gap-2.5 flex-wrap items-end" onSubmit={addRule}>
             <label className="flex-[1_1_140px]">Port <input name="port" placeholder="5432, 51820/udp, 6000:6007/tcp" required /></label>
@@ -83,21 +78,16 @@ export function FirewallView({ n }: { n: string }) {
       </Card>
       <Card>
         <CardHead>Listening ports <Sub>and whether the internet reaches them</Sub></CardHead>
-        <Scroll>
-          <table>
-            <thead><tr><th>Port</th><th>Process</th><th>Reach</th><th>Why</th></tr></thead>
-            <tbody>
-              {fw.ports.length ? fw.ports.map((p: Any) => (
-                <tr key={`${p.port}${p.proc}`}>
-                  <td className={MONO}>{p.port}</td>
-                  <td>{p.proc}</td>
-                  <td><Badge kind={REACH[p.state] ?? ""}>{p.state}</Badge></td>
-                  <td className="dim">{p.why}</td>
-                </tr>
-              )) : <tr><td colSpan={4} className="dim">nothing listening</td></tr>}
-            </tbody>
-          </table>
-        </Scroll>
+        <Table head={<><th>Port</th><th>Process</th><th>Reach</th><th>Why</th></>}>
+          {fw.ports.length ? fw.ports.map((p: Any) => (
+            <tr key={`${p.port}${p.proc}`}>
+              <td className={MONO}>{p.port}</td>
+              <td>{p.proc}</td>
+              <td><Badge kind={REACH[p.state] ?? ""}>{p.state}</Badge></td>
+              <td className="dim">{p.why}</td>
+            </tr>
+          )) : <tr><td colSpan={4} className="dim">nothing listening</td></tr>}
+        </Table>
       </Card>
     </>
   );

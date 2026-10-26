@@ -1,7 +1,7 @@
 import { sv, type Any } from "../lib/store";
 import { go } from "../lib/api";
 import { TunnelBtn, openTunnels } from "../lib/jobs";
-import { ACTS, Badge, Btn, Card, CardHead, Empty, Lede, MONO, SHOW, HIDE, SR, Scroll, cx } from "../ui/kit";
+import { ACTS, Badge, Btn, Card, CardHead, Empty, Lede, MONO, NAME, SHOW, HIDE, SR, Scroll, cx } from "../ui/kit";
 import { StatusDot } from "./shared";
 
 // ---- tunnels -------------------------------------------------------------------
@@ -11,7 +11,6 @@ const Chips = ({ list, className }: { list: string[]; className?: string }) => (
     {list.map((d) => <span key={d} className="inline-flex items-center gap-0.5 max-w-full">{d}</span>)}
   </div>
 );
-const NAME = "flex items-center gap-0.5 whitespace-nowrap";
 
 interface Target { name: string; status?: string; serves: string[]; argv: string[] | null; why?: string; other?: boolean }
 
