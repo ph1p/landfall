@@ -146,15 +146,10 @@ if [ "$H_F2B" = 1 ]; then
   fi
   if ! $SUDO fail2ban-client ping >/dev/null 2>&1; then
     log "starting fail2ban"
-    if [ -d /run/systemd/system ]; then
-      $SUDO systemctl enable fail2ban >/dev/null 2>&1 || true; $SUDO systemctl restart fail2ban || true
-      undo='$SUDO systemctl disable --now fail2ban'
-    else
-      $SUDO rc-update add fail2ban default >/dev/null 2>&1 || true; $SUDO rc-service fail2ban start >/dev/null || true
-      undo='$SUDO rc-service fail2ban stop; $SUDO rc-update del fail2ban default'
-    fi
+    # restart: a running fail2ban that does not answer gets the jail written above.
+    { svc enable fail2ban; svc restart fail2ban; } >/dev/null 2>&1 || true
     up=0; for _ in 1 2 3 4 5 6; do $SUDO fail2ban-client ping >/dev/null 2>&1 && { up=1; break; }; sleep 1; done
-    if [ $up = 1 ]; then record "started fail2ban" "$undo"
+    if [ $up = 1 ]; then record "started fail2ban" 'svc stop fail2ban; svc disable fail2ban'
     else echo "fail2ban did not start; see: lf services logs fail2ban" >&2; exit 1; fi
   fi
 fi
@@ -162,7 +157,7 @@ if [ "$H_UPDATES" = 1 ]; then
   case "$(pkg_mgr)" in
     apt-get)
       pkg_has unattended-upgrades || { log "installing unattended-upgrades"; pkg_install unattended-upgrades; record "installed unattended-upgrades"; }
-      if ! apt-config dump | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; then
+      if ! apt_auto_updates; then
         log "turning on automatic security updates"
         f=/etc/apt/apt.conf.d/20auto-upgrades
         undo=$(saved $f)

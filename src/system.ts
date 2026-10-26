@@ -3,15 +3,16 @@ import fs from "node:fs";
 import type { Server } from "./config";
 import { canLogin, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { PKG_MGR, PRELUDE, REBOOT_NEEDED } from "./templates";
+import { PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
 import { fail } from "./ui";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
 export const SYSTEM = String.raw`
 set +e
 kv() { printf '%s=%s\n' "$1" "$2"; }
-S=""; R=1
-if [ "$(id -u)" -ne 0 ]; then if sudo -n true 2>/dev/null; then S="sudo -n"; else R=0; fi; fi
+SUDO=""; R=1
+if [ "$(id -u)" -ne 0 ]; then if sudo -n true 2>/dev/null; then SUDO=sudo; else R=0; fi; fi
+${SEC_CHECKS}
 kv root "$R"
 kv user "$(id -un)"
 [ -f /etc/synoinfo.conf ] && kv platform synology
@@ -29,8 +30,8 @@ kv swappiness "$(cat /proc/sys/vm/swappiness 2>/dev/null)"
 kv disk_free "$(df -Pk / 2>/dev/null | awk 'NR == 2 { print $4 * 1024 }')"
 kv mem "$(awk '/^MemTotal:/ { print $2 * 1024 }' /proc/meminfo)"
 if command -v docker >/dev/null 2>&1; then
-  kv log_driver "$(docker info -f '{{.LoggingDriver}}' 2>/dev/null || $S docker info -f '{{.LoggingDriver}}' 2>/dev/null)"
-  printf 'DAEMON\t'; { cat /etc/docker/daemon.json 2>/dev/null || $S cat /etc/docker/daemon.json 2>/dev/null; } | tr -d '\n'; echo
+  kv log_driver "$(docker info -f '{{.LoggingDriver}}' 2>/dev/null || S docker info -f '{{.LoggingDriver}}' 2>/dev/null)"
+  printf 'DAEMON\t'; { cat /etc/docker/daemon.json 2>/dev/null || S cat /etc/docker/daemon.json 2>/dev/null; } | tr -d '\n'; echo
 fi
 case "$init" in
   systemd)
@@ -41,10 +42,10 @@ case "$init" in
     rc-status -a 2>/dev/null | awk '/\[/ { s = $0; sub(/.*\[[ \t]*/, "", s); sub(/[ \t]*\].*/, "", s); print "SVC\t" $1 "\t-\t" s "\t" s "\t" }' | sort -u ;;
 esac
 if command -v fail2ban-client >/dev/null 2>&1; then
-  if st=$($S fail2ban-client status 2>/dev/null); then
+  if st=$(S fail2ban-client status 2>/dev/null); then
     kv fail2ban running
     for j in $(printf '%s\n' "$st" | sed -n 's/.*Jail list:[[:space:]]*//p' | tr ',' ' '); do
-      $S fail2ban-client status "$j" 2>/dev/null | awk -v j="$j" '
+      S fail2ban-client status "$j" 2>/dev/null | awk -v j="$j" '
         /Currently banned:/ { c = $NF } /Total banned:/ { t = $NF } /Currently failed:/ { f = $NF }
         /Banned IP list:/ { sub(/.*Banned IP list:[ \t]*/, ""); ips = $0 }
         END { print "JAIL\t" j "\t" c + 0 "\t" t + 0 "\t" f + 0 "\t" ips }'
@@ -52,15 +53,15 @@ if command -v fail2ban-client >/dev/null 2>&1; then
   else kv fail2ban stopped; fi
 else kv fail2ban missing; fi
 # Security: what sshd really uses (sshd -T needs root), who has a password, firewall, updates.
-$S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
-[ "$R" = 1 ] && kv password_users "$($S awk -F: '$2 ~ /^\$/ { printf "%s ", $1 }' /etc/shadow 2>/dev/null)"
+S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
+[ "$R" = 1 ] && kv password_users "$(password_users)"
 ${PKG_MGR}
 kv pkg "$(pkg_mgr)"
-if command -v ufw >/dev/null 2>&1; then kv ufw "$($S ufw status 2>/dev/null | awk 'NR == 1 { print $2 }')"; else kv ufw missing; fi
+kv ufw "$(ufw_state)"
 ${REBOOT_NEEDED}
 kv reboot "$(reboot_needed && echo 1)"
 if command -v apt-get >/dev/null 2>&1; then
-  if dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; then kv auto_updates on; else kv auto_updates off; fi
+  if apt_auto_updates; then kv auto_updates on; else kv auto_updates off; fi
 elif command -v dnf >/dev/null 2>&1 && [ "$init" = systemd ]; then
   # dnf-automatic.timer only downloads unless automatic.conf says apply_updates.
   if systemctl is-enabled -q dnf-automatic-install.timer 2>/dev/null \
@@ -69,8 +70,8 @@ elif command -v dnf >/dev/null 2>&1 && [ "$init" = systemd ]; then
 fi
 # Keys of every user with a home: /root and /home/* (deploy users live there).
 for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
-  u=$(printf %s "$f" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#')
-  { cat "$f" 2>/dev/null || $S cat "$f" 2>/dev/null; } | while IFS= read -r l; do
+  u=$(key_file_user "$f")
+  { cat "$f" 2>/dev/null || S cat "$f" 2>/dev/null; } | while IFS= read -r l; do
     case "$l" in ''|'#'*) ;; *) printf 'KEY\t%s\t%s\n' "$u" "$l" ;; esac
   done
 done
@@ -277,21 +278,13 @@ export async function fullSystem(s: Server): Promise<SystemInfo> {
 
 // Changes. Each runs as a login with root or passwordless sudo (adminLogin) and journals its undo.
 
-const SVC_CTL = String.raw`
-svc() { # svc <verb> <name>
-  if [ -d /run/systemd/system ]; then $SUDO systemctl "$1" "$2"
-  elif command -v rc-service >/dev/null 2>&1; then $SUDO rc-service "$2" "$1"
-  else log "no systemd or OpenRC: cannot $1 $2"; return 1; fi
-}
-`;
-
 export const UNIT = /^[A-Za-z0-9@_.:-]+$/;
 
 export async function serviceAction(s: Server, verb: "restart" | "start" | "stop", unit: string) {
   if (!UNIT.test(unit)) fail(`not a service name: ${unit}`);
   const undo = verb === "start" ? "stop" : verb === "stop" ? "start" : "";
   const what = `${verb} service ${unit}`;
-  await runScript(s, [PRELUDE, SVC_CTL, `svc ${verb} ${shq(unit)}`, `record ${shq(what)}${undo ? ` ${shq(`${SVC_CTL}\nsvc ${undo} ${shq(unit)}`)}` : ""}`].join("\n"));
+  await runScript(s, [PRELUDE, `svc ${verb} ${shq(unit)}`, `record ${shq(what)}${undo ? ` ${shq(`svc ${undo} ${shq(unit)}`)}` : ""}`].join("\n"));
 }
 
 /** Shell that prints a service's last lines: journald, else OpenRC's usual log files. */
