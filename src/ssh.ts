@@ -24,7 +24,7 @@ export interface SshOpts {
 
 /** LANDFALL_SSH_CONFIG points landfall (and the ssh it runs) at another config file, e.g. in tests. */
 // ssh refuses a -F file that does not exist; until landfall writes the first Host block, there is nothing to read.
-export const sshConfigFlag = (f = envVar("SSH_CONFIG")) => (f ? ["-F", fs.existsSync(f) ? f : "/dev/null"] : []);
+const sshConfigFlag = (f = envVar("SSH_CONFIG")) => (f ? ["-F", fs.existsSync(f) ? f : "/dev/null"] : []);
 
 /** `user@host`, or just the host/alias when ssh config supplies the user. */
 export const dest = (s: Server) => {
@@ -62,7 +62,7 @@ function sshOptions(s: Server, o: SshOpts = {}): string[] {
   return a;
 }
 
-export const sshArgs = (s: Server, o: SshOpts = {}) => [...sshOptions(s, o), dest(s)];
+const sshArgs = (s: Server, o: SshOpts = {}) => [...sshOptions(s, o), dest(s)];
 
 /** Close the multiplexed session to `s`, if one lingers (it keeps a login of that user alive). */
 export function closeMux(s: Server): Promise<void> {
@@ -94,13 +94,13 @@ function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: stri
   });
 }
 
-/** Run an interactive command (or a login shell when cmd is empty). */
 /**
  * Non-interactive ssh gets a short PATH: Synology's Container Manager (and other add-on packages)
  * put docker in /usr/local/bin, which only login shells have.
  */
-export const REMOTE_PATH = `PATH="$PATH:/usr/local/sbin:/usr/local/bin"`;
+const REMOTE_PATH = `PATH="$PATH:/usr/local/sbin:/usr/local/bin"`;
 
+/** Run an interactive command (or a login shell when cmd is empty). */
 export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
   const { code } = await spawnP("ssh", [...sshArgs(s, { tty: process.stdin.isTTY }), ...(cmd.length ? [`${REMOTE_PATH};`, ...cmd] : [])], {});
   return code;

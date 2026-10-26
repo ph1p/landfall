@@ -1,12 +1,11 @@
-import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, loadProject, resolveServer, type Server } from "../config";
-import { COMPOSE_FILES, currentRelease, isDone, isOld, isUp, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
+import { defineCommand, logOpts, serverOpt } from "../cmd";
+import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../config";
+import { COMPOSE_FILES, currentRelease, isOld, paintStatus, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
 import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
 import { ago, c, confirmRemoval, fail, info, ok, table } from "../ui";
 import { slug } from "../projects";
 import { ctrAddress, type Ctr, findContainer, openTunnel, portScheme } from "../tunnel";
-import { logOpts } from "./traefik";
 
 /** Site + server from args, falling back to ./.landfall.json. */
 export function target(name: string | undefined, server: string | undefined) {
@@ -15,8 +14,6 @@ export function target(name: string | undefined, server: string | undefined) {
   if (!site) fail("which site? pass a name or run inside a folder with .landfall.json");
   return { site: site!, ...resolveServer(server ?? project?.server) };
 }
-
-const paint = (status: string) => (isUp(status) ? c.green(status) : isDone(status) ? c.dim(status) : c.red(status));
 
 export const sitesList = defineCommand({
   name: "sites list",
@@ -27,7 +24,7 @@ export const sitesList = defineCommand({
     others: { type: "boolean", desc: "with --json: {sites, others}, others = containers Traefik routes that landfall did not deploy" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     const view = await overview(server);
     const { sites, others } = view;
     // --others: the whole overview the web UI reads (proxy, dashboard, unrouted containers too).
@@ -36,7 +33,7 @@ export const sitesList = defineCommand({
       console.log(c.dim(`not deployed by landfall, routed by Traefik (\`lf adopt <name>\` manages a Compose project):`));
       table([
         [c.dim("NAME"), c.dim("DOMAINS"), c.dim("FOLDER"), c.dim("STATUS")],
-        ...others.map((e) => [e.name, e.domains.join(", "), e.dir ?? c.dim(e.containers.join(", ")), paint(e.status)]),
+        ...others.map((e) => [e.name, e.domains.join(", "), e.dir ?? c.dim(e.containers.join(", ")), paintStatus(e.status)]),
       ]);
       if (sites.length) console.log();
     }
@@ -50,7 +47,7 @@ export const sitesList = defineCommand({
         services.map((x) => x.service).join(", ") || c.dim("-"),
         meta.current || c.dim("-"),
         ago(meta.updatedAt),
-        paint(status),
+        paintStatus(status),
       ]),
     ]);
   },
@@ -67,12 +64,12 @@ export const sitesInfo = defineCommand({
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
     if (!st) fail(`no site "${site}" on ${server.host}. See \`lf sites list\``);
     const meta = st!.meta;
-    console.log(`${c.bold(meta.name)}  ${st!.kind}  ${paint(st!.status)}`);
+    console.log(`${c.bold(meta.name)}  ${st!.kind}  ${paintStatus(st!.status)}`);
     for (const d of st!.domains) console.log(`  ${c.cyan("https://" + d)}`);
     console.log(c.dim(`  ${meta.adopted ?? siteDir(site) + "/current"}  (docker compose works there)`));
     if (st!.services.length) {
       console.log(`\n${c.bold("Services")}`);
-      table(st!.services.map((x) => [`  ${x.service}`, c.dim(x.container), paint(x.status)]));
+      table(st!.services.map((x) => [`  ${x.service}`, c.dim(x.container), paintStatus(x.status)]));
     }
     // Sites of the old layout list no services per release.
     if (!meta.releases.length || st!.state === "old") return;

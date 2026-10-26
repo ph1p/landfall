@@ -1,7 +1,9 @@
 import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
-import type { Server } from "./config";
-import { canLogin, runScript } from "./ssh";
+import { guessDomains, type Server } from "./config";
+import { randomBytes } from "node:crypto";
+import { runScript } from "./ssh";
+import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { OS_RELEASE, PRELUDE } from "./templates";
 
@@ -43,7 +45,7 @@ export interface Support {
 }
 
 /** What landfall can do on a server; `why` says what is missing for each false one. */
-export const CAPS = ["setup", "packages", "docker", "compose", "firewall", "services", "admin"] as const;
+const CAPS = ["setup", "packages", "docker", "compose", "firewall", "services", "admin"] as const;
 export type Cap = (typeof CAPS)[number];
 export interface Caps {
   can: Record<Cap, boolean>;
@@ -159,12 +161,7 @@ export function noUfw(platform: string, pkg: string, ufw: boolean): string | und
 
 /** capabilities(), trying root's key login (as adminLogin does) only when the login itself has no sudo. */
 export async function serverCaps(s: Server, f: Facts): Promise<Caps> {
-  const me = effectiveSsh(s).user;
-  let rootKey = false;
-  for (const user of f.admin ? [] : ["root", s.admin]) {
-    if (user && user !== me && (rootKey = await canLogin({ ...s, user }))) break;
-  }
-  return capabilities(f, rootKey);
+  return capabilities(f, !f.admin && !!(await rootLogin(s)));
 }
 
 /**
@@ -274,3 +271,22 @@ export const duration = (s: number) => {
   const h = Math.floor((s % 86400) / 3600);
   return d ? `${d}d ${h}h` : h ? `${h}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m`;
 };
+
+/** Where the main domain and a name below it resolve to: both should point at the server. */
+export async function domainDns(server: Server, domain: string) {
+  const ips = await serverIps(server);
+  const probe = `landfall-${randomBytes(4).toString("hex")}.${domain}`;
+  const [apex, wildcard] = await checkDns([domain, probe], ips);
+  return { ips, apex, wildcard: { ...wildcard, domain: `*.${domain}` } };
+}
+
+/** Host names in the Traefik rules of the server's running containers (read-only). */
+async function routedHosts(server: Server): Promise<string[]> {
+  const script = `docker ps -q | xargs -r docker inspect -f '{{range $k, $v := .Config.Labels}}{{println $v}}{{end}}' 2>/dev/null || true`;
+  const { stdout } = await runScript(server, script, { capture: true });
+  return [...stdout.matchAll(/Host\(`([^`]+)`\)/g)].map((m) => m[1]);
+}
+
+/** Main domains suggested by the sites already routed on the server, minus the ones it has. */
+export const suggestDomains = async (server: Server) =>
+  guessDomains(await routedHosts(server).catch(() => [])).filter((g) => !server.domains?.includes(g.domain));

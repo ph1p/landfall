@@ -127,7 +127,7 @@ export function detectBuild(cwd: string): Build {
 }
 
 /** Never in a Node.js app's image: local installs and build output (made again inside it). */
-export const APP_IGNORE = ["node_modules", ".git", ".next", ".nuxt", ".output", ".svelte-kit", ".vinxi", ".react-router", ".tanstack", ".astro"];
+const APP_IGNORE = ["node_modules", ".git", ".next", ".nuxt", ".output", ".svelte-kit", ".vinxi", ".react-router", ".tanstack", ".astro"];
 
 /**
  * The app in a folder: another language by its build files (Python, Go, Java, Ruby, PHP, Rust, .NET, Elixir),

@@ -226,7 +226,6 @@ export function reachability(p: Probe): Reach[] {
 }
 const words = (s = "") => s.split(/\s+/).filter(Boolean);
 
-/** What setup would do to each part of the server, and what it must not touch. */
 /** Docker Engine with compose: what every site runs on. Podman's `docker` shim is not enough. */
 function assessDocker(v: Record<string, string>): Check {
   const check = (status: Status, detail = ""): Check => ({ part: "docker", label: "docker", status, detail });
@@ -240,6 +239,7 @@ function assessDocker(v: Record<string, string>): Check {
   return check("done", `docker ${docker}${behind(docker, v.docker_latest)}, compose ${v.compose}${behind(v.compose, v.compose_latest)}`);
 }
 
+/** What setup would do to each part of the server, and what it must not touch. */
 export function assess(p: Probe, w: Wanted): Check[] {
   const v = p.values;
   const check = (part: Part, label: string, status: Status, detail = ""): Check => ({ part, label, status, detail });

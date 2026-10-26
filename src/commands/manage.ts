@@ -1,8 +1,8 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, loadProject, resolveServer } from "../config";
+import { checkInt, projectServer } from "../config";
 import { bytes } from "../facts";
 import { kept, prune, prunePlan, reboot, removable, type PrunePlan } from "../manage";
-import { adminLogin } from "../updates";
+import { adminLogin } from "../privilege";
 import { c, confirm, fail, info, ok, step, table, warn } from "../ui";
 
 function printPlan(name: string, p: PrunePlan) {
@@ -36,7 +36,7 @@ export const pruneCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     const plan = await prunePlan(server, !!o.all);
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
     const imgs = removable(plan);
@@ -62,7 +62,7 @@ export const rebootCmd = defineCommand({
     timeout: { type: "string", desc: "seconds to wait for it to come back", default: "300" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     const timeout = checkInt(o.timeout, "--timeout", 30, 3600);
     const admin = await adminLogin(server, "rebooting");
     if (!(await confirm(`Reboot ${name}? Its sites are offline for a minute or two.`, false))) return;

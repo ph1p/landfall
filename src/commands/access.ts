@@ -1,12 +1,12 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, expandDomain, loadProject, saveProject, type Server } from "../config";
+import { DOMAIN, editList, expandDomain, loadProject, saveProject, type Server } from "../config";
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
 import { isOld, siteDomains, siteMain } from "../compose";
 import { changeSite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
 import { c, confirmRemoval, fail, info, ok, openUrl, readStdin, warn } from "../ui";
-import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
+import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
 import { target } from "./sites";
 import { dnsView } from "../views";
 
@@ -77,8 +77,7 @@ and update .landfall.json of remembered projects.`,
     const main = siteMain(meta);
     if (!main) fail(`no service of ${site} serves the site's domains: its compose.yaml sets them (x-landfall.domains)`);
     const lower = (l?: string[]) => (l ?? []).map((d) => expandDomain(d.trim(), server)).filter(Boolean);
-    let next = o.set ? lower(o.set) : [...meta.domains];
-    next = [...new Set([...next, ...lower(o.add)])].filter((d) => !lower(o.rm).includes(d));
+    const next = editList(o.set ? lower(o.set) : meta.domains, lower(o.add), lower(o.rm));
     const bad = next.filter((d) => !DOMAIN.test(d));
     if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
     const missing = lower(o.rm).filter((d) => !meta.domains.includes(d));

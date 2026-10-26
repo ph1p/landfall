@@ -20,6 +20,8 @@ import {
   type SiteState,
   siteDomains,
   siteMain,
+  SITE_LINES,
+  readSiteLine,
   type Release,
   type SiteMeta,
 } from "./compose";
@@ -200,7 +202,7 @@ export function externals(
  * One status for a site: the first routed service that is not up, else any other service that
  * is neither up nor done (one-shot jobs exit 0), else the routed service's.
  */
-export function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
+function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
   if (!services.length) return "not running";
   const r = currentRelease(meta);
   const names = new Set(r?.services.filter(routed).map((s) => s.name));
@@ -209,8 +211,7 @@ export function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
   return (bad ?? main[0] ?? services[0]).status;
 }
 
-/** Compose project of a site; sites of landfall before Compose sites ran as landfall-<name>. */
-/** The compose project a site runs as. */
+/** The compose project a site runs as; sites of landfall before Compose sites ran as landfall-<name>. */
 export const siteProject = (meta: SiteMeta) => (isOld(meta) ? oldProject(meta.name) : projectName(meta));
 
 export async function overview(s: Server): Promise<Overview> {
@@ -219,7 +220,7 @@ export async function overview(s: Server): Promise<Overview> {
     `printf 'READY\\t%s\\n' "$([ -d ${SITES} ] && command -v docker >/dev/null 2>&1 && echo 1)"
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
-for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done
+${SITE_LINES}
 docker ps -a --format 'CTR\\t{{.Names}}\\t{{.Status}}\\t{{.Label "com.docker.compose.project"}}\\t{{.Label "com.docker.compose.service"}}\\t{{.Image}}\\t{{.Ports}}' 2>/dev/null || true
 ids=$(docker ps -aq 2>/dev/null || true)
 # inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
@@ -242,11 +243,9 @@ ids=$(docker ps -aq 2>/dev/null || true)
     }
     if (kind === "SITE") {
       // One broken site.json must not hide every other site.
-      try {
-        metas.push(JSON.parse(line.slice(kind.length + 1)));
-      } catch {
-        warn(`skipped a corrupt site.json on ${s.host}: ${line.slice(5, 80)}`);
-      }
+      const meta = readSiteLine(line);
+      if (meta) metas.push(meta);
+      else warn(`skipped a corrupt site.json on ${s.host}: ${line.slice(kind.length + 1, 80)}`);
     }
     if (kind === "CTR") {
       status.set(a, b);
@@ -374,7 +373,7 @@ export interface ApplyOpts {
 const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans --quiet-pull";
 
 /** Shell that starts the Compose project in `current`, printing its state and logs if it does not come up. */
-export const upLines = (name: string) => [
+const upLines = (name: string) => [
   `log "starting ${name}"`,
   `(cd -P current && ${UP}) || { log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; exit 1; }`,
 ];
@@ -430,11 +429,6 @@ function takeoverLines(old: SiteMeta, keep?: string): string[] {
   ];
 }
 
-/**
- * Write site.json and the override for meta.current, switch `current` to it and start it.
- * Used by deploy, rollback and domain changes alike, so all go through the exact same path.
- * Journaled with the shell that brings back o.prev (or removes a new site).
- */
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
 export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void) {
   const prev = structuredClone(meta);
@@ -443,6 +437,11 @@ export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: 
   await applySite(s, meta, proxy, { keep: meta.releases.length, prev, what });
 }
 
+/**
+ * Write site.json and the override for meta.current, switch `current` to it and start it.
+ * Used by deploy, rollback and domain changes alike, so all go through the exact same path.
+ * Journaled with the shell that brings back o.prev (or removes a new site).
+ */
 export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: ApplyOpts) {
   const keep = Math.max(Number.isInteger(o.keep) ? o.keep! : 5, 2);
   // Newest first; never prune the active release, nor the one undo goes back to.

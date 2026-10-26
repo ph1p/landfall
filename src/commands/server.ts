@@ -1,12 +1,11 @@
 import fs from "node:fs";
-import { randomBytes } from "node:crypto";
 import { defineCommand } from "../cmd";
-import { checkDomain, checkEmail, CONFIG_PATH, defaults, DOMAIN, isTunnelOnly, expandHome, forgetServer, guessDomains, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
+import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../config";
 import { securityNotes } from "../security";
 import { runScript, shq, sshExec } from "../ssh";
-import { effectiveSsh, findHostBlock, hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
-import { bytes, checkDns, duration, facts, serverCaps, serverIps } from "../facts";
-import { describeTraefik, traefikSettings, traefikState } from "./traefik";
+import { hasManagedBlock, removeHostBlock, sshAliases } from "../sshconfig";
+import { bytes, domainDns, duration, facts, serverCaps, suggestDomains } from "../facts";
+import { traefikState } from "../traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../journal";
 import { listServers, reachAll } from "../dashboard";
@@ -14,7 +13,7 @@ import { overview, removeLines, siteDir } from "../remote";
 import { PRELUDE, ROOT, TRAEFIK_DIR } from "../templates";
 import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../ui";
 import { ensureKeyLogin, keyFile, loginPassword, serverEntry } from "../login";
-import { configView, factsView } from "../views";
+import { configView, factsView, serverSettings } from "../views";
 
 export const serverAdd = defineCommand({
   name: "server add",
@@ -254,33 +253,6 @@ export const serverInfo = defineCommand({
   },
 });
 
-/** Everything landfall and ssh know about a server, without connecting to it. */
-export function serverSettings(name: string) {
-  const cfg = loadConfig();
-  const saved = cfg.servers[name];
-  const server: Server = saved ?? { host: name };
-  const eff = effectiveSsh(server);
-  const block = findHostBlock(server.host);
-  const t = traefikSettings(server, {});
-  return {
-    name,
-    isDefault: cfg.default === name,
-    configFile: tildify(CONFIG_PATH),
-    saved: saved ? { ...saved, dashboard: saved.dashboard && { host: saved.dashboard.host, user: saved.dashboard.user } } : null,
-    domains: server.domains ?? [],
-    tunnelOnly: isTunnelOnly(server),
-    /** Set on the server itself, not inherited from `lf config`. */
-    tunnelOnlyOwn: server.tunnelOnly !== undefined,
-    traefik: { ...t, summary: describeTraefik(t), dashboard: server.dashboard?.host ?? null },
-    ssh: {
-      hostname: eff.hostname,
-      user: eff.user,
-      port: eff.port,
-      keys: (server.key ? [server.key] : eff.identityFiles).map((f) => ({ file: tildify(f), exists: fs.existsSync(expandHome(f)) })),
-      block: block ? { file: tildify(block.file), line: block.start + 1, managed: block.managed, text: block.lines.join("\n") } : null,
-    },
-  };
-}
 
 export const serverConfig = defineCommand({
   name: "server config",
@@ -313,24 +285,6 @@ and the Host block in ~/.ssh/config. Nothing connects to the server.`,
   },
 });
 
-/** Where the main domain and a name below it resolve to: both should point at the server. */
-export async function domainDns(server: Server, domain: string) {
-  const ips = await serverIps(server);
-  const probe = `landfall-${randomBytes(4).toString("hex")}.${domain}`;
-  const [apex, wildcard] = await checkDns([domain, probe], ips);
-  return { ips, apex, wildcard: { ...wildcard, domain: `*.${domain}` } };
-}
-
-/** Host names in the Traefik rules of the server's running containers (read-only). */
-export async function routedHosts(server: Server): Promise<string[]> {
-  const script = `docker ps -q | xargs -r docker inspect -f '{{range $k, $v := .Config.Labels}}{{println $v}}{{end}}' 2>/dev/null || true`;
-  const { stdout } = await runScript(server, script, { capture: true });
-  return [...stdout.matchAll(/Host\(`([^`]+)`\)/g)].map((m) => m[1]);
-}
-
-/** Main domains suggested by the sites already routed on the server, minus the ones it has. */
-export const suggestDomains = async (server: Server) =>
-  guessDomains(await routedHosts(server).catch(() => [])).filter((g) => !server.domains?.includes(g.domain));
 
 export const serverDomain = defineCommand({
   name: "server domain",
@@ -383,9 +337,8 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
     if (changing) {
       const entry = (cfg.servers[name] ??= { host: name });
       const rm: string[] = (o.rm ?? []).map(checkDomain);
-      let next: string[] = o.clear ? [] : given.length ? given.map(checkDomain) : [...(entry.domains ?? [])];
-      next = [...new Set([...next, ...(o.add ?? []).map(checkDomain)])].filter((d) => !rm.includes(d));
-      next = withPrimary(next, o.primary && checkDomain(o.primary))!;
+      const base = o.clear ? [] : given.length ? given.map(checkDomain) : (entry.domains ?? []);
+      const next = withPrimary(editList(base, (o.add ?? []).map(checkDomain), rm), o.primary && checkDomain(o.primary))!;
       const missing = rm.filter((d) => !entry.domains?.includes(d));
       if (missing.length) warn(`${missing.join(", ")} is not a main domain of ${name}`);
       const dropped = (entry.domains ?? []).filter((d) => !next.includes(d));

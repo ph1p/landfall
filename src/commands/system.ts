@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, expandHome, loadProject, resolveServer, tildify } from "../config";
+import { checkInt, expandHome, projectServer, tildify } from "../config";
 import { generateKey } from "../security";
 import { bytes } from "../facts";
 import { sshExec } from "../ssh";
@@ -25,14 +25,13 @@ import {
   system,
   unban,
   withLogLimit,
-  type AuthorizedKey,
   type Service,
   type SystemInfo,
 } from "../system";
-import { adminLogin } from "../updates";
+import { adminLogin } from "../privilege";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn } from "../ui";
 
-export const target = (o: Record<string, any>) => resolveServer(o.server ?? loadProject(process.cwd())?.server);
+export const target = (o: Record<string, any>) => projectServer(o.server);
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 
 const failed = (s: Service) => s.active === "failed" || s.active === "crashed";

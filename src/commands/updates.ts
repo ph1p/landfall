@@ -1,6 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../config";
-import { adminLogin, engineNotes, engineStatus, imageStatus, pkgStatus, updateCompose, updateImages, upgradePackages, type Engine, type ImageStatus, type PkgStatus } from "../updates";
+import { adminLogin } from "../privilege";
+import { engineNotes, engineStatus, imageStatus, pkgStatus, updateCompose, updateImages, upgradePackages, type Engine, type ImageStatus, type PkgStatus } from "../updates";
 import { c, confirm, fail, info, ok, step, table, warn } from "../ui";
 import { updatesView } from "../views";
 

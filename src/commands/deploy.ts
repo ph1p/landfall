@@ -11,7 +11,7 @@ import { pickIp, serverIps, sslipDomain } from "../facts";
 import { composeFile, detectApp, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
-import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
+import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
 
 
 /** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */

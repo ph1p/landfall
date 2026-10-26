@@ -76,3 +76,9 @@ export function journalCmd(cmd: Pick<Command, "name" | "options">, positionals: 
   });
   return [cmd.name, ...positionals.map(mask), ...flags].join(" ");
 }
+
+/** --follow/--tail, shared by `logs` and `traefik logs`. */
+export const logOpts = {
+  follow: { type: "boolean", short: "f", desc: "follow" },
+  tail: { type: "string", short: "n", desc: "lines", default: "100" },
+} as const;

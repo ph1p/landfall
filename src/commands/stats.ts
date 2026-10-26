@@ -1,6 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, loadProject, resolveServer } from "../config";
-import { isDone, isUp } from "../compose";
+import { checkInt, projectServer } from "../config";
+import { isUp, paintStatus } from "../compose";
 import { bytes, duration } from "../facts";
 import { diskUsage, stats, type DiskUsage, type Stats } from "../stats";
 import { ROOT } from "../templates";
@@ -16,7 +16,6 @@ function bar(p: number) {
 }
 
 const rate = (n: number) => `${bytes(n)}/s`;
-const paint = (status: string) => (isUp(status) ? (/unhealthy|restarting/i.test(status) ? c.yellow(status) : c.green(status)) : isDone(status) ? c.dim(status) : c.red(status));
 
 function printStats(name: string, s: Stats, site?: string) {
   const ctrs = site ? s.containers.filter((x) => x.site === site || x.project === site) : s.containers;
@@ -50,7 +49,7 @@ function printStats(name: string, s: Stats, site?: string) {
         isUp(x.status) ? `${bytes(x.mem)}${x.memLimit && x.memLimit < s.mem.total ? c.dim(` (limit ${bytes(x.memLimit)})`) : ""}` : "",
         isUp(x.status) ? `↓ ${bytes(x.net.rx)}  ↑ ${bytes(x.net.tx)}` : "",
         x.restarts ? c.yellow(String(x.restarts)) : c.dim("0"),
-        paint(x.status),
+        paintStatus(x.status),
       ]),
     ]);
   }
@@ -67,7 +66,7 @@ export const statsCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run([site], o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     if (o.json) {
       if (o.watch) fail("--watch and --json do not go together: run lf stats --json in a loop");
       return void console.log(JSON.stringify(await stats(server), null, 2));
@@ -121,7 +120,7 @@ export const diskCmd = defineCommand({
   summary: "Show where a server's disk space goes: filesystems, Docker images, volumes, build cache, sites and container logs.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server ?? loadProject(process.cwd())?.server);
+    const { name, server } = projectServer(o.server);
     const d = await diskUsage(server);
     if (o.json) return void console.log(JSON.stringify(d, null, 2));
     printDisk(name, d);
