@@ -29,7 +29,6 @@ export function uptime(s: number) {
   return d ? `${d}d ${h}h` : h ? `${h}h` : `${Math.floor(s / 60)}m`;
 }
 
-const REACH_DOT = { ok: ["up", "reachable"], login: ["warn", "login refused"], down: ["down", "unreachable"] } as const;
 export const REACH_WORD = { ok: "reachable", login: "login refused", down: "unreachable" } as const;
 export const REACH_KIND = { ok: "up", login: "warn", down: "down" } as const;
 /** Reachable first, then refused, then down, then not checked. */
@@ -39,12 +38,16 @@ export function reachCount(list: Any[]) {
   for (const s of list) if (S.reach[s.name]) count[S.reach[s.name].state as keyof typeof count]++;
   return count;
 }
+/** A faint 0, for an empty count cell. */
+export const Zero = () => <span className="faint">0</span>;
+/** used as a whole percentage of total. */
+export const pct = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
 export const Star = () => <span className="text-warn text-xs" title="default server">★</span>;
 /** Whether landfall's ssh login to n works, from /api/reach. */
 export function ReachDot({ n, className }: { n: string; className?: string }) {
   const r = S.reach[n];
   if (!r) return <Dot className={className} role="img" aria-label="not checked yet" title={S.reaching ? "Checking…" : "Not checked yet"} />;
-  const [cls, word] = REACH_DOT[r.state];
+  const [cls, word] = [REACH_KIND[r.state as "ok"], REACH_WORD[r.state as "ok"]];
   const tip = r.state === "ok" ? `Key login works (${r.ms} ms)` : r.state === "login" ? `sshd answers but refuses the login: ${r.detail}` : `Unreachable: ${r.detail}`;
   return <Dot kind={cls} className={className} role="img" aria-label={word} title={tip} />;
 }
@@ -53,7 +56,6 @@ export function ReachDot({ n, className }: { n: string; className?: string }) {
 export function FactsLine({ n }: { n: string }) {
   const f = S.facts[n]?.data;
   if (!f) return null;
-  const pct = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
   const disk = pct(f.disk.used, f.disk.total);
   const items = [
     <><b className="text-fg font-medium">{f.os}</b> {f.arch}</>,

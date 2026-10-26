@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { S, ago, render, sv, tilde, type Any } from "../lib/store";
 import { run, TunnelBtn } from "../lib/jobs";
-import { ACTS, Badge, Btn, Card, CardHead, Empty, HIDE, Lede, MONO, Scroll, SHOW, SR, cx } from "../ui/kit";
+import { ACTS, Badge, Btn, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
 import { Describe, buildSettings, detected, folderDialog, openAfter, setupFlow } from "./flows";
@@ -11,8 +11,6 @@ import { StatusDot, can, isUp } from "./shared";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
 const CHIP = "inline-flex items-center gap-0.5 max-w-full";
-const NAME = "flex items-center gap-0.5 whitespace-nowrap";
-const KV = "grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-1.5 text-md m-0 [&_dt]:text-faint [&_dd]:m-0 [&_dd]:wrap-anywhere";
 
 export function SitesView({ n, o }: { n: string; o: Any }) {
   useEffect(() => ensureDns(n, o));
@@ -53,16 +51,9 @@ export function SitesView({ n, o }: { n: string; o: Any }) {
   return (
     <>
       <Card>
-        <Scroll>
-          <table>
-            <thead>
-              <tr><th>Site</th><th className={HIDE}>Domains</th><th className={HIDE}>Kind</th><th className={HIDE}>Deployed</th><th><span className={SR}>Actions</span></th></tr>
-            </thead>
-            <tbody>
-              {o.sites.map((site: Any) => <SiteRows key={site.meta.name} n={n} site={site} />)}
-            </tbody>
-          </table>
-        </Scroll>
+        <Table head={<><th>Site</th><th className={HIDE}>Domains</th><th className={HIDE}>Kind</th><th className={HIDE}>Deployed</th><th><span className={SR}>Actions</span></th></>}>
+          {o.sites.map((site: Any) => <SiteRows key={site.meta.name} n={n} site={site} />)}
+        </Table>
       </Card>
       <ErrorsCard n={n} />
       <OthersCard n={n} o={o} />
@@ -250,7 +241,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
       {open && (
         <tr>
           <td colSpan={5} className="bg-[color-mix(in_srgb,var(--hover)_60%,transparent)]">
-            <dl className={KV}>{pairs.map(([k, v]) => [<dt key={`k${k}`}>{k}</dt>, <dd key={`v${k}`}>{v}</dd>])}</dl>
+            <Kv pairs={pairs} />
           </td>
         </tr>
       )}
@@ -278,27 +269,22 @@ function OthersCard({ n, o }: { n: string; o: Any }) {
     <Card>
       <CardHead>Not deployed by landfall <Badge>{o.others.length}</Badge></CardHead>
       <Lede>Containers your Traefik routes, e.g. your own compose projects. Adopting one lists it as a site with logs, restart and stop; it keeps running from its folder.</Lede>
-      <Scroll>
-        <table>
-          <thead><tr><th>Name</th><th className={HIDE}>Domains</th><th className={HIDE}>Folder</th><th><span className={SR}>Actions</span></th></tr></thead>
-          <tbody>
-            {o.others.map((e: Any) => (
-              <tr key={e.name}>
-                <td>
-                  <div className={NAME}><StatusDot status={e.status} /><b>{e.name}</b>&nbsp;<span className="faint">{e.status.toLowerCase()}</span></div>
-                  <div className={cx(CHIPS, SHOW, "mt-1")}>{links(e)}</div>
-                </td>
-                <td className={HIDE}><div className={CHIPS}>{links(e)}</div></td>
-                <td className={cx(HIDE, MONO, "dim")}>{e.dir ?? e.containers.join(", ")}</td>
-                <td className={ACTS}>
-                  <Btn cls="sm" title="lf tunnel: an SSH tunnel straight to the container, until you stop it" on={() => run(["tunnel", e.name, ...sv(n)], { server: n })}>Tunnel</Btn>
-                  {e.dir && <Btn cls="sm" title="lf adopt" on={() => adoptDialog(n, e)}>Adopt…</Btn>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Scroll>
+      <Table head={<><th>Name</th><th className={HIDE}>Domains</th><th className={HIDE}>Folder</th><th><span className={SR}>Actions</span></th></>}>
+        {o.others.map((e: Any) => (
+          <tr key={e.name}>
+            <td>
+              <div className={NAME}><StatusDot status={e.status} /><b>{e.name}</b>&nbsp;<span className="faint">{e.status.toLowerCase()}</span></div>
+              <div className={cx(CHIPS, SHOW, "mt-1")}>{links(e)}</div>
+            </td>
+            <td className={HIDE}><div className={CHIPS}>{links(e)}</div></td>
+            <td className={cx(HIDE, MONO, "dim")}>{e.dir ?? e.containers.join(", ")}</td>
+            <td className={ACTS}>
+              <Btn cls="sm" title="lf tunnel: an SSH tunnel straight to the container, until you stop it" on={() => run(["tunnel", e.name, ...sv(n)], { server: n })}>Tunnel</Btn>
+              {e.dir && <Btn cls="sm" title="lf adopt" on={() => adoptDialog(n, e)}>Adopt…</Btn>}
+            </td>
+          </tr>
+        ))}
+      </Table>
     </Card>
   );
 }

@@ -309,9 +309,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
       {formErr && <div className={cx(noteClass("bad"), "m-0")} id="dlg-err" role="alert">{formErr}</div>}
       <div className={DBTNS}>
         <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-        <button type="submit" className={cx(danger ? "bg-bad-solid! border-bad-solid! text-white! hover:brightness-110" : "bg-accent-solid! border-accent-solid! text-white! hover:brightness-110")} disabled={submitOff}>
-          {ok}
-        </button>
+        <Btn type="submit" cls={danger ? "danger solid" : "primary"} disabled={submitOff}>{ok}</Btn>
       </div>
     </form>
   );

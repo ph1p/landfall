@@ -393,9 +393,11 @@ export function buildSettings(path: string, site: Any) {
   browse(path).then((x) => deployDialog(x.detected, { site }), (e) => toast(errorMessage(e)));
 }
 
-export function deployHere() {
-  browse(S.state.cwd).then((b) => deployDialog(b.detected), (e) => toast(errorMessage(e)));
+/** Detect the project in path, then open the deploy dialog for it. */
+export function deployFrom(path: string) {
+  browse(path).then((x) => deployDialog(x.detected), (e) => toast(errorMessage(e)));
 }
+export const deployHere = () => deployFrom(S.state.cwd);
 
 // ---- picking a folder --------------------------------------------------------
 
@@ -436,7 +438,7 @@ function FolderDialog({ b, site }: { b: Any; site?: Any }) {
           <legend>Recent</legend>
           <div className={LIST}>
             {recent.map((r) => (
-              <button key={r.path} type="button" className={ROW} title="Deploy again" onClick={() => browse(r.path).then((x) => deployDialog(x.detected), (err) => toast(errorMessage(err)))}>
+              <button key={r.path} type="button" className={ROW} title="Deploy again" onClick={() => deployFrom(r.path)}>
                 <b>{r.name}</b>
                 <span className="dim">→ {r.server}{r.domains[0] ? ` · ${r.domains[0]}` : ""}</span>
                 <span className="faint mono ml-auto overflow-hidden text-ellipsis">{tilde(r.path)}</span>
@@ -496,7 +498,7 @@ function FolderDialog({ b, site }: { b: Any; site?: Any }) {
       </div>
       <div className={DBTNS}>
         <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-        <button type="submit" className="bg-accent-solid! border-accent-solid! text-white! hover:brightness-110">{site ? "Redeploy from this folder…" : "Deploy this folder…"}</button>
+        <Btn type="submit" cls="primary">{site ? "Redeploy from this folder…" : "Deploy this folder…"}</Btn>
       </div>
     </form>
   );

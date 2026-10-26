@@ -3,7 +3,7 @@ import { S, plural, render, sv, type Any } from "../lib/store";
 import { fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { confirmDlg } from "../ui/dialog";
-import { Actions, Badge, Body, Btn, Card, CardHead, Kv, Scroll, Sub, pending, cx, ACTS, HIDE } from "../ui/kit";
+import { Actions, Badge, Body, Btn, Card, CardHead, Kv, Sub, pending, cx, ACTS, HIDE, Table } from "../ui/kit";
 import { can } from "./shared";
 
 // ---- updates ---------------------------------------------------------------
@@ -96,22 +96,17 @@ export function UpdatesView({ n }: { n: string }) {
             </Actions>
           </CardHead>
           {shown.length > 0 && (
-            <Scroll>
-              <table>
-                <thead><tr><th>Package</th><th className={HIDE}>Installed</th><th>New</th><th></th></tr></thead>
-                <tbody>
-                  {shown.map((u: Any) => (
-                    <tr key={u.name}>
-                      <td className="mono">{u.name}</td>
-                      <td className={cx("mono dim", HIDE)}>{u.from ?? ""}</td>
-                      <td className="mono">{u.to}</td>
-                      <td>{u.security && <Badge kind="warn">security</Badge>}</td>
-                    </tr>
-                  ))}
-                  {p.updates.length > shown.length && <tr><td colSpan={4} className="dim">… {p.updates.length - shown.length} more</td></tr>}
-                </tbody>
-              </table>
-            </Scroll>
+            <Table head={<><th>Package</th><th className={HIDE}>Installed</th><th>New</th><th></th></>}>
+              {shown.map((u: Any) => (
+                <tr key={u.name}>
+                  <td className="mono">{u.name}</td>
+                  <td className={cx("mono dim", HIDE)}>{u.from ?? ""}</td>
+                  <td className="mono">{u.to}</td>
+                  <td>{u.security && <Badge kind="warn">security</Badge>}</td>
+                </tr>
+              ))}
+              {p.updates.length > shown.length && <tr><td colSpan={4} className="dim">… {p.updates.length - shown.length} more</td></tr>}
+            </Table>
           )}
           {!pkgOk && <p className="dim">{S.facts[n]?.data?.why?.packages ?? ""}</p>}
         </Card>
@@ -140,30 +135,25 @@ export function UpdatesView({ n }: { n: string }) {
               Images <Sub>Traefik and sites</Sub>
               <Actions>{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i: Any) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
             </CardHead>
-            <Scroll>
-              <table>
-                <thead><tr><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></tr></thead>
-                <tbody>
-                  {images.length ? (
-                    images.map((i: Any) => {
-                      const [cls, label] = IMG[i.state] ?? ["", i.state];
-                      const pullable = i.state === "update" || i.state === "unknown";
-                      return (
-                        <tr key={i.name}>
-                          <td><b>{i.name}</b> <span className="faint">{i.kind}</span></td>
-                          <td className={cx("mono dim", HIDE)}>{i.ref || "-"}</td>
-                          <td><Badge kind={cls}>{label}</Badge></td>
-                          <td className={cx("dim", HIDE)}>{i.note ?? ""}</td>
-                          <td className={ACTS}>{pullable && <Btn cls={i.state === "update" ? "sm primary" : "sm"} on={() => updImg([i.name])}>{i.state === "update" ? "Update" : "Pull anyway"}</Btn>}</td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr><td colSpan={5} className="dim">no containers</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </Scroll>
+            <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
+              {images.length ? (
+                images.map((i: Any) => {
+                  const [cls, label] = IMG[i.state] ?? ["", i.state];
+                  const pullable = i.state === "update" || i.state === "unknown";
+                  return (
+                    <tr key={i.name}>
+                      <td><b>{i.name}</b> <span className="faint">{i.kind}</span></td>
+                      <td className={cx("mono dim", HIDE)}>{i.ref || "-"}</td>
+                      <td><Badge kind={cls}>{label}</Badge></td>
+                      <td className={cx("dim", HIDE)}>{i.note ?? ""}</td>
+                      <td className={ACTS}>{pullable && <Btn cls={i.state === "update" ? "sm primary" : "sm"} on={() => updImg([i.name])}>{i.state === "update" ? "Update" : "Pull anyway"}</Btn>}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr><td colSpan={5} className="dim">no containers</td></tr>
+              )}
+            </Table>
           </Card>
         </>
       )}

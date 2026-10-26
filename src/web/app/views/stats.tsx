@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
-import { S, http, plural, render, sv, errorMessage, type Any } from "../lib/store";
+import { svText, S, http, plural, render, sv, errorMessage, type Any } from "../lib/store";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { dialog } from "../ui/dialog";
 import { toast } from "../ui/toast";
-import { Badge, Body, Btn, Card, CardHead, Actions, Note, Scroll, Spin, Sub, Loading, pending, cx, NUM, HIDE } from "../ui/kit";
-import { StatusDot, isUp, size } from "./shared";
+import { Badge, Body, Btn, Card, CardHead, Actions, Note, Spin, Sub, Loading, pending, cx, NUM, HIDE, Table } from "../ui/kit";
+import { Zero, pct, StatusDot, isUp, size } from "./shared";
 
 // ---- stats ---------------------------------------------------------------------
 
-const pctOf = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
 /** A sparkline of 0-100 values, oldest left. */
 function Spark({ values }: { values: number[] }) {
   if (values.length < 2) return null;
@@ -54,10 +53,10 @@ export function StatsView({ n }: { n: string }) {
     <>
       <Meters>
         <Meter label="CPU" p={s.cpu} value={`${s.cpu}%`} sub={`${plural(s.cpus, "core")} · load ${s.load.join(" ")}`} line={<Spark values={log.map((x) => x.cpu)} />} hint="Busy share of all cores over one second; load is the 1, 5 and 15 minute average" />
-        <Meter label="Memory" p={pctOf(memUsed, s.mem.total)} value={`${pctOf(memUsed, s.mem.total)}%`} sub={`${size(memUsed)} of ${size(s.mem.total)}`} line={<Spark values={log.map((x) => x.mem)} />} hint="Used, without caches the kernel gives back when needed" />
-        {!!s.mem.swapTotal && <Meter label="Swap" p={pctOf(swapUsed, s.mem.swapTotal)} value={`${pctOf(swapUsed, s.mem.swapTotal)}%`} sub={`${size(swapUsed)} of ${size(s.mem.swapTotal)}`} />}
+        <Meter label="Memory" p={pct(memUsed, s.mem.total)} value={`${pct(memUsed, s.mem.total)}%`} sub={`${size(memUsed)} of ${size(s.mem.total)}`} line={<Spark values={log.map((x) => x.mem)} />} hint="Used, without caches the kernel gives back when needed" />
+        {!!s.mem.swapTotal && <Meter label="Swap" p={pct(swapUsed, s.mem.swapTotal)} value={`${pct(swapUsed, s.mem.swapTotal)}%`} sub={`${size(swapUsed)} of ${size(s.mem.swapTotal)}`} />}
         {s.disks.map((d: Any) => (
-          <Meter key={d.mount} label={`Disk ${d.mount}`} p={pctOf(d.used, d.total)} value={`${pctOf(d.used, d.total)}%`} sub={`${size(d.used)} of ${size(d.total)} · ${size(d.available)} free`} />
+          <Meter key={d.mount} label={`Disk ${d.mount}`} p={pct(d.used, d.total)} value={`${pct(d.used, d.total)}%`} sub={`${size(d.used)} of ${size(d.total)} · ${size(d.available)} free`} />
         ))}
         {s.net.map((x: Any) => <Meter key={x.iface} label={`Network ${x.iface}`} p={null} value={`↓ ${size(x.rx)}/s`} sub={`↑ ${size(x.tx)}/s`} />)}
       </Meters>
@@ -67,60 +66,45 @@ export function StatsView({ n }: { n: string }) {
         s.containers.length > 0 && (
           <Card>
             <CardHead>Containers <Badge>{s.containers.length}</Badge></CardHead>
-            <Scroll>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Container</th><th className={HIDE}>Site</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th>
-                    <th className={cx(NUM, HIDE)} title="Received and sent since the container started">Network in / out</th><th className={cx(NUM, HIDE)}>Restarts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.containers.map((x: Any) => (
-                    <tr key={x.name}>
-                      <td><StatusDot status={x.status} /><span className="mono">{x.name}</span><div className="faint">{x.image}</div></td>
-                      <td className={HIDE}>{x.site ? <b>{x.site}</b> : <span className="faint">{x.project || "-"}</span>}</td>
-                      <td className={NUM}>{up(x) ? `${Math.round(x.cpu * 10) / 10}%` : ""}</td>
-                      <td className={NUM}>
-                        {up(x) ? (
-                          <>
-                            {size(x.mem)}
-                            {x.memLimit && x.memLimit < s.mem.total ? <div className="faint" title="Set by mem_limit or deploy.resources in its compose file">limit {size(x.memLimit)}</div> : null}
-                          </>
-                        ) : (
-                          <span className="faint">{x.status}</span>
-                        )}
-                      </td>
-                      <td className={cx(NUM, HIDE)} title="since the container started">{up(x) ? <>↓ {size(x.net.rx)} <span className="faint">·</span> ↑ {size(x.net.tx)}</> : ""}</td>
-                      <td className={cx(NUM, HIDE)}>{x.restarts ? <Badge kind="warn">{x.restarts}</Badge> : <span className="faint">0</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Scroll>
+            <Table head={<><th>Container</th><th className={HIDE}>Site</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th><th className={cx(NUM, HIDE)} title="Received and sent since the container started">Network in / out</th><th className={cx(NUM, HIDE)}>Restarts</th></>}>
+              {s.containers.map((x: Any) => (
+                <tr key={x.name}>
+                  <td><StatusDot status={x.status} /><span className="mono">{x.name}</span><div className="faint">{x.image}</div></td>
+                  <td className={HIDE}>{x.site ? <b>{x.site}</b> : <span className="faint">{x.project || "-"}</span>}</td>
+                  <td className={NUM}>{up(x) ? `${Math.round(x.cpu * 10) / 10}%` : ""}</td>
+                  <td className={NUM}>
+                    {up(x) ? (
+                      <>
+                        {size(x.mem)}
+                        {x.memLimit && x.memLimit < s.mem.total ? <div className="faint" title="Set by mem_limit or deploy.resources in its compose file">limit {size(x.memLimit)}</div> : null}
+                      </>
+                    ) : (
+                      <span className="faint">{x.status}</span>
+                    )}
+                  </td>
+                  <td className={cx(NUM, HIDE)} title="since the container started">{up(x) ? <>↓ {size(x.net.rx)} <span className="faint">·</span> ↑ {size(x.net.tx)}</> : ""}</td>
+                  <td className={cx(NUM, HIDE)}>{x.restarts ? <Badge kind="warn">{x.restarts}</Badge> : <Zero />}</td>
+                </tr>
+              ))}
+            </Table>
           </Card>
         )
       )}
       {procs.length > 0 && (
         <Card>
           <CardHead>Processes <Sub>busiest and largest · cpu 100% = one core</Sub></CardHead>
-          <Scroll>
-            <table>
-              <thead><tr><th>Name</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th><th className={cx(NUM, HIDE)}>PID</th></tr></thead>
-              <tbody>
-                {procs.map((p: Any) => (
-                  <tr key={p.pid}><td className="mono">{p.name}</td><td className={NUM}>{p.cpu}%</td><td className={NUM}>{size(p.rss)}</td><td className={cx(NUM, "faint", HIDE)}>{p.pid}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </Scroll>
+          <Table head={<><th>Name</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th><th className={cx(NUM, HIDE)}>PID</th></>}>
+            {procs.map((p: Any) => (
+              <tr key={p.pid}><td className="mono">{p.name}</td><td className={NUM}>{p.cpu}%</td><td className={NUM}>{size(p.rss)}</td><td className={cx(NUM, "faint", HIDE)}>{p.pid}</td></tr>
+            ))}
+          </Table>
         </Card>
       )}
       <DiskCard n={n} />
       <p className="faint my-3.5">
         {st.loading && <><Spin />{" "}</>}
         {st.error && <><span className="text-bad">last sample failed: {st.error}</span> · </>}
-        measured {new Date(s.at).toLocaleTimeString()} · new sample every 5s while this tab is open · <span className="mono">lf stats -w{S.state.defaults.default === n ? "" : ` -s ${n}`}</span>
+        measured {new Date(s.at).toLocaleTimeString()} · new sample every 5s while this tab is open · <span className="mono">lf stats -w{svText(n)}</span>
       </p>
     </>
   );
@@ -147,17 +131,6 @@ function pruneFlow(n: string) {
   }, (e) => toast(errorMessage(e)));
 }
 
-/** A table with [heading, class] columns. */
-function Tbl({ cols, children }: { cols: [string, string?][]; children: ReactNode }) {
-  return (
-    <Scroll>
-      <table>
-        <thead><tr>{cols.map(([c, cls]) => <th key={c} className={cls}>{c}</th>)}</tr></thead>
-        <tbody>{children}</tbody>
-      </table>
-    </Scroll>
-  );
-}
 const H3 = ({ children }: { children: ReactNode }) => <h3 className="mt-4 mx-[18px] mb-1.5 text-sm text-dim font-semibold">{children}</h3>;
 
 function DiskCard({ n }: { n: string }) {
@@ -198,42 +171,42 @@ function DiskCard({ n }: { n: string }) {
       {d.dockerDf.length > 0 && (
         <>
           <H3>Docker</H3>
-          <Tbl cols={[["Kind"], ["Count", NUM], ["In use", NUM], ["Size", NUM], ["Reclaimable", NUM]]}>
+          <Table cols={[["Kind"], ["Count", NUM], ["In use", NUM], ["Size", NUM], ["Reclaimable", NUM]]}>
             {d.dockerDf.map((x: Any) => (
               <tr key={x.type}>
                 <td>{x.type}</td><td className={NUM}>{x.count}</td><td className={NUM}>{x.active}</td><td className={NUM}>{size(x.size)}</td>
-                <td className={NUM}>{x.reclaimable ? <Badge kind="warn">{size(x.reclaimable)}</Badge> : <span className="faint">0</span>}</td>
+                <td className={NUM}>{x.reclaimable ? <Badge kind="warn">{size(x.reclaimable)}</Badge> : <Zero />}</td>
               </tr>
             ))}
-          </Tbl>
+          </Table>
         </>
       )}
       {d.sites.length > 0 && (
         <>
           <H3>Sites <span className="faint mono">{S.state.paths.sites}</span></H3>
-          <Tbl cols={[["Site"], ["Files", NUM], ["Releases", NUM]]}>
+          <Table cols={[["Site"], ["Files", NUM], ["Releases", NUM]]}>
             {d.sites.map((x: Any) => (
               <tr key={x.name}><td>{x.name}</td><td className={NUM}>{size(x.size)}</td><td className={NUM}>{x.releases} · {size(x.releasesSize)}</td></tr>
             ))}
-          </Tbl>
+          </Table>
         </>
       )}
       {vols.length > 0 && (
         <>
           <H3>Largest volumes</H3>
-          <Tbl cols={[["Volume"], ["Size", NUM], ["Used by", NUM]]}>
+          <Table cols={[["Volume"], ["Size", NUM], ["Used by", NUM]]}>
             {vols.map((x: Any) => (
               <tr key={x.name}><td className="mono">{x.name}</td><td className={NUM}>{size(x.size)}</td><td className={NUM}>{x.links ? plural(x.links, "container") : <Badge kind="warn">nothing</Badge>}</td></tr>
             ))}
-          </Tbl>
+          </Table>
         </>
       )}
       {lg.length > 0 && (
         <>
           <H3>Largest container logs</H3>
-          <Tbl cols={[["Container"], ["Size", NUM]]}>
+          <Table cols={[["Container"], ["Size", NUM]]}>
             {lg.map((x: Any) => <tr key={x.container}><td className="mono">{x.container}</td><td className={NUM}>{size(x.size)}</td></tr>)}
-          </Tbl>
+          </Table>
         </>
       )}
       {notes.length ? <Body className="faint">{notes.map((x, i) => <div key={i}>{x}</div>)}</Body> : <div className="h-2" />}
