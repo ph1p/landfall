@@ -531,7 +531,7 @@ lf keys add --generate -u anna    # new pair at ~/.ssh/<server>_anna, its public
 
 `lf setup` and `lf server add` end with the same advice, and the web UI shows it on the system tab with a
 button per fix. Each fix is journaled, so `lf undo` takes it back. Automatic updates know apt
-(unattended-upgrades) and dnf (dnf-automatic). Without root or sudo landfall only checks sshd's settings.
+(unattended-upgrades), dnf (dnf-automatic) and apk (a daily `apk upgrade` from cron). Without root or sudo landfall only checks sshd's settings.
 
 ## Web UI
 

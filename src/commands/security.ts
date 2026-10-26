@@ -36,7 +36,7 @@ export const hardenCmd = defineCommand({
   summary: `Close the usual holes; all three without arguments:
   ssh        keys only: no passwords, root by key only
   fail2ban   install and start it: bans addresses that keep failing to log in
-  updates    install security updates automatically (apt, dnf)
+  updates    install security updates automatically (apt, apk, dnf)
 Each change is journaled: lf undo takes it back.`,
   options: {
     server: serverOpt,

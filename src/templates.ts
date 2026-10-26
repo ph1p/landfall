@@ -86,6 +86,8 @@ key_users() {
   done; return 0
 }
 apt_auto_updates() { dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; }
+# Alpine: crond runs a job that runs apk upgrade (lf harden updates puts one in /etc/periodic/daily).
+apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/crontabs/root 2>/dev/null || true; } | grep 'apk .*upgrade' >/dev/null; }
 `;
 
 export const PRELUDE = String.raw`

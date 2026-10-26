@@ -62,6 +62,8 @@ ${REBOOT_NEEDED}
 kv reboot "$(reboot_needed && echo 1)"
 if command -v apt-get >/dev/null 2>&1; then
   if apt_auto_updates; then kv auto_updates on; else kv auto_updates off; fi
+elif command -v apk >/dev/null 2>&1; then
+  if apk_auto_updates; then kv auto_updates on; else kv auto_updates off; fi
 elif command -v dnf >/dev/null 2>&1 && [ "$init" = systemd ]; then
   # dnf-automatic.timer only downloads unless automatic.conf says apply_updates.
   if systemctl is-enabled -q dnf-automatic-install.timer 2>/dev/null \

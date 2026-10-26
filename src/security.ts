@@ -181,6 +181,20 @@ if [ "$H_UPDATES" = 1 ]; then
         printf '%s\n' 'APT::Periodic::Update-Package-Lists "1";' 'APT::Periodic::Unattended-Upgrade "1";' | $SUDO tee $f >/dev/null
         record "turned on automatic security updates" "$undo"
       fi ;;
+    apk)
+      if ! apk_auto_updates; then
+        log "turning on automatic updates"
+        # A stable Alpine branch only gets fixes, so upgrading all of it is what apt's security updates do.
+        f=/etc/periodic/daily/landfall-upgrade
+        if [ ! -e $f ]; then
+          printf '#!/bin/sh\napk upgrade --no-cache --quiet\n' | $SUDO tee $f >/dev/null && $SUDO chmod 755 $f
+          record "turned on automatic updates" "\$SUDO rm -f $f"
+        fi
+        if ! pidof crond >/dev/null; then
+          { svc enable crond; svc start crond; } >/dev/null 2>&1 || { echo "could not start crond, which runs $f" >&2; exit 1; }
+          record "started crond" 'svc stop crond; svc disable crond'
+        fi
+      fi ;;
     dnf)
       pkg_has dnf-automatic || { log "installing dnf-automatic"; pkg_install dnf-automatic && record "installed dnf-automatic"; }
       if systemctl cat dnf-automatic-install.timer >/dev/null 2>&1; then
@@ -191,7 +205,7 @@ if [ "$H_UPDATES" = 1 ]; then
       else
         echo "set apply_updates = yes in /etc/dnf/automatic.conf, then: systemctl enable --now dnf5-automatic.timer" >&2; exit 1
       fi ;;
-    *) echo "automatic updates: landfall knows apt and dnf; on $(pkg_mgr) set them up by hand" >&2; exit 1 ;;
+    *) echo "automatic updates: landfall knows apt, apk and dnf; on $(pkg_mgr) set them up by hand" >&2; exit 1 ;;
   esac
 fi
 `;
