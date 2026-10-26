@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand } from "../cmd";
 import { checkInt } from "../config";
+import { volumeName } from "../compose";
 import { detectApp, detectProject } from "../projects";
 import { c, fail, info, ok } from "../ui";
 
@@ -40,6 +41,8 @@ files are never overwritten.`,
     }
     const local = d.kind === "static" ? 8080 : port;
     const db = !!o.postgres;
+    const worker = d.kind !== "static" && !!d.project?.worker;
+    const volumes = d.kind === "static" ? [] : (d.project?.volumes ?? found?.volumes ?? []);
     let app: string;
     if (d.kind === "static") {
       const dir = d.dir ?? "dist";
@@ -68,9 +71,7 @@ ${
         condition: service_healthy
 `
     : ""
-}    x-landfall:
-      port: ${port}
-`;
+}${volumes.length ? `    volumes:\n${volumes.map((v) => `      - ${volumeName(v)}:${v}\n`).join("")}` : ""}${worker ? "" : `    x-landfall:\n      port: ${port}\n`}`;
     }
     const svc = d.kind === "static" ? "web" : "app";
     files["compose.yaml"] = `# Runs locally with \`docker compose up\` and on a server with \`lf deploy\`.
@@ -92,13 +93,18 @@ ${app}${
       interval: 5s
       retries: 10
 
-# Survives deploys and rollbacks; \`lf sites rm --volumes\` deletes it.
-volumes:
-  db:
 `
     : ""
+}${
+  db || volumes.length
+    ? `
+# Survive deploys and rollbacks; \`lf sites rm --volumes\` deletes them.
+volumes:
+${[...(db ? ["db"] : []), ...volumes.map(volumeName)].map((v) => `  ${v}:\n`).join("")}`
+    : ""
 }`;
-    files["compose.override.yaml"] = `# Local only: docker compose merges this file, lf deploy leaves it out.
+    if (worker) delete files["compose.override.yaml"];
+    else files["compose.override.yaml"] = `# Local only: docker compose merges this file, lf deploy leaves it out.
 services:
   ${svc}:
     ports:
@@ -109,7 +115,7 @@ services:
     const at = relative(process.cwd(), root) || ".";
     ok(`wrote ${Object.keys(files).join(", ")} in ${at}`);
     if (db && !fs.existsSync(join(root, ".env"))) info(`locally: put POSTGRES_PASSWORD=… in ${join(at, ".env")} (keep it out of git)`);
-    info(`run it:    docker compose up${d.kind === "static" ? "" : " --build"}   → http://localhost:${local}`);
+    info(`run it:    docker compose up${d.kind === "static" ? "" : " --build"}${worker ? "" : `   → http://localhost:${local}`}`);
     if (found?.note) info(found.note);
     info(`deploy it: lf deploy${db ? " -e POSTGRES_PASSWORD=<secret>   (the first time)" : ""}`);
   },
