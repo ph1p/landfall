@@ -32,7 +32,7 @@ kv ufw "$(command -v ufw >/dev/null 2>&1 && echo 1)"
 # The source address of the default route; behind NAT that is a private one.
 kv ip4 "$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
 kv ip6 "$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | sed -n 's/.* src \([0-9a-fA-F:]*\).*/\1/p' | head -n1)"
-kv reboot "$([ -f /var/run/reboot-required ] && echo 1)"
+kv reboot "$(reboot_needed && echo 1)"
 exit 0
 `;
 

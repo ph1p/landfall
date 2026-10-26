@@ -362,11 +362,13 @@ out=$(lf security -s box --json) || die "security --json"
 { lf security -s box 2>&1 | has "SSH accepts passwords"; } || die "security prints the advice"; pass "security finds password login, offers a key for alice"
 out=$(lf harden ssh -s box 2>&1) && die "harden ssh refuses to lock alice out"
 { grep -q "alice" <<<"$out"; } || die "harden ssh names alice: $out"; pass "harden ssh refuses to lock alice out"
+{ lf setup box --no-firewall --check 2>&1 | has "alice would lose"; } || die "setup --check sees alice too"; pass "setup --check sees alice too"
 mkdir -p "$WORK/home"
 HOME="$WORK/home" lf keys add --generate -u alice -s box </dev/null >"$WORK/gen.log" 2>&1 || { cat "$WORK/gen.log"; die "keys add --generate"; }
 [ -f "$WORK/home/.ssh/box_alice" ] || die "keys add --generate writes ~/.ssh/box_alice"
 [ "$(ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes -o IdentitiesOnly=yes -i "$WORK/home/.ssh/box_alice" -p "$SSH_PORT" alice@127.0.0.1 id -un)" = alice ] \
   || die "alice logs in with the new key"; pass "keys add --generate: alice logs in with the new key"
+{ ! lf setup box --no-firewall --check 2>&1 | has "would lose"; } || die "setup --check: alice has a key now"; pass "setup --check agrees: alice has a key"
 lf harden ssh -s box -y >"$WORK/harden.log" 2>&1 || { cat "$WORK/harden.log"; die "harden ssh"; }
 { lf security -s box --json | has '"passwordLogin": false'; } || die "harden ssh turns passwords off"
 { ! lf security -s box --json | has '"password-login"'; } || die "no password advice after harden"; pass "harden ssh: keys only"

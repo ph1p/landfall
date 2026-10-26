@@ -47,8 +47,7 @@ case "$m" in
   dnf|yum)
     refresh S $m -q makecache
     $m -q -C check-update 2>/dev/null | awk 'NF == 3 && $1 ~ /\./ {print "pkg=" $1 "\t\t" $2 "\t" $3}'
-    $m -q -C updateinfo list --security 2>/dev/null | awk 'NF >= 3 {print "sec=" $3}'
-    command -v needs-restarting >/dev/null 2>&1 && { needs-restarting -r >/dev/null 2>&1; [ $? = 1 ] && echo reboot=1; } ;;
+    $m -q -C updateinfo list --security 2>/dev/null | awk 'NF >= 3 {print "sec=" $3}' ;;
   apk)
     refresh S apk update -q
     apk version -l '<' 2>/dev/null | awk 'NR > 1 {print "apk=" $1 "\t" $3}' ;;
@@ -57,7 +56,7 @@ case "$m" in
     # v | Repository | Name | Current Version | Available Version | Arch
     zypper -q -n list-updates 2>/dev/null | awk -F' *[|] *' '$1 == "v" {print "pkg=" $3 "\t" $4 "\t" $5 "\t" $2}' ;;
 esac
-[ -f /var/run/reboot-required ] && echo reboot=1
+reboot_needed && echo reboot=1
 exit 0
 `;
 
@@ -111,7 +110,7 @@ case "$(pkg_mgr)" in
   *) echo "no supported package manager" >&2; exit 1 ;;
 esac
 record "upgraded $WHAT"
-if [ "$REBOOT" = 1 ] && { [ -f /var/run/reboot-required ] || { command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; }; }; then
+if [ "$REBOOT" = 1 ] && reboot_needed; then
   log "rebooting"
   record "rebooted after upgrading"
   # Detached, so this ssh session can end cleanly first.

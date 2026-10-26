@@ -3,7 +3,7 @@ import fs from "node:fs";
 import type { Server } from "./config";
 import { canLogin, runScript, shq } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { PKG_MGR, PRELUDE } from "./templates";
+import { PKG_MGR, PRELUDE, REBOOT_NEEDED } from "./templates";
 import { fail } from "./ui";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
@@ -57,7 +57,8 @@ $S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthe
 ${PKG_MGR}
 kv pkg "$(pkg_mgr)"
 if command -v ufw >/dev/null 2>&1; then kv ufw "$($S ufw status 2>/dev/null | awk 'NR == 1 { print $2 }')"; else kv ufw missing; fi
-kv reboot "$([ -f /var/run/reboot-required ] && echo 1)"
+${REBOOT_NEEDED}
+kv reboot "$(reboot_needed && echo 1)"
 if command -v apt-get >/dev/null 2>&1; then
   if dpkg -s unattended-upgrades >/dev/null 2>&1 && apt-config dump 2>/dev/null | grep '^APT::Periodic::Unattended-Upgrade "1"' >/dev/null; then kv auto_updates on; else kv auto_updates off; fi
 elif command -v dnf >/dev/null 2>&1 && [ "$init" = systemd ]; then
