@@ -192,7 +192,8 @@ export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-logi
 }
 
 /** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-const EXCLUDE_ARGS = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", "compose.override.*", "docker-compose.override.*"].flatMap((e) => ["--exclude", e]);
+const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", "compose.override.*", "docker-compose.override.*"];
+const excludeArgs = (more: string[]) => [...new Set([...EXCLUDE, ...more])].flatMap((e) => ["--exclude", e]);
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
@@ -210,10 +211,10 @@ const hasRsync = () => (localRsync ??= spawnP("rsync", ["--version"], { capture:
 /** How upload sent the files: rsync (only the changes) or tar (everything, and why). */
 export type Sent = "rsync" | "tar" | "tar:no-local-rsync" | "tar:no-server-rsync";
 
-/** Uploads localDir to remoteDir. With a seed (the live release's copy on the server), rsync sends only what changed. */
-export async function upload(s: Server, localDir: string, remoteDir: string, seed?: string): Promise<Sent> {
+/** Uploads localDir to remoteDir, without `exclude`. With a seed (the live release's copy on the server), rsync sends only what changed. */
+export async function upload(s: Server, localDir: string, remoteDir: string, seed?: string, exclude: string[] = []): Promise<Sent> {
   if (!fs.existsSync(localDir)) fail(`directory not found: ${localDir}`);
-  const tar = async (sent: Sent) => (await tarUpload(s, localDir, remoteDir), sent);
+  const tar = async (sent: Sent) => (await tarUpload(s, localDir, remoteDir, exclude), sent);
   if (!seed) return tar("tar");
   if (!(await hasRsync())) return tar("tar:no-local-rsync");
   const { stdout } = await runScript(
@@ -226,14 +227,14 @@ export async function upload(s: Server, localDir: string, remoteDir: string, see
   if (answer !== "ok") return tar("tar");
   // --copy-dest copies unchanged files from the seed: real copies, since landfall rewrites some release files in place.
   const shell = ["ssh", ...sshOptions(s)].map(shq).join(" ");
-  const args = ["-rlptz", `--copy-dest=${seed}`, ...EXCLUDE_ARGS, "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
+  const args = ["-rlptz", `--copy-dest=${seed}`, ...excludeArgs(exclude), "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
   const { code } = await spawnP("rsync", args, {});
   if (code !== 0) throw new Error(`rsync failed (exit ${code})`);
   return "rsync";
 }
 
-async function tarUpload(s: Server, localDir: string, remoteDir: string) {
-  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...EXCLUDE_ARGS, "-C", localDir, "."];
+async function tarUpload(s: Server, localDir: string, remoteDir: string, exclude: string[]) {
+  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...excludeArgs(exclude), "-C", localDir, "."];
   const remote = `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`;
   await new Promise<void>((resolve, reject) => {
     // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.

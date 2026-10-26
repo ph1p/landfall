@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand } from "../cmd";
 import { checkInt } from "../config";
-import { detectProject } from "../projects";
+import { APP_IGNORE, detectProject, nodeDockerfile } from "../projects";
 import { c, fail, info, ok } from "../ui";
 
 export const init = defineCommand({
@@ -13,6 +13,8 @@ export const init = defineCommand({
   compose.yaml           what runs on the server; x-landfall routes a service through Traefik
   compose.override.yaml  local only (docker compose merges it, lf deploy leaves it out):
                          publishes the port on localhost
+  Dockerfile             a Node.js app (Next.js, Nuxt, TanStack Start, …) without one:
+                         the one lf deploy would generate, to change it here
 
 \`docker compose up\` then runs the site locally, \`lf deploy\` on a server. Existing
 files are never overwritten.`,
@@ -25,11 +27,15 @@ files are never overwritten.`,
     if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) fail(`${dirArg} is not a folder`);
     const d = detectProject(root);
     if (d.kind === "compose") fail(`${d.compose} exists already: add x-landfall: { port: <port> } to the service Traefik should serve`);
-    const files = { "compose.yaml": "", "compose.override.yaml": "" };
+    const files: Record<string, string> = { "compose.yaml": "", "compose.override.yaml": "" };
     const taken = Object.keys(files).filter((f) => fs.existsSync(join(root, f)));
     if (taken.length) fail(`${taken.join(" and ")} exist already`);
 
     const port = d.kind === "static" ? 80 : checkInt(o.port ?? d.port ?? 3000, "--port", 1, 65535);
+    if (d.start) {
+      files.Dockerfile = nodeDockerfile(root, { tool: d.tool, build: d.build, start: d.start, port });
+      if (!fs.existsSync(join(root, ".dockerignore"))) files[".dockerignore"] = APP_IGNORE.join("\n") + "\n";
+    }
     const local = d.kind === "static" ? 8080 : port;
     const db = !!o.postgres;
     let app: string;
@@ -47,7 +53,7 @@ files are never overwritten.`,
     } else {
       app = `  app:
     ${d.kind === "image" ? `image: ${d.project!.image}` : "build: ."}
-    restart: unless-stopped
+    restart: unless-stopped${d.start ? "\n    init: true" : ""}
     env_file:
       - path: .env
         required: false
@@ -99,7 +105,7 @@ services:
 
     for (const [f, text] of Object.entries(files)) fs.writeFileSync(join(root, f), text);
     const at = relative(process.cwd(), root) || ".";
-    ok(`wrote compose.yaml and compose.override.yaml in ${at}`);
+    ok(`wrote ${Object.keys(files).join(", ")} in ${at}`);
     if (db && !fs.existsSync(join(root, ".env"))) info(`locally: put POSTGRES_PASSWORD=… in ${join(at, ".env")} (keep it out of git)`);
     info(`run it:    docker compose up${d.kind === "static" ? "" : " --build"}   → http://localhost:${local}`);
     info(`deploy it: lf deploy${db ? " -e POSTGRES_PASSWORD=<secret>   (the first time)" : ""}`);

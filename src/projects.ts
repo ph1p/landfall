@@ -5,18 +5,21 @@ import { COMPOSE_FILES, type SiteKind } from "./compose";
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
 
-/** How a folder builds: the site generator, where it writes the site, and the command (each when known). */
+/**
+ * How a folder builds: the site generator, where it writes the site, and the command (each when known).
+ * start: the framework renders on a server: it runs in a Node.js container with this command instead.
+ */
 interface Build {
   tool?: string;
   dir?: string;
   build?: string;
+  start?: string;
 }
 
 /** The first `key: "value"` (or `key = "value"`) in a config file's text, without a leading ./ */
 const setting = (text: string, key: string) => text.match(new RegExp(`\\b${key}\\s*[:=]\\s*["'\`]([^"'\`]+)["'\`]`))?.[1].replace(/^\.\//, "");
 
-/** The generator's output from package.json and its config, the build script with the project's package manager. */
-export function detectBuild(cwd: string): Build {
+const reader = (cwd: string) => {
   const has = (f: string) => fs.existsSync(join(cwd, f));
   const read = (f: string) => {
     try {
@@ -29,43 +32,134 @@ export function detectBuild(cwd: string): Build {
     for (const f of files) if (has(f)) return read(f);
     return "";
   };
-  const configs = (base: string) => ["ts", "mts", "js", "mjs", "cjs"].map((x) => `${base}.${x}`);
   let pkg: any = {};
   try {
     pkg = JSON.parse(read("package.json") || "{}");
   } catch {}
-  if (pkg.scripts?.build) {
-    const build = has("bun.lock") || has("bun.lockb") ? "bun run build" : has("pnpm-lock.yaml") ? "pnpm build" : has("yarn.lock") ? "yarn build" : "npm run build";
+  return { has, read, first, pkg };
+};
+
+const configs = (base: string) => ["ts", "mts", "js", "mjs", "cjs"].map((x) => `${base}.${x}`);
+
+/** The package manager its lockfile names, and how it runs a package.json script. */
+function packageManager(has: (f: string) => boolean) {
+  const name = has("bun.lock") || has("bun.lockb") ? "bun" : has("pnpm-lock.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : "npm";
+  const run = (script: string) => (name === "bun" ? `bun run ${script}` : name === "npm" ? (script === "start" ? "npm start" : `npm run ${script}`) : `${name} ${script}`);
+  return { name, run };
+}
+
+/** Packages that make a package.json with a start script a server of its own. */
+const SERVERS = ["express", "fastify", "koa", "hono", "@hono/node-server", "@nestjs/core", "h3", "@adonisjs/core"];
+
+/** The generator's output from package.json and its config, the build script with the project's package manager. */
+export function detectBuild(cwd: string): Build {
+  const { has, read, first, pkg } = reader(cwd);
+  const scripts = pkg.scripts ?? {};
+  if (scripts.build || scripts.start) {
+    const pm = packageManager(has);
+    const build: string | undefined = scripts.build ? pm.run("build") : undefined;
     const dep = (n: string) => n in { ...pkg.dependencies, ...pkg.devDependencies };
+    const bin = (cmd: string) => `./node_modules/.bin/${cmd}`;
     const out = (tool: string, dir: string) => ({ tool, dir, build });
-    if (dep("next")) return out("Next.js (output: 'export')", setting(first(configs("next.config")), "distDir") ?? "out");
-    if (dep("nuxt")) return out("Nuxt (nuxt generate)", ".output/public");
-    if (dep("astro")) return out("Astro", setting(first(configs("astro.config")), "outDir") ?? "dist");
-    if (dep("@sveltejs/kit")) return out("SvelteKit (adapter-static)", setting(first(configs("svelte.config")), "pages") ?? "build");
+    const server = (tool: string, start: string) => ({ tool, build, start });
+    // Nitro (Nuxt, TanStack Start, SolidStart) writes a server that needs nothing else.
+    const nitro = ".output/server/index.mjs";
+    if (dep("next")) {
+      const conf = first(configs("next.config"));
+      if (/\boutput\s*:\s*["'`]export["'`]/.test(conf)) return out("Next.js (output: 'export')", setting(conf, "distDir") ?? "out");
+      return server("Next.js", `${bin("next")} start`);
+    }
+    if (dep("nuxt")) return /\bnuxt\s+generate\b/.test(scripts.build ?? "") ? out("Nuxt (nuxt generate)", ".output/public") : server("Nuxt", `node ${nitro}`);
+    if (["@tanstack/react-start", "@tanstack/solid-start", "@tanstack/start"].some(dep)) return server("TanStack Start", scripts.start ? pm.run("start") : `node ${nitro}`);
+    if (dep("@solidjs/start")) return server("SolidStart", scripts.start ? pm.run("start") : `node ${nitro}`);
+    if (dep("@react-router/dev")) {
+      if (/\bssr\s*:\s*false\b/.test(first(configs("react-router.config")))) return out("React Router (ssr: false)", "build/client");
+      return server("React Router", scripts.start ? pm.run("start") : `${bin("react-router-serve")} ./build/server/index.js`);
+    }
+    if (dep("@remix-run/dev")) return server("Remix", scripts.start ? pm.run("start") : `${bin("remix-serve")} ./build/server/index.js`);
+    if (dep("astro")) {
+      const conf = first(configs("astro.config"));
+      const dir = setting(conf, "outDir") ?? "dist";
+      return dep("@astrojs/node") ? server("Astro (Node adapter)", `node ./${dir}/server/entry.mjs`) : out("Astro", dir);
+    }
+    if (dep("@sveltejs/kit")) {
+      const conf = first(configs("svelte.config"));
+      if (dep("@sveltejs/adapter-node") || conf.includes("adapter-node")) return server("SvelteKit (adapter-node)", `node ${setting(conf, "out") ?? "build"}`);
+      return out("SvelteKit (adapter-static)", setting(conf, "pages") ?? "build");
+    }
     if (dep("@angular/core")) {
       let dir = "dist";
       try {
         const b = Object.values<any>(JSON.parse(read("angular.json")).projects)[0]?.architect?.build;
         const path = b?.options?.outputPath;
-        // The application builder (Angular 17+) puts the site in browser/ below outputPath.
+        const base = typeof path === "string" ? path : path?.base;
+        // The application builder (Angular 17+) puts the site in browser/ below outputPath, the server in server/.
         if (typeof path === "string") dir = /:application$/.test(b.builder ?? "") ? `${path}/browser` : path;
-        else if (path?.base) dir = path.base;
+        else if (base) dir = `${base}/browser`;
+        if (base && b?.options?.ssr) return server("Angular (SSR)", `node ${base}/server/server.mjs`);
       } catch {}
       return out("Angular", dir);
     }
-    if (dep("gatsby")) return out("Gatsby", "public");
-    if (dep("@docusaurus/core")) return out("Docusaurus", "build");
-    if (dep("@11ty/eleventy")) return out("Eleventy", setting(first([".eleventy.js", "eleventy.config.js", "eleventy.config.mjs", "eleventy.config.cjs"]), "output") ?? "_site");
-    if (dep("react-scripts")) return out("Create React App", "build");
-    if (dep("@vue/cli-service")) return out("Vue CLI", setting(read("vue.config.js"), "outputDir") ?? "dist");
-    if (dep("vite")) return out("Vite", setting(first(configs("vite.config")), "outDir") ?? "dist");
-    if (dep("parcel")) return out("Parcel", "dist");
-    return { build };
+    if (scripts.start && SERVERS.some(dep)) return server("Node.js", scripts["start:prod"] ? pm.run("start:prod") : pm.run("start"));
+    if (scripts.build) {
+      if (dep("gatsby")) return out("Gatsby", "public");
+      if (dep("@docusaurus/core")) return out("Docusaurus", "build");
+      if (dep("@11ty/eleventy")) return out("Eleventy", setting(first([".eleventy.js", "eleventy.config.js", "eleventy.config.mjs", "eleventy.config.cjs"]), "output") ?? "_site");
+      if (dep("react-scripts")) return out("Create React App", "build");
+      if (dep("@vue/cli-service")) return out("Vue CLI", setting(read("vue.config.js"), "outputDir") ?? "dist");
+      if (dep("vite")) return out("Vite", setting(first(configs("vite.config")), "outDir") ?? "dist");
+      if (dep("parcel")) return out("Parcel", "dist");
+      return { build };
+    }
+    return {};
   }
   if (["hugo.toml", "hugo.yaml", "hugo.json"].some(has)) return { tool: "Hugo", dir: "public", build: "hugo --minify" };
   if (has("_config.yml") && read("Gemfile").includes("jekyll")) return { tool: "Jekyll", dir: "_site", build: "bundle exec jekyll build" };
   if (has("mkdocs.yml")) return { tool: "MkDocs", dir: setting(read("mkdocs.yml"), "site_dir") ?? "site", build: "mkdocs build" };
   return {};
+}
+
+/** A Node.js app landfall writes the Dockerfile for: one with `start` (saved or given) or a server-rendering framework. */
+export function nodeApp(root: string, start?: string): (Build & { start: string }) | undefined {
+  const b = detectBuild(root);
+  start ||= b.start;
+  return start ? { ...b, tool: b.start ? b.tool : undefined, start } : undefined;
+}
+
+/** Never in a Node.js app's image: local installs and build output (made again inside it). */
+export const APP_IGNORE = ["node_modules", ".git", ".next", ".nuxt", ".output", ".svelte-kit", ".vinxi", ".react-router", ".tanstack", ".astro"];
+
+/**
+ * A Dockerfile that installs, builds and starts a Node.js app, for a folder without one.
+ * The image follows .nvmrc / .node-version; dependencies install in a layer of their own, so a redeploy that
+ * changes no dependency skips it, unless install scripts or workspaces need the whole project.
+ */
+export function nodeDockerfile(cwd: string, o: { tool?: string; build?: string; start: string; port: number }): string {
+  const { has, read, pkg } = reader(cwd);
+  const pm = packageManager(has);
+  const major = (read(".nvmrc") || read(".node-version")).trim().match(/^v?(\d+)/)?.[1] ?? "24";
+  const lock = ["bun.lock", "bun.lockb", "pnpm-lock.yaml", "yarn.lock", "package-lock.json"].find(has);
+  const scripts = pkg.scripts ?? {};
+  const whole = !!pkg.workspaces || ["pnpm-workspace.yaml", ".yarnrc.yml", "patches"].some(has) || ["preinstall", "install", "postinstall", "prepare"].some((s) => s in scripts);
+  const install = !has("package.json")
+    ? undefined
+    : pm.name === "npm" ? (lock ? "npm ci" : "npm install")
+    : pm.name === "yarn" ? `yarn install${lock ? " --frozen-lockfile" : ""}`
+    : `${pm.name} install${lock ? " --frozen-lockfile" : ""}`;
+  const manifests = ["package.json", lock, ...[".npmrc", ".yarnrc", "bunfig.toml"].filter(has)].filter(Boolean);
+  return [
+    `# Generated by landfall${o.tool ? ` for ${o.tool}` : ""}: \`lf init\` writes it into the project, to change it there.`,
+    `FROM node:${major}-slim`,
+    "WORKDIR /app",
+    ...(pm.name === "bun" ? ["RUN npm install -g bun"] : pm.name !== "npm" ? [`RUN corepack enable || npm install -g ${pm.name}`] : []),
+    ...(install && !whole ? [`COPY ${manifests.join(" ")} ./`, `RUN ${install}`, "COPY . ."] : ["COPY . .", ...(install ? [`RUN ${install}`] : [])]),
+    ...(o.build ? [`RUN ${o.build}`] : []),
+    // Set after the build: dev dependencies (the build tools) install, and the frameworks read HOST/PORT.
+    `ENV NODE_ENV=production HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT=${o.port}`,
+    `EXPOSE ${o.port}`,
+    `CMD ${o.start}`,
+    "",
+  ].join("\n");
 }
 
 /**
@@ -97,8 +191,12 @@ export interface Detected {
   port?: number;
   /** A build script found in package.json, run with the project's package manager. */
   build?: string;
-  /** The site generator that writes `dir`, e.g. Vite. */
+  /** The site generator that writes `dir`, e.g. Vite; or the framework that runs the app. */
   tool?: string;
+  /** A Node.js app without a Dockerfile: the command that starts it (landfall writes the Dockerfile). */
+  start?: string;
+  /** It has a package.json: it could run as a Node.js app. */
+  node?: boolean;
   /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
 }
@@ -124,7 +222,10 @@ export function detectProject(path: string): Detected {
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
   const dir = found !== "." || has("index.html") ? found : undefined;
-  return { path, name, kind: "static", dir, build: project?.build ?? b.build, tool: !project?.dir || project.dir === b.dir ? b.tool : undefined, project };
+  const node = has("package.json");
+  const app = project?.static ? undefined : nodeApp(path, project?.start);
+  if (app) return { path, name, kind: "dockerfile", ...app, build: project?.build ?? app.build, port: project?.port ?? 3000, dir, node, project };
+  return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool: !project?.dir || project.dir === b.dir ? b.tool : undefined, project };
 }
 
 // ---------------------------------------------------------------- remembered projects

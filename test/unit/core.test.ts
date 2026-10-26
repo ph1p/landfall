@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
-import { detectBuild, detectStaticDir, slug } from "../../src/projects";
+import { detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { guardSsh, ruleArgs, type FirewallState } from "../../src/commands/firewall";
 import { htpasswd, traefikSettings } from "../../src/commands/traefik";
@@ -729,7 +729,9 @@ describe("folders and access", () => {
     pkg({ "@sveltejs/kit": "2", vite: "7" });
     expect(detectStaticDir(d)).toBe("build");
     pkg({ next: "15" });
+    fs.writeFileSync(join(d, "next.config.mjs"), "export default { output: 'export' }");
     expect(detectStaticDir(d)).toBe("out");
+    fs.rmSync(join(d, "next.config.mjs"));
     pkg({ astro: "5" });
     expect(detectStaticDir(d)).toBe("dist");
     // no build script: a plain folder with its index.html
@@ -739,6 +741,57 @@ describe("folders and access", () => {
     fs.writeFileSync(join(h, "hugo.toml"), "title = 'x'");
     expect(detectProject(h)).toMatchObject({ kind: "static", dir: "public", tool: "Hugo", build: "hugo --minify" });
   });
+  test("server-rendering frameworks run as Node.js apps", () => {
+    const d = tmp();
+    const pkg = (deps: Record<string, string>, scripts: Record<string, string> = { build: "x" }) =>
+      fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts, dependencies: deps }));
+    const start = () => detectBuild(d).start;
+    pkg({ next: "15" });
+    expect(detectBuild(d)).toEqual({ tool: "Next.js", build: "npm run build", start: "./node_modules/.bin/next start" });
+    pkg({ nuxt: "4" }, { build: "nuxt build" });
+    expect(start()).toBe("node .output/server/index.mjs");
+    pkg({ nuxt: "4" }, { build: "nuxt generate" });
+    expect(detectBuild(d)).toEqual({ tool: "Nuxt (nuxt generate)", dir: ".output/public", build: "npm run build" });
+    pkg({ "@tanstack/react-start": "1", vite: "7" }, { build: "vite build", start: "node .output/server/index.mjs" });
+    expect(detectBuild(d)).toMatchObject({ tool: "TanStack Start", start: "npm start" });
+    pkg({ "@sveltejs/kit": "2", "@sveltejs/adapter-node": "5" });
+    expect(start()).toBe("node build");
+    pkg({ astro: "5", "@astrojs/node": "9" });
+    expect(start()).toBe("node ./dist/server/entry.mjs");
+    pkg({ "@react-router/dev": "7" });
+    expect(start()).toBe("./node_modules/.bin/react-router-serve ./build/server/index.js");
+    fs.writeFileSync(join(d, "react-router.config.ts"), "export default { ssr: false }");
+    expect(detectBuild(d)).toEqual({ tool: "React Router (ssr: false)", dir: "build/client", build: "npm run build" });
+    // a server of its own needs no build script
+    pkg({ express: "5" }, { start: "node server.js" });
+    expect(detectBuild(d)).toEqual({ tool: "Node.js", build: undefined, start: "npm start" });
+    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", tool: "Node.js", start: "npm start", port: 3000, node: true });
+    // saved as static, it stays static; a saved start command makes any folder an app
+    fs.writeFileSync(join(d, ".landfall.json"), JSON.stringify({ name: "x", domains: [], static: true }));
+    expect(detectProject(d)).toMatchObject({ kind: "static", node: true });
+    expect(detectProject(d).start).toBeUndefined();
+    pkg({ vite: "7" });
+    fs.writeFileSync(join(d, ".landfall.json"), JSON.stringify({ name: "x", domains: [], start: "node srv.js", port: 8080 }));
+    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", start: "node srv.js", tool: undefined, port: 8080, build: "npm run build" });
+  });
+
+  test("the Dockerfile for a Node.js app", () => {
+    const d = tmp();
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "next build" } }));
+    fs.writeFileSync(join(d, "pnpm-lock.yaml"), "");
+    fs.writeFileSync(join(d, ".nvmrc"), "v22.11.0\n");
+    const f = nodeDockerfile(d, { tool: "Next.js", build: "pnpm build", start: "./node_modules/.bin/next start", port: 3000 });
+    expect(f).toContain("FROM node:22-slim\n");
+    expect(f).toContain("RUN corepack enable || npm install -g pnpm\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install --frozen-lockfile\nCOPY . .\nRUN pnpm build\n");
+    expect(f).toMatch(/ENV NODE_ENV=production .*PORT=3000\nEXPOSE 3000\nCMD \.\/node_modules\/\.bin\/next start\n$/);
+    // install scripts need the whole project; no lockfile, no npm ci
+    fs.rmSync(join(d, "pnpm-lock.yaml"));
+    fs.rmSync(join(d, ".nvmrc"));
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { postinstall: "nuxt prepare" } }));
+    const g = nodeDockerfile(d, { start: "node .output/server/index.mjs", port: 3000 });
+    expect(g).toContain("FROM node:24-slim\nWORKDIR /app\nCOPY . .\nRUN npm install\nENV");
+  });
+
   test("upload paths stay inside", () => {
     expect(safeParts("../../etc//passwd")).toEqual(["etc", "passwd"]);
     expect(safeParts("site\\a/./b.html")).toEqual(["site", "a", "b.html"]);

@@ -127,6 +127,20 @@ expect app.test / "app hello"
 lf env GREETING=world -y
 expect app.test / "app world"
 
+echo "== node"
+# No Dockerfile: landfall writes one; the build runs on the server, the app gets PORT and HOST.
+mkdir -p "$WORK/node" && cd "$WORK/node"
+echo '{"name":"node-app","scripts":{"build":"echo built > built.txt"}}' > package.json
+echo 'require("http").createServer((q, r) => r.end(`node ${process.env.PORT} ${require("fs").readFileSync("built.txt", "utf8").trim()} v1`)).listen(process.env.PORT, process.env.HOST)' > server.js
+out=$(lf deploy -d node.test --start "node server.js" --port 4000 -y 2>&1) || { echo "$out"; die "node deploy"; }
+expect node.test / "node 4000 built v1"
+{ grep '"start": "node server.js"' .landfall.json >/dev/null; } || die "start saved"; pass "start command saved"
+sed -i.bak 's/v1/v2/' server.js && rm server.js.bak
+lf deploy -y >/dev/null
+expect node.test / "node 4000 built v2"
+lf init >/dev/null
+{ grep '^CMD node server.js$' Dockerfile >/dev/null && grep 'init: true' compose.yaml >/dev/null; } || die "init writes the Dockerfile"; pass "init writes the Dockerfile"
+
 echo "== image"
 cd "$WORK"
 lf deploy --no-save -n who --image traefik/whoami:v1.11 --port 80 -d who.test -y

@@ -144,6 +144,7 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 |---|---|---|
 | **compose** | the folder has a `compose.yaml` | Uploads the folder and runs it as one Compose project. See [Compose sites](#compose-sites). |
 | **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is where the site generator builds to, even before the first build (Vite/Astro `dist/` or its `outDir`, SvelteKit/CRA/Docusaurus `build/`, Next `out/`, Gatsby/Hugo `public/`, Eleventy/Jekyll `_site/`, Nuxt `.output/public/`, Angular, MkDocs `site/`), else `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/` with one. `lf deploy <dir>` picks another. `--spa` sends unknown paths to `index.html`. |
+| **node** | a server-rendering framework, no `Dockerfile` | Next.js, Nuxt (`nuxt build`), TanStack Start, SolidStart, SvelteKit with `adapter-node`, Astro with `@astrojs/node`, React Router / Remix, Angular SSR, or a `start` script with Express, Fastify, Hono, Koa, NestJS…: landfall writes a Dockerfile (Node from `.nvmrc`, the lockfile's package manager, install, build, start) and builds it on the server, so native modules match Linux. The app gets `PORT` (`--port`, default 3000) and `HOST=0.0.0.0`. `--start 'node server.js'` makes any folder one, `--build` changes the build (`''` for none), `--static` publishes static files instead; all saved to `.landfall.json`. `lf init` writes the Dockerfile into the project to change it. |
 | **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from `EXPOSE`, else `--port` (default 3000). `--static` forces static. |
 | **image** | `--image ghcr.io/me/app:1.2` | Pulls the image and runs it. Needs `--port`. For private registries: `lf ssh vps -- docker login ghcr.io`. |
 
@@ -151,6 +152,7 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 cd my-site
 lf deploy -d example.com -d www.example.com -s vps      # static, name = folder name (-n to override)
 lf deploy -b "npm run build"                            # build locally first
+lf deploy --start "node server.js" --port 8080          # a Node.js app: landfall writes its Dockerfile
 lf deploy -d app.example.com -e DATABASE_URL=postgres://… --env-file .env.production   # Dockerfile app
 lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com            # image
 lf deploy --no-domain                                   # no domain yet: reach it with lf tunnel, add one later with lf domains --add
@@ -653,7 +655,7 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, Node.js app, static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
