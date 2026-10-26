@@ -218,7 +218,10 @@ export interface ProjectConfig {
   static?: boolean;
   image?: string;
   port?: number;
+  /** Static: runs locally before the upload. A Node.js app: runs on the server, in its image. */
   build?: string;
+  /** A Node.js app without a Dockerfile: its start command (default: the framework's). */
+  start?: string;
 }
 
 /** The project file in a directory: .landfall.json, or the older one. */

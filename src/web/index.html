@@ -865,7 +865,7 @@ function dialog({ title, text = "", fields = [], ok = "OK", danger = false, onOk
     if (f.type === "textarea") return `<label>${esc(f.label)}<textarea id="${id}" name="${f.name}" placeholder="${esc(f.placeholder)}">${esc(f.value)}</textarea>${hint}</label>`;
     return `<label>${esc(f.label)}<input id="${id}" name="${f.name}" type="${f.type || "text"}" value="${esc(f.value)}" placeholder="${esc(f.placeholder)}" autocomplete="off" spellcheck="false">${hint}</label>`;
   };
-  const group = (f) => (f.legend ? `<fieldset><legend>${esc(f.legend)}</legend>${f.fields.map(field).join("")}</fieldset>` : field(f));
+  const group = (f) => (f.legend ? `<fieldset${f.id ? ` id="fs-${f.id}"` : ""}><legend>${esc(f.legend)}</legend>${f.fields.map(field).join("")}</fieldset>` : field(f));
   dlg.innerHTML = `<form method="dialog" novalidate>
     <h2 id="dlg-title">${esc(title)}</h2>
     ${text ? `<div class="text">${esc(text)}</div>` : ""}
@@ -1121,6 +1121,7 @@ function describe(d) {
   const what =
     d.kind === "compose" ? `Compose project <code>${esc(d.compose ?? "compose.yaml")}</code>: built and started on the server; x-landfall picks the routed service`
     : d.kind === "image" ? `Docker image <code>${esc(d.project?.image ?? "")}</code> (from .landfall.json)`
+    : d.kind === "dockerfile" && d.start ? `Node.js app${d.tool ? ` (${esc(d.tool)})` : ""}: built on the server${d.build ? ` with <code>${esc(d.build)}</code>` : ""}, started with <code>${esc(d.start)}</code> on port ${esc(d.port)}`
     : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${esc(d.port)}`
     : d.dir ? `Static files from <code>${esc(d.dir === "." ? "./" : d.dir + "/")}</code>${d.tool ? ` (where ${esc(d.tool)} builds the site)` : ""}${d.spa ? " (single-page app)" : ""}${built}`
     : d.build ? `Static site, built with <code>${esc(d.build)}</code> first`
@@ -1142,6 +1143,8 @@ function deployDialog(det, o = {}) {
   const main = mainDomain(target);
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
   const keeps = re && !p?.domains ? re.domains : null;
+  // Static files or a Node.js app: what to build and run is landfall's to decide, and editable here.
+  const modal = det.kind === "static" || !!det.start;
   dialog({
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
     text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
@@ -1160,15 +1163,35 @@ function deployDialog(det, o = {}) {
           : "Empty: a free <name>.<ip>.sslip.io address, no DNS needed. Own domains need an A record pointing at the server.",
       },
       { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
-      ...(det.kind === "static"
+      ...(modal
         ? [
-            { name: "build", label: "Build command (runs here, before upload)", value: det.build ?? "", placeholder: "none" },
+            ...(det.node || det.start
+              ? [{ name: "mode", label: "Deploy as", type: "select", value: det.start ? "node" : "static", options: [{ value: "node", label: "Node.js app (runs on the server)" }, { value: "static", label: "Static files" }] }]
+              : []),
+            { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", hint: "Static files: runs here, before the upload. A Node.js app: runs on the server, in its image." },
             {
-              name: "dir", label: "Folder to publish", value: det.dir ?? ".", placeholder: ".",
-              hint: det.tool ? `Detected: ${det.tool} writes the site to ${det.dir}/ (it need not exist before the build).` : "Relative to the project; it needs an index.html after the build.",
+              legend: "Static files", id: "static",
+              fields: [
+                {
+                  name: "dir", label: "Folder to publish", value: det.dir ?? ".", placeholder: ".",
+                  hint: det.tool && !det.start ? `Detected: ${det.tool} writes the site to ${det.dir}/ (it need not exist before the build).` : "Relative to the project; it needs an index.html after the build.",
+                },
+                { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
+              ],
             },
-            { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check", value: !!p?.spa },
+            {
+              legend: "Node.js app", id: "node",
+              fields: [
+                {
+                  name: "start", label: "Start command", value: det.start ?? "", placeholder: "node server.js",
+                  hint: `${det.start && det.tool ? `Detected: ${det.tool}. ` : ""}landfall writes the Dockerfile (install, build, start); lf init puts it into the project to change it.`,
+                },
+                { name: "port", label: "Port it listens on", value: String(det.port ?? 3000), hint: "The app gets it as PORT, with HOST=0.0.0.0." },
+              ],
+            },
           ]
+        : det.kind === "dockerfile" || det.kind === "image"
+        ? [{ name: "port", label: "Port it listens on", value: String(det.port ?? 3000) }]
         : []),
       {
         legend: "Login (optional)",
@@ -1187,11 +1210,26 @@ function deployDialog(det, o = {}) {
       // The server's default would leave it unrouted though the box is unticked.
       if (!v.noDomain && !domains.length && !p?.domains?.length && !(keeps && n === re.name && v.server === re.server) && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n, ...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d]))];
-      if (v.build?.trim() && v.build.trim() !== p?.build) argv.push("--build", v.build.trim());
-      if (v.spa && !p?.spa) argv.push("--spa");
-      const dir = v.dir?.trim().replace(/\/+$/, "") || ".";
-      if (det.kind === "static" && (/^[/-]/.test(dir) || dir.split("/").includes(".."))) return invalid("dir", "A folder inside the project");
-      if (det.kind === "static" && dir !== (det.dir ?? ".")) argv.push(dir);
+      const asNode = modal && (v.mode ?? (det.start ? "node" : "static")) === "node";
+      const build = v.build?.trim() ?? "";
+      if (asNode) {
+        const start = v.start.trim();
+        if (!start) return invalid("start", "How does the app start? For example: node server.js");
+        if (start !== det.start) argv.push("--start", start);
+        if (build !== (det.build ?? "")) argv.push("--build", build);
+      } else if (modal) {
+        if (det.start) argv.push("--static");
+        if (build && build !== p?.build) argv.push("--build", build);
+        if (v.spa && !p?.spa) argv.push("--spa");
+        const dir = v.dir.trim().replace(/\/+$/, "") || ".";
+        if (/^[/-]/.test(dir) || dir.split("/").includes("..")) return invalid("dir", "A folder inside the project");
+        if (dir !== (det.dir ?? ".")) argv.push(dir);
+      }
+      if (v.port !== undefined && (asNode || !modal)) {
+        const port = Number(v.port.trim());
+        if (!Number.isInteger(port) || port < 1 || port > 65535) return invalid("port", "A port from 1 to 65535");
+        if (port !== (det.port ?? 3000)) argv.push("--port", String(port));
+      }
       // The login counts once there is a password; the user defaults to admin.
       if (v.authPassword) {
         const user = v.authUser.trim() || "admin";
@@ -1204,6 +1242,20 @@ function deployDialog(det, o = {}) {
     },
   });
   noDomainToggle();
+  modeToggle();
+}
+
+/** The open dialog's "deploy as" picks which settings show: the static folder's or the Node.js app's. */
+function modeToggle() {
+  const mode = $("#f-mode"), stat = $("#fs-static"), node = $("#fs-node");
+  if (!stat || !node) return;
+  const sync = () => {
+    const asNode = mode?.value === "node";
+    stat.hidden = asNode;
+    node.hidden = !asNode;
+  };
+  mode?.addEventListener("change", sync);
+  sync();
 }
 
 /** The open dialog's "no domain" box greys out its domains field: ticked, the site gets none. */

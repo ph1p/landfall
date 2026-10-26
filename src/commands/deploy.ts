@@ -8,7 +8,7 @@ import { applySite, discardRelease, mergeEnv, parseEnvPairs, prepareRelease, rea
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { composeFile, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { APP_IGNORE, composeFile, detectBuild, detectStaticDir, exposedPort, nodeApp, nodeDockerfile, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { DEFAULT_USER, loginUser, newLogin } from "./traefik";
@@ -41,13 +41,17 @@ export function nextReleaseId(taken: string[], now = new Date()): string {
 export const deploy = defineCommand({
   name: "deploy",
   args: "[dir]",
-  summary: `Deploy a Compose project, static folder, Dockerfile or image with HTTPS.
+  summary: `Deploy a Compose project, Node.js app, static folder, Dockerfile or image with HTTPS.
 
 Kinds:
   compose     the folder has a compose.yaml: its services run on the server as one
               project; x-landfall: { port: 3000 } on a service routes it through Traefik
   dockerfile  the folder has a Dockerfile: uploaded and built on the server
-  static      a folder of files (auto-detects dist/, build/, out/, public/)
+  node        a server-rendering framework (Next.js, Nuxt, TanStack Start, SvelteKit
+              adapter-node, Astro Node, React Router, Remix, SolidStart, Express, …)
+              or --start: landfall writes the Dockerfile, built on the server
+  static      a folder of files (auto-detects dist/, build/, out/, public/ and the
+              output of Vite, Astro, Next export, Nuxt generate, SvelteKit, Hugo, …)
   image       --image: run a prebuilt image (e.g. ghcr.io/me/app:1.2)
 
 Every site is a Compose project on the server (/opt/landfall/sites/<name>/current),
@@ -68,7 +72,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
-    build: { type: "string", short: "b", desc: "run this command locally first (e.g. 'npm run build')" },
+    build: { type: "string", short: "b", desc: "build command: static sites run it locally first, Node.js apps in their image ('' for none)" },
+    start: { type: "string", desc: "run as a Node.js app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
     keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
     host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
@@ -106,14 +111,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
 
+    if (o.start && o.static) fail("--start and --static exclude each other");
     const buildCmd: string | undefined = o.build ?? project.build;
-    if (buildCmd) {
-      step(`building locally: ${buildCmd}`);
-      const r = spawnSync(buildCmd, { shell: true, stdio: "inherit" });
-      if (r.status !== 0) fail(`build failed (exit ${r.status})`);
-    }
-
-    const forceStatic = o.static ?? project.static;
+    // --start turns a site saved as static into a Node.js app.
+    const forceStatic = o.static ?? (o.start ? false : project.static);
     const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
     const image = imageArg && checkImage(imageArg);
     const root = resolve(cwd, dirArg ?? project.dir ?? ".");
@@ -123,20 +124,31 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     // paths (build: ., ./data:/data) would point elsewhere.
     if (compose?.includes("/")) fail(`${named} is not in the folder deployed; deploy its folder instead: lf deploy ${dirname(join(relative(cwd, root) || ".", compose))} -f ${basename(compose)}`);
     if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
+    const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
+    if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
+    // Without a Dockerfile of its own: a Node.js app landfall writes one for.
+    const app = compose || image || forceStatic || ownDockerfile ? undefined : nodeApp(root, o.start ?? project.start);
+    if (buildCmd && !app) {
+      step(`building locally: ${buildCmd}`);
+      const r = spawnSync(buildCmd, { shell: true, stdio: "inherit" });
+      if (r.status !== 0) fail(`build failed (exit ${r.status})`);
+    }
     const detected = detectBuild(cwd);
-    const dir = compose || image ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
-    const kind: SiteKind = compose ? "compose" : image ? "image" : !forceStatic && fs.existsSync(join(dir, "Dockerfile")) ? "dockerfile" : "static";
+    const dir = compose || image || ownDockerfile || app ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
+    const kind: SiteKind = compose ? "compose" : image ? "image" : ownDockerfile || app ? "dockerfile" : "static";
     const tool = kind === "static" && !dirArg && !project.dir ? detected.tool : undefined;
     if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
       warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
     }
     const port = KINDS[kind].port
-      ? checkInt(o.port ?? project.port ?? (kind === "dockerfile" ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
+      ? checkInt(o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : undefined) ?? 3000, "--port", 1, 65535)
       : undefined;
+    const appBuild = app && (buildCmd ?? app.build);
+    if (app) info(c.dim(`Node.js app${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start} on port ${port}`));
     const spa = kind === "static" && !!(o.spa ?? project.spa);
 
-    step(`deploying ${c.bold(name)} (${kind}) to ${c.bold(serverName)}`);
+    step(`deploying ${c.bold(name)} (${app ? "node" : kind}) to ${c.bold(serverName)}`);
     const site = await readSite(server, name);
     const { env: prevEnv, proxy, exists } = site;
     const old = site.meta && isOld(site.meta) ? site.meta : undefined;
@@ -156,7 +168,11 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id));
     const releaseDir = `${siteDir(name)}/releases/${id}`;
     const generated: Record<string, string> =
-      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
+      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port, image, node: !!app }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
+    if (app) {
+      generated.Dockerfile = nodeDockerfile(root, { tool: app.tool, build: appBuild, start: app.start, port: port! });
+      if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = APP_IGNORE.join("\n") + "\n";
+    }
 
     // Anything that fails from the upload until the site switches takes the half-made release away again.
     let release: Release, domains: string[], move: () => Promise<void>;
@@ -166,7 +182,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         step(`uploading ${relative(cwd, dir) || "."}`);
         // A redeploy starts from the live release's files and sends only what changed.
         const seedRelease = prev?.kind === kind ? prev.current : undefined;
-        const sent = await upload(server, dir, releaseDir + files, seedRelease && `${siteDir(name)}/current${files}`);
+        const sent = await upload(server, dir, releaseDir + files, seedRelease && `${siteDir(name)}/current${files}`, app ? APP_IGNORE : []);
         if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
         else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
         else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
@@ -243,15 +259,16 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if (kind === "image") Object.assign(saved, { image, port });
       else {
         const rel = relative(cwd, dir) || ".";
-        if (kind === "compose") {
+        if (kind !== "static") {
           if (rel !== ".") saved.dir = rel;
-          if (o.file || project.compose) saved.compose = compose;
+          if (kind === "compose" && (o.file || project.compose)) saved.compose = compose;
         } else if (rel !== detectStaticDir(cwd, detected)) saved.dir = rel;
         if (kind === "dockerfile") saved.port = port;
+        if (app && (o.start || project.start)) saved.start = app.start;
         if (spa) saved.spa = true;
         if (forceStatic && kind === "static") saved.static = true;
       }
-      if (buildCmd) saved.build = buildCmd;
+      if (buildCmd || (app && buildCmd === "")) saved.build = buildCmd;
       saveProject(cwd, saved);
       rememberProject({ path: cwd, name, server: serverName, domains: all, kind });
     }
