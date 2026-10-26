@@ -80,7 +80,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
-    volume: { type: "string", multiple: true, desc: "app/dockerfile/image: a folder in the container that outlives deploys, e.g. /app/data (a named volume)" },
+    volume: { type: "string", multiple: true, desc: "app/dockerfile/image: a folder in the container that outlives deploys, e.g. /app/data (a named volume; '' for none)" },
     worker: { type: "boolean", desc: "app/dockerfile/image: run without a port or a domain (a bot, a queue consumer; --no-worker serves one again)" },
     keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
@@ -149,9 +149,9 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
       warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
     }
-    if ((o.volume?.length || o.worker) && !KINDS[kind].port) fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
+    if ((o.volume?.some(Boolean) || o.worker) && !KINDS[kind].port) fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
     const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
-    const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])] : [];
+    const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
     const notPath = volumes.filter((v) => !/^\/[\w.\/-]*\w/.test(v));
     if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
     const port = KINDS[kind].port
@@ -284,7 +284,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (spa) saved.spa = true;
         if (forceStatic && kind === "static") saved.static = true;
       }
-      if (volumes.length && (o.volume?.length || project.volumes)) saved.volumes = volumes;
+      // Saved even when empty: --volume '' turns off the volumes an app would get by default.
+      if (o.volume?.length || project.volumes) saved.volumes = volumes;
       if (worker) saved.worker = true;
       if (buildCmd || (app && buildCmd === "")) saved.build = buildCmd;
       saveProject(cwd, saved);

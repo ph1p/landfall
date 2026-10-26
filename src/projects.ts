@@ -200,6 +200,10 @@ export interface Detected {
   runtime?: string;
   /** What such an app needs that landfall cannot know, e.g. a secret in the site's .env. */
   note?: string;
+  /** Folders in the container kept across deploys: saved, else what the app needs (Rails' SQLite in storage/). */
+  volumes?: string[];
+  /** It runs without a port or a domain. */
+  worker?: boolean;
   /** It has a package.json: it could run as a Node.js app. */
   node?: boolean;
   /** Its .landfall.json, when it was deployed before. */
@@ -219,10 +223,11 @@ export function detectProject(path: string): Detected {
   const name = project?.name ?? slug(basename(path));
   const compose = composeFile(path, project);
   if (compose) return { path, name, kind: "compose", compose, project };
-  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, project };
+  const runs = { volumes: project?.volumes, worker: project?.worker };
+  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {
-    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, project };
+    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, project };
   }
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
@@ -231,7 +236,7 @@ export function detectProject(path: string): Detected {
   const app = project?.static ? undefined : detectApp(path, project?.start, b);
   if (app) {
     const { name: runtime, tool, start, note } = app;
-    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, project };
+    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, ...runs, volumes: project?.volumes ?? app.volumes, project };
   }
   return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool: !project?.dir || project.dir === b.dir ? b.tool : undefined, project };
 }

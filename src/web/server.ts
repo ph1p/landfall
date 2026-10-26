@@ -11,7 +11,7 @@ import { changes, listServers, reachAll, target } from "../dashboard";
 import { loadProjects } from "../projects";
 import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
-import { overview } from "../remote";
+import { SITE_NAME, overview } from "../remote";
 import { parseSince } from "../traffic";
 import { configView, diskView, dnsView, factsView, firewallView, historyView, pruneView, statsView, systemView, trafficView, certsView, updatesView } from "../views";
 import { newRunId, setQuiet } from "../ssh";
@@ -172,7 +172,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
       projects: loadProjects(),
       defaultImage: DEFAULT_TRAEFIK_IMAGE,
       // The CLI's own input rules, so forms reject what the command would.
-      rules: { loginName: LOGIN_NAME.source, minPassword: MIN_PASSWORD },
+      rules: { loginName: LOGIN_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source },
       paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },
       defaults: defaultsView(),
       servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: cfg.servers[e.name] ?? null })),

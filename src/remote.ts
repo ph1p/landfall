@@ -29,8 +29,9 @@ import { fail, readStdin, warn } from "./ui";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
+export const SITE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export function validName(name: string) {
-  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) fail(`invalid site name "${name}" (use lowercase letters, digits, dashes)`);
+  if (!SITE_NAME.test(name)) fail(`invalid site name "${name}" (use lowercase letters, digits, dashes)`);
   return name;
 }
 
