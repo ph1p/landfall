@@ -5,7 +5,7 @@ import { securityNotes } from "../security";
 import { canLogin, runScript } from "../ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../inventory";
-import { support } from "../facts";
+import { PLATFORM, support } from "../facts";
 import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../templates";
 import { latestCompose, latestDocker } from "../updates";
@@ -172,10 +172,12 @@ dashboard unless given as flags.`,
     const os = support(probe.values.os_id ?? "", probe.values.os_version ?? "", probe.values.pkg ?? "none", undefined, probe.values.platform);
     info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}`);
     if (os.note) (os.level === "eol" || os.level === "unsupported" ? warn : info)(os.note);
-    printChecks(checks);
-    report({ checks: checks.map(({ part, label, status, detail }) => ({ part, label, status, detail })) });
-    // Setup installs packages; without a package manager there is nothing it can do safely.
-    const refuse = probe.values.pkg === "none" && `setup does not run here (${os.note}). Use \`lf server add ${name}\` to deploy to it as it is`;
+    // Setup installs packages; without a package manager there is nothing it can do safely,
+    // so only what deploys need (docker, traefik) is worth showing.
+    const refuse = probe.values.pkg === "none" && `setup cannot change this server: ${PLATFORM[probe.values.platform ?? ""]?.name ?? "it has no apt, dnf, yum, apk or zypper"}${existing ? "" : `. Register it with \`lf server add ${name}\``}`;
+    const shown = refuse ? checks.filter((ch) => ch.part === "docker" || ch.part === "traefik") : checks;
+    printChecks(shown);
+    report({ checks: shown.map(({ part, label, status, detail }) => ({ part, label, status, detail })), ...(refuse && { refuse }) });
     if (o.check) return void (refuse && warn(refuse));
     if (refuse) fail(refuse);
     const apply = await decide(checks, o.force);
