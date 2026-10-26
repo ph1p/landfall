@@ -28,11 +28,15 @@ const list = (l: string[]) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} and 
 export const addKeyFirst = (users: string[]) =>
   `${list(users)} ${users.length === 1 ? "has" : "have"} no key yet and would be locked out: add one first (lf keys add <file.pub> -u ${users[0]}, or --generate to make a pair), then lf harden ssh.`;
 
-/** Users who log in with a password only: turning passwords off locks them out. landfall's own login uses a key. */
-export function lockedOut(i: SystemInfo, loginUser: string): string[] {
-  const withKey = new Set(i.keys.map((k) => k.user));
-  return (i.security.passwordUsers ?? []).filter((u) => u !== "root" && u !== loginUser && !withKey.has(u));
-}
+/**
+ * Users who log in with a password only: turning passwords off locks them out. Root and `exempt`
+ * (landfall's own logins, which use keys) do not count. Setup and lf harden both ask this.
+ */
+export const passwordOnly = (passwordUsers: string[], keyUsers: string[], exempt: string[]) =>
+  passwordUsers.filter((u) => u !== "root" && !exempt.includes(u) && !keyUsers.includes(u));
+
+export const lockedOut = (i: SystemInfo, loginUser: string) =>
+  passwordOnly(i.security.passwordUsers ?? [], i.keys.map((k) => k.user), [loginUser]);
 
 /** What to fix on a server, worst first. Pure: `lf security`, setup and the web UI share it. */
 export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }): Advice[] {

@@ -58,6 +58,9 @@ if [ -f /etc/synoinfo.conf ]; then
 elif [ "$ID" = steamos ]; then PRETTY_NAME="SteamOS $VERSION_ID"; kv platform steamos
 fi`;
 
+/** True when installed updates wait for a reboot: Debian's flag file, or needs-restarting on RHEL-likes (exit 1). */
+export const REBOOT_NEEDED = String.raw`reboot_needed() { [ -f /var/run/reboot-required ] && return 0; command -v needs-restarting >/dev/null 2>&1 || return 1; needs-restarting -r >/dev/null 2>&1; [ $? = 1 ]; }`;
+
 export const PKG_MGR = String.raw`pkg_mgr() { for m in apt-get dnf yum apk zypper; do command -v $m >/dev/null 2>&1 && { echo $m; return 0; }; done; echo none; }`;
 
 export const PRELUDE = String.raw`
@@ -67,6 +70,7 @@ SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 rmf() { rm -rf "$@" 2>/dev/null || $SUDO rm -rf "$@"; }
 # The distro's package manager, and installing with it.
 ${PKG_MGR}
+${REBOOT_NEEDED}
 pkg_has() {
   case "$(pkg_mgr)" in
     apt-get) dpkg -s "$1" ;;
@@ -386,6 +390,12 @@ pw=$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdin
 if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi
 kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
 kv password_users "$(S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null)"
+# Users with a key: keys-only ssh does not lock them out.
+ku=""
+for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
+  S grep -q '^[^#[:space:]]' "$f" 2>/dev/null && ku="$ku $(printf %s "$f" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#')"
+done
+kv key_users "$ku"
 f=${TRAEFIK_DIR}/docker-compose.yml
 if [ ! -f "$f" ]; then kv traefik_compose none
 elif grep -q "managed by landfall" "$f"; then kv traefik_compose landfall

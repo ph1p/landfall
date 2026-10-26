@@ -422,6 +422,8 @@ describe("server inventory", () => {
     const out = `${fresh}\npassword_users=root alice \nlisten=0.0.0.0:80 7/nginx`;
     const checks = assess(parseProbe(out), want);
     expect(checks.find((c) => c.part === "harden")).toMatchObject({ status: "conflict", detail: "alice would lose ssh password login" });
+    // A key of her own: keys-only ssh keeps her in, the same rule lf harden uses.
+    expect(assess(parseProbe(`${out}\nkey_users= root alice`), want).find((c) => c.part === "harden")).toMatchObject({ status: "todo" });
     expect(checks.find((c) => c.part === "traefik")).toMatchObject({ status: "conflict", detail: "port 80 is in use by nginx" });
   });
 

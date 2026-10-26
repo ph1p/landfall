@@ -1,5 +1,6 @@
 import type { Server } from "./config";
 import { runScript } from "./ssh";
+import { passwordOnly } from "./security";
 import { parseProxy, PRELUDE, PROBE, ROOT, TRAEFIK_DIR, type Proxy } from "./templates";
 import { cmpVersion } from "./updates";
 import { c, info } from "./ui";
@@ -278,7 +279,7 @@ export function assess(p: Probe, w: Wanted): Check[] {
   if (!w.harden) checks.push(check("harden", "ssh hardening", "off"));
   else if (v.hardened === "1") checks.push(check("harden", "ssh hardening", "done"));
   else {
-    const others = words(v.password_users).filter((u) => u !== "root" && u !== w.loginUser && u !== w.deployUser);
+    const others = passwordOnly(words(v.password_users), words(v.key_users), [w.loginUser, w.deployUser]);
     checks.push(
       others.length && v.password_auth !== "no"
         ? check("harden", "ssh hardening", "conflict", `${others.join(", ")} would lose ssh password login`)
