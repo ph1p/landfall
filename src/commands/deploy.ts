@@ -6,9 +6,9 @@ import { checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, expandDomain, isT
 import { analyze, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
-import { ask, c, confirm, fail, info, interactive, ok, report, step, warn } from "../ui";
+import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { composeFile, detectApp, detectBuild, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { composeFile, detectApp, detectBuild, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
@@ -145,6 +145,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const dir = compose || image || ownDockerfile || app ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
     const kind: SiteKind = compose ? "compose" : image ? "image" : ownDockerfile || app ? "dockerfile" : "static";
     const tool = kind === "static" && !dirArg && !project.dir ? detected.tool : undefined;
+    showStack(detectStack(root, app?.name, app?.tool ?? tool));
     if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
     if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
       warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);

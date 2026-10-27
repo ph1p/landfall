@@ -181,6 +181,55 @@ export function exposedPort(dockerfile: string): number | undefined {
 export const slug = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63) || "site";
 
+/** One thing found in a project, shown as a chip: its language, its framework or site generator, a tool that installs or builds it. */
+export interface Tag {
+  label: string;
+  role: "language" | "framework" | "tooling";
+}
+
+/** Languages by the files their tools keep, in the order mixed folders name them. */
+const LANGUAGES: [string, string[]][] = [
+  ["Go", ["go.mod"]], ["Rust", ["Cargo.toml"]], ["Java", ["pom.xml", "build.gradle", "build.gradle.kts"]], ["Elixir", ["mix.exs"]],
+  ["PHP", ["composer.json", "index.php", "public/index.php"]], ["Python", ["pyproject.toml", "requirements.txt", "Pipfile", "setup.py", "manage.py"]],
+  ["Ruby", ["Gemfile"]],
+];
+
+/** Package managers and build tools by their lockfile or build file. */
+const TOOLING: [string, string[]][] = [
+  ["uv", ["uv.lock"]], ["Poetry", ["poetry.lock"]], ["Pipenv", ["Pipfile"]], ["pip", ["requirements.txt"]],
+  ["Maven", ["pom.xml"]], ["Gradle", ["build.gradle", "build.gradle.kts"]], ["Cargo", ["Cargo.toml"]], ["Bundler", ["Gemfile"]],
+  ["Composer", ["composer.json"]], ["Mix", ["mix.exs"]],
+];
+
+/**
+ * What a folder is made of: its languages, the framework (from `tool`, without its details:
+ * "Spring Boot (Maven)" is Spring Boot, "Go (Gin)" is Gin), then its package managers and build tools.
+ */
+export function detectStack(path: string, runtime?: string, tool?: string): Tag[] {
+  const f = files(path);
+  const node = f.has("package.json");
+  const languages = [
+    ...(runtime ? [runtime] : []),
+    // Kotlin keeps Java's build files.
+    ...LANGUAGES.filter(([l, marks]) => marks.some(f.has) && !(l === "Java" && runtime === "Kotlin")).map(([l]) => l),
+    ...(f.has("tsconfig.json") ? ["TypeScript"] : node && !runtime ? ["JavaScript"] : []),
+  ];
+  const [, base, detail] = tool?.match(/^(.+?)(?: \((.+)\))?$/) ?? [];
+  const framework = base && (languages.includes(base) ? detail : base);
+  const tooling = [
+    ...(node ? [packageManager(f.has, usesBun(f)).name] : []),
+    ...TOOLING.filter(([, marks]) => marks.some(f.has)).map(([t]) => t),
+    ...(composeFile(path) ? ["Docker Compose"] : f.has("Dockerfile") ? ["Dockerfile"] : []),
+  ];
+  const tags: Tag[] = [
+    ...languages.map((label) => ({ label, role: "language" as const })),
+    ...(framework ? [{ label: framework, role: "framework" as const }] : []),
+    ...tooling.map((label) => ({ label, role: "tooling" as const })),
+  ];
+  // Bun is the runtime and the package manager; Java (Maven) names Maven twice.
+  return tags.filter((t, i) => tags.findIndex((u) => u.label.toLowerCase() === t.label.toLowerCase()) === i);
+}
+
 export interface Detected {
   path: string;
   name: string;
@@ -208,6 +257,8 @@ export interface Detected {
   node?: boolean;
   /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
+  /** Its languages, framework and tools, for the chips that show what landfall found. */
+  stack: Tag[];
 }
 
 /** The project's compose file: set in .landfall.json, or the one `docker compose` would pick. */
@@ -222,12 +273,12 @@ export function detectProject(path: string): Detected {
   const project = loadProject(path);
   const name = project?.name ?? slug(basename(path));
   const compose = composeFile(path, project);
-  if (compose) return { path, name, kind: "compose", compose, project };
+  if (compose) return { path, name, kind: "compose", compose, project, stack: detectStack(path) };
   const runs = { volumes: project?.volumes, worker: project?.worker };
-  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project };
+  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path) };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {
-    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, project };
+    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, project, stack: detectStack(path) };
   }
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
@@ -236,9 +287,10 @@ export function detectProject(path: string): Detected {
   const app = project?.static ? undefined : detectApp(path, project?.start, b);
   if (app) {
     const { name: runtime, tool, start, note } = app;
-    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, ...runs, volumes: project?.volumes ?? app.volumes, project };
+    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, ...runs, volumes: project?.volumes ?? app.volumes, project, stack: detectStack(path, runtime, tool) };
   }
-  return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool: !project?.dir || project.dir === b.dir ? b.tool : undefined, project };
+  const tool = !project?.dir || project.dir === b.dir ? b.tool : undefined;
+  return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool, project, stack: detectStack(path, undefined, tool) };
 }
 
 // ---------------------------------------------------------------- remembered projects
