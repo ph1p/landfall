@@ -67,8 +67,8 @@ function Header() {
         <span className={cx("overflow-hidden text-ellipsis whitespace-nowrap max-w-[36vw] max-[760px]:hidden", MONO)} title={st.cwd}>
           {p ? <><b>{p.name}</b> · {p.domains.join(", ")}</> : tilde(st.cwd)}
         </span>
-        <Btn on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder</Btn>
-        <Btn cls="primary" on={deployHere} title={p ? `lf deploy (.landfall.json in ${st.cwd})` : `lf deploy from ${st.cwd}`}>{p ? "Deploy" : "Deploy this folder"}</Btn>
+        <Btn on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Choose folder…</Btn>
+        <Btn cls="primary" on={deployHere} title={`Check how ${st.cwd} deploys, then deploy it (lf deploy${p ? ", settings from .landfall.json" : ""})`}>Review & deploy…</Btn>
       </div>
     </header>
   );

@@ -41,7 +41,7 @@ export function SitesView({ n, o }: { n: string; o: Any }) {
         <Card>
           <Empty title="No sites yet">
             <p>Deploy a folder with a compose.yaml, a Dockerfile, static files, or an image. It gets HTTPS automatically.</p>
-            <p><Btn cls="primary" on={() => folderDialog(S.state.cwd)}>Deploy a folder</Btn> <span className="dim">or drop one here</span></p>
+            <p><Btn cls="primary" on={() => folderDialog(S.state.cwd)}>Choose a folder…</Btn> <span className="dim">or drop one here</span></p>
             <p className="faint mono">lf deploy ./dist -d example.com -s {n}</p>
           </Empty>
         </Card>
