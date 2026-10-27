@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
-import { detectApp, detectBuild, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
+import { detectApp, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
+import { detectBuild } from "../../src/frameworks";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { ruleArgs } from "../../src/commands/firewall";
 import { guardSsh, type FirewallState } from "../../src/firewall";
@@ -745,14 +746,14 @@ describe("folders and access", () => {
   });
   test("the publish folder comes from the site generator, before its first build", () => {
     const d = tmp();
-    const pkg = (deps: Record<string, string>) => fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "x" }, devDependencies: deps }));
+    const pkg = (deps: Record<string, string>, scripts: Record<string, string> = { build: "x" }) => fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts, devDependencies: deps }));
     fs.writeFileSync(join(d, "index.html"), "<script type=module src=/main.js>");
     pkg({ vite: "7" });
     expect(detectStaticDir(d)).toBe("dist");
     expect(detectProject(d)).toMatchObject({ kind: "static", dir: "dist", tool: "Vite", build: "npm run build" });
     fs.writeFileSync(join(d, "vite.config.ts"), "export default { build: { outDir: './www' } }");
     expect(detectBuild(d)).toEqual({ tool: "Vite", dir: "www", build: "npm run build" });
-    pkg({ "@sveltejs/kit": "2", vite: "7" });
+    pkg({ "@sveltejs/kit": "2", "@sveltejs/adapter-static": "3", vite: "7" });
     expect(detectStaticDir(d)).toBe("build");
     pkg({ next: "15" });
     fs.writeFileSync(join(d, "next.config.mjs"), "export default { output: 'export' }");
@@ -763,6 +764,21 @@ describe("folders and access", () => {
     // no build script: a plain folder with its index.html
     fs.writeFileSync(join(d, "package.json"), JSON.stringify({ devDependencies: { vite: "7" } }));
     expect(detectStaticDir(d)).toBe(".");
+    pkg({ vitepress: "1" }, { build: "vitepress build docs" });
+    expect(detectStaticDir(d)).toBe("docs/.vitepress/dist");
+    pkg({ vitepress: "1" }, { build: "vitepress build" });
+    expect(detectStaticDir(d)).toBe(".vitepress/dist");
+    pkg({ hexo: "7" });
+    expect(detectBuild(d)).toMatchObject({ tool: "Hexo", dir: "public" });
+    pkg({ "@quasar/app-vite": "2" });
+    expect(detectStaticDir(d)).toBe("dist/spa");
+    const z = tmp();
+    fs.writeFileSync(join(z, "book.toml"), "[book]\ntitle = 'x'\n");
+    expect(detectBuild(z)).toEqual({ tool: "mdBook", dir: "book", build: "mdbook build" });
+    fs.rmSync(join(z, "book.toml"));
+    fs.writeFileSync(join(z, "config.toml"), "base_url = 'https://x.dev'\n");
+    fs.mkdirSync(join(z, "templates"));
+    expect(detectBuild(z)).toEqual({ tool: "Zola", dir: "public", build: "zola build" });
     const h = tmp();
     fs.writeFileSync(join(h, "hugo.toml"), "title = 'x'");
     expect(detectProject(h)).toMatchObject({ kind: "static", dir: "public", tool: "Hugo", build: "hugo --minify" });
@@ -774,6 +790,18 @@ describe("folders and access", () => {
     const start = () => detectBuild(d).start;
     pkg({ next: "15" });
     expect(detectBuild(d)).toEqual({ tool: "Next.js", build: "npm run build", start: "./node_modules/.bin/next start" });
+    // output: 'standalone' runs the server Next.js writes; the image keeps only it, its static files and public/
+    fs.writeFileSync(join(d, "next.config.ts"), "export default { output: 'standalone' }");
+    fs.mkdirSync(join(d, "public"));
+    expect(detectBuild(d)).toEqual({ tool: "Next.js (output: 'standalone')", build: "npm run build", start: "node server.js", standalone: ".next" });
+    const img = detectApp(d)!.dockerfile({ build: "npm run build", start: "node server.js", port: 3000 });
+    expect(img).toContain("FROM node:24-slim AS build\n");
+    expect(img).toContain("RUN npm run build\n\nFROM node:24-slim\nWORKDIR /app\nCOPY --from=build /app/.next/standalone ./\nCOPY --from=build /app/.next/static ./.next/static\nCOPY --from=build /app/public ./public\n");
+    expect(img).toMatch(/HOSTNAME=0\.0\.0\.0 PORT=3000\nEXPOSE 3000\nCMD node server\.js\n$/);
+    // a start command of one's own runs in the whole project
+    expect(detectApp(d, "npm start")!.dockerfile({ start: "npm start", port: 3000 })).not.toContain("COPY --from=build");
+    fs.rmSync(join(d, "next.config.ts"));
+    fs.rmSync(join(d, "public"), { recursive: true });
     pkg({ nuxt: "4" }, { build: "nuxt build" });
     expect(start()).toBe("node .output/server/index.mjs");
     pkg({ nuxt: "4" }, { build: "nuxt generate" });
@@ -788,6 +816,38 @@ describe("folders and access", () => {
     expect(start()).toBe("./node_modules/.bin/react-router-serve ./build/server/index.js");
     fs.writeFileSync(join(d, "react-router.config.ts"), "export default { ssr: false }");
     expect(detectBuild(d)).toEqual({ tool: "React Router (ssr: false)", dir: "build/client", build: "npm run build" });
+    pkg({ "@sveltejs/kit": "2", "svelte-adapter-bun": "0" });
+    expect(start()).toBe("bun ./build/index.js");
+    // adapter-auto builds nothing a server runs: the image switches it to adapter-node first
+    pkg({ "@sveltejs/kit": "2", "@sveltejs/adapter-auto": "6" });
+    fs.writeFileSync(join(d, "svelte.config.js"), "import adapter from '@sveltejs/adapter-auto';\nexport default { kit: { adapter: adapter() } };");
+    expect(detectBuild(d)).toMatchObject({ tool: "SvelteKit (adapter-auto, built with adapter-node)", start: "node build" });
+    expect(detectApp(d)!.dockerfile({ build: "npm run build", start: "node build", port: 3000 })).toContain(
+      "COPY . .\nRUN npm install -D @sveltejs/adapter-node && sed -i 's#@sveltejs/adapter-auto#@sveltejs/adapter-node#' svelte.config.js\nRUN npm run build\n",
+    );
+    fs.rmSync(join(d, "svelte.config.js"));
+    pkg({ "@analogjs/platform": "1" });
+    expect(start()).toBe("node dist/analog/server/index.mjs");
+    pkg({ "@adonisjs/core": "6" }, { build: "node ace build", start: "node bin/server.js" });
+    expect(detectBuild(d)).toMatchObject({ tool: "AdonisJS", start: "node build/bin/server.js" });
+    // Nuxt's server on Bun, or its static preset
+    pkg({ nuxt: "4" }, { build: "nuxt build" });
+    fs.writeFileSync(join(d, "nuxt.config.ts"), "export default defineNuxtConfig({ nitro: { preset: 'bun' } })");
+    expect(start()).toBe("bun .output/server/index.mjs");
+    fs.writeFileSync(join(d, "nuxt.config.ts"), "export default defineNuxtConfig({ nitro: { preset: 'static' } })");
+    expect(detectBuild(d)).toMatchObject({ tool: "Nuxt (nuxt generate)", dir: ".output/public" });
+    fs.rmSync(join(d, "nuxt.config.ts"));
+    // Qwik City: its adapter decides
+    pkg({ "@builder.io/qwik-city": "1" });
+    fs.mkdirSync(join(d, "adapters/express"), { recursive: true });
+    expect(start()).toBe("node server/entry.express");
+    fs.rmSync(join(d, "adapters"), { recursive: true });
+    fs.mkdirSync(join(d, "adapters/static"), { recursive: true });
+    expect(detectBuild(d)).toMatchObject({ tool: "Qwik City (static)", dir: "dist" });
+    fs.rmSync(join(d, "adapters"), { recursive: true });
+    // without an adapter it cannot deploy: it says how to add one, unless a start command of one's own is given
+    expect(detectApp(d)!.fix).toMatch(/needs an adapter.*npm run qwik add/);
+    expect(detectApp(d, "node srv.js")!.fix).toBeUndefined();
     // a server of its own needs no build script
     pkg({ express: "5" }, { start: "node server.js" });
     expect(detectBuild(d)).toEqual({ tool: undefined, build: undefined, start: "npm start" });
@@ -876,6 +936,25 @@ describe("folders and access", () => {
     // a Next.js app with Bun's lockfile runs on Bun's image
     fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "next build", start: "next start" }, dependencies: { next: "15" } }));
     expect(detectApp(d)).toMatchObject({ name: "Bun", tool: "Next.js", build: "bun run build" });
+  });
+
+  test("Deno", () => {
+    const d = tmp();
+    // Fresh 2: its build writes the server to _fresh/
+    fs.writeFileSync(join(d, "deno.json"), JSON.stringify({ tasks: { dev: "vite", build: "vite build", start: "deno serve -A _fresh/server.js" }, imports: { fresh: "jsr:@fresh/core@^2" } }));
+    const fresh = detectApp(d)!;
+    expect(fresh).toMatchObject({ name: "Deno", tool: "Fresh", build: "deno task build", start: "deno serve -A --port $PORT _fresh/server.js", port: 8000 });
+    expect(fresh.dockerfile({ build: fresh.build, start: fresh.start, port: 8000 })).toContain("FROM denoland/deno:2\nWORKDIR /app\nCOPY . .\nRUN deno install\nRUN deno task build\n");
+    // a start task that watches is for developing: the entry runs instead
+    fs.writeFileSync(join(d, "deno.json"), JSON.stringify({ tasks: { start: "deno run --watch -A main.ts" }, imports: { hono: "jsr:@hono/hono@^4" } }));
+    fs.writeFileSync(join(d, "main.ts"), "Deno.serve(() => new Response('hi'))");
+    expect(detectApp(d)).toMatchObject({ name: "Deno", tool: "Hono", start: "deno run -A main.ts", build: undefined });
+    fs.writeFileSync(join(d, "deno.json"), JSON.stringify({ tasks: { start: "deno run -A main.ts" } }));
+    expect(detectApp(d)).toMatchObject({ name: "Deno", tool: undefined, start: "deno task start" });
+    // Lume builds a site: static, built with its task
+    fs.writeFileSync(join(d, "deno.json"), JSON.stringify({ imports: { "lume/": "https://deno.land/x/lume@v2/" }, tasks: { build: "deno task lume" } }));
+    fs.writeFileSync(join(d, "_config.ts"), "import lume from 'lume/mod.ts';\nexport default lume();");
+    expect(detectProject(d)).toMatchObject({ kind: "static", tool: "Lume", dir: "_site", build: "deno task build" });
   });
 
   test("other languages", () => {
