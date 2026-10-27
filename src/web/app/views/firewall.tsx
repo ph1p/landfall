@@ -1,4 +1,5 @@
-import { S, sv, type Any } from "../lib/store";
+import { S, sv } from "../lib/store";
+import type { FirewallRule } from "../lib/types";
 import { run } from "../lib/jobs";
 import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, MONO, Note, SR, Sub, cx, pending, Table } from "../ui/kit";
 import { confirmDlg, dialog } from "../ui/dialog";
@@ -6,13 +7,13 @@ import { confirmDlg, dialog } from "../ui/dialog";
 // ---- firewall --------------------------------------------------------------
 
 const REACH: Record<string, string> = { open: "ok", limited: "accent", blocked: "bad", local: "" };
-const portOf = (r: Any) => (r.port ? `${r.port}${r.proto ? `/${r.proto}` : ""}` : "");
+const portOf = (r: FirewallRule) => (r.port ? `${r.port}${r.proto ? `/${r.proto}` : ""}` : "");
 
 export function FirewallView({ n }: { n: string }) {
   const st = S.firewall[n];
   const wait = pending(st, "reading the firewall…");
   if (wait) return wait;
-  const fw = st!.data;
+  const fw = st!.data!;
   const s = sv(n);
   const fwRun = (argv: string[]) => run(argv, { server: n });
   const active = fw.ufw === "active";
@@ -44,7 +45,7 @@ export function FirewallView({ n }: { n: string }) {
           <Actions>{toggle}</Actions>
         </CardHead>
         <Table head={<><th>#</th><th>Action</th><th>Port</th><th>From</th><th className={HIDE}>Comment</th><th><span className={SR}>Actions</span></th></>}>
-          {fw.rules.length ? fw.rules.map((r: Any, i: number) => {
+          {fw.rules.length ? fw.rules.map((r, i) => {
             const num = String(i + 1);
             const flip = r.action === "deny" || r.action === "reject" ? "allow" : "deny";
             const kind = r.action === "allow" ? "ok" : r.action === "limit" ? "accent" : "bad";
@@ -79,7 +80,7 @@ export function FirewallView({ n }: { n: string }) {
       <Card>
         <CardHead>Listening ports <Sub>and whether the internet reaches them</Sub></CardHead>
         <Table head={<><th>Port</th><th>Process</th><th>Reach</th><th>Why</th></>}>
-          {fw.ports.length ? fw.ports.map((p: Any) => (
+          {fw.ports.length ? fw.ports.map((p) => (
             <tr key={`${p.port}${p.proc}`}>
               <td className={MONO}>{p.port}</td>
               <td>{p.proc}</td>
@@ -93,7 +94,7 @@ export function FirewallView({ n }: { n: string }) {
   );
 }
 
-export function editRule(n: string, num: string, r: Any) {
+export function editRule(n: string, num: string, r: FirewallRule) {
   const port = portOf(r);
   dialog({
     title: `Edit rule ${num}`,

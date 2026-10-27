@@ -1,4 +1,5 @@
-import { S, http, render, server, errorMessage, type StoreName } from "./store";
+import { S, http, render, server, errorMessage, type Slot, type StoreName } from "./store";
+import type { Reach, State } from "./types";
 import { toast } from "../ui/toast";
 
 // ---- routing: #/<server>/<tab> ---------------------------------------------
@@ -31,7 +32,7 @@ export function fetchInto(store: StoreName, n: string, url: string, then?: (data
   // Keep what is shown while it reloads; views show a spinner only when they have nothing yet.
   S[store][n] = { ...S[store][n], loading: true, error: undefined };
   return http(`/api/servers/${encodeURIComponent(n)}${url}`).then(
-    (data) => (then?.(data), (S[store][n] = { data }), render()),
+    (data) => (then?.(data), ((S[store] as Record<string, Slot>)[n] = { data }), render()),
     (e) => ((S[store][n] = { error: errorMessage(e) }), render()),
   );
 }
@@ -64,7 +65,7 @@ export function invalidate(name: string) {
   if (S.sel === name) load(name, S.tab, true);
 }
 export async function refreshState() {
-  S.state = await http("/api/state");
+  S.state = await http<State>("/api/state");
   render();
 }
 /** Which servers take landfall's ssh login; the server caches each answer for 30s unless fresh. */
@@ -73,7 +74,7 @@ export async function loadReach(fresh = false) {
   S.reaching = true;
   render();
   try {
-    S.reach = await http(`/api/reach${fresh ? "?fresh=1" : ""}`);
+    S.reach = await http<Record<string, Reach>>(`/api/reach${fresh ? "?fresh=1" : ""}`);
     S.reachedAt = new Date();
   } catch (e) {
     toast(`Checking servers failed: ${errorMessage(e)}`);

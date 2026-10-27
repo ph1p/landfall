@@ -1,4 +1,4 @@
-import { S, ago, plural, sv, type Any } from "../lib/store";
+import { S, ago, plural, sv } from "../lib/store";
 import { run } from "../lib/jobs";
 import { confirmDlg, dialog } from "../ui/dialog";
 import { Actions, Btn, Card, CardHead, Empty, Sub, pending, cx, HIDE } from "../ui/kit";
@@ -11,7 +11,7 @@ export function HistoryView({ n }: { n: string }) {
   const st = S.history[n];
   const wait = pending(st, "reading the journal…");
   if (wait) return wait;
-  const runs: Any[] = st.data;
+  const runs = st!.data!;
   if (!runs.length)
     return (
       <Card>
@@ -46,12 +46,12 @@ export function HistoryView({ n }: { n: string }) {
         </Actions>
       </CardHead>
       {runs.map((r) => {
-        const todo = r.steps.filter((x: Any) => x.undo && !x.undone);
+        const todo = r.steps.filter((x) => x.undo && !x.undone);
         const later = runs.filter((x) => x.n > r.n && x.pending);
         const undoRun = () =>
           dialog({
             title: `Undo #${r.n} ${r.cmd} on ${n}?`,
-            text: [...todo.map((x: Any) => `↺ ${x.what}`).reverse(), ...(later.length ? ["", `Later runs build on it and stay: ${later.map((x) => `#${x.n}`).join(", ")}`] : [])].join("\n"),
+            text: [...todo.map((x) => `↺ ${x.what}`).reverse(), ...(later.length ? ["", `Later runs build on it and stay: ${later.map((x) => `#${x.n}`).join(", ")}`] : [])].join("\n"),
             ok: `Revert ${plural(todo.length, "change")}`,
             danger: true,
             onOk: () => undo([String(r.n)]),
@@ -66,7 +66,7 @@ export function HistoryView({ n }: { n: string }) {
               <Actions>{r.pending ? <Btn cls="sm" on={undoRun}>Undo {plural(r.pending, "change")}</Btn> : <span className="faint">nothing to undo</span>}</Actions>
             </div>
             <ul className="steps list-none mt-2 mb-0 mx-0 pl-1">
-              {r.steps.map((x: Any, i: number) => {
+              {r.steps.map((x, i) => {
                 const [cls, Ico] = x.reverts ? ["fixed", Undo2] : x.undone ? ["undone", Check] : x.undo ? ["", RotateCcw] : ["fixed", Dot];
                 return (
                   <li key={i} className={cx("flex gap-2 items-baseline py-0.5 text-md", cls && "text-faint")}>

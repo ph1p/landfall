@@ -1,4 +1,5 @@
-import { sv, type Any } from "../lib/store";
+import { sv } from "../lib/store";
+import type { Overview } from "../lib/types";
 import { go } from "../lib/api";
 import { TunnelBtn, openTunnels } from "../lib/jobs";
 import { ACTS, Badge, Btn, Card, CardHead, Empty, Lede, MONO, NAME, SHOW, HIDE, SR, Scroll, cx } from "../ui/kit";
@@ -15,7 +16,7 @@ const Chips = ({ list, className }: { list: string[]; className?: string }) => (
 interface Target { name: string; status?: string; serves: string[]; argv: string[] | null; why?: string; other?: boolean }
 
 /** Everything an SSH tunnel reaches on server n, and the tunnels open now. */
-export function TunnelsView({ n, o }: { n: string; o: Any }) {
+export function TunnelsView({ n, o }: { n: string; o: Overview }) {
   if (!o.ready && !o.others.length && !o.unrouted?.length)
     return (
       <Card>
@@ -35,7 +36,7 @@ export function TunnelsView({ n, o }: { n: string; o: Any }) {
   }
   for (const e of o.others) targets.push({ name: e.name, status: e.status, serves: e.domains, argv: ["tunnel", e.name, ...sv(n)], other: true });
   // Databases, workers: by Compose project and service, else by container name.
-  const loose = (o.unrouted ?? []).map((x: Any) => ({ name: x.container, status: x.status, image: x.image, ports: x.ports ?? [], argv: ["tunnel", ...(x.project ? [x.project, x.service] : [x.container]), ...sv(n)] }));
+  const loose = (o.unrouted ?? []).map((x) => ({ name: x.container, status: x.status, image: x.image, ports: x.ports ?? [], argv: ["tunnel", ...(x.project && x.service ? [x.project, x.service] : [x.container]), ...sv(n)] }));
   return (
     <>
       {open.length > 0 && (
@@ -86,7 +87,7 @@ export function TunnelsView({ n, o }: { n: string; o: Any }) {
             <table>
               <thead><tr><th>Container</th><th className={HIDE}>Image</th><th><span className={SR}>Tunnel</span></th></tr></thead>
               <tbody>
-                {loose.map((t: Any) => (
+                {loose.map((t) => (
                   <tr key={t.name}>
                     <td>
                       <div className={NAME}><StatusDot status={t.status} /><b>{t.name}</b></div>

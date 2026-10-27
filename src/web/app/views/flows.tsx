@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { S, http, plural, render, serverNamed, sv, tilde, errorMessage, type Any } from "../lib/store";
+import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from "../lib/store";
+import type { Browse, Detected, Redeploy, Remembered, SavedServer } from "../lib/types";
 import { go, load, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
@@ -21,7 +22,7 @@ export function setupFlow(args: string[], base = args) {
       if (rep(j).needsKey) {
         return [{ label: "Enter the password to install a key", run: () => passwordFor(args, base) }];
       }
-      const todo = (rep(j).checks ?? []).filter((ch: Any) => ch.status === "todo").length;
+      const todo = (rep(j).checks ?? []).filter((ch) => ch.status === "todo").length;
       return [
         { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0], after: securityAfter(args[0]) }) },
         { label: "Change options", run: () => setupWizard(base) },
@@ -32,10 +33,10 @@ export function setupFlow(args: string[], base = args) {
 
 /** After a job that ends with security advice: a way to its fixes. */
 export const securityAfter = (n: string) => (j: Job): JobAction[] | undefined =>
-  j.info.code === 0 && rep(j).advice?.length ? [{ label: `Security: ${plural(rep(j).advice.length, "thing")} to look at`, run: () => go(n, "system") }] : undefined;
+  j.info.code === 0 && rep(j).advice?.length ? [{ label: `Security: ${plural(rep(j).advice!.length, "thing")} to look at`, run: () => go(n, "system") }] : undefined;
 
 export function setupWizard(base: string[]) {
-  const saved = serverNamed(base[0])?.saved ?? {};
+  const saved = serverNamed(base[0])?.saved ?? ({} as Partial<SavedServer>);
   dialog({
     title: `Set up ${base[0]}`,
     text: "landfall first shows what it finds and what it would change. Nothing is applied before you confirm.",
@@ -140,7 +141,7 @@ export function addServer() {
   });
 }
 
-const defaultServer = (): string | undefined => S.sel ?? S.state.servers.find((s: Any) => s.isDefault)?.name;
+const defaultServer = (): string | undefined => S.sel ?? S.state.servers.find((s) => s.isDefault)?.name;
 export const mainDomain = (n: string): string | undefined => serverNamed(n)?.saved?.domains?.[0];
 /** The server deploys new sites with no domain unless one is given: its own setting, else landfall's default. */
 export const tunnelOnly = (n: string): boolean => serverNamed(n)?.saved?.tunnelOnly ?? S.state.defaults.tunnelOnly;
@@ -152,7 +153,7 @@ export function defaultsDialog() {
     title: "landfall defaults",
     text: `For every server, unless it sets its own. Saved in ${d.configFile}.`,
     fields: [
-      { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s: Any) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
+      { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
       { name: "tunnelOnly", label: "New sites get no domain: tunnel only", type: "check", value: d.tunnelOnly, hint: "Nothing is served on the internet until a site gets a domain. A server's Settings can override it." },
       { name: "email", label: "Let's Encrypt e-mail (optional)", value: d.email ?? "", hint: "For servers that set none, when landfall installs Traefik." },
       { name: "keep", label: "Releases to keep for rollback", type: "number", value: String(d.keep), placeholder: "5", check: (k) => k && (!/^\d+$/.test(k) || !Number(k)) && "A whole number from 1 up" },
@@ -206,18 +207,18 @@ const slugify = (s: string) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/
 const ROLE: Record<string, string> = { language: "Language", framework: "Framework", tooling: "Package manager or build tool" };
 
 /** The languages, framework and tools landfall found in a folder, as chips: what it builds with at a glance. */
-export function Stack({ d, className }: { d: Any; className?: string }) {
+export function Stack({ d, className }: { d: Detected; className?: string }) {
   if (!d.stack?.length) return null;
   return (
     <div className={cx("flex flex-wrap gap-1.5", className)} aria-label="Detected">
-      {d.stack.map((t: Any) => (
+      {d.stack.map((t) => (
         <Badge key={t.label} kind={t.role === "tooling" ? "" : "accent"} className={t.role === "framework" ? "font-semibold" : undefined} title={ROLE[t.role]}>{t.label}</Badge>
       ))}
     </div>
   );
 }
 
-export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
+export function Describe({ d, before = true }: { d: Detected; before?: boolean }) {
   const built = d.build ? <> · builds with <code>{d.build}</code> first</> : null;
   const what: ReactNode =
     d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; {d.analysis?.auto ? "no x-landfall, so its HTTP ports are routed" : "x-landfall picks the routed services"}<ComposePlan a={d.analysis} /></>
@@ -229,19 +230,19 @@ export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
       </>
     )
     : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${d.port}`
-    : d.dir ? <>Static files from <code>{d.dir === "." ? "./" : d.dir + "/"}</code>{d.tool ? ` (where ${d.tool} builds the site)` : ""}{d.spa ? " (single-page app)" : ""}{built}</>
+    : d.dir ? <>Static files from <code>{d.dir === "." ? "./" : d.dir + "/"}</code>{d.tool ? ` (where ${d.tool} builds the site)` : ""}{d.project?.spa ? " (single-page app)" : ""}{built}</>
     : d.build ? <>Static site, built with <code>{d.build}</code> first</>
     : <span className="text-warn">No compose.yaml, Dockerfile, index.html or build script here.</span>;
   return <>{what}{before && d.project?.server ? <> <span className="dim">· deployed before to {d.project.server}{d.project.domains?.length ? ` as ${d.project.domains.join(", ")}` : ""}</span></> : null}</>;
 }
 
 /** A compose project's route plan as a deploy would make it: service:port to domains, private ports, problems. */
-function ComposePlan({ a }: { a?: Any }) {
+function ComposePlan({ a }: { a?: Detected["analysis"] }) {
   if (!a) return null;
-  const priv = (a.services ?? []).flatMap((s: Any) => Object.entries(s.private ?? {}).map(([k, p]) => `${k} (${s.name}:${p})`));
+  const priv = (a.services ?? []).flatMap((s) => Object.entries(s.private ?? {}).map(([k, p]) => `${k} (${s.name}:${p})`));
   return (
     <span className="block mt-1.5">
-      {a.routes?.map((r: Any) => (
+      {a.routes?.map((r) => (
         <span key={`${r.service}:${r.port}`} className="block"><code>{r.service}:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span></span>
       ))}
       {priv.length > 0 && <span className="block dim">private (lf tunnel): {priv.join(", ")}</span>}
@@ -256,7 +257,7 @@ const DETECTED = "text-md px-3 py-2.5 rounded-md bg-hover";
  * The build part of a deploy form for det: what to build and start, static or an app, its port and volumes.
  * argv: the lf deploy flags for what changed from det.
  */
-export function buildForm(det: Any) {
+export function buildForm(det: Detected) {
   const p = det.project;
   // Static files or an app without a Dockerfile: what to build and run is landfall's to decide, and editable here.
   const runtime = det.runtime ?? "Node.js";
@@ -321,7 +322,8 @@ export function buildForm(det: Any) {
       if (build !== (det.build ?? "")) argv.push("--build", build);
     } else if (modal) {
       if (det.start) argv.push("--static");
-      if (build && build !== p?.build) argv.push("--build", build);
+      // Unsaved, an emptied field says so: deploy would run the detected build otherwise.
+      if (p?.build === undefined ? build || det.build : build !== p.build) argv.push("--build", build);
       if (v.spa && !p?.spa) argv.push("--spa");
       const dir = v.dir.trim().replace(/\/+$/, "") || ".";
       if (dir !== (det.dir ?? ".")) argv.push(dir);
@@ -338,20 +340,20 @@ export function buildForm(det: Any) {
   return { fields, argv, served };
 }
 
-interface DeployOpts { site?: Any; upload?: boolean; files?: number; name?: string }
+interface DeployOpts { site?: Redeploy; upload?: boolean; files?: number; name?: string }
 /**
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
  * site: an existing site ({ server, name, domains, old }) this folder redeploys.
  */
-export function deployDialog(det: Any, o: DeployOpts = {}) {
+export function deployDialog(det: Detected, o: DeployOpts = {}) {
   const p = det.project;
   const re = o.site;
-  const servers = S.state.servers.map((s: Any) => ({ value: s.name, label: s.name }));
-  const target: string = re?.server ?? p?.server ?? defaultServer();
+  const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
+  const target: string = re?.server ?? p?.server ?? defaultServer() ?? "";
   const name: string = re?.name ?? o.name ?? det.name;
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
   const keeps: string[] | null = re && !p?.domains ? re.domains : null;
-  const keeping = (v: Values) => keeps && v.name.trim() === re.name && v.server === re.server;
+  const keeping = (v: Values) => keeps && v.name.trim() === re?.name && v.server === re?.server;
   const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
   /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
   const addresses = (v: Values): [string[], string?] => {
@@ -436,7 +438,7 @@ export function openAfter(j: Job): JobAction[] | undefined {
   if (url) return [{ label: `Open ${url.replace("https://", "")}`, run: () => void window.open(url, "_blank", "noopener") }];
 }
 
-export const browse = (path?: string): Promise<Any> => http(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`);
+export const browse = (path?: string) => http<Browse>(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`);
 
 /** What a site's folder holds and how it builds: detected once per folder, for the site details. Call from an effect. */
 export function detected(path: string) {
@@ -473,8 +475,8 @@ const PICK = "inline text-accent cursor-pointer text-md font-normal";
  * Pick a folder on this machine: recent projects, a folder browser, or drop/choose files to upload.
  * site: an existing site the folder redeploys (one this machine does not remember a folder for).
  */
-export async function folderDialog(path?: string, site?: Any) {
-  let b: Any;
+export async function folderDialog(path?: string, site?: Redeploy) {
+  let b: Browse;
   try {
     b = await browse(path);
   } catch (e) {
@@ -484,8 +486,8 @@ export async function folderDialog(path?: string, site?: Any) {
   openDialog(<FolderDialog b={b} site={site} />, "wide", site);
 }
 
-function FolderDialog({ b, site }: { b: Any; site?: Any }) {
-  const recent: Any[] = site ? [] : (S.state.projects ?? []).slice(0, 8);
+function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
+  const recent: Remembered[] = site ? [] : (S.state.projects ?? []).slice(0, 8);
   const parts: string[] = b.path.split("/").filter(Boolean);
   const to = (p: string) => () => void folderDialog(p, site);
   const crumb = "px-1.5! py-px!";
@@ -588,14 +590,14 @@ async function droppedFiles(roots: FileSystemEntry[]) {
   return out;
 }
 
-async function upload(pairs: Pair[], label = "site", site?: Any) {
+async function upload(pairs: Pair[], label = "site", site?: Redeploy) {
   if (!pairs.length) return toast("Nothing to upload");
   const fd = new FormData();
   for (const [f, path] of pairs) fd.append("file", f), fd.append("path", path);
   toast(`Uploading ${plural(pairs.length, "file")}…`);
   try {
     const r = await fetch("/api/upload", { method: "POST", body: fd });
-    const data = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+    const data: { files: number; detected: Detected; error?: string } = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
     if (!r.ok) throw new Error(data.error);
     toast(`Uploaded ${plural(data.files, "file")}`);
     deployDialog(data.detected, { upload: true, files: data.files, name: slugify(label), site });

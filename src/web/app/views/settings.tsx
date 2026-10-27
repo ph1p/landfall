@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { S, sv, type Any } from "../lib/store";
+import { S, sv } from "../lib/store";
+import type { DnsCheck } from "../lib/types";
 import { load, refreshState } from "../lib/api";
 import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";
@@ -18,7 +19,7 @@ export function TraefikView({ n }: { n: string }) {
   const st = S.settings[n];
   const wait = pending(st, "reading the settings…");
   if (wait) return wait;
-  const x = st!.data;
+  const x = st!.data!;
   const reload = { server: n, after: ifOk(() => load(n, "traefik", true)) };
   const paths = S.state.paths;
   const dashboard = () =>
@@ -92,7 +93,7 @@ export function TraefikView({ n }: { n: string }) {
         <Body>
           <Kv pairs={[
             ["domain", dash.hosts.length
-              ? <>{dash.hosts.map((h: string, k: number) => <span key={h}>{k > 0 && ", "}<a href={`https://${h}`} target="_blank" rel="noopener">{h}</a></span>)} <span className="dim">(with its login)</span></>
+              ? <>{dash.hosts.map((h, k) => <span key={h}>{k > 0 && ", "}<a href={`https://${h}`} target="_blank" rel="noopener">{h}</a></span>)} <span className="dim">(with its login)</span></>
               : <span className="dim">none{foreign ? "" : ": only through the tunnel"}</span>],
             ["tunnel", dash.tunnel
               ? <><TunnelBtn n={n} argv={dashArgv} label="Open via tunnel" /> <span className={cx("dim", MONO)}>lf traefik dashboard</span></>
@@ -125,7 +126,7 @@ export function TraefikView({ n }: { n: string }) {
   );
 }
 
-const DnsRow = ({ d }: { d: Any }) => (
+const DnsRow = ({ d }: { d: DnsCheck }) => (
   <>{d.domain} {d.ok ? <Badge kind="ok">dns ok</Badge> : d.ips.length ? <Badge kind="warn">dns → {d.ips.join(", ")}</Badge> : <Badge kind="bad">no dns</Badge>}</>
 );
 
@@ -133,14 +134,14 @@ export function SettingsView({ n }: { n: string }) {
   const st = S.settings[n];
   const wait = pending(st, "reading the settings…");
   if (wait) return wait;
-  const x = st!.data;
+  const x = st!.data!;
   const reload = { server: n, after: ifOk(() => load(n, "settings", true)) };
   const addDomain = () =>
     promptDlg(`Add a main domain to ${n}`, `${x.domains.length ? "The first main domain stays the primary." : "The first main domain is the primary: new sites get <site>.<domain>, and a bare name like blog means blog.<domain>."}\nPoint <domain> and *.<domain> (A records) at the server once.`, { label: "Domain", placeholder: "example.com", type: "text", value: "" }, (d) => {
       if (d) run(["server", "domain", n, "--add", d], reload);
     }, "Add");
-  const sites: Any[] = S.overview[n]?.data?.sites ?? [];
-  const external = (d: string): string | undefined => S.overview[n]?.data?.others?.find((e: Any) => e.domains.includes(d))?.name;
+  const sites = S.overview[n]?.data?.sites ?? [];
+  const external = (d: string): string | undefined => S.overview[n]?.data?.others?.find((e) => e.domains.includes(d))?.name;
   const servedBy = (d: string): string | undefined => sites.find((s) => s.domains.includes(d))?.meta.name;
   const serve = (d: string) => {
     const cur = servedBy(d);
@@ -157,7 +158,7 @@ export function SettingsView({ n }: { n: string }) {
   };
   const paths = S.state.paths;
   const ip = x.dns[0]?.ips[0] ?? "<server ip>";
-  const records: string[] = x.dns.flatMap((r: Any) => [r.apex, r.wildcard]).filter((d: Any) => !d.ok).map((d: Any) => `${d.domain}  A  ${ip}`);
+  const records = x.dns.flatMap((r) => [r.apex, r.wildcard]).filter((d) => !d.ok).map((d) => `${d.domain}  A  ${ip}`);
   const tunnel = x.tunnelOnly;
   const setTunnel = () =>
     run(["server", "domain", n, tunnel ? "--no-tunnel-only" : "--tunnel-only"], { server: n, after: ifOk(() => (load(n, "settings", true), refreshState())) });
@@ -172,7 +173,7 @@ export function SettingsView({ n }: { n: string }) {
         <Body>
           {x.domains.length ? (
             <>
-              {x.domains.map((d: string, i: number) => (
+              {x.domains.map((d, i) => (
                 <div key={d} className={DROW}>
                   <div className="flex-[1_1_260px] min-w-0">
                     <DnsRow d={x.dns[i].apex} />{i === 0 && <> <Badge kind="accent">primary</Badge></>}
@@ -210,7 +211,7 @@ export function SettingsView({ n }: { n: string }) {
           {x.suggest.length > 0 && (
             <Note>
               {x.domains.length ? "Other domains" : "Domains"} your sites on this server already use:{" "}
-              {x.suggest.map((g: Any) => (
+              {x.suggest.map((g) => (
                 <span key={g.domain}><b>{g.domain}</b> <span className="faint">({g.hosts})</span> <Btn cls="sm" on={() => run(["server", "domain", n, "--add", g.domain], reload)}>Add</Btn> </span>
               ))}
             </Note>
@@ -238,7 +239,7 @@ export function SettingsView({ n }: { n: string }) {
             ["login", <span className={MONO}>{`${x.ssh.user}@${x.ssh.hostname}:${x.ssh.port}`}</span>],
             // One row for every key: Kv keys its rows by label.
             ...(x.ssh.keys.length
-              ? [["key", <>{x.ssh.keys.map((k: Any) => <div key={k.file}><span className={MONO}>{k.file}</span>{!k.exists && <> <Badge kind="bad">missing</Badge></>}</div>)}</>] as [string, ReactNode]]
+              ? [["key", <>{x.ssh.keys.map((k) => <div key={k.file}><span className={MONO}>{k.file}</span>{!k.exists && <> <Badge kind="bad">missing</Badge></>}</div>)}</>] as [string, ReactNode]]
               : []),
           ]} />
           {x.ssh.block ? (

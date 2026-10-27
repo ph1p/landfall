@@ -1,4 +1,5 @@
-import { S, type Any } from "../lib/store";
+import { S } from "../lib/store";
+import type { Cap, ServerEntry } from "../lib/types";
 import { SECTIONS, type Tab } from "../lib/api";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
@@ -34,7 +35,7 @@ export const REACH_WORD = { ok: "reachable", login: "login refused", down: "unre
 export const REACH_KIND = { ok: "up", login: "warn", down: "down" } as const;
 /** Reachable first, then refused, then down, then not checked. */
 export const reachRank = (n: string) => ({ ok: 0, login: 1, down: 2 })[S.reach[n]?.state as "ok"] ?? 3;
-export function reachCount(list: Any[]) {
+export function reachCount(list: ServerEntry[]) {
   const count = { ok: 0, login: 0, down: 0 };
   for (const s of list) if (S.reach[s.name]) count[S.reach[s.name].state as keyof typeof count]++;
   return count;
@@ -83,17 +84,17 @@ export function FactsNote({ n }: { n: string }) {
   if (!sup?.note) return null;
   return (
     <div className={noteClass(sup.level === "eol" || sup.level === "unsupported" ? "bad" : "")}>
-      {sup.note}{f.can && !f.can.docker ? `. Docker: ${f.why.docker}` : ""}
+      {sup.note}{f?.can && !f.can.docker ? `. Docker: ${f.why.docker}` : ""}
     </div>
   );
 }
 
 /** What the server can do (`lf server info --json` can); null until its facts are in, then everything shows. */
-export const can = (n: string): Any => S.facts[n]?.data?.can ?? null;
+export const can = (n: string): Record<Cap, boolean> | null => S.facts[n]?.data?.can ?? null;
 /** Server n's overview and facts are both in (or failed): until then its page shows placeholders, not a guess. */
 export const connected = (n: string) => [S.overview[n], S.facts[n]].every((x) => x?.data || x?.error);
 /** When each section is worth a tab: the same conditions the CLI checks before doing it. */
-const SECTION_IF: Partial<Record<Tab, (k: Any) => unknown>> = {
+const SECTION_IF: Partial<Record<Tab, (k: Record<Cap, boolean>) => unknown>> = {
   sites: (k) => k.docker || k.setup,
   tunnels: (k) => k.docker,
   traffic: (k) => k.docker,
@@ -102,4 +103,7 @@ const SECTION_IF: Partial<Record<Tab, (k: Any) => unknown>> = {
   firewall: (k) => k.firewall,
   users: (k) => k.users,
 };
-export const sections = (n: string) => SECTIONS.filter(([t]) => !can(n) || (SECTION_IF[t]?.(can(n)) ?? true));
+export const sections = (n: string) => {
+  const k = can(n);
+  return SECTIONS.filter(([t]) => !k || (SECTION_IF[t]?.(k) ?? true));
+};

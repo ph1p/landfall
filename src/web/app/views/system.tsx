@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { S, plural, render, sv, type Any } from "../lib/store";
+import { S, plural, render, sv } from "../lib/store";
+import type { Advice, SystemInfo, SystemService } from "../lib/types";
 import { run } from "../lib/jobs";
 import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, SR, Scroll, Sub, cx, pending, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
@@ -8,22 +9,22 @@ import { size } from "./shared";
 
 // ---- system ----------------------------------------------------------------
 
-const SVC_FAILED = (s: Any) => s.active === "failed" || s.active === "crashed";
-const SVC_UP = (s: Any) => s.active === "active" || s.active === "started";
+const SVC_FAILED = (s: SystemService) => s.active === "failed" || s.active === "crashed";
+const SVC_UP = (s: SystemService) => s.active === "active" || s.active === "started";
 // What keeps the server and its sites running: shown first, the rest behind "all".
 const KEY_SVCS = ["docker", "containerd", "ssh", "sshd", "fail2ban", "ufw", "unattended-upgrades", "cron", "crond", "systemd-timesyncd", "chronyd", "chrony"];
 const svcName = (u: string) => u.replace(/\.service$/, "");
-const isKey = (x: Any) => KEY_SVCS.includes(svcName(x.unit));
+const isKey = (x: SystemService) => KEY_SVCS.includes(svcName(x.unit));
 
 export function SystemView({ n }: { n: string }) {
   const st = S.system[n];
   const wait = pending(st, `reading ${n}…`);
   if (wait) return wait;
-  const i = st!.data;
+  const i = st!.data!;
   const s = sv(n);
   const go_ = (argv: string[]) => run([...argv, ...s], { server: n });
 
-  const swapTotal = i.swap.reduce((t: number, x: Any) => t + x.size, 0);
+  const swapTotal = i.swap.reduce((t, x) => t + x.size, 0);
   const d = i.docker;
   // Change buttons only where the CLI would do it: as admin, and not on a system that keeps it itself.
   const adm = i.root, set = adm && !i.managed;
@@ -38,9 +39,9 @@ export function SystemView({ n }: { n: string }) {
           ["Clock", i.ntp === true ? <Badge kind="ok">synced</Badge> : i.ntp === false ? <Badge kind="warn">not synced</Badge> : <span className="faint">unknown</span>],
           ["Swap", <>
             {swapTotal
-              ? <>{size(swapTotal)} <span className="faint">{i.swap.map((x: Any) => `${x.file} · ${size(x.used)} used`).join(", ")}</span></>
+              ? <>{size(swapTotal)} <span className="faint">{i.swap.map((x) => `${x.file} · ${size(x.used)} used`).join(", ")}</span></>
               : <><Badge kind={i.mem < 4 * 1024 ** 3 ? "warn" : ""}>none</Badge> <span className="faint">{size(i.mem)} memory</span></>}{" "}
-            {!set ? null : i.swap.some((x: Any) => x.file === "/swapfile")
+            {!set ? null : i.swap.some((x) => x.file === "/swapfile")
               ? <Btn cls="ghost sm danger" on={() => confirmDlg({ title: `Remove the swap file on ${n}?`, text: "What is swapped out moves back to memory first.", ok: "Remove it", danger: true, onOk: () => go_(["swap", "off", "-y"]) })}>Remove</Btn>
               : swapTotal ? null : <Btn cls="ghost sm" on={() => addSwapDlg(n, i)}>Add</Btn>}
           </>],
@@ -60,10 +61,10 @@ export function SystemView({ n }: { n: string }) {
   if (i.init !== "other") {
     const all = S.allSvcs[n];
     const shown = i.services
-      .filter((x: Any) => all || SVC_FAILED(x) || isKey(x) || (i.init === "openrc" && SVC_UP(x)))
-      .sort((a: Any, b: Any) => (+SVC_FAILED(b) - +SVC_FAILED(a)) || (+isKey(b) - +isKey(a)) || a.unit.localeCompare(b.unit));
+      .filter((x) => all || SVC_FAILED(x) || isKey(x) || (i.init === "openrc" && SVC_UP(x)))
+      .sort((a, b) => (+SVC_FAILED(b) - +SVC_FAILED(a)) || (+isKey(b) - +isKey(a)) || a.unit.localeCompare(b.unit));
     const nFailed = i.services.filter(SVC_FAILED).length;
-    const row = (x: Any) => {
+    const row = (x: SystemService) => {
       const u = svcName(x.unit);
       const ssh = /^sshd?$/.test(u), core = /^(docker|containerd)$/.test(u);
       const stop = () => confirmDlg({
@@ -109,7 +110,7 @@ export function SystemView({ n }: { n: string }) {
         <Actions><Btn cls="sm" on={() => addKeyDlg(n)}>Add key</Btn></Actions>
       </CardHead>
       <Table head={<><th>User</th><th>Comment</th><th className={HIDE}>Key</th><th><span className={SR}>Actions</span></th></>}>
-        {i.keys.length ? i.keys.map((k: Any) => {
+        {i.keys.length ? i.keys.map((k) => {
           const label = k.comment || k.fingerprint.slice(7, 19);
           const rm = () => confirmDlg({
             title: `Remove ${label} from ${k.user}?`,
@@ -133,10 +134,10 @@ export function SystemView({ n }: { n: string }) {
     </Card>
   );
 
-  const banned: { ip: string; jail: string }[] = i.jails.flatMap((j: Any) => j.ips.map((ip: string) => ({ ip, jail: j.name })));
+  const banned: { ip: string; jail: string }[] = i.jails.flatMap((j) => j.ips.map((ip: string) => ({ ip, jail: j.name })));
   const bans = i.fail2ban === "running" ? (
     <Card>
-      <CardHead>Bans <Badge kind={banned.length ? "warn" : ""}>{banned.length}</Badge> <Sub>fail2ban · {i.jails.map((j: Any) => `${j.name}: ${j.total} in total`).join(", ")}</Sub></CardHead>
+      <CardHead>Bans <Badge kind={banned.length ? "warn" : ""}>{banned.length}</Badge> <Sub>fail2ban · {i.jails.map((j) => `${j.name}: ${j.total} in total`).join(", ")}</Sub></CardHead>
       <Table head={<><th>IP</th><th>Jail</th><th><span className={SR}>Actions</span></th></>}>
         {banned.length ? banned.map((b) => (
           <tr key={`${b.jail}${b.ip}`}>
@@ -163,9 +164,9 @@ export function rebootDlg(n: string) {
 
 const LEVEL: Record<string, string> = { risk: "bad", warn: "warn", info: "" };
 /** What `lf security` says, with its fixes as buttons. */
-function securityCard(n: string, i: Any) {
-  const adv: Any[] = i.advice ?? [];
-  const fix = (a: Any) => {
+function securityCard(n: string, i: SystemInfo) {
+  const adv: Advice[] = i.advice ?? [];
+  const fix = (a: Advice) => {
     const f = a.fix;
     if (!f) return null;
     // A key pair for someone else: say where it goes before making it.
@@ -235,7 +236,7 @@ function changeTz(n: string, old: string) {
     },
   });
 }
-function addSwapDlg(n: string, i: Any) {
+function addSwapDlg(n: string, i: SystemInfo) {
   const gb = 1024 ** 3;
   // Rule of thumb: as much as memory up to 2 GB, never more than a tenth of the free disk.
   const pick = Math.max(0.5, Math.min(i.mem > 2 * gb ? 2 : 1, Math.floor((i.diskFree / gb / 10) * 2) / 2));
@@ -249,7 +250,7 @@ function addSwapDlg(n: string, i: Any) {
     },
   });
 }
-function logLimitDlg(n: string, d: Any) {
+function logLimitDlg(n: string, d: NonNullable<SystemInfo["docker"]>) {
   dialog({
     title: `Docker log limit on ${n}`,
     text: "Caps the log Docker keeps per container. It applies to containers created afterwards: redeploy or restart sites to apply it to them.",

@@ -1,4 +1,5 @@
-import { S, ago, plural, tilde, type Any } from "../lib/store";
+import { S, ago, plural, tilde } from "../lib/store";
+import type { Remembered, ServerEntry } from "../lib/types";
 import { go } from "../lib/api";
 import { Badge, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
 import { addServer, defaultsDialog, deployFrom, folderDialog, redeploy } from "./flows";
@@ -8,14 +9,14 @@ const H3 = "m-0 mb-2 text-xs font-medium text-faint uppercase tracking-[.04em]";
 
 export function HomeView() {
   const st = S.state;
-  const list: Any[] = st.servers;
+  const list: ServerEntry[] = st.servers;
   const own = list.filter((s) => s.registered).sort((a, b) => reachRank(a.name) - reachRank(b.name));
   const d = st.defaults;
-  const def: string | undefined = d.default;
+  const def = d.default ?? undefined;
   const count = reachCount(list);
   const stat = (k: keyof typeof count, word: string) => (count[k] ? <span><Dot kind={REACH_KIND[k]} />{count[k]} {word}</span> : null);
   const status = S.reaching ? <span><Spin className="size-2.5!" /> checking ssh login…</span> : S.reachedAt ? <>{stat("ok", "reachable")}{stat("login", "login refused")}{stat("down", "unreachable")}</> : null;
-  const projects: Any[] = st.projects ?? [];
+  const projects: Remembered[] = st.projects ?? [];
   const recent = projects.slice(0, 6);
   const paths = (l: { path: string; what: string }[]) => (
     <dl className="m-0 text-sm">

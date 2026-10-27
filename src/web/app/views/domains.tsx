@@ -1,4 +1,5 @@
-import { S, plural, sv, tilde, type Any } from "../lib/store";
+import { S, plural, sv, tilde } from "../lib/store";
+import type { Detected, Overview, SiteStatus } from "../lib/types";
 import { fetchInto, go, refreshState } from "../lib/api";
 import { run, ifOk } from "../lib/jobs";
 import { toast } from "../ui/toast";
@@ -15,15 +16,15 @@ export function copy(text: string) {
 }
 
 const servedByOther = (n: string, site: string, d: string): string | undefined =>
-  S.overview[n]?.data?.sites.find((s: Any) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
+  S.overview[n]?.data?.sites.find((s) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
 
 /**
  * Everything about a site in one form: its domains, login, environment and, deployed from here, how it builds.
  * Each section that changed runs its own lf command, one after the other; a build change redeploys.
  */
-export function siteSettings(n: string, site: Any) {
+export function siteSettings(n: string, site: SiteStatus) {
   const m = site.meta;
-  const proj = m.adopted ? undefined : (S.state.projects ?? []).find((p: Any) => p.server === n && p.name === m.name);
+  const proj = m.adopted ? undefined : (S.state.projects ?? []).find((p) => p.server === n && p.name === m.name);
   if (!proj) return settingsDialog(n, site);
   delete S.det[proj.path];
   browse(proj.path).then((x) => settingsDialog(n, site, proj.path, x.detected, proj.environment), () => settingsDialog(n, site));
@@ -31,9 +32,9 @@ export function siteSettings(n: string, site: Any) {
 
 /** The values a form starts with. */
 const defaults = (specs: Spec[]): Values =>
-  Object.assign({}, ...specs.map((x: Any) => (x.fields ? defaults(x.fields) : x.row ? defaults(x.row) : { [x.name]: x.value ?? (x.type === "check" ? false : "") })));
+  Object.assign({}, ...specs.map((x) => ("fields" in x ? defaults(x.fields) : "row" in x ? defaults(x.row) : { [x.name]: x.value ?? (x.type === "check" ? false : "") })));
 
-function settingsDialog(n: string, site: Any, path?: string, det?: Any, environment?: string) {
+function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detected, environment?: string) {
   const { meta: m, main: svc } = site;
   const name: string = m.name;
   const managed = site.state === "managed";
@@ -152,15 +153,15 @@ function settingsDialog(n: string, site: Any, path?: string, det?: Any, environm
 }
 
 /** Check the sites' domains (DNS and HTTPS) once, again when forced. Call it from an effect. */
-export function ensureDns(n: string, o: Any, force = false) {
+export function ensureDns(n: string, o: Overview | undefined, force = false) {
   if ((S.dns[n] && !force) || S.dns[n]?.loading || !o?.sites.length) return;
-  const domains = [...new Set(o.sites.flatMap((x: Any) => x.domains))];
+  const domains = [...new Set(o.sites.flatMap((x) => x.domains))];
   fetchInto("dns", n, `/dns?domains=${encodeURIComponent(domains.join(","))}`);
 }
 
 /** A site's domain as a link, with a dot for its DNS and HTTPS check and a copy button. */
 export function DomainChip({ n, d }: { n: string; d: string }) {
-  const c = S.dns[n]?.data?.domains.find((x: Any) => x.domain === d);
+  const c = S.dns[n]?.data?.domains.find((x) => x.domain === d);
   const url = `https://${d}`;
   let dot = "", title = "checking…";
   if (c) {

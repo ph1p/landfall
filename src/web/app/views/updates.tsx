@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { S, plural, render, sv, type Any } from "../lib/store";
+import { S, plural, render, sv } from "../lib/store";
 import { fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { confirmDlg } from "../ui/dialog";
@@ -14,14 +14,14 @@ const IMG: Record<string, [string, string]> = { current: ["ok", "up to date"], u
 export function updatesBadge(n: string): ReactNode | null {
   const d = S.updates[n]?.data;
   if (!d) return null;
-  const k = d.packages.updates.length + d.images.filter((i: Any) => i.state === "update").length;
-  const sec = d.packages.updates.some((u: Any) => u.security);
+  const k = d.packages.updates.length + d.images.filter((i) => i.state === "update").length;
+  const sec = d.packages.updates.some((u) => u.security);
   return k ? <>{" "}<Badge kind={sec ? "warn" : ""}>{k}</Badge></> : null;
 }
 
 export function refreshUpdates(n: string) {
   // Drops what is shown, for the refreshing spinner.
-  S.updates[n] = { refreshing: true } as Any;
+  S.updates[n] = { refreshing: true };
   fetchInto("updates", n, "/updates?refresh=1");
   render();
 }
@@ -43,12 +43,12 @@ const EngineLine = ({ have, latest, old, how }: { have: string; latest?: string;
 
 /** Package upgrades, the Docker engine and compose, and the images of Traefik and the sites. */
 export function UpdatesView({ n }: { n: string }) {
-  const st = S.updates[n] as Any;
+  const st = S.updates[n];
   const wait = pending(st, st?.refreshing ? "refreshing package lists…" : "checking packages and images…", () => load(n, "updates", true));
   if (wait) return wait;
-  const { packages: p, images, engine: e } = st.data;
+  const { packages: p, images, engine: e } = st!.data!;
   const s = sv(n);
-  const sec = p.updates.filter((u: Any) => u.security);
+  const sec = p.updates.filter((u) => u.security);
   const upgrade = (flags: string[], what: string, k: number) =>
     confirmDlg({
       title: `Upgrade ${what} on ${n}?`,
@@ -60,7 +60,7 @@ export function UpdatesView({ n }: { n: string }) {
   // Package upgrades need a package manager and root (the CLI's can.packages).
   const pkgOk = p.mgr !== "none" && (can(n)?.packages ?? true);
   const shown = p.updates.slice(0, 200);
-  const imgUpdates = images.filter((i: Any) => i.state === "update");
+  const imgUpdates = images.filter((i) => i.state === "update");
   const updImg = (names: string[]) =>
     confirmDlg({
       title: `Update ${names.join(", ")}?`,
@@ -97,7 +97,7 @@ export function UpdatesView({ n }: { n: string }) {
           </CardHead>
           {shown.length > 0 && (
             <Table head={<><th>Package</th><th className={HIDE}>Installed</th><th>New</th><th></th></>}>
-              {shown.map((u: Any) => (
+              {shown.map((u) => (
                 <tr key={u.name}>
                   <td className="mono">{u.name}</td>
                   <td className={cx("mono dim", HIDE)}>{u.from ?? ""}</td>
@@ -111,7 +111,7 @@ export function UpdatesView({ n }: { n: string }) {
           {!pkgOk && <p className="dim">{S.facts[n]?.data?.why?.packages ?? ""}</p>}
         </Card>
       )}
-      {!e.docker && can(n) && !can(n).docker ? null : (
+      {!e.docker && can(n)?.docker === false ? null : (
         <>
           <Card>
             <CardHead>
@@ -133,11 +133,11 @@ export function UpdatesView({ n }: { n: string }) {
           <Card>
             <CardHead>
               Images <Sub>Traefik and sites</Sub>
-              <Actions>{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i: Any) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
+              <Actions>{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
             </CardHead>
             <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
               {images.length ? (
-                images.map((i: Any) => {
+                images.map((i) => {
                   const [cls, label] = IMG[i.state] ?? ["", i.state];
                   const pullable = i.state === "update" || i.state === "unknown";
                   return (
