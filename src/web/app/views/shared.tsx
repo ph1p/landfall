@@ -96,5 +96,6 @@ const SECTION_IF: Partial<Record<Tab, (k: Any) => unknown>> = {
   traefik: (k) => k.docker,
   updates: (k) => k.packages || k.docker,
   firewall: (k) => k.firewall,
+  users: (k) => k.users,
 };
 export const sections = (n: string) => SECTIONS.filter(([t]) => !can(n) || (SECTION_IF[t]?.(can(n)) ?? true));

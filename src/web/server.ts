@@ -14,7 +14,8 @@ import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
 import { SITE_NAME, overview } from "../remote";
 import { parseSince } from "../traffic";
-import { configView, defaultsView, diskView, dnsView, factsView, firewallView, historyView, pruneView, statsView, systemView, trafficView, certsView, updatesView } from "../views";
+import { USER_NAME } from "../users";
+import { configView, defaultsView, diskView, dnsView, factsView, firewallView, historyView, pruneView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../views";
 import { newRunId, setQuiet } from "../ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../templates";
 import { c, openUrl } from "../ui";
@@ -182,7 +183,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
       projects: loadProjects(),
       defaultImage: DEFAULT_TRAEFIK_IMAGE,
       // The CLI's own input rules, so forms reject what the command would.
-      rules: { loginName: LOGIN_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source },
+      rules: { loginName: LOGIN_NAME.source, userName: USER_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source },
       paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },
       defaults: defaultsView(),
       servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: cfg.servers[e.name] ?? null })),
@@ -207,6 +208,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
     if (method === "GET" && sub === "disk") return json(await diskView(server));
     if (method === "GET" && sub === "prune") return json(await pruneView(server));
     if (method === "GET" && sub === "system") return json(await systemView(name, server));
+    if (method === "GET" && sub === "users") return json(await usersView(server));
     if (method === "GET" && sub === "updates") return json(await updatesView(server, new URL(req.url).searchParams.get("refresh") === "1"));
     if (method === "GET" && sub === "traffic") return json(await trafficView(server, parseSince(new URL(req.url).searchParams.get("since") ?? "24h")));
     if (method === "GET" && sub === "certs") return json(await certsView(server));

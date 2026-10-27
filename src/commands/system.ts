@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, expandHome, projectServer, tildify } from "../config";
+import { checkInt, projectServer, tildify, type Server } from "../config";
 import { generateKey } from "../security";
 import { bytes } from "../facts";
 import { sshExec } from "../ssh";
@@ -13,6 +12,7 @@ import {
   addSwap,
   parseKeyLine,
   parseSwapSize,
+  readKey,
   removeKey,
   removeSwap,
   serviceAction,
@@ -154,12 +154,10 @@ export const keysList = defineCommand({
   },
 });
 
-/** A key line as given, or the contents of a .pub file. */
-function readKey(arg: string): string {
-  const p = expandHome(arg);
-  const line = !/^\S+ AAAA/.test(arg) && fs.existsSync(p) ? fs.readFileSync(p, "utf8").trim().split("\n")[0] : arg.trim();
-  if (!parseKeyLine(line)) fail(`not a public key: ${arg} (a line like ssh-ed25519 AAAA… or a .pub file)`);
-  return line;
+/** How to log in as user: with keyFile, or with whatever key ssh offers. */
+export function loginHint(server: Server, user: string, keyFile?: string) {
+  const eff = effectiveSsh(server);
+  return `ssh${keyFile ? ` -i ${tildify(keyFile)}` : ""}${eff.port !== 22 ? ` -p ${eff.port}` : ""} ${user}@${eff.hostname}`;
 }
 
 export const keysAdd = defineCommand({
@@ -188,7 +186,7 @@ whoever logs in as that user, or keep it if that is you.`,
     ok(`${k.comment || shortFp(k)} may log in to ${name} as ${user}`);
     if (made) {
       info(`${made.created ? "private key" : "used the existing key"}: ${tildify(made.path)}`);
-      info(`log in: ssh -i ${tildify(made.path)}${eff.port !== 22 ? ` -p ${eff.port}` : ""} ${user}@${eff.hostname}`);
+      info(`log in: ${loginHint(server, user, made.path)}`);
       if (made.created && !made.passphrase) info(c.dim(`it has no passphrase; add one with ssh-keygen -p -f ${tildify(made.path)}`));
       report({ keyFile: made.path });
     }

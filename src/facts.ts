@@ -6,6 +6,7 @@ import { runScript } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { OS_RELEASE, PRELUDE } from "./templates";
+import { fail } from "./ui";
 
 /** What a server runs on: distro, hardware, addresses. Read-only. */
 const FACTS = String.raw`
@@ -31,6 +32,8 @@ if [ -d /run/systemd/system ]; then kv init systemd; elif command -v rc-service 
 kv user "$(id -un)"
 kv admin "$({ [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; } && echo 1)"
 kv ufw "$(command -v ufw >/dev/null 2>&1 && echo 1)"
+# useradd (shadow) or busybox's adduser; /usr/sbin is not on a plain user's PATH.
+kv usertool "$(PATH="$PATH:/usr/sbin:/sbin"; command -v useradd >/dev/null 2>&1 && echo useradd || { command -v adduser >/dev/null 2>&1 && echo adduser; })"
 # The source address of the default route; behind NAT that is a private one.
 kv ip4 "$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
 kv ip6 "$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | sed -n 's/.* src \([0-9a-fA-F:]*\).*/\1/p' | head -n1)"
@@ -45,7 +48,7 @@ export interface Support {
 }
 
 /** What landfall can do on a server; `why` says what is missing for each false one. */
-const CAPS = ["setup", "packages", "docker", "compose", "firewall", "services", "admin"] as const;
+const CAPS = ["setup", "packages", "docker", "compose", "firewall", "services", "admin", "users"] as const;
 export type Cap = (typeof CAPS)[number];
 export interface Caps {
   can: Record<Cap, boolean>;
@@ -81,6 +84,8 @@ export interface Facts {
   user: string;
   admin: boolean;
   ufw: boolean;
+  /** What adds users: useradd, busybox's adduser, or empty. */
+  usertool: string;
   ip4: string;
   ip6: string;
   reboot: boolean;
@@ -117,6 +122,7 @@ export function parseFacts(out: string, today = new Date()): Facts {
     user: v.user ?? "",
     admin: v.admin === "1",
     ufw: v.ufw === "1",
+    usertool: v.usertool ?? "",
     ip4: v.ip4 ?? "",
     ip6: v.ip6 ?? "",
     reboot: v.reboot === "1",
@@ -149,6 +155,7 @@ export function capabilities(f: Facts, rootKey = false): Caps {
   need("compose", docker && !!f.compose, docker ? "docker has no compose plugin (v2)" : why.docker!);
   need("firewall", !noUfw(f.platform, f.pkg, f.ufw) && admin, noUfw(f.platform, f.pkg, f.ufw) ?? why.admin!);
   need("services", f.init !== "other", "no systemd or OpenRC");
+  need("users", !p?.users && !!f.usertool && admin, p?.users ?? (f.usertool ? why.admin! : "no useradd or adduser to manage users with"));
   const can = Object.fromEntries(CAPS.map((k) => [k, !why[k]])) as Caps["can"];
   return { can, why };
 }
@@ -157,6 +164,14 @@ export function capabilities(f: Facts, rootKey = false): Caps {
 export function noUfw(platform: string, pkg: string, ufw: boolean): string | undefined {
   if (PLATFORM[platform]?.firewall) return PLATFORM[platform].firewall;
   if (!ufw && pkg === "none") return `no ufw, and ${NO_PKG} to install it`;
+}
+
+/** Fails, saying why, unless landfall can do `cap` on s: the same check the web UI hides a section by. */
+export async function requireCap(s: Server, cap: Cap, what: string): Promise<Facts> {
+  const f = await facts(s);
+  const k = await serverCaps(s, f);
+  if (!k.can[cap]) fail(`cannot ${what} on ${s.host}: ${k.why[cap]}`);
+  return f;
 }
 
 /** capabilities(), trying root's key login (as adminLogin does) only when the login itself has no sudo. */
@@ -200,12 +215,13 @@ const EOL: Record<string, string> = {
 };
 
 /** Systems that bring their own way of installing things: setup stays away from them. */
-export const PLATFORM: Record<string, { name: string; docker: string; firewall?: string; bans?: string }> = {
+export const PLATFORM: Record<string, { name: string; docker: string; firewall?: string; bans?: string; users?: string }> = {
   synology: {
     name: "Synology DSM manages its packages, users, ssh and firewall itself",
     docker: "install Container Manager in Package Center",
     firewall: "DSM has its own firewall: Control Panel → Security → Firewall",
     bans: "DSM bans addresses that keep failing to log in itself: Control Panel → Security → Protection → Auto Block",
+    users: "DSM manages its users itself: Control Panel → User & Group",
   },
   steamos: { name: "SteamOS resets the system on every OS update", docker: "install Docker in your home directory" },
 };

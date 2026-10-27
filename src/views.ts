@@ -15,6 +15,7 @@ import { securityOf } from "./security";
 import { certs, checkUrl, traffic } from "./traffic";
 import { effectiveSsh, findHostBlock, SSH_CONFIG } from "./sshconfig";
 import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
+import { listUsers } from "./users";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
 
 /** `lf firewall --json`: rules numbered as `lf firewall remove <n>` takes them. */
@@ -47,6 +48,11 @@ export const pruneView = (server: Server) => prunePlan(server);
 /** `lf system --json`. */
 export async function systemView(name: string, server: Server) {
   return securityOf(name, server);
+}
+
+/** `lf users --json`: fails (as the CLI does) where landfall may not manage users. */
+export async function usersView(server: Server) {
+  return listUsers(server);
 }
 
 /** `lf history --json`: newest first, with how many steps each run can still undo. */

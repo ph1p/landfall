@@ -127,6 +127,8 @@ export const domainOk = (d: string) => new RegExp(S.state.rules.domain, "i").tes
 export const portError = (x: string) => x && !(/^\d+$/.test(x) && +x >= 1 && +x <= 65535) && "A port from 1 to 65535";
 /** For a field's check: what is wrong with a login's user or password (lf newLogin's rules). */
 export const userError = (user: string) => !new RegExp(S.state.rules.loginName).test(user) && "Only letters, digits and . _ @ -";
+/** For a field's check: an SSH public key line (the .pub file), or nothing. */
+export const keyError = (k: string) => k && !/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(k.split("\n")[0]) && "That does not look like a public key (the .pub file)";
 export const passwordError = (pw: string) => pw.length < S.state.rules.minPassword && `The password needs at least ${S.state.rules.minPassword} characters`;
 
 /**

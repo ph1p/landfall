@@ -15,6 +15,7 @@ export const S = {
   firewall: {} as Store,
   det: {} as Record<string, Any>, // project folder -> what /api/fs detected there (null while reading, false if it failed)
   system: {} as Store,       // name -> {data: lf system --json}
+  users: {} as Store,        // name -> {data: lf users --json}
   history: {} as Store,
   updates: {} as Store,
   facts: {} as Store,
