@@ -220,7 +220,7 @@ export function Stack({ d, className }: { d: Any; className?: string }) {
 export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
   const built = d.build ? <> · builds with <code>{d.build}</code> first</> : null;
   const what: ReactNode =
-    d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; x-landfall picks the routed service</>
+    d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; {d.analysis?.auto ? "no x-landfall, so its HTTP ports are routed" : "x-landfall picks the routed services"}<ComposePlan a={d.analysis} /></>
     : d.kind === "image" ? <>Docker image <code>{d.project?.image ?? ""}</code> (from .landfall.json)</>
     : d.kind === "dockerfile" && d.start ? (
       <>
@@ -232,7 +232,23 @@ export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
     : d.dir ? <>Static files from <code>{d.dir === "." ? "./" : d.dir + "/"}</code>{d.tool ? ` (where ${d.tool} builds the site)` : ""}{d.spa ? " (single-page app)" : ""}{built}</>
     : d.build ? <>Static site, built with <code>{d.build}</code> first</>
     : <span className="text-warn">No compose.yaml, Dockerfile, index.html or build script here.</span>;
-  return <>{what}{before && d.project?.server ? <> <span className="dim">· deployed before to {d.project.server}</span></> : null}</>;
+  return <>{what}{before && d.project?.server ? <> <span className="dim">· deployed before to {d.project.server}{d.project.domains?.length ? ` as ${d.project.domains.join(", ")}` : ""}</span></> : null}</>;
+}
+
+/** A compose project's route plan as a deploy would make it: service:port to domains, private ports, problems. */
+function ComposePlan({ a }: { a?: Any }) {
+  if (!a) return null;
+  const priv = (a.services ?? []).flatMap((s: Any) => Object.entries(s.private ?? {}).map(([k, p]) => `${k} (${s.name}:${p})`));
+  return (
+    <span className="block mt-1.5">
+      {a.routes?.map((r: Any) => (
+        <span key={`${r.service}:${r.port}`} className="block"><code>{r.service}:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span></span>
+      ))}
+      {priv.length > 0 && <span className="block dim">private (lf tunnel): {priv.join(", ")}</span>}
+      {[...(a.errors ?? []), ...(a.warnings ?? [])].map((e: string) => <span key={e} className="block text-warn">{e}</span>)}
+      {a.notes?.map((n: string) => <span key={n} className="block dim">{n}</span>)}
+    </span>
+  );
 }
 const DETECTED = "text-md px-3 py-2.5 rounded-md bg-hover";
 

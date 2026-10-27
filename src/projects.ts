@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { configDir, environmentOf, loadProject, saveProject, type ProjectConfig } from "./config";
-import { COMPOSE_FILES, type SiteKind } from "./compose";
+import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, type ProjectConfig } from "./config";
+import { analyze, COMPOSE_FILES, localCompose, routePlan, type Analysis, type SiteKind } from "./compose";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 
@@ -155,6 +155,8 @@ export interface Detected {
   worker?: boolean;
   /** It has a package.json: it could run as a Node.js app. */
   node?: boolean;
+  /** Compose: its services as a deploy reads them (auto mode without x-landfall), or why the file cannot be read. */
+  analysis?: Analysis & { routes: { service: string; port: number; domains: string[]; main?: boolean }[] };
   /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
   /** Its languages, framework and tools, for the chips that show what landfall found. */
@@ -169,11 +171,29 @@ export function composeFile(path: string, project?: Partial<ProjectConfig>): str
 }
 
 /** What `lf deploy` would do with a folder, without running anything. */
+/**
+ * The local compose file read as a deploy would: routes and private ports, with the site's domains (saved, else
+ * `<name>.<server domain>` as on a first deploy) and dotless names under the server's main domain.
+ */
+function analyzeLocal(path: string, file: string, project?: ProjectConfig): Detected["analysis"] {
+  const cfg = loadConfig();
+  const server = cfg.servers[project?.server ?? cfg.default ?? ""] ?? (Object.keys(cfg.servers).length === 1 ? Object.values(cfg.servers)[0] : undefined);
+  const expand = (d: string) => (server && (d === "@" || !d.includes(".")) && mainDomain(server) ? expandDomain(d, server) : d);
+  try {
+    const a = analyze(localCompose(path, file), resolve(path), expand, { auto: true });
+    const main = server && mainDomain(server);
+    const site = project?.domains?.length ? project.domains.map(expand) : main ? [`${project?.name ?? slug(basename(path))}.${main}`] : ["<site domain>"];
+    return { ...a, routes: routePlan(a.services, site) };
+  } catch (e: any) {
+    return { services: [], errors: [`cannot read ${file}: ${e?.message ?? e}`], warnings: [], notes: [], routes: [] };
+  }
+}
+
 export function detectProject(path: string): Detected {
   const project = loadProject(path);
   const name = project?.name ?? slug(basename(path));
   const compose = composeFile(path, project);
-  if (compose) return { path, name, kind: "compose", compose, project, stack: detectStack(path) };
+  if (compose) return { path, name, kind: "compose", compose, analysis: analyzeLocal(path, compose, project), project, stack: detectStack(path) };
   const runs = { volumes: project?.volumes, worker: project?.worker };
   if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path) };
   const has = (f: string) => fs.existsSync(join(path, f));

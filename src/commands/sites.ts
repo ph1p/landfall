@@ -332,8 +332,9 @@ export const sitesSecret = defineCommand({
 
 export const sitesTunnel = defineCommand({
   name: "tunnel",
-  args: "[name] [service]",
+  args: "[name] [service|private]",
   summary: `Open a site on localhost through an SSH tunnel, straight to its container.
+A name from x-landfall.private (lf tunnel blog admin) opens that port.
 
 Nothing changes on the server: no port is published and its domains stay as they are,
 so it also works for a site with no domain. Traefik is bypassed: no HTTPS and no login.
@@ -351,13 +352,19 @@ The tunnel stays open until Ctrl-C.`,
     if (!meta) return foreignTunnel(server, site, svc, proxy.network, o);
     if (isOld(meta)) fail(`${site} was deployed by an older landfall: run \`lf deploy\` in its project once to move it to a Compose project`);
     const release = currentRelease(meta);
-    const service = svc ? release?.services.find((x) => x.name === svc) : (siteMain(meta) ?? release?.services.find(routed));
-    if (svc && release && !service) fail(`${site} has no service ${svc} (${release.services.map((x) => x.name).join(", ")})`);
+    // A service by name, else a port named in x-landfall.private: lf tunnel blog admin.
+    const named = svc ? release?.services.find((x) => x.name === svc) : undefined;
+    const hidden = svc && !named ? release?.services.find((x) => x.private?.[svc] !== undefined) : undefined;
+    const service = named ?? hidden ?? (svc ? undefined : (siteMain(meta) ?? release?.services.find(routed)));
+    if (svc && release && !service) {
+      const names = release.services.flatMap((x) => [x.name, ...Object.keys(x.private ?? {})]);
+      fail(`${site} has no service or private port ${svc} (${names.join(", ")})`);
+    }
     const name = service?.name ?? svc;
     if (!name) fail(`which service of ${site}? lf tunnel ${site} <service>`);
     const ctr = await findContainer(server, [`label=com.docker.compose.project=${projectName(meta)}`, `label=com.docker.compose.service=${name}`]);
     if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
-    await tunnelTo(server, ctr!, proxy.network, o.port ?? service?.port, { local: o.local, lan: o.lan, what: `${site}${svc ? ` (${name})` : ""}` });
+    await tunnelTo(server, ctr!, proxy.network, o.port ?? (hidden ? hidden.private![svc!] : service?.port), { local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
   },
 });
 

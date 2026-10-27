@@ -143,3 +143,30 @@ export function openUrl(url: string) {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
   spawn(cmd, [url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
 }
+
+/** A line diff of a file landfall rewrites, changed lines with one line of context. */
+export function showDiff(file: string, before: string, after: string) {
+  const a = before.split("\n");
+  const b = after.split("\n");
+  // Longest common subsequence, from the end: small files only (compose files).
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const lines: [" " | "-" | "+", string][] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) lines.push([" ", a[i++]]), j++;
+    else if (i < a.length && (j === b.length || lcs[i + 1][j] >= lcs[i][j + 1])) lines.push(["-", a[i++]]);
+    else lines.push(["+", b[j++]]);
+  }
+  const near = (k: number) => lines.slice(Math.max(0, k - 1), k + 2).some(([t]) => t !== " ");
+  console.log(c.bold(`--- ${file}`));
+  let gap = false;
+  lines.forEach(([t, l], k) => {
+    if (t === " " && !near(k)) return void (gap = true);
+    if (gap) console.log(c.dim("  …"));
+    gap = false;
+    console.log(t === "+" ? c.green(`+ ${l}`) : t === "-" ? c.red(`- ${l}`) : c.dim(`  ${l}`));
+  });
+}
+

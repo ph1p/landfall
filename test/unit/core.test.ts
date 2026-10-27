@@ -29,7 +29,7 @@ import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NA
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
-import { analyze, envComposeFile, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
+import { adoptCompose, analyze, envComposeFile, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -249,6 +249,95 @@ describe("templates", () => {
     expect(bad.errors.join("\n")).toMatch(/db publishes 5432:5432/);
     expect(bad.errors.join("\n")).toMatch(/writes to \.\/data/);
     expect(analyze({ services: { db: { image: "p" } } }, dir)).toMatchObject({ errors: [], warnings: [expect.stringMatching(/no service is routed/)] });
+  });
+
+  test("routes and private ports in x-landfall", () => {
+    const dir = "/opt/landfall/sites/blog/releases/1";
+    const a = analyze(
+      {
+        services: {
+          web: { build: { context: dir }, "x-landfall": { port: 3000, routes: [{ port: 3001, subdomain: "admin" }, { port: 9000, domains: ["s3"] }], private: { cms: 3002 } } },
+        },
+      },
+      dir,
+      (d) => (d.includes(".") ? d : `${d}.x.io`),
+    );
+    expect(a.errors).toEqual([]);
+    expect(a.services[0]).toMatchObject({ port: 3000, routes: [{ port: 3001, subdomain: "admin" }, { port: 9000, domains: ["s3.x.io"] }], private: { cms: 3002 } });
+    expect(routePlan(a.services, ["a.com", "b.com"])).toEqual([
+      { service: "web", port: 3000, domains: ["a.com", "b.com"], main: true },
+      { service: "web", port: 3001, domains: ["admin.a.com", "admin.b.com"] },
+      { service: "web", port: 9000, domains: ["s3.x.io"] },
+    ]);
+    // a port routed and private, or routed twice, is a mistake
+    const bad = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, routes: [{ port: 3000, subdomain: "a" }], private: { x: 3000 } } } } }, dir);
+    expect(bad.errors.join("\n")).toMatch(/routed twice/);
+    expect(bad.errors.join("\n")).toMatch(/both routed and private/);
+    // subdomains hang off the main service's domains
+    expect(analyze({ services: { w: { image: "w", "x-landfall": { routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join()).toMatch(/no service serves them/);
+  });
+
+  test("route labels and override: a router per port, published ports reset", () => {
+    const svc = { name: "web", networks: ["default"], build: true, port: 3000, routes: [{ port: 3001, subdomain: "admin" }], unpublish: true };
+    const rel: Release = { id: "1", at: "", services: [svc] };
+    const m: SiteMeta = { ...meta, domains: ["a.com"], current: "1", releases: [rel] };
+    const y = overrideYaml(m, rel);
+    expect(y).toContain("ports: !reset []");
+    expect(y).toContain('"traefik.http.routers.blog_web.rule": "Host(`a.com`)"');
+    expect(y).toContain('"traefik.http.routers.blog_web_3001.rule": "Host(`admin.a.com`)"');
+    expect(y).toContain('"traefik.http.services.blog_web_3001.loadbalancer.server.port": "3001"');
+    expect(siteDomains(m)).toEqual(["a.com", "admin.a.com"]);
+    // site.json from before routes reads as it did
+    expect(siteDomains(meta)).toEqual(["a.com", "www.a.com", "admin.a.com"]);
+  });
+
+  test("auto mode routes a plain compose file's HTTP ports", () => {
+    const dir = "/opt/landfall/sites/blog/releases/1";
+    const config = {
+      services: {
+        web: { build: { context: dir }, ports: [{ target: 3000, published: "3000" }, { target: 3001, published: "3001" }] },
+        db: { image: "postgres", ports: [{ target: 5432, published: "5432" }] },
+        mail: { image: "mailpit", expose: ["8025", "1025"] },
+      },
+    };
+    expect(analyze(config, dir).errors.join()).toMatch(/publishes/);
+    const a = analyze(config, dir, undefined, { auto: true });
+    expect(a).toMatchObject({ auto: true, errors: [] });
+    expect(a.services).toEqual([
+      { name: "web", networks: ["default"], build: true, port: 3000, routes: [{ port: 3001, subdomain: "web-3001" }], unpublish: true },
+      { name: "db", networks: ["default"], unpublish: true },
+      { name: "mail", networks: ["default"], routes: [{ port: 8025, subdomain: "mail" }] },
+    ]);
+    expect(a.notes.join()).toMatch(/db: 5432 not published/);
+    // any x-landfall switches auto mode off
+    expect(analyze({ services: { ...config.services, web: { image: "w", "x-landfall": { port: 3000 } } } }, dir, undefined, { auto: true }).auto).toBeUndefined();
+  });
+
+  test("local compose file: variables and short ports as docker compose config has them", () => {
+    const dir = tmp();
+    fs.writeFileSync(join(dir, ".env"), "PORT=4000\n");
+    fs.writeFileSync(join(dir, "compose.yaml"), 'services:\n  web:\n    image: "w:${TAG:-1}"\n    ports: ["127.0.0.1:${PORT}:3000", 8080, "9000-9001:9000-9001/tcp", "53:53/udp"]\n');
+    const c = localCompose(dir, "compose.yaml");
+    expect(c.services.web.image).toBe("w:1");
+    expect(c.services.web.ports).toEqual([
+      { target: 3000, published: "4000", host_ip: "127.0.0.1", protocol: "tcp" },
+      { target: 8080, protocol: "tcp" },
+      { target: 9000, published: "9000-9001", protocol: "tcp" },
+      { target: 9001, published: "9000-9001", protocol: "tcp" },
+      { target: 53, published: "53", protocol: "udp" },
+    ]);
+  });
+
+  test("lf init on a compose file writes x-landfall and moves ports, keeping comments", () => {
+    const text = '# app\nservices:\n  web:\n    build: .\n    ports:\n      - "3000:3000" # local\n      - "3001:3001"\n';
+    const a = analyze(YAML.parse(text.replace(/"(\d+):(\d+)"/g, "{ target: $2, published: '$1' }")), "/x", undefined, { auto: true });
+    const r = adoptCompose(text, 'services:\n  web:\n    ports: ["3000:3000"]\n', a);
+    expect(r.compose).toContain("# app");
+    expect(YAML.parse(r.compose)).toEqual({ services: { web: { build: ".", "x-landfall": { port: 3000, routes: [{ port: 3001, subdomain: "web-3001" }] } } } });
+    expect(YAML.parse(r.override)).toEqual({ services: { web: { ports: ["3000:3000", "3001:3001"] } } });
+    expect(r.override).toContain('"3001:3001"');
+    const again = analyze(YAML.parse(r.compose), "/x", undefined, { auto: true });
+    expect(adoptCompose(r.compose, r.override, again)).toMatchObject({ routed: [], moved: [] });
   });
 
   test("traefik dashboard escapes $ for compose", async () => {

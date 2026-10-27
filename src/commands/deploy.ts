@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
-import { analyze, envComposeFile, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
+import { analyze, currentRelease, envComposeFile, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../ui";
@@ -218,11 +218,13 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
       }
       const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
-      const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
+      const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server), { auto: kind === "compose" });
       for (const w of a.warnings) warn(w);
+      if (a.auto && a.services.some(routed)) info(c.dim(`no x-landfall in ${compose ?? "compose.yaml"}: routing the HTTP ports it publishes or exposes (\`lf init\` writes them down)`));
+      for (const n of a.notes) info(c.dim(n));
       if (a.errors.length) fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
       release = { id, at: new Date().toISOString(), services: a.services };
-      const fixed = a.services.flatMap((s) => s.domains ?? []);
+      const fixed = fixedDomains(a.services);
 
       // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.
       // Those from .landfall.json never move from another site: that takes a -d.
@@ -251,9 +253,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (unrouted) info(c.dim(`${name} serves no domain: reach it with lf tunnel ${name}, give it one with lf domains ${name} --add <domain>`));
         if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
         if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
+        const subClash = subDomains(a.services, domains).filter((d) => domains.includes(d) || fixed.includes(d));
+        if (subClash.length) fail(`${subClash.join(", ")} would be routed twice: by a subdomain route and as a domain`);
       } else if (domainArgs?.length) warn(`-d ignored: ${release.services.some(routed) ? `every routed service of ${name} names its own x-landfall.domains` : `${name} serves no domain`}`);
 
-      move = await claimDomains(server, serverName, name, [...domains, ...fixed], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
+      showRoutes(a.services, domains, prev && currentRelease(prev));
+      move = await claimDomains(server, serverName, name, [...domains, ...fixed, ...subDomains(a.services, domains)], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
     } catch (e) {
       await discardRelease(server, name, id).catch(() => {});
       throw e;
@@ -316,6 +321,21 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
 
 /** Turn dotenv text into KEY=VALUE pairs, dropping comments and blanks. */
 
+
+/** What goes where, port by port; a route the live release did not have is marked new. */
+function showRoutes(services: Release["services"], domains: string[], live?: Release) {
+  const plan = routePlan(services, domains);
+  const before = new Set(live ? routePlan(live.services, domains).map((r) => `${r.service}:${r.port}`) : []);
+  const isNew = (r: (typeof plan)[number]) => !!live && !before.has(`${r.service}:${r.port}`);
+  const hidden = services.some((s) => s.private);
+  if (plan.length <= 1 && !plan.some(isNew) && !hidden) return;
+  info("routes:");
+  for (const r of plan) {
+    const fresh = isNew(r) ? c.yellow(" new") : "";
+    console.log(`  ${`${r.service}:${r.port}`.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${fresh}`);
+  }
+  for (const s of services) for (const [k, p] of Object.entries(s.private ?? {})) console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}`)}`);
+}
 
 async function checkLive(domain: string) {
   try {
