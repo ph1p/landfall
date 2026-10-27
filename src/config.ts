@@ -228,12 +228,29 @@ export interface ProjectConfig {
   volumes?: string[];
   /** App, Dockerfile or image: runs without a port or a domain (a bot, a queue consumer). */
   worker?: boolean;
+  /** Named targets (staging…): the same project deployed again as its own site, with what differs here. */
+  environments?: Record<string, EnvironmentConfig>;
 }
+
+/** An environment: its name (default <name>-<env>), server, domains (never inherited) and any other setting. */
+export type EnvironmentConfig = Partial<Omit<ProjectConfig, "environments">>;
+
+export const ENV_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+/** The environment picked with -E/--environment or LANDFALL_ENV; "" is the project itself. */
+export function activeEnvironment(): string {
+  const e = process.env.LANDFALL_ENV?.trim() ?? "";
+  if (e && !ENV_NAME.test(e)) fail(`"${e}" cannot name an environment: use lowercase letters, digits and -`);
+  return e;
+}
+
+/** A site name in an environment. */
+export const envSiteName = (name: string, env = activeEnvironment()) => (env ? `${name}-${env}` : name);
 
 /** The project file in a directory: .landfall.json, or the older one. */
 const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
-export function loadProject(cwd: string): ProjectConfig | undefined {
+function readProject(cwd: string): ProjectConfig | undefined {
   try {
     return JSON.parse(fs.readFileSync(projectFile(cwd), "utf8"));
   } catch {
@@ -241,9 +258,39 @@ export function loadProject(cwd: string): ProjectConfig | undefined {
   }
 }
 
+/** The settings of a project folder, or of one of its environments: the project's with the environment's on top. */
+export function loadProject(cwd: string, env = activeEnvironment()): ProjectConfig | undefined {
+  const raw = readProject(cwd);
+  if (!env || !raw) return raw;
+  const { environments, ...base } = raw;
+  const own = environments?.[env] ?? {};
+  return { ...base, domains: [], ...own, name: own.name ?? envSiteName(base.name, env) };
+}
+
+/** The environment of a project folder that deploys this site ("" the project itself), if any. */
+export function environmentOf(cwd: string, site: string): string | undefined {
+  const raw = readProject(cwd);
+  if (!raw) return undefined;
+  if (raw.name === site) return "";
+  return Object.keys(raw.environments ?? {}).find((e) => loadProject(cwd, e)?.name === site);
+}
+
 /** The server from --server, else the one in ./.landfall.json, else the default. */
 export const projectServer = (server?: string) => resolveServer(server ?? loadProject(process.cwd())?.server);
 
-export function saveProject(cwd: string, p: ProjectConfig) {
-  fs.writeFileSync(join(cwd, PROJECT_FILE), JSON.stringify(p, null, 2) + "\n");
+/** Writes a project's settings; in an environment only what differs from the project goes in its block. */
+export function saveProject(cwd: string, p: ProjectConfig, env = activeEnvironment()) {
+  const raw = readProject(cwd);
+  const { environments: _, ...next } = p;
+  let out: ProjectConfig;
+  if (!env) out = { ...next, ...(raw?.environments ? { environments: raw.environments } : {}) };
+  else {
+    // First deploy of the folder is an environment's: the project itself gets the name without the suffix.
+    const { environments, ...base } = raw ?? { name: p.name.replace(new RegExp(`-${env}$`), ""), server: p.server, domains: [] };
+    const own: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(next)) if (k === "domains" || JSON.stringify(v) !== JSON.stringify((base as any)[k])) own[k] = v;
+    if (own.name === envSiteName(base.name, env)) delete own.name;
+    out = { ...base, environments: { ...environments, [env]: own } };
+  }
+  fs.writeFileSync(join(cwd, PROJECT_FILE), JSON.stringify(out, null, 2) + "\n");
 }

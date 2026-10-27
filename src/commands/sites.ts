@@ -1,9 +1,11 @@
+import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../config";
-import { COMPOSE_FILES, currentRelease, isOld, OVERRIDE_FILES, projectName, routed, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
-import { adoptSite, changeSite, composeCmd, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
+import { COMPOSE_FILES, currentRelease, isOld, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
+import { bytes } from "../facts";
+import { adoptSite, changeSite, composeCmd, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSecrets, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
-import { ago, c, confirmRemoval, fail, info, ok, table } from "../ui";
+import { ago, c, confirm, confirmRemoval, fail, info, ok, table } from "../ui";
 import { slug } from "../projects";
 import { ctrAddress, type Ctr, findContainer, openTunnel, portScheme } from "../tunnel";
 
@@ -206,13 +208,31 @@ export const sitesEnv = defineCommand({
     server: serverOpt,
     unset: { type: "string", short: "u", multiple: true, desc: "remove KEY" },
     "env-file": { type: "string", desc: "also set the KEY=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
+    reveal: { type: "boolean", desc: "show the values (hidden by default)" },
+    keys: { type: "boolean", desc: "list the variable names only" },
+    json: { type: "boolean", desc: "machine-readable output (values only with --reveal)" },
+    pull: { type: "string", desc: "write the site's .env to this local file (mode 600; - prints it)" },
   },
   async run(pos, o) {
     const [n] = pos.filter((p) => !p.includes("="));
     const set = { ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("="))) };
     const { site, server } = target(n, o.server);
     const { env } = await requireSite(server, site, { deployed: "manage the .env of" });
-    if (!Object.keys(set).length && !o.unset?.length) return void process.stdout.write(env || c.dim("(empty)\n"));
+    if (!Object.keys(set).length && !o.unset?.length) {
+      if (o.pull === "-") return void process.stdout.write(env);
+      if (o.pull) {
+        if (fs.existsSync(o.pull) && !(await confirm(`${o.pull} exists. Overwrite it?`, false))) fail(`${o.pull} exists: pick another file`);
+        fs.writeFileSync(o.pull, env, { mode: 0o600 });
+        fs.chmodSync(o.pull, 0o600);
+        return ok(`wrote ${envEntries(env).length} variables of ${site} to ${o.pull}`);
+      }
+      if (o.json) return console.log(JSON.stringify(envView(env, o.reveal), null, 2));
+      if (o.keys) return void process.stdout.write(envEntries(env).map((e) => e.key + "\n").join(""));
+      if (!envEntries(env).length) return void process.stdout.write(c.dim("(empty)\n"));
+      if (o.reveal) return void process.stdout.write(env);
+      process.stdout.write(maskedEnv(env));
+      return void process.stderr.write(c.dim("values hidden: --reveal shows them\n"));
+    }
     const next = mergeEnv(env, set, o.unset ?? []);
     const keys = [...Object.keys(set), ...(o.unset ?? []).map((k: string) => `-${k}`)];
     await composeCmd(
@@ -224,6 +244,89 @@ record ${shq(`env ${site} ${keys.join(" ")}`)} "cd ${siteDir(site)} && $u && cd 
 ${writeFileCmd(".env", next, "600")}`,
     );
     ok(`updated env of ${site}`);
+  },
+});
+
+export const sitesSecret = defineCommand({
+  name: "secret",
+  args: "[name] [NAME=VALUE...]",
+  summary: "List or change a site's secret files; services read them at /run/secrets/<NAME>.",
+  options: {
+    server: serverOpt,
+    unset: { type: "string", short: "u", multiple: true, desc: "remove NAME" },
+    file: { type: "string", multiple: true, desc: "NAME=path: the content of a local file (keys, certificates)" },
+    "env-file": { type: "string", desc: "also set the NAME=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
+    json: { type: "boolean", desc: "machine-readable list (names and sizes, never values)" },
+    force: { type: "boolean", desc: "remove a secret its compose.yaml still uses" },
+  },
+  async run(pos, o) {
+    const [n] = pos.filter((p) => !p.includes("="));
+    const set = {
+      ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}),
+      ...parseEnvPairs(pos.filter((p) => p.includes("="))),
+      ...Object.fromEntries(
+        Object.entries(parseEnvPairs(o.file ?? [])).map(([k, f]) => {
+          if (!fs.existsSync(f)) fail(`--file ${k}=${f}: no such file`);
+          return [k, fs.readFileSync(f, "utf8")];
+        }),
+      ),
+    };
+    const unset: string[] = o.unset ?? [];
+    for (const k of [...Object.keys(set), ...unset]) if (!SECRET_NAME.test(k)) fail(`"${k}" cannot name a secret: use letters, digits, _ . -`);
+    const { site, server } = target(n, o.server);
+    const { meta, proxy } = await requireSite(server, site, { deployed: "manage the secrets of" });
+    if (meta.kind === "static") fail(`${site} serves static files: it has no service to give a secret to`);
+    const have = await readSecrets(server, site);
+
+    if (!Object.keys(set).length && !unset.length) {
+      if (o.json) return console.log(JSON.stringify({ secrets: have }, null, 2));
+      if (!have.length) return void process.stdout.write(c.dim(`(none) set one with: lf secret ${site} NAME=value\n`));
+      return table(have.map((h) => [h.key, c.dim(bytes(h.size)), c.dim(`/run/secrets/${h.key}`)]));
+    }
+
+    const missing = unset.filter((k) => !have.some((h) => h.key === k));
+    if (missing.length) fail(`${site} has no secret ${missing.join(", ")}`);
+    const config = await liveConfig(server, site);
+    const generated = meta.kind === "dockerfile" || meta.kind === "image";
+    const used = secretUsers(config, unset);
+    if (!generated && used.length && !o.force) fail(`${used.join(", ")} still use ${unset.join(", ")}: take it out of compose.yaml first, or pass --force`);
+    // Same file, new content: compose sees no change, so whoever mounts it starts again to read it.
+    const recreate = secretUsers(config, Object.keys(set));
+    const files = {
+      ...Object.fromEntries(Object.entries(set).map(([k, v]) => [`${SECRETS_DIR}/${k}`, v])),
+      ...Object.fromEntries(unset.map((k) => [`${SECRETS_DIR}/${k}`, null])),
+    };
+    const keys = [...Object.keys(set), ...unset.map((k) => `-${k}`)];
+    await changeSite(
+      server,
+      meta,
+      proxy,
+      `secret ${site} ${keys.join(" ")}`,
+      (m) => {
+        if (!generated) return;
+        const names = new Set([...(m.secrets ?? []), ...Object.keys(set)]);
+        for (const k of unset) names.delete(k);
+        m.secrets = [...names].sort();
+        if (!m.secrets.length) delete m.secrets;
+      },
+      { files, recreate },
+    );
+    ok(`updated secrets of ${site}${recreate.length ? `, restarted ${recreate.join(", ")}` : ""}`);
+    const unused = generated ? [] : Object.keys(set).filter((k) => !secretUsers(config, [k]).length);
+    if (unused.length) {
+      info("compose.yaml uses a secret once it names it, e.g.:");
+      console.log(
+        c.dim(
+          [
+            "services:",
+            "  app:",
+            `    secrets: [${unused.join(", ")}]`,
+            "secrets:",
+            ...unused.flatMap((k) => [`  ${k}:`, `    file: ./${SECRETS_DIR}/${k}`]),
+          ].join("\n"),
+        ),
+      );
+    }
   },
 });
 

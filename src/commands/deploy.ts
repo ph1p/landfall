@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
+import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { analyze, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
@@ -98,7 +98,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
   async run([dirArg], o) {
     const cwd = process.cwd();
     const project: Partial<ProjectConfig> = loadProject(cwd) ?? {};
-    if (project.name) info(c.dim(`using ${PROJECT_FILE}`));
+    const environment = activeEnvironment();
+    if (project.name) info(c.dim(`using ${PROJECT_FILE}${environment ? `, environment ${environment}` : ""}`));
 
     let { name: serverName, server } = resolveServer(o.server ?? project.server);
     if (o.host && !o.server && !project.server && !loadConfig().default) fail("--host needs --server <name> for the new server");
@@ -111,7 +112,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       ({ server } = resolveServer(serverName));
       if ((await setUpState(server)) !== "ready") fail(`${serverName} is still not set up`);
     }
-    const name = validName(o.name ?? project.name ?? slug(basename(cwd)));
+    const name = validName(o.name ?? project.name ?? envSiteName(slug(basename(cwd))));
     const keep = checkInt(o.keep ?? defaults().keep ?? DEFAULT_KEEP, "--keep", 1);
     // parseArgs reads --no-domain as the negation of --domain: a false among its values.
     const noDomain = !!o["no-domain"] || ((o.domain as unknown[] | undefined)?.includes(false) ?? false);
@@ -258,6 +259,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       kind,
       domains,
       auth: withLogin(prev?.auth ?? old?.auth, login),
+      ...(prev?.secrets?.length ? { secrets: prev.secrets } : {}),
       current: id,
       releases: [...(prev?.releases ?? []), release],
       createdAt: prev?.createdAt ?? old?.createdAt ?? now,
@@ -295,7 +297,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if (worker) saved.worker = true;
       if (buildCmd || (app && buildCmd === "")) saved.build = buildCmd;
       saveProject(cwd, saved);
-      rememberProject({ path: cwd, name, server: serverName, domains: all, kind });
+      rememberProject({ path: cwd, name, server: serverName, domains: all, kind, ...(environment ? { environment } : {}) });
     }
 
     ok(`release ${c.bold(id)} live`);

@@ -8,6 +8,21 @@ import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./template
  * `cd /opt/landfall/sites/<site>/current && docker compose up -d` runs it without landfall.
  */
 
+/** A site's secret files, next to its .env; each release links it, so `./.secrets/<name>` works from compose.yaml. */
+export const SECRETS_DIR = ".secrets";
+/** What a Compose secret may be named, and a safe file name. */
+export const SECRET_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+
+/** The services of a `docker compose config` that mount one of these files of .secrets. */
+export function secretUsers(config: any, keys: string[]): string[] {
+  const names = Object.entries<any>(config?.secrets ?? {})
+    .filter(([, d]) => keys.some((k) => String(d?.file ?? "").endsWith(`/${SECRETS_DIR}/${k}`)))
+    .map(([n]) => n);
+  return Object.entries<any>(config?.services ?? {})
+    .filter(([, s]) => (s?.secrets ?? []).some((x: any) => names.includes(typeof x === "string" ? x : x?.source)))
+    .map(([n]) => n);
+}
+
 /** A service of a release, as `docker compose config` showed it at deploy. */
 export interface Service {
   name: string;
@@ -48,6 +63,8 @@ export interface SiteMeta {
   adopted?: string;
   /** Compose project name of an adopted site; landfall's own are named like the site. */
   project?: string;
+  /** Files in its .secrets folder (lf secret); an app, Dockerfile or image gets each at /run/secrets/<name>. */
+  secrets?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -236,9 +253,12 @@ export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROX
     "services:",
   ];
   let usesProxy = false;
+  // A compose.yaml names the secrets it uses itself; the one landfall generates gets every one here.
+  const secrets = meta.kind === "dockerfile" || meta.kind === "image" ? (meta.secrets ?? []) : [];
   for (const s of r.services) {
     lines.push(`  ${q(s.name)}:`);
     if (s.build) lines.push(`    image: ${q(builtImage(meta.name, s.name, r.id))}`);
+    if (secrets.length) lines.push("    secrets:", ...secrets.map((k) => `      - ${q(k)}`));
     let labels: Record<string, string> = {};
     if (routed(s)) {
       usesProxy = true;
@@ -252,6 +272,7 @@ export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROX
     lines.push("    labels:", ...Object.entries(labels).map(([k, v]) => `      ${q(k)}: ${q(composeEscape(v))}`));
   }
   if (usesProxy) lines.push("networks:", `  ${PROXY_KEY}:`, `    name: ${q(proxy.network)}`, "    external: true");
+  if (secrets.length) lines.push("secrets:", ...secrets.flatMap((k) => [`  ${q(k)}:`, `    file: ${q(`./${SECRETS_DIR}/${k}`)}`]));
   return lines.join("\n") + "\n";
 }
 

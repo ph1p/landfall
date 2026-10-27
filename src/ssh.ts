@@ -192,7 +192,7 @@ export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-logi
 }
 
 /** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", "compose.override.*", "docker-compose.override.*"];
+const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", ".secrets", "compose.override.*", "docker-compose.override.*"];
 const excludeArgs = (more: string[]) => [...new Set([...EXCLUDE, ...more])].flatMap((e) => ["--exclude", e]);
 
 let bsdtar: string[] | undefined;

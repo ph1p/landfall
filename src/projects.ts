@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { configDir, loadProject, saveProject, type ProjectConfig } from "./config";
+import { configDir, environmentOf, loadProject, saveProject, type ProjectConfig } from "./config";
 import { COMPOSE_FILES, type SiteKind } from "./compose";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
@@ -202,6 +202,8 @@ export interface Remembered {
   server: string;
   domains: string[];
   kind: SiteKind;
+  /** The environment of .landfall.json it was deployed as (lf deploy -E). */
+  environment?: string;
   /** Last deploy. */
   at: string;
 }
@@ -219,7 +221,8 @@ export function loadProjects(): Remembered[] {
 /** Most recent first; one entry per folder. */
 export function rememberProject(p: Omit<Remembered, "at">) {
   const path = resolve(p.path);
-  const list = [{ ...p, path, at: new Date().toISOString() }, ...loadProjects().filter((x) => x.path !== path)].slice(0, 50);
+  // One entry per folder and environment: staging and production deploy from the same folder.
+  const list = [{ ...p, path, at: new Date().toISOString() }, ...loadProjects().filter((x) => x.path !== path || (x.environment ?? "") !== (p.environment ?? ""))].slice(0, 50);
   fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
 }
@@ -229,8 +232,9 @@ export function updateProjectDomains(server: string, name: string, domains: stri
   const list = loadProjects();
   for (const p of list.filter((p) => p.server === server && p.name === name)) {
     p.domains = domains;
-    const cfg = loadProject(p.path);
-    if (cfg?.name === name) saveProject(p.path, { ...cfg, domains });
+    const env = environmentOf(p.path, name);
+    const cfg = env === undefined ? undefined : loadProject(p.path, env);
+    if (cfg?.name === name) saveProject(p.path, { ...cfg, domains }, env);
   }
   if (list.length) fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
 }

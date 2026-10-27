@@ -22,7 +22,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Install](#install)
 - [Concepts](#concepts)
 - [Prepare a server](#prepare-a-server)
-- [Deploy a site](#deploy-a-site)
+- [Deploy a site](#deploy-a-site) ([Environments](#environments))
 - [Day-to-day](#day-to-day)
 - [Updates](#updates)
 - [Traefik](#traefik)
@@ -168,6 +168,24 @@ The first deploy writes `.landfall.json`. Commit it:
 
 Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
 `-e`/`--env-file`, or later with `lf env`. `--env-file -` reads the lines from stdin, so secrets stay out of `ps`.
+`lf env` hides the values unless you pass `--reveal`, and so does the **Edit** dialog in `lf ui` until you click
+**Show values**. The `.env` itself stays a plain file next to `compose.yaml`, so `docker compose` reads it without landfall.
+
+Secrets that should not sit in the environment (keys, certificates, passwords) go in files instead: `lf secret DB_PASSWORD=…`
+or `lf secret --file TLS_KEY=./key.pem` writes `.secrets/<NAME>` next to the site's `.env` (folder 0700). An app, Dockerfile
+or image site gets each one at `/run/secrets/<NAME>`. A `compose.yaml` names the ones it uses with plain Compose secrets,
+so the same file works locally with your own `.secrets/` folder (keep it out of git; landfall never uploads it):
+
+```yaml
+services:
+  app:
+    secrets: [DB_PASSWORD]
+secrets:
+  DB_PASSWORD:
+    file: ./.secrets/DB_PASSWORD
+```
+
+`lf secret` lists names and sizes, never values. Changing one restarts the services that mount it; `lf undo` puts the old one back.
 Changed something locally? Run `lf deploy` again (or **Redeploy** in `lf ui`). When both sides have `rsync`, a redeploy sends
 only the files that changed and copies the rest from the live release on the server (files you removed stay
 removed); otherwise it uploads the whole folder. Either way it becomes a new release, so `lf rollback` still goes back.
@@ -226,6 +244,29 @@ volumes:
 
 The static, Dockerfile and image kinds are Compose sites too: landfall writes their `compose.yaml` for you.
 
+### Environments
+
+A project can have named environments (staging, preview…). Each is deployed as its own ordinary site, with its
+own `.env`, secrets, domains and releases, on the same server or another one:
+
+```sh
+lf deploy -E staging -d staging.example.com -s test-vps   # site shop-staging; saved under environments.staging
+lf env -E staging API_URL=https://staging-api.example.com # every site command takes -E (or LANDFALL_ENV=staging)
+lf logs -E staging
+```
+
+```json
+{
+  "name": "shop", "server": "vps", "domains": ["shop.example.com"],
+  "environments": { "staging": { "server": "test-vps", "domains": ["staging.example.com"] } }
+}
+```
+
+An environment takes the project's settings and changes what its block names: `name` (default `<name>-<env>`),
+`server`, any other setting such as `compose: "compose.staging.yaml"`. Domains are never inherited. Without
+`-E`, everything works on the project itself. On the server an environment is a site like any other: nothing
+there knows about environments, and deleting `.landfall.json` loses nothing.
+
 ### Running without landfall
 
 Nothing on the server depends on the CLI. Each site is a folder you can drive with plain `docker compose`:
@@ -274,6 +315,9 @@ lf logs blog db                    # one service
 lf rollback                        # previous release (--to <id> for a specific one)
 lf env API_KEY=abc                 # set env (container is recreated); -u KEY removes one
 lf env --env-file -  < .env.prod   # the same from a file or stdin, values never in ps
+lf env                             # names with values hidden; --reveal shows them, --keys only names, --json
+lf env --pull .env.production      # copy the server's .env to a local file (mode 600)
+lf secret DB_PASSWORD=…            # a secret file, at /run/secrets/DB_PASSWORD; --file K=path, -u K, lf secret lists them
 lf restart | stop | start
 lf domains                         # where DNS points, whether HTTPS answers
 lf domains --add www.example.com   # also --rm, --set (updates .landfall.json)
@@ -407,7 +451,7 @@ lf undo --all           # everything, newest first
 ```
 
 - **Undoable:** setup (packages and Docker stay installed), firewall rules and on/off, deploys and rollbacks
-  (previous release and env), env changes, stop/start, domains, logins, Traefik setup, `traefik use` and `traefik rm`, image and
+  (previous release and env), env and secret changes, stop/start, domains, logins, Traefik setup, `traefik use` and `traefik rm`, image and
   compose updates.
 - **Not undoable:** `sites rm`, restarts, package upgrades, and a firewall rule that replaced an existing one.
 - Steps revert newest first, each as the user that made it. The first failure stops the rest.
@@ -571,7 +615,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | page | commands |
 |---|---|
 | Overview | `lf server list --check`, recent deploys, `lf config` (defaults, and where landfall puts things) |
-| Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `logs`, `restart`/`stop`/`start`, `env`, `domains`, `auth`, `tunnel`, `sites rm` |
+| Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm` |
 | Stats | `lf stats` (a new sample every 5s while the tab is open), `lf disk` on request, Clean up… (`lf prune`) |
 | Traffic | `lf traffic --since 1h/24h/7d`, `lf certs`; the Sites tab shows failing requests of the last 24h and `lf check` on each domain |
 | Updates | `lf updates`, `lf update` |
@@ -689,7 +733,8 @@ lf undo -s box -y                           # revert the last run
 | `lf auth [name] -u user [-p pw \| --password-stdin]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
 | `lf open [name]` | Opens the site in the browser. |
 | `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
-| `lf env [name] [K=V...] [--env-file f\|-] [-u K]` | Shows or changes the site's `.env`. Recreates the services. |
+| `lf env [name] [K=V...] [--env-file f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows the site's `.env` (values hidden unless `--reveal`), copies it to a local file, or changes it. A change recreates the services. |
+| `lf secret [name] [K=V...] [--file K=path] [--env-file f\|-] [-u K] [--json] [--force]` | Lists the site's secret files (names and sizes) or changes them; services read them at `/run/secrets/<K>`. Changing one restarts the services that use it. |
 | `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
 | `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |
@@ -735,6 +780,7 @@ lf undo -s box -y                           # revert the last run
 | env var | effect |
 |---|---|
 | `LANDFALL_CONFIG_DIR` | use another directory than `~/.config/landfall` |
+| `LANDFALL_ENV` | the environment of `.landfall.json` to work on, as `-E` |
 | `LANDFALL_SSH_CONFIG` | use another ssh config file (`ssh -F`) |
 | `LANDFALL_PASSWORD` | login password for `setup`/`server add`/`deploy --host` |
 | `LANDFALL_SECRET_<OPTION>` | value of a `--…password` option, e.g. `LANDFALL_SECRET_PASSWORD` for `lf auth` |
@@ -750,10 +796,12 @@ On the server:
   sites/<name>/
     site.json                       metadata + release history
     .env                            the site's variables (0600)
+    .secrets/<NAME>                 secret files from `lf secret` (folder 0700)
     releases/<id>/                  last 5 kept
       compose.yaml                  yours, or generated for static/Dockerfile/image
       compose.override.yaml         written by landfall: project name, Traefik labels, networks
       .env -> ../../.env
+      .secrets -> ../../.secrets
     current -> releases/<id>
   journal.log                       every change, with the shell that reverts it
 /etc/ssh/sshd_config.d/00-landfall.conf   ssh hardening from `lf setup`

@@ -12,10 +12,10 @@ import { ruleArgs } from "../../src/commands/firewall";
 import { guardSsh, type FirewallState } from "../../src/firewall";
 import { htpasswd, traefikSettings } from "../../src/traefik";
 import { defineCommand, journalCmd, parse, secretEnv } from "../../src/cmd";
-import { baseDomain, checkEmail, checkLoginName, checkImage, checkInt, expandDomain, guessDomains, withPrimary } from "../../src/config";
+import { baseDomain, checkEmail, checkLoginName, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
 import { findRun, laterConflicts, parseJournal, pending } from "../../src/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/inventory";
-import { containerPorts, dashboardHosts, dotenvLines, externals, hasDashboardTunnel, mergeEnv, parseEnvPairs } from "../../src/remote";
+import { containerPorts, dashboardHosts, dotenvLines, envEntries, envView, externals, hasDashboardTunnel, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/remote";
 import { secretsOut } from "../../src/web/server";
 import { shq, writeFileCmd } from "../../src/ssh";
 import { removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/sshconfig";
@@ -29,7 +29,7 @@ import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NA
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
-import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
+import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -65,6 +65,40 @@ describe("env", () => {
   });
   test("rejects garbage", () => {
     expect(() => parseEnvPairs(["nope"])).toThrow();
+  });
+  test("entries, masked view and json", () => {
+    const text = "# c\nexport A=1\n\nURL=a=b\n";
+    expect(envEntries(text)).toEqual([{ key: "A", value: "1" }, { key: "URL", value: "a=b" }]);
+    expect(maskedEnv(text)).toBe("A=•••••••• (1)\nURL=•••••••• (3)\n");
+    expect(envView(text)).toEqual({ vars: [{ key: "A", length: 1 }, { key: "URL", length: 3 }] });
+    expect(envView(text, true).vars[1]).toEqual({ key: "URL", value: "a=b" });
+  });
+});
+
+describe("environments", () => {
+  const read = (d: string) => JSON.parse(fs.readFileSync(join(d, ".landfall.json"), "utf8"));
+
+  test("an environment is the project with its own block on top, domains not inherited", () => {
+    const d = tmp();
+    saveProject(d, { name: "shop", server: "vps", domains: ["shop.com"], port: 3000 }, "");
+    expect(loadProject(d, "staging")).toEqual({ name: "shop-staging", server: "vps", domains: [], port: 3000 });
+    saveProject(d, { name: "shop-staging", server: "test", domains: ["staging.shop.com"], port: 3000 }, "staging");
+    expect(read(d)).toEqual({ name: "shop", server: "vps", domains: ["shop.com"], port: 3000, environments: { staging: { server: "test", domains: ["staging.shop.com"] } } });
+    expect(loadProject(d, "staging")).toMatchObject({ name: "shop-staging", server: "test", domains: ["staging.shop.com"] });
+    // The project's own deploy rewrites its settings and keeps the environments.
+    saveProject(d, { name: "shop", server: "vps", domains: ["www.shop.com"] }, "");
+    expect(read(d).environments.staging.server).toBe("test");
+    expect(loadProject(d, "")).not.toHaveProperty("port");
+    expect(environmentOf(d, "shop-staging")).toBe("staging");
+    expect(environmentOf(d, "shop")).toBe("");
+    expect(environmentOf(d, "other")).toBeUndefined();
+  });
+
+  test("a folder first deployed as an environment gets the project name without the suffix", () => {
+    const d = tmp();
+    saveProject(d, { name: "blog-preview", server: "vps", domains: [] }, "preview");
+    expect(read(d)).toEqual({ name: "blog", server: "vps", domains: [], environments: { preview: { domains: [] } } });
+    expect(loadProject(d, "preview")?.name).toBe("blog-preview");
   });
 });
 
@@ -143,6 +177,20 @@ describe("templates", () => {
     const y = overrideYaml({ ...meta, auth: ["bob:$2y$05$x"] }, release);
     expect(y).toContain('"traefik.http.middlewares.blog-auth.basicauth.users": "bob:$$2y$$05$$x"');
     expect(y).toContain('"traefik.http.routers.blog_web.middlewares": "blog-auth"');
+  });
+
+  test("secrets: generated sites mount every one, a compose.yaml names its own", () => {
+    const y = overrideYaml({ ...meta, kind: "image", secrets: ["DB_PASS", "tls.key"] }, release);
+    expect(y).toMatch(/"web":\n(.*\n)*?    secrets:\n      - "DB_PASS"\n      - "tls.key"/);
+    expect(y).toContain('secrets:\n  "DB_PASS":\n    file: "./.secrets/DB_PASS"\n  "tls.key":\n    file: "./.secrets/tls.key"');
+    expect(overrideYaml({ ...meta, secrets: ["DB_PASS"] }, release)).not.toContain("secrets:");
+    const config = {
+      secrets: { db: { file: "/opt/landfall/sites/blog/releases/1/.secrets/DB_PASS" }, other: { file: "/x/y" } },
+      services: { web: { secrets: [{ source: "db", target: "db" }] }, worker: { secrets: ["db"] }, cache: { secrets: ["other"] }, x: {} },
+    };
+    expect(secretUsers(config, ["DB_PASS"])).toEqual(["web", "worker"]);
+    expect(secretUsers(config, ["NOPE"])).toEqual([]);
+    expect(secretUsers(undefined, ["DB_PASS"])).toEqual([]);
   });
 
   test("site domains: the main service's plus each service's own", () => {
@@ -1105,6 +1153,7 @@ describe("secrets stay off the command line", () => {
     });
     // Not an env command: KEY=VALUE stays an argument.
     expect(secretsOut(["deploy", "-e", "A=1"]).args).toEqual(["deploy", "-e", "A=1"]);
+    expect(secretsOut(["secret", "blog", "tls.key=abc"])).toEqual({ args: ["secret", "blog", "--env-file", "-"], env: {}, stdin: "tls.key=abc\n" });
   });
 
   test("password options fall back to LANDFALL_SECRET_*", () => {
