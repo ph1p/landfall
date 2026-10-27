@@ -129,6 +129,8 @@ export const builtImage = (site: string, service: string, id: string) => `${site
 /** Compose file names, in the order `docker compose` looks for them. */
 export const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
 export const OVERRIDE_FILES = ["compose.override.yaml", "compose.override.yml", "docker-compose.override.yaml", "docker-compose.override.yml"];
+/** What an environment layers over a compose file, as `docker compose -f compose.yaml -f compose.staging.yaml` would. */
+export const envComposeFile = (file: string, env: string) => file.replace(/(\.ya?ml)?$/, (ext) => `.${env}${ext || ".yaml"}`);
 
 /** Hosts in a Traefik rule: Host(`a`) || Host(`b`, `c`). HostRegexp and HostSNI are not hosts. */
 export const ruleHosts = (rule: string) =>

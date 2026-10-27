@@ -12,7 +12,7 @@ HTTPS_PORT=${HTTPS_PORT:-18443}
 cleanup() {
   [ -z "${UI_PID:-}" ] || kill "$UI_PID" 2>/dev/null || true
   [ "${KEEP:-}" = 1 ] && { echo "kept container $NAME and $WORK"; return; }
-  docker rm -f "$NAME" "$NAME-fresh" "$NAME-deb" "$NAME-fedora" "$NAME-rocky" >/dev/null 2>&1 || true
+  docker rm -fv "$NAME" "$NAME-fresh" "$NAME-deb" "$NAME-fedora" "$NAME-rocky" >/dev/null 2>&1 || true
   [ -z "${FRESH_PORT:-}" ] || ssh-keygen -R "[127.0.0.1]:$FRESH_PORT" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -46,7 +46,7 @@ export LANDFALL_CONFIG_DIR="$WORK/cfg" LANDFALL_SSH_CONFIG="$WORK/ssh_config"
 printf 'Host *\n  UserKnownHostsFile %s/known_hosts\n' "$WORK" > "$LANDFALL_SSH_CONFIG"
 
 docker build -q -t landfall-e2e "$ROOT/test/e2e" >/dev/null
-docker rm -f "$NAME" >/dev/null 2>&1 || true
+docker rm -fv "$NAME" >/dev/null 2>&1 || true
 docker run -d --privileged --name "$NAME" -p "$SSH_PORT:22" -p "$HTTPS_PORT:443" \
   -e AUTHORIZED_KEY="$(cat "$WORK/key.pub")" landfall-e2e >/dev/null
 for _ in $(seq 1 30); do docker exec "$NAME" docker info >/dev/null 2>&1 && break; sleep 1; done
@@ -170,6 +170,17 @@ lf sites rm vault-staging -y >/dev/null 2>&1 || die "sites rm vault-staging"
 { ! lf ls | has vault-staging; } || die "staging removed"
 expect vault.test / "token none"
 pass "environments deploy and manage their own site"
+# compose.staging.yaml layers on compose.yaml for -E staging only, as docker compose -f a -f b would.
+mkdir -p "$WORK/layers" && cd "$WORK/layers"
+printf 'services:\n  web:\n    image: busybox:1.37\n    environment: { MODE: base }\n    command: sh -c "mkdir -p /www && echo mode $$MODE > /www/index.html && httpd -f -p 8000 -h /www"\n    x-landfall: { port: 8000 }\n' > compose.yaml
+printf 'services:\n  web:\n    environment: { MODE: staging }\n' > compose.staging.yaml
+lf deploy -d layers.test -y >/dev/null 2>&1 || die "deploy layers"
+lf deploy -E staging -d layers-staging.test -y >/dev/null 2>&1 || die "deploy layers -E staging"
+expect layers.test / "mode base"
+expect layers-staging.test / "mode staging"
+docker exec "$NAME" sh -c 'cd /opt/landfall/sites/layers-staging/current && docker compose config' | has "MODE: staging" || die "the release's compose.yaml holds the merge"
+lf sites rm layers -y >/dev/null 2>&1; lf sites rm layers-staging -y >/dev/null 2>&1
+pass "compose.<env>.yaml layers on compose.yaml"
 
 echo "== node"
 # No Dockerfile: landfall writes one; the build runs on the server, the app gets PORT and HOST.
@@ -662,7 +673,7 @@ pass "server uninstall removes sites, traefik and /opt/landfall, forgets the ser
 
 echo "== fresh server with password"
 FRESH_PORT=${FRESH_PORT:-2223}
-docker rm -f "$NAME-fresh" >/dev/null 2>&1 || true
+docker rm -fv "$NAME-fresh" >/dev/null 2>&1 || true
 docker run -d --privileged --name "$NAME-fresh" -p "$FRESH_PORT:22" -e ROOT_PASSWORD=hunter2 landfall-e2e >/dev/null
 for _ in $(seq 1 30); do docker exec "$NAME-fresh" docker info >/dev/null 2>&1 && break; sleep 1; done
 # Things setup must not break: a password user and a service on port 80.
@@ -718,7 +729,7 @@ echo "== debian: automatic updates"
 # apt's unattended-upgrades and no init system, which the Alpine box cannot show. No 20auto-upgrades: they start off.
 DEB_PORT=${DEB_PORT:-2224}
 docker build -q -t landfall-e2e-debian "$ROOT/test/e2e/debian" >/dev/null
-docker rm -f "$NAME-deb" >/dev/null 2>&1 || true
+docker rm -fv "$NAME-deb" >/dev/null 2>&1 || true
 docker run -d --name "$NAME-deb" -p "$DEB_PORT:22" -e AUTHORIZED_KEY="$(cat "$WORK/key.pub")" landfall-e2e-debian >/dev/null
 for _ in $(seq 1 30); do ssh-keyscan -p "$DEB_PORT" 127.0.0.1 >/dev/null 2>&1 && break; sleep 1; done
 lf server add deb --host 127.0.0.1 --port "$DEB_PORT" -i "$WORK/key" </dev/null >"$WORK/deb.log" 2>&1 || { cat "$WORK/deb.log"; die "server add deb"; }
@@ -736,7 +747,7 @@ port=2225
 for base in fedora:42 rockylinux:9; do
   n=${base%%:*}; n=${n%linux}
   docker build -q --build-arg BASE=$base -t "landfall-e2e-rpm:$n" "$ROOT/test/e2e/rpm" >/dev/null
-  docker rm -f "$NAME-$n" >/dev/null 2>&1 || true
+  docker rm -fv "$NAME-$n" >/dev/null 2>&1 || true
   docker run -d --name "$NAME-$n" --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw -p "$port:22" \
     -e AUTHORIZED_KEY="$(cat "$WORK/key.pub")" "landfall-e2e-rpm:$n" >/dev/null
   for _ in $(seq 1 60); do ssh-keyscan -p "$port" 127.0.0.1 >/dev/null 2>&1 && break; sleep 1; done
@@ -747,7 +758,7 @@ for base in fedora:42 rockylinux:9; do
   lf undo -s "$n" -y >/dev/null 2>&1 || die "$n: undo updates"
   { lf security -s "$n" --json | has '"autoUpdates": false'; } || die "$n: undo turns them off"
   pass "$n: harden updates turns on dnf-automatic, undo turns it off"
-  docker rm -f "$NAME-$n" >/dev/null; port=$((port + 1))
+  docker rm -fv "$NAME-$n" >/dev/null; port=$((port + 1))
 done
 
 echo; pass "all e2e checks"

@@ -29,7 +29,7 @@ import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NA
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
-import { analyze, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
+import { analyze, envComposeFile, generatedCompose, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, statusKind, type Release, type SiteMeta } from "../../src/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -99,6 +99,12 @@ describe("environments", () => {
     saveProject(d, { name: "blog-preview", server: "vps", domains: [] }, "preview");
     expect(read(d)).toEqual({ name: "blog", server: "vps", domains: [], environments: { preview: { domains: [] } } });
     expect(loadProject(d, "preview")?.name).toBe("blog-preview");
+  });
+
+  test("the compose file an environment layers on", () => {
+    expect(envComposeFile("compose.yaml", "staging")).toBe("compose.staging.yaml");
+    expect(envComposeFile("docker-compose.yml", "prod")).toBe("docker-compose.prod.yml");
+    expect(envComposeFile("stack", "dev")).toBe("stack.dev.yaml");
   });
 });
 

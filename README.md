@@ -267,6 +267,21 @@ An environment takes the project's settings and changes what its block names: `n
 `-E`, everything works on the project itself. On the server an environment is a site like any other: nothing
 there knows about environments, and deleting `.landfall.json` loses nothing.
 
+A compose site can change per environment with a standard override file next to its compose file:
+`compose.staging.yaml` beside `compose.yaml` (or `docker-compose.staging.yml` beside `docker-compose.yml`).
+`lf deploy -E staging` merges it in, as `docker compose -f compose.yaml -f compose.staging.yaml` does
+locally. The release's `compose.yaml` on the server holds the merged result (variables left as `${...}`), so
+`docker compose up` there runs what was deployed.
+
+```yaml
+# compose.staging.yaml
+services:
+  web:
+    environment: { LOG_LEVEL: debug }
+  mailpit:
+    image: axllent/mailpit
+```
+
 ### Running without landfall
 
 Nothing on the server depends on the CLI. Each site is a folder you can drive with plain `docker compose`:
