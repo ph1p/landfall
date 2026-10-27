@@ -539,7 +539,10 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
     ...images.map(rmImage),
     ...(o.keepDir
       ? [`rmf ${files}`, "rmdir releases 2>/dev/null || true"]
-      : ["cd /", `rmf ${shq(dir)}`]),
+      : o.volumes
+        ? ["cd /", `rmf ${shq(dir)}`]
+        : // The volumes stay, and so do their backups (lf volume backup): only those are left in the folder.
+          [`for f in * .[!.]* ..?*; do { [ -e "$f" ] || [ -L "$f" ]; } && [ "$f" != backups ] && rmf "$f" || true; done`, "cd /", `rmdir ${shq(dir)} 2>/dev/null || true`]),
   ];
 }
 

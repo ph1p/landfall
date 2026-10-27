@@ -23,7 +23,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Concepts](#concepts)
 - [Prepare a server](#prepare-a-server)
 - [Deploy a site](#deploy-a-site) ([Environments](#environments))
-- [Day-to-day](#day-to-day)
+- [Day-to-day](#day-to-day) ([Volumes and backups](#volumes-and-backups))
 - [Updates](#updates)
 - [Traefik](#traefik)
 - [Firewall](#firewall)
@@ -254,7 +254,8 @@ volumes:
   `x-landfall` set, `ports:` is refused instead; to publish a port on the server anyway, add
   `x-landfall: { publish: true }` to that service.
 - **Named volumes keep your data** across deploys and rollbacks. `lf sites rm` keeps them, so deploying the
-  site again finds its data; `lf sites rm --volumes` deletes them. Each deploy gets a new release folder, so
+  site again finds its data; `lf sites rm --volumes` deletes them. `lf volume` backs them up and copies them
+  to and from your machine ([Volumes and backups](#volumes-and-backups)). Each deploy gets a new release folder, so
   a writable bind mount like `./data` is refused: write data to a named volume (read-only `./dist:…:ro` is fine).
 - **Images built on the server** are tagged `<site>-<service>:<release>`, so a rollback runs the exact image again.
 - Variables in `compose.yaml` come from the site's `.env` on the server (`-e`, `--env-file`, `lf env`).
@@ -379,6 +380,34 @@ lf logs api -s vps                 # another site on another server
 Commands that remove something ask first: `sites rm`, `domains --rm/--set`, `server domain --rm/--clear`,
 `auth --rm-user/--off`, `firewall rm`, `undo`, `traefik rm`, `server rm` and `server uninstall`. `sites rm` and `undo --all` want the name typed
 back. Domain and login changes are journaled, so `lf undo` reverts them.
+
+### Volumes and backups
+
+A site's data lives in its named volumes. `lf volume` copies it in and out as plain `.tar.gz` files:
+
+```sh
+lf volumes                         # the site's volumes: size, which service mounts them where, backups
+lf volume backup                   # every volume to /opt/landfall/sites/<site>/backups/<volume>-<time>.tar.gz
+lf volume backup content           # one volume (its name in compose.yaml, or Docker's blog_content)
+lf volume pull content             # download it as ./<site>-content-<time>.tar.gz (-o file)
+lf volume pull content --into ./content          # unpack into a folder, e.g. to run the site locally with its data
+lf volume pull content --backup latest           # a backup instead of the live volume
+lf volume push content ./content   # replace the volume with a local folder (or a .tar.gz)
+lf volume restore content          # replace it with its newest backup (or name one)
+```
+
+- `push` and `restore` stop the services using the volume, back it up first (`…-before-push.tar.gz`), replace its
+  contents and start them again. The step is journaled, so `lf undo` puts the previous contents back. Both ask first.
+- `push` gives the files to the owner of the volume's root folder (your local uid means nothing in the container);
+  `restore` keeps the owners stored in the backup.
+- `backup` and `pull` read the volume while the site runs. For a database, its own dump tool
+  (`docker compose exec db pg_dump …` in the release folder) gives a consistent copy; a copy of a busy
+  database's volume may not be.
+- Backups are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with the volumes;
+  `lf sites rm --volumes` deletes both.
+- Nothing here is landfall-specific. Each command prints the `docker` line it runs; by hand it is
+  `docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz` and back
+  `docker run --rm -i -v blog_content:/v alpine:3 sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v' < content.tar.gz`.
 
 ## Updates
 
@@ -780,7 +809,12 @@ lf undo -s box -y                           # revert the last run
 | `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
 | `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |
-| `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes stay unless `--volumes`. |
+| `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes and their backups stay unless `--volumes`. |
+| `lf volumes [name] [--json]` | Lists a site's volumes: size, mounts, backups. Alias: `volume ls`. |
+| `lf volume backup [name] [volume]` | Saves a volume (default: all) as a `.tar.gz` in the site's `backups/` folder. |
+| `lf volume pull [name] [volume] [--into dir] [-o file] [--backup file\|latest]` | Downloads a volume or one of its backups, as an archive or unpacked. |
+| `lf volume push [name] <volume> <folder\|file.tar.gz>` | Replaces a volume's contents with local files. Backs up first; undoable. |
+| `lf volume restore [name] [volume] [backup]` | Replaces a volume's contents with a backup (default: the newest). Backs up first; undoable. |
 | `lf adopt <project> [--name n]` | Makes a Compose project you started yourself a site, so `ls`, logs, restart and rm work for it. |
 
 **Traefik, firewall, updates, history**

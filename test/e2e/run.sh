@@ -210,8 +210,9 @@ stack_app() { printf 'FROM busybox:1.37\nEXPOSE 8000\nCMD sh -c "mkdir -p /www &
 stack_app v1
 lf init --postgres >/dev/null || die "init"
 { has "127.0.0.1:8000:8000" compose.override.yaml && has "x-landfall" compose.yaml; } || die "init writes compose files"
-lf init >/dev/null 2>&1 && die "init overwrites"
-pass "init writes compose.yaml and compose.override.yaml, never over existing ones"
+cp compose.yaml "$WORK/c1" && cp compose.override.yaml "$WORK/o1"
+{ lf init 2>&1 | has "nothing to change"; } && cmp -s compose.yaml "$WORK/c1" && cmp -s compose.override.yaml "$WORK/o1" || die "init again changes nothing"
+pass "init writes compose.yaml and compose.override.yaml, a second init changes nothing"
 # compose.yaml requires POSTGRES_PASSWORD: -e on the first deploy must satisfy it.
 lf deploy -d stack.test -e POSTGRES_PASSWORD=pw1 -y >"$WORK/stack.log" 2>&1 || { cat "$WORK/stack.log"; die "deploy compose site"; }
 expect stack.test / "stack v1"
@@ -238,6 +239,32 @@ for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
 lf sites rm stack --volumes -y >/dev/null 2>&1
 { ! srv docker volume ls -q | has -x stack_db; } || die "rm --volumes deletes it"
 pass "sites rm keeps volumes, --volumes deletes them"
+
+echo "== volumes"
+mkdir -p "$WORK/vols/seed/sub" && cd "$WORK/vols"
+printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
+lf deploy -n vols --no-domain -y >"$WORK/vols.log" 2>&1 || { cat "$WORK/vols.log"; die "deploy vols"; }
+vol() { srv docker run --rm -v vols_data:/v busybox:1.37 sh -c "cd /v && $1"; }
+vol 'echo old > old && chown -R 1000:1000 /v'
+{ lf volumes vols | has 'app:/data'; } || die "volumes lists the mount"; pass "volumes lists the mount"
+echo new > seed/new && echo x > seed/sub/x
+lf volume push vols data seed -y >"$WORK/push.log" 2>&1 || { cat "$WORK/push.log"; die "volume push"; }
+[ "$(vol 'find . -type f | sort | tr "\n" " "')" = "./new ./sub/x " ] || die "push replaces the contents"
+[ "$(vol 'stat -c %u sub/x')" = 1000 ] || die "pushed files get the volume root's owner"
+[ "$(srv docker inspect -f '{{.State.Running}}' vols-app-1)" = true ] || die "push starts the service again"
+pass "volume push replaces the contents, owned like the volume, service running"
+lf undo -s box -y >/dev/null 2>&1 || die "undo push"
+[ "$(vol 'cat old')" = old ] && [ -z "$(vol 'ls new 2>/dev/null || true')" ] || die "undo restores the volume"; pass "undo restores the volume"
+lf volume backup vols >/dev/null 2>&1 || die "volume backup"
+lf volume pull vols data --into "$WORK/vols/out" >/dev/null 2>&1 && [ "$(cat "$WORK/vols/out/old")" = old ] || die "volume pull --into"
+vol 'rm old'
+lf volume restore vols data -y >/dev/null 2>&1 && [ "$(vol 'cat old')" = old ] || die "volume restore"
+pass "volume backup, pull and restore"
+lf sites rm vols -y >/dev/null 2>&1
+srv sh -c 'ls /opt/landfall/sites/vols/backups/data-*.tar.gz' >/dev/null && ! srv test -e /opt/landfall/sites/vols/site.json || die "rm keeps backups"
+lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'newest'; } || die "a site deployed again finds its backups"
+lf sites rm vols --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vols || die "rm --volumes deletes the backups"
+pass "sites rm keeps backups with the volumes, --volumes deletes both"
 # A port published on the server is refused before anything changes.
 mkdir -p "$WORK/leaky" && cd "$WORK/leaky"
 printf 'services:\n  db:\n    image: busybox:1.37\n    command: sleep 3600\n    ports: ["5433:5432"]\n  web:\n    image: traefik/whoami:v1.11\n    x-landfall: { port: 80 }\n' > compose.yaml
