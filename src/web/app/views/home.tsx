@@ -65,7 +65,7 @@ export function HomeView() {
         <Card>
           <CardHead>
             Recent deploys {recent.length > 0 && <Badge>{projects.length}</Badge>}
-            <Actions><Btn cls="sm" on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder</Btn></Actions>
+            <Actions><Btn cls="sm" on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Choose folder…</Btn></Actions>
           </CardHead>
           {recent.length ? (
             <ul className="list-none m-0 p-0">

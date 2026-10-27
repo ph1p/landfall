@@ -546,7 +546,7 @@ function FolderDialog({ b, site }: { b: Any; site?: Any }) {
       </div>
       <div className={DBTNS}>
         <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-        <Btn type="submit" cls="primary">{site ? "Redeploy from this folder" : "Deploy this folder"}</Btn>
+        <Btn type="submit" cls="primary" title="Check its settings, then deploy">Next</Btn>
       </div>
     </form>
   );
