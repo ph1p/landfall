@@ -11,6 +11,7 @@ HTTPS_PORT=${HTTPS_PORT:-18443}
 
 cleanup() {
   [ -z "${UI_PID:-}" ] || kill "$UI_PID" 2>/dev/null || true
+  [ -z "${TUNNEL_PID:-}" ] || kill "$TUNNEL_PID" 2>/dev/null || true
   [ "${KEEP:-}" = 1 ] && { echo "kept container $NAME and $WORK"; return; }
   docker rm -fv "$NAME" "$NAME-fresh" "$NAME-deb" "$NAME-fedora" "$NAME-rocky" >/dev/null 2>&1 || true
   [ -z "${FRESH_PORT:-}" ] || ssh-keygen -R "[127.0.0.1]:$FRESH_PORT" >/dev/null 2>&1 || true
@@ -305,6 +306,54 @@ lf deploy -n ext2 --no-save -y >/dev/null 2>&1 && die "deploy over an adopted si
 lf sites rm ext2 -y >/dev/null 2>&1 || die "forget adopted"
 { srv test -f /srv/ext2/compose.yaml && ! srv test -e /opt/landfall/sites/ext2; } || die "rm forgets, keeps its folder"
 pass "adopt makes a hand-run project a site; rm forgets it and keeps its folder"
+# A plain compose.yaml (no x-landfall): the HTTP ports it publishes or exposes are routed, the rest stays inside.
+mkdir -p "$WORK/auto" && cd "$WORK/auto"
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: traefik/whoami:v1.11
+    ports: ["8080:80"]
+  api:
+    image: traefik/whoami:v1.11
+    command: ["--port", "9000", "--name", "api"]
+    expose: ["9000"]
+  db:
+    image: busybox:1.37
+    command: sleep 3600
+    ports: ["5432:5432"]
+EOF
+cp compose.yaml "$WORK/auto.orig"
+out=$(lf deploy -d auto.test -y 2>&1) || { echo "$out"; die "deploy plain compose"; }
+{ has "web:80" <<<"$out" && has "api.auto.test" <<<"$out" && ! has "db:5432" <<<"$out"; } || { echo "$out"; die "deploy prints the route plan"; }
+expect auto.test / Hostname
+expect api.auto.test / "Name: api"
+{ [ -z "$(srv docker port auto-web-1)" ] && [ -z "$(srv docker port auto-db-1)" ] && cmp -s compose.yaml "$WORK/auto.orig"; } \
+  || die "published ports stay local, compose.yaml untouched"
+pass "a plain compose.yaml is routed: main port on the domain, others on subdomains, nothing published"
+# Leaving landfall: the release runs with plain docker compose.
+srv sh -c 'cd /opt/landfall/sites/auto/current && docker compose up -d --force-recreate >/dev/null 2>&1' || die "docker compose up in current"
+expect api.auto.test / "Name: api"
+pass "docker compose up -d in current runs the site without landfall"
+lf sites rm auto -y >/dev/null 2>&1
+# A private port: never routed, reached with lf tunnel <site> <name>.
+mkdir -p "$WORK/priv" && cd "$WORK/priv"
+cat > compose.yaml <<'EOF'
+services:
+  web:
+    image: busybox:1.37
+    command: sh -c 'mkdir -p /a /b && echo site > /a/index.html && echo admin > /b/index.html && httpd -p 80 -h /a && httpd -f -p 9000 -h /b'
+    x-landfall: { port: 80, private: { admin: 9000 } }
+EOF
+out=$(lf deploy -d priv.test --no-save -y 2>&1) || { echo "$out"; die "deploy private port"; }
+has "lf tunnel <site> admin" <<<"$out" || { echo "$out"; die "deploy lists the private port"; }
+expect priv.test / site
+node "$ROOT/dist/cli.mjs" tunnel priv admin -l 18099 >"$WORK/tunnel.log" 2>&1 &
+TUNNEL_PID=$!
+for _ in $(seq 1 30); do curl -s http://127.0.0.1:18099/ | has admin && break; sleep 0.5; done
+got=$(curl -s http://127.0.0.1:18099/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
+[ "$got" = admin ] || { cat "$WORK/tunnel.log"; die "lf tunnel <site> <private name>"; }
+pass "a private port is not routed, lf tunnel priv admin opens it"
+lf sites rm priv -y >/dev/null 2>&1
 cd "$WORK"
 
 echo "== password, domains, free address"
@@ -637,6 +686,8 @@ upath=$(echo "$up" | node --input-type=module -e 'console.log(JSON.parse((await 
 job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":["deploy","-y","-s","box","-n","up","-d","up.test","--no-save"],"server":"box","cwd":"'"$upath"'"}' "$UI/api/jobs" | node --input-type=module -e 'console.log(JSON.parse((await import("node:fs")).readFileSync(0, "utf8")).id)')
 { curl -s -N --max-time 60 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui deploys an upload"
 expect up.test / up
+vj=$(curl -s -b "$JAR" "$UI/api/servers/box/volumes?site=up")
+{ has -F '"volumes":[]' <<<"$vj" && has -F '"backups":[]' <<<"$vj"; } || { echo "$vj"; die "ui reads a site's volumes"; }
 # A security fix button: the advice's argv, run as a job.
 json() { node --input-type=module -e "const i = JSON.parse((await import('node:fs')).readFileSync(0, 'utf8')); console.log($1)"; }
 argv=$(curl -s -b "$JAR" "$UI/api/servers/box/system" | json 'JSON.stringify(i.advice.find((a) => a.id === "fail2ban").fix.argv)')
