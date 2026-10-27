@@ -2,10 +2,10 @@ import { useEffect, type ReactNode } from "react";
 import { S, render, plural, server, sv, tilde, useStore, type Any } from "../lib/store";
 import { go, load, loadReach, needs, SECTIONS, STORE } from "../lib/api";
 import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
-import { Badge, Btn, Card, Dot, Empty, Loading, Note, Spin, cx, MONO } from "../ui/kit";
+import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
-import { ReachDot, StatusDot, FactsLine, FactsNote, errorHint, can, sections, reachRank, reachCount, Star, REACH_WORD, REACH_KIND } from "./shared";
+import { ReachDot, StatusDot, FactsLine, FactsNote, errorHint, can, connected, sections, reachRank, reachCount, Star, REACH_WORD, REACH_KIND } from "./shared";
 import { runCommand, forget, makeDefault } from "./domains";
 import { rebootDlg, SystemView } from "./system";
 import { UsersView } from "./users";
@@ -239,6 +239,11 @@ function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
   const look = nav
     ? (on: boolean) => cx("flex items-center gap-2 w-full text-left border-0 shadow-none px-2.5 py-[5px]", on ? "bg-accent-bg text-accent font-[550] hover:bg-accent-bg" : "bg-transparent text-dim font-[450] hover:bg-hover hover:text-fg")
     : (on: boolean) => cx("border-0 rounded-sm shadow-none px-3 py-1.5 flex-none", on ? "text-fg bg-panel shadow-[var(--sh),0_0_0_1px_var(--line)] hover:bg-panel" : "bg-transparent text-dim hover:bg-transparent hover:text-fg");
+  // Which sections it has comes with its facts: grey stand-ins until then, not all of them for a moment.
+  if (!connected(n) && !S.overview[n]?.error)
+    return Array.from({ length: nav ? 7 : 4 }, (_, i) => (
+      <div key={i} aria-hidden="true" className={nav ? "px-2.5 py-[9px]" : "px-3 py-2 flex-none"}><Bone className={nav ? ["w-12", "w-16", "w-10", "w-14"][i % 4] : "w-12"} /></div>
+    ));
   return sections(n).map(([t, label], i) => (
     <button key={t} type="button" className={look(S.tab === t)} aria-current={S.tab === t ? "page" : undefined} title={`${label} (${i + 1})`} onClick={() => go(n, t)}>
       <span className={cx(nav && "mr-auto")}>{label}</span>{badge[t]}
@@ -272,7 +277,7 @@ function Main() {
   const k = can(n);
   const ov = S.overview[n] ?? { loading: true };
   const o = ov.data;
-  const traefik = o ? (o.traefik ? <><StatusDot status={o.traefik} />{o.proxy} {o.traefik.toLowerCase()}</> : o.ready ? <><Dot kind="down" />no traefik</> : null) : null;
+  const traefik = o ? (o.traefik ? <><StatusDot status={o.traefik} />{o.proxy} {o.traefik.toLowerCase()}</> : o.ready ? <><Dot kind="down" />no traefik</> : null) : ov.error ? null : <Bone className="w-24" />;
   const sub = [s.target, s.registered ? "" : "from ~/.ssh/config", traefik].filter(Boolean);
   // Reloading with something already on screen: keep it, show a small spinner.
   // Stats reload every few seconds and say so themselves.
@@ -318,7 +323,6 @@ function Main() {
 
 function View({ n, ov }: { n: string; ov: Any }) {
   const o = ov.data;
-  if (ov.loading && !o) return <Loading>connecting to {n}…</Loading>;
   if (ov.error) {
     return (
       <>
@@ -332,7 +336,8 @@ function View({ n, ov }: { n: string; ov: Any }) {
       </>
     );
   }
-  if (!o) return null;
+  // Every tab waits for the facts too: they decide which tabs this server has, so none shows and then vanishes.
+  if (!o || !connected(n)) return <Placeholder>connecting to {n}…</Placeholder>;
   switch (S.tab) {
     case "sites": return <SitesView n={n} o={o} />;
     case "tunnels": return <TunnelsView n={n} o={o} />;

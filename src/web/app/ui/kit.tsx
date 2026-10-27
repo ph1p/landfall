@@ -112,9 +112,42 @@ export const Loading = ({ children }: { children: ReactNode }) => (
   <div className="text-dim py-10 text-center"><Spin /> {children}</div>
 );
 
-/** A spinner while st has nothing to show yet, or its error; null once there is data. */
+/** A grey stand-in for a word or a control that is still loading. */
+export const Bone = ({ className }: { className?: string }) => (
+  <span aria-hidden="true" className={cx("inline-block h-3 rounded-sm bg-line motion-safe:animate-pulse align-middle", className)} />
+);
+const WIDTHS = ["w-[38%]", "w-[52%]", "w-[30%]", "w-[46%]", "w-[24%]"];
+/** A card's rows while they load: a name, some text, a short value on the right. */
+export const BoneRows = ({ rows = 3 }: { rows?: number }) => (
+  <div aria-hidden="true">
+    {Array.from({ length: rows }, (_, i) => (
+      <div key={i} className="flex items-center gap-4 px-[18px] py-3.5 border-b border-line last:border-0">
+        <Bone className="w-24 flex-none" />
+        <Bone className={WIDTHS[i % WIDTHS.length]} />
+        <Bone className="w-14 ml-auto flex-none" />
+      </div>
+    ))}
+  </div>
+);
+/** A page while it loads: what it waits for, then cards shaped like most pages' cards, so nothing jumps around. */
+export const Placeholder = ({ children, cards = 2 }: { children: ReactNode; cards?: number }) => (
+  <div role="status">
+    <div className="text-dim text-sm mb-3 flex items-center gap-2"><Spin /> {children}</div>
+    {Array.from({ length: cards }, (_, i) => (
+      <Card key={i}>
+        <div className="px-[18px] py-[17px] border-b border-line"><Bone className="w-36 h-3.5" /></div>
+        <BoneRows rows={i ? 2 : 4} />
+      </Card>
+    ))}
+  </div>
+);
+
+/** st has nothing to show yet. */
+export const waiting = (st: Slot | undefined) => !st || (st.loading && !st.data);
+
+/** A placeholder page while st has nothing to show yet, or its error; null once there is data. */
 export function pending(st: Slot | undefined, what: ReactNode, retry?: () => void): ReactNode {
-  if (!st || (st.loading && !st.data)) return <Loading>{what}</Loading>;
+  if (!st || waiting(st)) return <Placeholder>{what}</Placeholder>;
   if (st.error)
     return (
       <>

@@ -1,6 +1,6 @@
 import { S, type Any } from "../lib/store";
 import { SECTIONS, type Tab } from "../lib/api";
-import { Badge, Dot, cx, noteClass } from "../ui/kit";
+import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
 
 // Small pieces many views share.
@@ -56,7 +56,9 @@ export function ReachDot({ n, className }: { n: string; className?: string }) {
 /** The server's one-line summary under its name. */
 export function FactsLine({ n }: { n: string }) {
   const f = S.facts[n]?.data;
-  if (!f) return null;
+  if (!f) return S.facts[n]?.error ? null : (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 h-[18.75px] items-center">{["w-28", "w-16", "w-24", "w-32", "w-20"].map((w) => <Bone key={w} className={w} />)}</div>
+  );
   const disk = pct(f.disk.used, f.disk.total);
   const items = [
     <><b className="text-fg font-medium">{f.os}</b> {f.arch}</>,
@@ -88,6 +90,8 @@ export function FactsNote({ n }: { n: string }) {
 
 /** What the server can do (`lf server info --json` can); null until its facts are in, then everything shows. */
 export const can = (n: string): Any => S.facts[n]?.data?.can ?? null;
+/** Server n's overview and facts are both in (or failed): until then its page shows placeholders, not a guess. */
+export const connected = (n: string) => [S.overview[n], S.facts[n]].every((x) => x?.data || x?.error);
 /** When each section is worth a tab: the same conditions the CLI checks before doing it. */
 const SECTION_IF: Partial<Record<Tab, (k: Any) => unknown>> = {
   sites: (k) => k.docker || k.setup,
