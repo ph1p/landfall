@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { svText, S, http, plural, render, sv, errorMessage, type Any } from "../lib/store";
+import { svText, S, http, plural, render, sv, errorMessage } from "../lib/store";
+import type { PrunePlan } from "../lib/types";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { dialog } from "../ui/dialog";
@@ -44,22 +45,22 @@ export function StatsView({ n }: { n: string }) {
   const st = S.stats[n];
   const wait = pending(st, `measuring ${n} for a second…`, () => load(n, "stats", true));
   if (wait) return wait;
-  const s = st.data;
+  const s = st!.data!;
   const log = S.statsLog[n] ?? [];
   const memUsed = s.mem.total - s.mem.available;
   const swapUsed = s.mem.swapTotal - s.mem.swapFree;
   const procs = s.procs.slice(0, 8);
-  const up = (x: Any) => isUp(x.status);
+  const up = (x: { status: string }) => isUp(x.status);
   return (
     <>
       <Meters>
         <Meter label="CPU" p={s.cpu} value={`${s.cpu}%`} sub={`${plural(s.cpus, "core")} · load ${s.load.join(" ")}`} line={<Spark values={log.map((x) => x.cpu)} />} hint="Busy share of all cores over one second; load is the 1, 5 and 15 minute average" />
         <Meter label="Memory" p={pct(memUsed, s.mem.total)} value={`${pct(memUsed, s.mem.total)}%`} sub={`${size(memUsed)} of ${size(s.mem.total)}`} line={<Spark values={log.map((x) => x.mem)} />} hint="Used, without caches the kernel gives back when needed" />
         {!!s.mem.swapTotal && <Meter label="Swap" p={pct(swapUsed, s.mem.swapTotal)} value={`${pct(swapUsed, s.mem.swapTotal)}%`} sub={`${size(swapUsed)} of ${size(s.mem.swapTotal)}`} />}
-        {s.disks.map((d: Any) => (
+        {s.disks.map((d) => (
           <Meter key={d.mount} label={`Disk ${d.mount}`} p={pct(d.used, d.total)} value={`${pct(d.used, d.total)}%`} sub={`${size(d.used)} of ${size(d.total)} · ${size(d.available)} free`} />
         ))}
-        {s.net.map((x: Any) => <Meter key={x.iface} label={`Network ${x.iface}`} p={null} value={`↓ ${size(x.rx)}/s`} sub={`↑ ${size(x.tx)}/s`} />)}
+        {s.net.map((x) => <Meter key={x.iface} label={`Network ${x.iface}`} p={null} value={`↓ ${size(x.rx)}/s`} sub={`↑ ${size(x.tx)}/s`} />)}
       </Meters>
       {!s.docker ? (
         <Note>No access to Docker on {n}: containers are not shown. Set up the server to fix that.</Note>
@@ -68,7 +69,7 @@ export function StatsView({ n }: { n: string }) {
           <Card>
             <CardHead>Containers <Badge>{s.containers.length}</Badge></CardHead>
             <Table head={<><th>Container</th><th className={HIDE}>Site</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th><th className={cx(NUM, HIDE)} title="Received and sent since the container started">Network in / out</th><th className={cx(NUM, HIDE)}>Restarts</th></>}>
-              {s.containers.map((x: Any) => (
+              {s.containers.map((x) => (
                 <tr key={x.name}>
                   <td><StatusDot status={x.status} /><span className="mono">{x.name}</span><div className="faint">{x.image}</div></td>
                   <td className={HIDE}>{x.site ? <b>{x.site}</b> : <span className="faint">{x.project || "-"}</span>}</td>
@@ -95,7 +96,7 @@ export function StatsView({ n }: { n: string }) {
         <Card>
           <CardHead>Processes <Sub>busiest and largest · cpu 100% = one core</Sub></CardHead>
           <Table head={<><th>Name</th><th className={NUM}>CPU</th><th className={NUM}>Memory</th><th className={cx(NUM, HIDE)}>PID</th></>}>
-            {procs.map((p: Any) => (
+            {procs.map((p) => (
               <tr key={p.pid}><td className="mono">{p.name}</td><td className={NUM}>{p.cpu}%</td><td className={NUM}>{size(p.rss)}</td><td className={cx(NUM, "faint", HIDE)}>{p.pid}</td></tr>
             ))}
           </Table>
@@ -116,10 +117,10 @@ function loadDisk(n: string) {
   render();
 }
 function pruneFlow(n: string) {
-  http(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
-    const imgs = p.images.filter((i: Any) => !i.keep);
-    const kept = (w: string) => p.images.filter((i: Any) => i.keep === w).length;
-    const most = imgs.reduce((t: number, i: Any) => t + i.size, 0) + p.buildCache;
+  http<PrunePlan>(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
+    const imgs = p.images.filter((i) => !i.keep);
+    const kept = (w: string) => p.images.filter((i) => i.keep === w).length;
+    const most = imgs.reduce((t, i) => t + i.size, 0) + p.buildCache;
     const keep = ([[kept("release"), "for rollback"], [kept("undo"), "for undo"], [kept("used"), "in use"]] as const).filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ");
     dialog({
       title: `Clean up ${n}?`,
@@ -154,8 +155,8 @@ function DiskCard({ n }: { n: string }) {
       </Card>
     );
   const d = st.data;
-  const vols = d.volumes.filter((x: Any) => x.size > 0).slice(0, 10);
-  const lg = d.logs.filter((x: Any) => x.size > 0).slice(0, 10);
+  const vols = d.volumes.filter((x) => x.size > 0).slice(0, 10);
+  const lg = d.logs.filter((x) => (x.size ?? 0) > 0).slice(0, 10);
   const notes = [
     d.journald ? `systemd journal: ${size(d.journald)}` : "",
     d.docker ? "" : "No access to Docker: images, volumes and logs are not shown.",
@@ -173,7 +174,7 @@ function DiskCard({ n }: { n: string }) {
         <>
           <H3>Docker</H3>
           <Table cols={[["Kind"], ["Count", NUM], ["In use", NUM], ["Size", NUM], ["Reclaimable", NUM]]}>
-            {d.dockerDf.map((x: Any) => (
+            {d.dockerDf.map((x) => (
               <tr key={x.type}>
                 <td>{x.type}</td><td className={NUM}>{x.count}</td><td className={NUM}>{x.active}</td><td className={NUM}>{size(x.size)}</td>
                 <td className={NUM}>{x.reclaimable ? <Badge kind="warn">{size(x.reclaimable)}</Badge> : <Zero />}</td>
@@ -186,7 +187,7 @@ function DiskCard({ n }: { n: string }) {
         <>
           <H3>Sites <span className="faint mono">{S.state.paths.sites}</span></H3>
           <Table cols={[["Site"], ["Files", NUM], ["Releases", NUM]]}>
-            {d.sites.map((x: Any) => (
+            {d.sites.map((x) => (
               <tr key={x.name}><td>{x.name}</td><td className={NUM}>{size(x.size)}</td><td className={NUM}>{x.releases} · {size(x.releasesSize)}</td></tr>
             ))}
           </Table>
@@ -196,7 +197,7 @@ function DiskCard({ n }: { n: string }) {
         <>
           <H3>Largest volumes</H3>
           <Table cols={[["Volume"], ["Size", NUM], ["Used by", NUM]]}>
-            {vols.map((x: Any) => (
+            {vols.map((x) => (
               <tr key={x.name}><td className="mono">{x.name}</td><td className={NUM}>{size(x.size)}</td><td className={NUM}>{x.links ? plural(x.links, "container") : <Badge kind="warn">nothing</Badge>}</td></tr>
             ))}
           </Table>
@@ -206,7 +207,7 @@ function DiskCard({ n }: { n: string }) {
         <>
           <H3>Largest container logs</H3>
           <Table cols={[["Container"], ["Size", NUM]]}>
-            {lg.map((x: Any) => <tr key={x.container}><td className="mono">{x.container}</td><td className={NUM}>{size(x.size)}</td></tr>)}
+            {lg.map((x) => <tr key={x.container}><td className="mono">{x.container}</td><td className={NUM}>{size(x.size ?? 0)}</td></tr>)}
           </Table>
         </>
       )}

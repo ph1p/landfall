@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
-import { S, http, render, errorMessage, type Any } from "./store";
+import { S, http, render, errorMessage } from "./store";
+import type { Report } from "./types";
 import { invalidate, refreshState } from "./api";
 import { toast, say } from "../ui/toast";
 import { confirmDlg, dialog, portError, type Field } from "../ui/dialog";
@@ -8,14 +9,14 @@ import { Check, Loader, Square, X } from "lucide-react";
 
 // ---- jobs ----------------------------------------------------------------
 
-export interface JobInfo { id: string; argv: string[]; server?: string; code?: number | null; undoable?: boolean; report?: Any }
+export interface JobInfo { id: string; argv: string[]; server?: string; code?: number | null; undoable?: boolean; report?: Report }
 export interface JobAction { label: string; run: () => void; cls?: string }
 export interface Job {
   info: JobInfo;
   lines: string[];
   after?: (j: Job) => JobAction[] | void;
   actions: JobAction[];
-  report?: Any;
+  report?: Report;
   url?: string;
   es?: EventSource;
   /** Set while the panel shows this job: new lines go straight into its output. */
@@ -117,7 +118,7 @@ export const isTunnel = (info: JobInfo) => info.argv[0] === "tunnel" || (info.ar
 /** Tunnels the UI opened to server n that are still open. */
 export const openTunnels = (n: string) => runningJobs().filter((j) => j.info.server === n && isTunnel(j.info));
 /** What the job reported through the CLI's report(): never parsed from its text output. */
-export const rep = (j: Job): Any => j.report ?? j.info.report ?? {};
+export const rep = (j: Job): Report => j.report ?? j.info.report ?? {};
 export const tunnelUrl = (j: Job): string | undefined => rep(j).url;
 /** With --lan: the addresses other devices on the network open it at. */
 export const lanUrls = (j: Job): string[] => rep(j).lan ?? [];
@@ -136,7 +137,7 @@ export function resumeJobs(list: JobInfo[]) {
   return () => {
     // Finished jobs' output only matters once someone opens them: fetch it after the page is up.
     for (const j of old)
-      http(`/api/jobs/${j.info.id}`).then(
+      http<{ lines: string[] }>(`/api/jobs/${j.info.id}`).then(
         (full) => {
           j.lines = full.lines;
           if (S.job === j.info.id) render();

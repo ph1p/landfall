@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { S, ago, errorMessage, http, render, sv, tilde, type Any } from "../lib/store";
+import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
+import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn } from "../lib/jobs";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
@@ -13,7 +14,7 @@ import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 const CHIPS = "flex flex-col gap-[3px] items-start";
 const CHIP = "inline-flex items-center gap-0.5 max-w-full";
 
-export function SitesView({ n, o }: { n: string; o: Any }) {
+export function SitesView({ n, o }: { n: string; o: Overview }) {
   useEffect(() => ensureDns(n, o));
   const k = can(n);
   if (!o.ready && k && !k.setup) {
@@ -53,7 +54,7 @@ export function SitesView({ n, o }: { n: string; o: Any }) {
     <>
       <Card>
         <Table head={<><th>Site</th><th className={HIDE}>Domains</th><th className={HIDE}>Kind</th><th className={HIDE}>Deployed</th><th><span className={SR}>Actions</span></th></>}>
-          {o.sites.map((site: Any) => <SiteRows key={site.meta.name} n={n} site={site} />)}
+          {o.sites.map((site) => <SiteRows key={site.meta.name} n={n} site={site} />)}
         </Table>
       </Card>
       <ErrorsCard n={n} />
@@ -62,18 +63,18 @@ export function SitesView({ n, o }: { n: string; o: Any }) {
   );
 }
 
-function SiteRows({ n, site }: { n: string; site: Any }) {
+function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const { meta: m, status, services, domains, main, state, kind } = site;
-  const cur = m.releases.find((r: Any) => r.id === m.current);
+  const cur = m.releases.find((r) => r.id === m.current);
   const name: string = m.name;
   const open = S.open.has(`${n}/${name}`);
   const up = isUp(status);
   const old = state === "old";
   // Adopted and pre-Compose sites: landfall runs them, it does not deploy them.
   const managed = state === "managed";
-  const byDate = [...m.releases].sort((a: Any, b: Any) => (a.at < b.at ? 1 : -1));
-  const older = byDate.filter((r: Any) => r.at < (cur?.at ?? ""));
-  const proj = (S.state.projects ?? []).find((p: Any) => p.server === n && p.name === name);
+  const byDate = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1));
+  const older = byDate.filter((r) => r.at < (cur?.at ?? ""));
+  const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
   const deploys = proj && !m.adopted;
   useEffect(() => {
     if (open && deploys) detected(proj.path);
@@ -90,7 +91,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
       typeToConfirm: m.adopted ? "" : name,
       onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : [])]),
     });
-  const svcMenu = (x: Any) => (
+  const svcMenu = (x: SiteStatus["services"][number]) => (
     <MenuBtn
       title={`${x.service} of ${name}`}
       cls="sm ghost"
@@ -142,7 +143,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
     </div>
   );
   const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
-  const svcDomains = (svc: string): string[] => (svc === main ? m.domains : (cur?.services?.find((x: Any) => x.name === svc)?.domains ?? []));
+  const svcDomains = (svc: string): string[] => (svc === main ? m.domains : (cur?.services?.find((x) => x.name === svc)?.domains ?? []));
   const det = open && deploys ? S.det[proj.path] : undefined;
   const pairs: [string, ReactNode][] = [];
   if (old) pairs.push(["Old site", <span className="dim">Deployed before sites were Compose projects: {proj ? "redeploy it" : <>run <span className="mono">lf deploy</span> for it</>} once to manage it again.</span>]);
@@ -150,7 +151,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
     "Services",
     services.length ? (
       <ul className="list-none m-0 p-0">
-        {services.map((x: Any) => (
+        {services.map((x) => (
           <li key={x.service} className="flex items-center gap-2 py-[3px]">
             <StatusDot status={x.status} />
             <b>{x.service}</b>
@@ -183,11 +184,18 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
     pairs.push([
       "Releases",
       <ul className="list-none m-0 p-0">
-        {byDate.map((r: Any) => (
+        {byDate.map((r) => (
           <li key={r.id} className="flex items-center gap-2.5 py-[5px]">
             <span className="mono">{r.id}</span>
             <span className="dim">{ago(r.at)}</span>
-            {r.services && <span className="faint">{r.services.map((x: Any) => x.name).join(", ")}</span>}
+            {r.services && <span className="faint">{r.services.map((x) => x.name).join(", ")}</span>}
+            {r.git && (
+              <span className="faint mono" title={r.by ? `deployed by ${r.by}` : undefined}>
+                {r.git.commit.slice(0, 7)}
+                {r.git.branch ? ` ${r.git.branch}` : ""}
+                {r.git.dirty ? "*" : ""}
+              </span>
+            )}
             {r.id === m.current ? <Badge kind="ok">live</Badge>
             : managed ? (
               <Btn
@@ -219,13 +227,13 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
             >
               <b>{name}</b> {open ? <ChevronDown className="size-3.5 text-faint" aria-hidden="true" /> : <ChevronRight className="size-3.5 text-faint" aria-hidden="true" />}
             </button>
-            {m.auth?.length > 0 && <span className="ml-1 text-dim" title="password protected" role="img" aria-label="password protected"><Lock className="size-3" aria-hidden="true" /></span>}
+            {!!m.auth?.length && <span className="ml-1 text-dim" title="password protected" role="img" aria-label="password protected"><Lock className="size-3" aria-hidden="true" /></span>}
           </div>
           <div className={cx(CHIPS, SHOW, "mt-1")}>{where}</div>
         </td>
         <td className={HIDE}><div className={CHIPS}>{where}</div></td>
         <td className={HIDE}>
-          <Badge title={services.map((x: Any) => x.service).join(", ")}>{kind}</Badge>
+          <Badge title={services.map((x) => x.service).join(", ")}>{kind}</Badge>
           {services.length > 1 && <> <span className="faint">{services.length} services</span></>}
         </td>
         <td className={cx(HIDE, "dim")}>{cur ? ago(cur.at) : ""}</td>
@@ -244,35 +252,46 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
 
 /** The site's Docker volumes and their backups (lf volumes), read when the row opens. */
 function SiteVolumes({ n, name }: { n: string; name: string }) {
-  const [d, setD] = useState<Any>(null);
+  const [d, setD] = useState<Volumes | null>(null);
   const [err, setErr] = useState("");
   const load = () =>
-    http(`/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}`).then((x) => (setD(x), setErr("")), (e) => setErr(errorMessage(e)));
+    http<Volumes>(`/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}`).then((x) => (setD(x), setErr("")), (e) => setErr(errorMessage(e)));
   useEffect(() => void load(), [n, name]);
   if (err) return <span className="text-bad">{err}</span>;
   if (!d) return <span className="faint">reading its volumes…</span>;
   if (!d.volumes.length) return <span className="dim">none</span>;
   // A backup belongs to the volume its name starts with: content-20261027-181500.tar.gz.
-  const own = (key: string) => d.backups.filter((b: Any) => b.file.startsWith(`${key}-`) && /^\d{8}-\d{6}/.test(b.file.slice(key.length + 1)));
-  const restore = (key: string, list: Any[]) =>
+  const own = (key: string) => d.backups.filter((b) => b.file.startsWith(`${key}-`) && /^\d{8}-\d{6}/.test(b.file.slice(key.length + 1)));
+  const restore = (key: string, list: Volumes["backups"]) =>
     dialog({
       title: `Restore ${key} of ${name}?`,
       text: "Replaces its contents with the backup; the services using it stop meanwhile. The current contents are backed up first: lf undo puts them back.",
-      fields: [{ name: "file", type: "select", label: "Backup", value: list[0].file, options: list.map((b: Any) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })) }],
+      fields: [{ name: "file", type: "select", label: "Backup", value: list[0].file, options: list.map((b) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })) }],
       ok: "Restore",
       danger: true,
       onOk: (v) => run(["volume", "restore", name, key, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
     });
+  const schedule = () =>
+    dialog({
+      title: `Scheduled backups of ${name}`,
+      text: "Every volume, from the login user's crontab on the server (backups/backup.sh). lf undo puts back the schedule before.",
+      fields: [
+        { name: "every", type: "select", label: "Every", value: /^(\w+),/.exec(d.schedule ?? "")?.[1] ?? "daily", options: ["hourly", "daily", "weekly", "off"].map((x) => ({ value: x, label: x })) },
+        { name: "keep", label: "Keep per volume", value: /keep (\d+)/.exec(d.schedule ?? "")?.[1] ?? "7" },
+      ],
+      ok: "Save",
+      onOk: (v) => run(["volume", "backup", name, "--schedule", v.every, ...(v.every === "off" ? [] : ["--keep", v.keep]), ...sv(n)], { after: ifOk(load) }),
+    });
   return (
     <>
       <ul className="list-none m-0 p-0">
-        {d.volumes.map((v: Any) => {
+        {d.volumes.map((v) => {
           const baks = own(v.key);
           return (
             <li key={v.name} className="flex flex-wrap items-center gap-2 py-[3px]">
               <b>{v.key}</b>
               {v.size !== undefined && <span className="dim">{size(v.size)}</span>}
-              {v.mounts.length > 0 && <span className="faint mono">{v.mounts.map((x: Any) => `${x.service}:${x.path}`).join(" ")}</span>}
+              {v.mounts.length > 0 && <span className="faint mono">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" ")}</span>}
               <span className="faint">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
               <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>
               {baks.length > 0 && <Btn cls="sm" title={`Replace its contents with a backup (lf volume restore ${name} ${v.key})`} on={() => restore(v.key, baks)}>Restore…</Btn>}
@@ -280,12 +299,16 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
           );
         })}
       </ul>
+      <div className="flex flex-wrap items-center gap-2 py-[3px]">
+        <span className={d.schedule ? "" : "faint"}>scheduled backups: {d.schedule ?? "none"}</span>
+        <Btn cls="sm" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
+      </div>
       <div className="faint">to or from this machine: <span className="mono">lf volume pull {name}</span> · <span className="mono">lf volume push {name} &lt;folder&gt;</span></div>
     </>
   );
 }
 
-function SiteFiles({ m, state }: { m: Any; state: string }) {
+function SiteFiles({ m, state }: { m: SiteMeta; state: string }) {
   const dir = `${S.state.paths.sites}/${m.name}`;
   if (m.adopted) return <><span className="mono">{m.adopted}</span><div className="dim">its own folder; project <span className="mono">{m.project ?? m.name}</span></div></>;
   if (state === "old") return <span className="mono">{dir}</span>;
@@ -298,15 +321,15 @@ function SiteFiles({ m, state }: { m: Any; state: string }) {
   );
 }
 
-function OthersCard({ n, o }: { n: string; o: Any }) {
+function OthersCard({ n, o }: { n: string; o: Overview }) {
   if (!o.others?.length) return null;
-  const links = (e: Any) => e.domains.map((d: string) => <span key={d} className={CHIP}><a href={`https://${d}`} target="_blank" rel="noopener">{d}</a></span>);
+  const links = (e: External) => e.domains.map((d: string) => <span key={d} className={CHIP}><a href={`https://${d}`} target="_blank" rel="noopener">{d}</a></span>);
   return (
     <Card>
       <CardHead>Not deployed by landfall <Badge>{o.others.length}</Badge></CardHead>
       <Lede>Containers your Traefik routes, e.g. your own compose projects. Adopting one lists it as a site with logs, restart and stop; it keeps running from its folder.</Lede>
       <Table head={<><th>Name</th><th className={HIDE}>Domains</th><th className={HIDE}>Folder</th><th><span className={SR}>Actions</span></th></>}>
-        {o.others.map((e: Any) => (
+        {o.others.map((e) => (
           <tr key={e.name}>
             <td>
               <div className={NAME}><StatusDot status={e.status} /><b>{e.name}</b>&nbsp;<span className="faint">{e.status.toLowerCase()}</span></div>
@@ -325,7 +348,7 @@ function OthersCard({ n, o }: { n: string; o: Any }) {
   );
 }
 
-function adoptDialog(n: string, e: Any) {
+function adoptDialog(n: string, e: External) {
   dialog({
     title: `Adopt ${e.name}?`,
     text: `${e.name} keeps running from ${e.dir} with its own files and Traefik labels. landfall lists it as a site with logs, restart, stop and start; it does not deploy it or change its domains.`,

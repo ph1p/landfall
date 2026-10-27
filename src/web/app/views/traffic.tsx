@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
-import { svText, S, plural, sv, type Any } from "../lib/store";
+import { svText, S, plural, sv } from "../lib/store";
+import type { Cert, Detail, Summary } from "../lib/types";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { Actions, Badge, Body, BoneRows, Btn, Card, CardHead, Empty, Note, Spin, Sub, pending, waiting, cx, NUM, HIDE, Table } from "../ui/kit";
@@ -17,7 +18,7 @@ const HOUR = new Intl.DateTimeFormat([], { weekday: "short", hour: "2-digit", mi
 const MINUTE = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
 
 /** Requests per minute or hour, stacked by status class; hover a bar for its numbers. */
-function TrafficChart({ series, bucket }: { series: Any[]; bucket: string }) {
+function TrafficChart({ series, bucket }: { series: Detail["series"]; bucket: string }) {
   const W = 600, H = 120;
   const tot = series.map((x) => x["2xx"] + x["3xx"] + x["4xx"] + x["5xx"]);
   const max = Math.max(1, ...tot);
@@ -85,7 +86,7 @@ export function TrafficView({ n }: { n: string }) {
   );
   const wait = pending(st, "reading Traefik's access log…");
   if (wait) return <>{spans}{wait}</>;
-  const t = st.data;
+  const t = st!.data!;
   if (!t.proxy) return <Note>No Traefik on {n}: nothing to count. Set up the server to install it.</Note>;
   if (t.format === "common")
     return (
@@ -112,8 +113,8 @@ export function TrafficView({ n }: { n: string }) {
   const T = t.total;
   const errs = T.classes["4xx"] + T.classes["5xx"];
   const pct = (v: number) => (T.requests ? Math.round((v / T.requests) * 1000) / 10 : 0);
-  const other = t.hosts.filter((h: Any) => !h.site);
-  const row = (key: string, label: ReactNode, x: Any) => (
+  const other = t.hosts.filter((h) => !h.site);
+  const row = (key: string, label: ReactNode, x: Summary) => (
     <tr key={key}>
       <td>{label}</td>
       <td className={NUM}>{count(x.requests)}</td>
@@ -141,8 +142,8 @@ export function TrafficView({ n }: { n: string }) {
       <Card>
         <CardHead>By site</CardHead>
         <Table head={<><th>Site</th><th className={NUM}>Requests</th><th className={NUM}>4xx</th><th className={NUM}>5xx</th><th className={cx(NUM, HIDE)}>Median</th><th className={cx(NUM, HIDE)}>95%</th><th className={cx(NUM, HIDE)}>Sent</th></>}>
-          {t.sites.map((x: Any) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x))}
-          {other.slice(0, 10).map((h: Any) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h))}
+          {t.sites.map((x) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x))}
+          {other.slice(0, 10).map((h) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h))}
         </Table>
         {other.length > 0 && (
           <Body className="faint pt-0">Hosts without a site: bots asking for the server's IP or old domains{other.length > 10 ? `, ${other.length - 10} more` : ""}.</Body>
@@ -152,15 +153,15 @@ export function TrafficView({ n }: { n: string }) {
         <List
           title="Failing requests"
           cols={[["Status"], ["Path"], ["Requests", NUM]]}
-          rows={T.errors.map((e: Any, i: number) => <tr key={i}><td><ErrorCell status={e.status} /></td><td className="mono">{e.path}</td><td className={NUM}>{count(e.count)}</td></tr>)}
+          rows={T.errors.map((e, i) => <tr key={i}><td><ErrorCell status={e.status} /></td><td className="mono">{e.path}</td><td className={NUM}>{count(e.count)}</td></tr>)}
         />
         <List
           title="Busiest paths"
           cols={[["Path"], ["Requests", NUM], ["Failed", NUM]]}
-          rows={T.paths.map((p: Any) => <tr key={p.path}><td className="mono">{p.path}</td><td className={NUM}>{count(p.count)}</td><td className={NUM}>{p.errors ? <Badge kind="warn">{count(p.errors)}</Badge> : null}</td></tr>)}
+          rows={T.paths.map((p) => <tr key={p.path}><td className="mono">{p.path}</td><td className={NUM}>{count(p.count)}</td><td className={NUM}>{p.errors ? <Badge kind="warn">{count(p.errors)}</Badge> : null}</td></tr>)}
         />
       </div>
-      <List title="Clients" cols={[["IP"], ["Requests", NUM]]} rows={T.ips.map((i: Any) => <tr key={i.ip}><td className="mono">{i.ip}</td><td className={NUM}>{count(i.count)}</td></tr>)} />
+      <List title="Clients" cols={[["IP"], ["Requests", NUM]]} rows={T.ips.map((i) => <tr key={i.ip}><td className="mono">{i.ip}</td><td className={NUM}>{count(i.count)}</td></tr>)} />
       <CertsCard n={n} />
       <p className="faint mt-3.5">
         {st.loading && <><Spin />{" "}</>}
@@ -177,9 +178,9 @@ export function CertsCard({ n }: { n: string }) {
   if (waiting(st)) return <Card aria-busy="true">{head}<BoneRows rows={2} /></Card>;
   const wait = pending(st, "reading certificates…");
   if (wait) return <Card>{head}<Body>{wait}</Body></Card>;
-  const r = st!.data;
+  const r = st!.data!;
   if (!r.domains.length) return null;
-  const days = (c: Any) =>
+  const days = (c?: Cert) =>
     !c ? <Badge kind="bad">none</Badge>
     : c.days < 7 ? <Badge kind="bad">{c.days < 0 ? "expired" : plural(c.days, "day")}</Badge>
     : c.staging ? <Badge kind="warn">staging</Badge>
@@ -189,7 +190,7 @@ export function CertsCard({ n }: { n: string }) {
       {head}
       {r.denied.length > 0 && <Body><Note kind="warn" className="m-0">{r.denied.join(", ")} needs root to read: this login has no passwordless sudo.</Note></Body>}
       <Table head={<><th>Domain</th><th className={HIDE}>Site</th><th>Left</th><th className={HIDE}>Expires</th><th className={HIDE}>Issuer</th></>}>
-        {r.domains.map((d: Any) => (
+        {r.domains.map((d) => (
           <tr key={d.domain}>
             <td>{d.domain}{d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}</td>
             <td className={cx(HIDE, "dim")}>{d.site}</td>
@@ -213,9 +214,9 @@ export function ErrorsCard({ n }: { n: string }) {
   const t = S.errs[n]?.data;
   if (!t || t.format !== "json") return null;
   const rows = t.hosts
-    .flatMap((h: Any) => h.errors.map((e: Any) => ({ ...e, where: h.site ?? h.host, site: !!h.site })))
-    .filter((e: Any) => e.site || e.status >= 500)
-    .sort((a: Any, b: Any) => +(b.status >= 500) - +(a.status >= 500) || b.count - a.count)
+    .flatMap((h) => h.errors.map((e) => ({ ...e, where: h.site ?? h.host, site: !!h.site })))
+    .filter((e) => e.site || e.status >= 500)
+    .sort((a, b) => +(b.status >= 500) - +(a.status >= 500) || b.count - a.count)
     .slice(0, 6);
   if (!rows.length) return null;
   const fives = t.total.classes["5xx"];
@@ -226,7 +227,7 @@ export function ErrorsCard({ n }: { n: string }) {
         <Actions><Btn cls="sm" on={() => (location.hash = `#/${encodeURIComponent(n)}/traffic`)}>Traffic</Btn></Actions>
       </CardHead>
       <Table head={<><th>Status</th><th>Site</th><th>Path</th><th className={NUM}>Requests</th></>}>
-        {rows.map((e: Any, i: number) => (
+        {rows.map((e, i) => (
           <tr key={i}>
             <td><ErrorCell status={e.status} /></td>
             <td>{e.site ? <b>{e.where}</b> : <span className="mono dim">{e.where}</span>}</td>

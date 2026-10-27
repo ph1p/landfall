@@ -1,8 +1,9 @@
-import { S, sv, type Any } from "../lib/store";
+import { S, sv } from "../lib/store";
+import type { Account, Users } from "../lib/types";
 import { rep, run, type Job } from "../lib/jobs";
 import { ACTS, Actions, Badge, Btn, Card, CardHead, HIDE, MONO, Note, SR, Sub, cx, pending, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
-import { confirmDlg, dialog, keyError, passwordError } from "../ui/dialog";
+import { confirmDlg, dialog, keyError, passwordError, type Values } from "../ui/dialog";
 import { addKeyDlg } from "./system";
 
 // ---- users -------------------------------------------------------------------
@@ -16,12 +17,12 @@ export function UsersView({ n }: { n: string }) {
   const st = S.users[n];
   const wait = pending(st, `reading the users of ${n}…`);
   if (wait) return wait;
-  const u = st!.data;
+  const u = st!.data!;
   const go_ = (argv: string[]) => lf(n, argv);
   // What lf refuses to take away (checkTakeable) comes marked as keep.
-  const takeable = (a: Any) => !a.keep;
+  const takeable = (a: Account) => !a.keep;
 
-  const row = (a: Any) => {
+  const row = (a: Account) => {
     const rm = () => confirmDlg({
       title: `Remove ${a.name} from ${n}?`,
       text: `The account goes, with ${a.home} and everything in it. This cannot be undone.`,
@@ -89,18 +90,18 @@ export function UsersView({ n }: { n: string }) {
   );
 }
 
-function addUserDlg(n: string, u: Any) {
+function addUserDlg(n: string, u: Users) {
   dialog({
     title: `Add a user to ${n}`,
     text: "An account of its own, with its own home: for a person or a deploy job. It logs in with an SSH key, a password, or both.",
     fields: [
-      { name: "name", label: "Name", value: "", placeholder: "anna", mono: true, required: true, check: (x) => nameError(x) || (u.accounts.some((a: Any) => a.name === x) && `${x} already exists`) },
+      { name: "name", label: "Name", value: "", placeholder: "anna", mono: true, required: true, check: (x) => nameError(x) || (u.accounts.some((a) => a.name === x) && `${x} already exists`) },
       { name: "generate", label: "Make a new key pair", type: "check", value: false, hint: `Saved on this computer as ~/.ssh/${n}_<name>. Hand it to whoever logs in as that user.` },
       { name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… anna@laptop", when: (v) => !v.generate, check: keyError },
       { name: "password", label: "Password", type: "password", value: "", hint: "Optional with a key.", check: (x) => x && passwordError(x) },
       ...(u.sudo ? [
         { name: "sudo", label: "May administer the server (sudo)", type: "check" as const, value: false },
-        { name: "nopasswd", label: "sudo without a password", type: "check" as const, value: false, when: (v: Any) => v.sudo, hint: "Needed when the user has no password." },
+        { name: "nopasswd", label: "sudo without a password", type: "check" as const, value: false, when: (v: Values) => v.sudo, hint: "Needed when the user has no password." },
       ] : []),
     ],
     ok: "Add user",
@@ -139,7 +140,7 @@ function passwordDlg(n: string, user: string) {
   });
 }
 
-function sudoDlg(n: string, a: Any) {
+function sudoDlg(n: string, a: Account) {
   dialog({
     title: `Let ${a.name} sudo on ${n}?`,
     text: `They can do anything on the server. landfall writes /etc/sudoers.d/landfall-${a.name}, checked with visudo first.`,

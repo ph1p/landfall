@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
-import { S, render, plural, server, sv, tilde, useStore, type Any } from "../lib/store";
+import { S, render, plural, server, sv, tilde, useStore, type Slot } from "../lib/store";
+import type { Overview, ServerEntry } from "../lib/types";
 import { go, load, loadReach, needs, SECTIONS, STORE } from "../lib/api";
 import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
 import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../ui/kit";
@@ -100,16 +101,16 @@ const SRV = "grid grid-cols-[8px_minmax(0,1fr)] gap-x-2.5 items-center w-full te
 const SRV_ON = "bg-panel! shadow-[0_0_0_1px_var(--line),var(--sh)]";
 
 function Nav() {
-  const list: Any[] = S.state.servers.slice().sort((a: Any, b: Any) => reachRank(a.name) - reachRank(b.name));
+  const list: ServerEntry[] = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
   // Down servers sit in their own group, closed until opened, so the rest stay in view.
-  const isDown = (s: Any) => S.reach[s.name]?.state === "down";
+  const isDown = (s: ServerEntry) => S.reach[s.name]?.state === "down";
   const own = list.filter((s) => s.registered && !isDown(s));
   const aliases = list.filter((s) => !s.registered && !isDown(s));
   const down = list.filter(isDown);
   const q = S.filter.toLowerCase();
-  const hit = (s: Any) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
+  const hit = (s: ServerEntry) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
   const few = list.length < 8;
-  const item = (s: Any) => {
+  const item = (s: ServerEntry) => {
     const tunnels = openTunnels(s.name).length;
     const r = S.reach[s.name];
     const on = s.name === S.sel;
@@ -130,7 +131,7 @@ function Nav() {
       ),
     ];
   };
-  const group = (key: string, title: string, l: Any[]) => {
+  const group = (key: string, title: string, l: ServerEntry[]) => {
     if (!l.length) return null;
     const shown = l.filter(hit);
     // A closed group still shows the open server; a filter opens every group.
@@ -185,7 +186,7 @@ function Nav() {
 }
 
 /** The sidebar's foot: what the login check is doing, or what it found and when. */
-function ReachSummary({ list }: { list: Any[] }) {
+function ReachSummary({ list }: { list: ServerEntry[] }) {
   const btn = (
     <Btn cls="sm ghost flex-none inline-flex items-center gap-1.5" disabled={S.reaching} title="Try landfall's ssh login on every server again (lf server list --check)" on={() => loadReach(true)}>
       {S.reaching ? <Spin className="size-2.5!" aria-hidden="true" /> : <RotateCw className="size-3" aria-hidden="true" />}
@@ -212,7 +213,7 @@ function ReachSummary({ list }: { list: Any[] }) {
 
 /** Phones: a select instead of the list. */
 function Pick() {
-  const list: Any[] = S.state.servers.slice().sort((a: Any, b: Any) => reachRank(a.name) - reachRank(b.name));
+  const list: ServerEntry[] = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
   return (
     <div className="hidden max-[760px]:block px-4 pt-3">
       <select aria-label="Server" value={S.sel ?? ""} onChange={(e) => go(e.target.value || null)}>
@@ -321,7 +322,7 @@ function Main() {
   );
 }
 
-function View({ n, ov }: { n: string; ov: Any }) {
+function View({ n, ov }: { n: string; ov: Slot<Overview> }) {
   const o = ov.data;
   if (ov.error) {
     return (

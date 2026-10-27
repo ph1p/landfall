@@ -1,15 +1,16 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { S, type Any } from "../lib/store";
+import { S } from "../lib/store";
+import type { Redeploy } from "../lib/types";
 import { Btn, cx, noteClass } from "./kit";
 
 // ---- the shared <dialog> ---------------------------------------------------
 
 /** What the one <dialog> shows: a new key replaces its content, so a dialog opened from another's OK swaps in place. */
-export const D = { node: null as ReactNode, cls: "", key: 0, site: undefined as Any, focus: null as HTMLElement | null };
+export const D = { node: null as ReactNode, cls: "", key: 0, site: undefined as Redeploy | undefined, focus: null as HTMLElement | null };
 let redraw: () => void = () => {};
 let el: HTMLDialogElement | null = null;
 /** Show node in the dialog; site: the one files dropped while it is open redeploy. Returns its key. */
-export function openDialog(node: ReactNode, cls = "", site?: Any) {
+export function openDialog(node: ReactNode, cls = "", site?: Redeploy) {
   D.node = node;
   D.cls = cls;
   D.site = site;
@@ -65,22 +66,24 @@ export const DBTNS = "flex justify-end gap-2 sticky bottom-0 z-1 bg-panel -mx-6 
 
 // ---- form dialogs ------------------------------------------------------------
 
-export type Values = Record<string, Any>;
+// A string, a boolean or a custom control's value (EnvChange): only each form's onOk knows which, so it stays any.
+type FormValue = any;
+export type Values = Record<string, FormValue>;
 type Problem = string | false | null | undefined | 0;
 export interface Field {
   name: string;
   label?: string;
-  value?: string | boolean | Any;
+  value?: FormValue;
   type?: "text" | "number" | "password" | "textarea" | "select" | "check" | "custom";
   /** type custom: draws the control itself and reports its value through set. */
-  render?: (value: Any, set: (value: Any) => void) => ReactNode;
+  render?: (value: FormValue, set: (value: FormValue) => void) => ReactNode;
   options?: { value: string; label: string }[];
   hint?: string;
   placeholder?: string;
   /** true, or the message when it is empty. */
   required?: boolean | string;
   /** What is wrong with the (trimmed) value, shown under it. */
-  check?: (value: Any, values: Values) => Problem;
+  check?: (value: FormValue, values: Values) => Problem;
   /** Shown only then. */
   when?: (values: Values) => unknown;
   /** Greyed out then. */
@@ -197,7 +200,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     const x = specs.find((s) => s.f.name === name);
     if (x) show(name, problem(x, v));
   };
-  const set = (f: Field, value: Any) => {
+  const set = (f: Field, value: FormValue) => {
     const v = { ...values, [f.name]: value };
     setValues(v);
     setFormErr("");
@@ -215,7 +218,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     for (const [name, error] of bad) if (error) reveal(name);
     const first = bad.find(([, error]) => error);
     if (first) return void input(first[0])?.focus();
-    const r = onOk(values) as Any;
+    const r = onOk(values) as false | ReturnType<typeof invalid> | null | undefined;
     if (r === false) return;
     if (r?.error) {
       show(r.field, r.error);
