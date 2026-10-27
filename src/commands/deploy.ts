@@ -8,7 +8,8 @@ import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepar
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { pickIp, serverIps, sslipDomain } from "../facts";
-import { composeFile, detectApp, detectBuild, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
+import { detectBuild } from "../frameworks";
+import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
@@ -48,16 +49,19 @@ Kinds:
               project; x-landfall: { port: 3000 } on a service routes it through Traefik
   dockerfile  the folder has a Dockerfile: uploaded and built on the server
   app         landfall writes the Dockerfile, built on the server, for
-              Node.js or Bun: a server-rendering framework (Next.js, Nuxt, TanStack Start,
-                SvelteKit adapter-node, Astro Node, React Router, Remix, SolidStart)
+              Node.js or Bun: a server-rendering framework (Next.js, also standalone,
+                Nuxt, TanStack Start, SvelteKit adapter-node/-bun, Astro Node,
+                React Router, Remix, SolidStart, Analog, Qwik City, AdonisJS)
                 or a server (Express, Fastify, NestJS, ws, Socket.IO, any start script)
               Python (Django, FastAPI, Flask, …), Go, Java/Kotlin (Maven, Gradle:
               Spring Boot, Quarkus, …), Ruby (Rails, Rack), PHP (Laravel, Symfony),
-              Rust, .NET, Elixir (Phoenix); --start overrides the command
+              Rust, .NET, Elixir (Phoenix), Deno (Fresh, Hono, Oak);
+              --start overrides the command
               (a Procfile's web: process counts too)
               --volume keeps a folder across deploys, --worker runs it without a domain
   static      a folder of files (auto-detects dist/, build/, out/, public/ and the
-              output of Vite, Astro, Next export, Nuxt generate, SvelteKit, Hugo, …)
+              output of Vite, Astro, Next export, Nuxt generate, SvelteKit, VitePress,
+              Docusaurus, Hugo, Zola, MkDocs, mdBook, Pelican, Jekyll, Lume, …)
   image       --image: run a prebuilt image (e.g. ghcr.io/me/app:1.2)
 
 Every site is a Compose project on the server (/opt/landfall/sites/<name>/current),
@@ -136,6 +140,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
     // Without a Dockerfile of its own: an app landfall writes one for.
     const app = compose || image || forceStatic || ownDockerfile ? undefined : detectApp(root, o.start ?? project.start);
+    if (app?.fix) fail(`${app.fix}; or say how it starts: --start <command>`);
     if (buildCmd && !app) {
       step(`building locally: ${buildCmd}`);
       const r = spawnSync(buildCmd, { shell: true, stdio: "inherit" });
