@@ -117,7 +117,7 @@ export function detectStack(path: string, runtime?: string, tool?: string): Tag[
   const [, base, detail] = tool?.match(/^(.+?)(?: \((.+)\))?$/) ?? [];
   const framework = base && (languages.includes(base) ? detail : base);
   const tooling = [
-    ...(node ? [packageManager(f.has, usesBun(f)).name] : []),
+    ...(node ? [packageManager(f.has, usesBun(f), f.pkg.packageManager).name] : []),
     ...TOOLING.filter(([, marks]) => marks.some(f.has)).map(([t]) => t),
     ...(composeFile(path) ? ["Docker Compose"] : f.has("Dockerfile") ? ["Dockerfile"] : []),
   ];

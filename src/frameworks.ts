@@ -140,6 +140,9 @@ const FRAMEWORKS: Framework[] = [
       const output = conf.match(/\boutput\s*:\s*["'`](\w+)["'`]/)?.[1];
       if (output === "export") return { mode: "output: 'export'", dir: setting(conf, "distDir") ?? "out" };
       if (output === "standalone") return { mode: "output: 'standalone'", start: `${c.bun ? "bun" : "node"} server.js`, standalone: setting(conf, "distDir") ?? ".next" };
+      // A start script that runs a file of its own (`node server.ts`) is a custom server: it serves Next.js itself.
+      const own = c.scripts.start?.trim();
+      if (own && !/^next\s+start\b/.test(own)) return { mode: "custom server", start: /^(node|bun)\s+[\w./-]+$/.test(own) ? own : c.run("start") };
       return { start: `${bin("next")} start` };
     },
   },
@@ -244,7 +247,7 @@ function context(cwd: string): Ctx {
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
   const dep = (n: string) => n in deps;
   const bun = usesBun(f);
-  const pm = packageManager(f.has, bun);
+  const pm = packageManager(f.has, bun, pkg.packageManager);
   // A server without a start script: its main file, or one of the usual names; Bun runs TypeScript as is.
   const entries = bun ? [pkg.module, pkg.main, ...BUN_ENTRIES, ...NODE_ENTRIES] : [pkg.main, ...NODE_ENTRIES];
   const entry = scripts.start ? undefined : entries.find((e) => e && f.has(e) && (SERVERS.some(dep) || (bun && /\bBun\.serve\b/.test(f.read(e)))));
