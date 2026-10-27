@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/commands/deploy";
 import { detectApp, detectStaticDir, nodeDockerfile, slug } from "../../src/projects";
 import { detectBuild } from "../../src/frameworks";
+import { nodeMajor } from "../../src/runtimes";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { ruleArgs } from "../../src/commands/firewall";
 import { guardSsh, type FirewallState } from "../../src/firewall";
@@ -945,6 +946,13 @@ describe("folders and access", () => {
     expect(detectApp(d, "npm start")!.dockerfile({ start: "npm start", port: 3000 })).not.toContain("COPY --from=build");
     fs.rmSync(join(d, "next.config.ts"));
     fs.rmSync(join(d, "public"), { recursive: true });
+    // a start script running a file of its own is a custom server
+    pkg({ next: "16" }, { build: "next build", start: "node scripts/serve.ts" });
+    expect(detectBuild(d)).toMatchObject({ tool: "Next.js (custom server)", start: "node scripts/serve.ts" });
+    pkg({ next: "16" }, { build: "next build", start: "NODE_ENV=production tsx server.ts" });
+    expect(start()).toBe("npm start");
+    pkg({ next: "16" }, { build: "next build", start: "next start -p 3000" });
+    expect(start()).toBe("./node_modules/.bin/next start");
     pkg({ nuxt: "4" }, { build: "nuxt build" });
     expect(start()).toBe("node .output/server/index.mjs");
     pkg({ nuxt: "4" }, { build: "nuxt generate" });
@@ -1025,7 +1033,7 @@ describe("folders and access", () => {
     fs.writeFileSync(join(d, ".nvmrc"), "v22.11.0\n");
     const f = nodeDockerfile(d, { tool: "Next.js", build: "pnpm build", start: "./node_modules/.bin/next start", port: 3000 });
     expect(f).toContain("FROM node:22-slim\n");
-    expect(f).toContain("RUN corepack enable || npm install -g pnpm\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install --frozen-lockfile\nCOPY . .\nRUN pnpm build\n");
+    expect(f).toContain("RUN corepack enable || (npm install -g corepack && corepack enable)\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install --frozen-lockfile\nCOPY . .\nRUN pnpm build\n");
     expect(f).toMatch(/ENV NODE_ENV=production .*PORT=3000\nEXPOSE 3000\nCMD \.\/node_modules\/\.bin\/next start\n$/);
     // install scripts need the whole project; no lockfile, no npm ci
     fs.rmSync(join(d, "pnpm-lock.yaml"));
@@ -1033,6 +1041,19 @@ describe("folders and access", () => {
     fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { postinstall: "nuxt prepare" } }));
     const g = nodeDockerfile(d, { start: "node .output/server/index.mjs", port: 3000 });
     expect(g).toContain("FROM node:24-slim\nWORKDIR /app\nCOPY . .\nRUN npm install\nENV");
+  });
+
+  test("Node.js version and package manager from package.json", () => {
+    expect(["", ">=18", "^24.1", "24.x", "lts"].map(nodeMajor)).toEqual([undefined, "24", "24", "24", undefined]);
+    expect([">=25", "^22.12.0", "20.x || 22.x", ">=20 <23", "22.4.1", "~26.1", "18 - 20", "^18"].map(nodeMajor)).toEqual(["26", "22", "22", "22", "22", "26", "20", "18"]);
+    const d = tmp();
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ engines: { node: ">=25" }, packageManager: "pnpm@10.4.1+sha512.abc" }));
+    const f = nodeDockerfile(d, { start: "node server.js", port: 3000 });
+    expect(f).toContain("FROM node:26-slim\n");
+    // no lockfile: packageManager says which one, corepack runs its pinned version
+    expect(f).toContain("RUN corepack enable || (npm install -g corepack && corepack enable)\nCOPY package.json ./\nRUN pnpm install\n");
+    fs.writeFileSync(join(d, ".nvmrc"), "22\n");
+    expect(nodeDockerfile(d, { start: "node server.js", port: 3000 })).toContain("FROM node:22-slim\n");
   });
 
   test("websocket and plain Node.js servers", () => {
