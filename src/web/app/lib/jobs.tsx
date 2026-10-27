@@ -4,6 +4,7 @@ import { invalidate, refreshState } from "./api";
 import { toast, say } from "../ui/toast";
 import { confirmDlg, dialog, portError, type Field } from "../ui/dialog";
 import { Btn, Spin, cx } from "../ui/kit";
+import { Check, Loader, Square, X } from "lucide-react";
 
 // ---- jobs ----------------------------------------------------------------
 
@@ -77,7 +78,7 @@ function finished(j: Job) {
   const why = rep(j).force;
   if (failed && !info.argv.includes("--force") && why) {
     j.actions.push({
-      label: "Do it anyway (--force)…",
+      label: "Do it anyway (--force)",
       cls: "danger",
       run: () => confirmDlg({ title: "Override the safety check?", text: why, ok: "Run with --force", danger: true, onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }) }),
     });
@@ -192,7 +193,7 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [] }: { n: s
         >
           On network
         </Btn>
-        <Btn cls="sm" title="Container port, local port, network" on={() => tunnelOptions(n, argv, ports)}>…</Btn>
+        <Btn cls="sm" title="Container port, local port, network" on={() => tunnelOptions(n, argv, ports)}>Options</Btn>
       </>
     );
   const url = tunnelUrl(j);
@@ -286,9 +287,9 @@ export function JobPanel() {
   ) : info.code === null ? (
     <span className="text-dim">stopped</span>
   ) : info.code === 0 ? (
-    <span className="text-ok">✓ done</span>
+    <span className="text-ok inline-flex items-center gap-1"><Check className="size-3.5" aria-hidden="true" /> done</span>
   ) : (
-    <span className="text-bad">✗ failed (exit {info.code})</span>
+    <span className="text-bad inline-flex items-center gap-1"><X className="size-3.5" aria-hidden="true" /> failed (exit {info.code})</span>
   );
   const others = [...S.jobs.values()].reverse();
   const stop = () => {
@@ -304,7 +305,7 @@ export function JobPanel() {
     >
       <div className="px-3.5 py-2.5 border-b border-line flex items-center gap-2 min-h-12">
         <span className="font-mono text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={`lf ${info.argv.join(" ")}`}>$ lf {info.argv.join(" ")}</span>
-        <Btn cls="ghost sm" title="Close (Esc)" aria-label="Close output" on={() => ((S.job = null), render())}>✕</Btn>
+        <Btn cls="ghost sm" title="Close (Esc)" aria-label="Close output" on={() => ((S.job = null), render())}><X className="size-4" aria-hidden="true" /></Btn>
       </div>
       <JobOut key={info.id} j={j} />
       <div className="px-3.5 py-2.5 border-t border-line flex gap-1.5 flex-wrap items-center">
@@ -317,7 +318,7 @@ export function JobPanel() {
       {others.length > 1 && (
         <div className="border-t border-line max-h-[28%] overflow-auto p-1">
           {others.map((o) => {
-            const [cls, ico] = o.info.code === undefined ? ["", "…"] : o.info.code === 0 ? ["text-ok", "✓"] : o.info.code === null ? ["", "■"] : ["text-bad", "✗"];
+            const [cls, Ico] = o.info.code === undefined ? ["", Loader] : o.info.code === 0 ? ["text-ok", Check] : o.info.code === null ? ["", Square] : ["text-bad", X];
             return (
               <button
                 key={o.info.id}
@@ -328,7 +329,7 @@ export function JobPanel() {
                 )}
                 onClick={() => showJob(o.info.id)}
               >
-                <span className={cls}>{ico}</span>
+                <Ico className={cx("size-3.5 flex-none mt-0.5", cls)} aria-hidden="true" />
                 <span className="overflow-hidden text-ellipsis">lf {o.info.argv.join(" ")}</span>
               </button>
             );

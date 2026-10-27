@@ -6,6 +6,7 @@ import { dialog } from "../ui/dialog";
 import { toast } from "../ui/toast";
 import { Badge, Body, Btn, Card, CardHead, Actions, Note, Spin, Sub, Loading, pending, cx, NUM, HIDE, Table } from "../ui/kit";
 import { Zero, pct, StatusDot, isUp, size } from "./shared";
+import { RotateCw } from "lucide-react";
 
 // ---- stats ---------------------------------------------------------------------
 
@@ -164,8 +165,8 @@ function DiskCard({ n }: { n: string }) {
     <Card>
       {head(
         <>
-          {d.docker && <Btn cls="sm" on={() => pruneFlow(n)} title="lf prune: remove unused images and the build cache">Clean up…</Btn>}
-          <Btn cls="sm" on={() => loadDisk(n)} title="Analyze again" aria-label="Analyze again">↻</Btn>
+          {d.docker && <Btn cls="sm" on={() => pruneFlow(n)} title="lf prune: remove unused images and the build cache">Clean up</Btn>}
+          <Btn cls="sm" on={() => loadDisk(n)} title="Analyze again" aria-label="Analyze again"><RotateCw className="inline-block size-3.5 -mt-px align-middle" aria-hidden="true" /></Btn>
         </>,
       )}
       {d.dockerDf.length > 0 && (

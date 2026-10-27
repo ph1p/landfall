@@ -5,8 +5,8 @@ import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Btn, cx } from "../ui/kit";
 import {
-  dialog, promptDlg, invalid, openDialog, closeDialog, D, siteNameError, words, domainOk, portError, userError, passwordError,
-  DFORM, DTITLE, DTEXT, DBTNS, type Values,
+  dialog, confirmDlg, promptDlg, invalid, openDialog, closeDialog, D, siteNameError, words, domainOk, portError, userError, passwordError,
+  DFORM, DTITLE, DTEXT, DBTNS, type Spec, type Values,
 } from "../ui/dialog";
 
 // ---- server flows ----------------------------------------------------------
@@ -222,20 +222,12 @@ export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
 }
 const DETECTED = "text-md px-3 py-2.5 rounded-md bg-hover";
 
-interface DeployOpts { site?: Any; upload?: boolean; files?: number; name?: string }
 /**
- * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
- * site: an existing site ({ server, name, domains, old }) this folder redeploys.
+ * The build part of a deploy form for det: what to build and start, static or an app, its port and volumes.
+ * argv: the lf deploy flags for what changed from det.
  */
-export function deployDialog(det: Any, o: DeployOpts = {}) {
+export function buildForm(det: Any) {
   const p = det.project;
-  const re = o.site;
-  const servers = S.state.servers.map((s: Any) => ({ value: s.name, label: s.name }));
-  const target: string = re?.server ?? p?.server ?? defaultServer();
-  const name: string = re?.name ?? o.name ?? det.name;
-  // A redeploy keeps the site's domains unless .landfall.json or the field names others.
-  const keeps: string[] | null = re && !p?.domains ? re.domains : null;
-  const keeping = (v: Values) => keeps && v.name.trim() === re.name && v.server === re.server;
   // Static files or an app without a Dockerfile: what to build and run is landfall's to decide, and editable here.
   const runtime = det.runtime ?? "Node.js";
   const modal = det.kind === "static" || !!det.start;
@@ -243,16 +235,6 @@ export function deployDialog(det: Any, o: DeployOpts = {}) {
   const isApp = (v: Values) => (modal ? (v.mode || (det.start ? "node" : "static")) === "node" : runs);
   const served = (v: Values) => !(isApp(v) && v.worker);
   const volumes: string[] = det.volumes ?? [];
-  /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
-  const addresses = (v: Values): [string[], string?] => {
-    const main = mainDomain(v.server);
-    const given = words(v.domains);
-    if (!given.length) return [keeping(v) ? keeps! : [autoDomain(v.server, v.name.trim())].filter(Boolean)];
-    const out = given.map((d) => (d === "@" ? main : !d.includes(".") && main ? `${d}.${main}` : d)?.toLowerCase());
-    if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
-    const bad = out.find((d) => !domainOk(d!));
-    return [out as string[], bad && `Not a domain: ${bad}`];
-  };
   const app = [
     { name: "worker", label: "Background worker: no port, no domain", type: "check" as const, value: !!det.worker, hint: "A bot, a queue consumer, a scheduler: it runs, nothing routes to it." },
     { name: "port", label: "Port it listens on", type: "number" as const, value: String(det.port ?? 3000), hint: modal ? "The app gets it as PORT." : "", when: (v: Values) => !v.worker, required: "Which port does it listen on?", check: portError },
@@ -262,39 +244,14 @@ export function deployDialog(det: Any, o: DeployOpts = {}) {
       check: (x: string) => words(x).filter((d) => !/^\/[\w./-]*\w$/.test(d)).map((d) => `${d} is not a folder like /app/data`)[0],
     },
   ];
-  dialog({
-    title: re ? `Redeploy ${name}` : `Deploy ${name}`,
-    text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
-      + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back… returns to the current one."}` : ""),
-    extra: <div className={DETECTED}><Describe d={det} /></div>,
-    fields: [
-      {
-        row: [
-          { name: "name", label: "Site name", value: name, required: "Give the site a name", check: siteNameError, hint: re ? "Another name deploys a new site." : "" },
-          { name: "server", label: "Server", type: "select", options: servers, value: target, required: "Pick a server" },
-        ],
-      },
-      ...(modal && (det.node || det.start)
-        ? [{ name: "mode", label: "Deploy as", type: "select" as const, value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
-        : []),
-      {
-        legend: "Address", when: served,
-        fields: [
-          {
-            name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "), off: (v) => v.noDomain,
-            placeholder: keeps ? keeps.join(" ") || "none" : "empty: the address below",
-            hint: mainDomain(target) ? "A bare name like blog is under the main domain, @ is the main domain itself. Others need an A record pointing at the server." : "Own domains need an A record pointing at the server.",
-            check: (_, v) => addresses(v)[1],
-            preview: (v) => {
-              const [out, bad] = addresses(v);
-              return bad ? "" : out.length ? `→ ${out.map((d) => `https://${d}`).join("  ")}` : "→ no domain: tunnel only";
-            },
-          },
-          { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Domains… on the site." },
-        ],
-      },
-      ...(modal
-        ? [
+  const fields: Spec[] = modal
+    ? [
+        {
+          legend: "Build",
+          fields: [
+            ...(det.node || det.start
+              ? [{ name: "mode", label: "Deploy as", type: "select" as const, value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
+              : []),
             { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", mono: true, hint: `Static files: runs here, before the upload. The ${runtime} app: runs on the server, in its image.` },
             {
               legend: "Static files", id: "static", when: (v: Values) => !isApp(v),
@@ -317,12 +274,102 @@ export function deployDialog(det: Any, o: DeployOpts = {}) {
                 ...app,
               ],
             },
-          ]
-        : runs
-          ? [{ legend: det.kind === "image" ? "Container" : "Dockerfile app", fields: app }]
-          : []),
+          ],
+        },
+      ]
+    : runs
+      ? [{ legend: det.kind === "image" ? "Container" : "Dockerfile app", fields: app }]
+      : [];
+  const argv = (v: Values) => {
+    const asNode = isApp(v);
+    const worker = asNode && v.worker;
+    const argv: string[] = [];
+    const build = v.build?.trim() ?? "";
+    if (modal && asNode) {
+      const start = v.start.trim();
+      if (start !== det.start) argv.push("--start", start);
+      if (build !== (det.build ?? "")) argv.push("--build", build);
+    } else if (modal) {
+      if (det.start) argv.push("--static");
+      if (build && build !== p?.build) argv.push("--build", build);
+      if (v.spa && !p?.spa) argv.push("--spa");
+      const dir = v.dir.trim().replace(/\/+$/, "") || ".";
+      if (dir !== (det.dir ?? ".")) argv.push(dir);
+    }
+    if (asNode) {
+      if (worker !== !!det.worker) argv.push(worker ? "--worker" : "--no-worker");
+      const port = Number(v.port.trim());
+      if (!worker && port !== (det.port ?? 3000)) argv.push("--port", String(port));
+      const vols = words(v.volumes);
+      if (vols.join(" ") !== volumes.join(" ")) argv.push(...(vols.length ? vols.flatMap((x) => ["--volume", x]) : ["--volume", ""]));
+    }
+    return argv;
+  };
+  return { fields, argv, served };
+}
+
+interface DeployOpts { site?: Any; upload?: boolean; files?: number; name?: string }
+/**
+ * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
+ * site: an existing site ({ server, name, domains, old }) this folder redeploys.
+ */
+export function deployDialog(det: Any, o: DeployOpts = {}) {
+  const p = det.project;
+  const re = o.site;
+  const servers = S.state.servers.map((s: Any) => ({ value: s.name, label: s.name }));
+  const target: string = re?.server ?? p?.server ?? defaultServer();
+  const name: string = re?.name ?? o.name ?? det.name;
+  // A redeploy keeps the site's domains unless .landfall.json or the field names others.
+  const keeps: string[] | null = re && !p?.domains ? re.domains : null;
+  const keeping = (v: Values) => keeps && v.name.trim() === re.name && v.server === re.server;
+  const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
+  /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
+  const addresses = (v: Values): [string[], string?] => {
+    const main = mainDomain(v.server);
+    const given = words(v.domains);
+    if (!given.length) return [keeping(v) ? keeps! : [autoDomain(v.server, v.name.trim())].filter(Boolean)];
+    const out = given.map((d) => (d === "@" ? main : !d.includes(".") && main ? `${d}.${main}` : d)?.toLowerCase());
+    if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
+    const bad = out.find((d) => !domainOk(d!));
+    return [out as string[], bad && `Not a domain: ${bad}`];
+  };
+  dialog({
+    title: re ? `Redeploy ${name}` : `Deploy ${name}`,
+    text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
+      + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back returns to the current one."}` : ""),
+    extra: <div className={DETECTED}><Describe d={det} /></div>,
+    sidebar: true,
+    fields: [
       {
-        legend: "Visitor login", collapsed: true, note: "optional: HTTP basic auth, set or remove it later with Password… on the site", when: served,
+        legend: "Site",
+        fields: [
+          {
+            row: [
+              { name: "name", label: "Site name", value: name, required: "Give the site a name", check: siteNameError, hint: re ? "Another name deploys a new site." : "" },
+              { name: "server", label: "Server", type: "select", options: servers, value: target, required: "Pick a server" },
+            ],
+          },
+        ],
+      },
+      {
+        legend: "Address", when: served,
+        fields: [
+          {
+            name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "), off: (v) => v.noDomain,
+            placeholder: keeps ? keeps.join(" ") || "none" : "empty: the address below",
+            hint: mainDomain(target) ? "A bare name like blog is under the main domain, @ is the main domain itself. Others need an A record pointing at the server." : "Own domains need an A record pointing at the server.",
+            check: (_, v) => addresses(v)[1],
+            preview: (v) => {
+              const [out, bad] = addresses(v);
+              return bad ? "" : out.length ? `→ ${out.map((d) => `https://${d}`).join("  ")}` : "→ no domain: tunnel only";
+            },
+          },
+          { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Edit on the site." },
+        ],
+      },
+      ...buildFields,
+      {
+        legend: "Visitor login", note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.", when: served,
         fields: [
           {
             row: [
@@ -336,36 +383,16 @@ export function deployDialog(det: Any, o: DeployOpts = {}) {
     ok: re ? "Redeploy" : "Deploy",
     onOk: (v) => {
       const n = v.name.trim();
-      const asNode = isApp(v);
-      const worker = asNode && v.worker;
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n];
-      if (!worker) {
+      if (served(v)) {
         const domains = words(v.domains);
         // The server's default would leave it unrouted though the box is unticked.
         if (!v.noDomain && !domains.length && !p?.domains?.length && !keeping(v) && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
         argv.push(...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d])));
       }
-      const build = v.build?.trim() ?? "";
-      if (modal && asNode) {
-        const start = v.start.trim();
-        if (start !== det.start) argv.push("--start", start);
-        if (build !== (det.build ?? "")) argv.push("--build", build);
-      } else if (modal) {
-        if (det.start) argv.push("--static");
-        if (build && build !== p?.build) argv.push("--build", build);
-        if (v.spa && !p?.spa) argv.push("--spa");
-        const dir = v.dir.trim().replace(/\/+$/, "") || ".";
-        if (dir !== (det.dir ?? ".")) argv.push(dir);
-      }
-      if (asNode) {
-        if (worker !== !!det.worker) argv.push(worker ? "--worker" : "--no-worker");
-        const port = Number(v.port.trim());
-        if (!worker && port !== (det.port ?? 3000)) argv.push("--port", String(port));
-        const vols = words(v.volumes);
-        if (vols.join(" ") !== volumes.join(" ")) argv.push(...(vols.length ? vols.flatMap((x) => ["--volume", x]) : ["--volume", ""]));
-      }
+      argv.push(...buildArgv(v));
       // The login counts once there is a password; the user defaults to admin.
-      if (!worker && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
+      if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
@@ -387,10 +414,17 @@ export function detected(path: string) {
   S.det[path] = null;
   browse(path).then((x) => ((S.det[path] = x.detected), render()), () => (S.det[path] = false));
 }
-/** Edit how a site builds and starts (build, start, port, static or Node.js), then redeploy. */
-export function buildSettings(path: string, site: Any) {
-  delete S.det[path];
-  browse(path).then((x) => deployDialog(x.detected, { site }), (e) => toast(errorMessage(e)));
+
+/** Redeploy a folder with its saved settings (.landfall.json), after saying exactly what runs. */
+export function redeploy(path: string, server: string, name: string, kind?: string) {
+  const argv = ["deploy", "-y", ...sv(server)];
+  confirmDlg({
+    title: `Redeploy ${name} to ${server}?`,
+    text: `${kind === "static" ? "Runs its build here (if it has one), uploads" : "Uploads"} ${tilde(path)} with its saved settings and makes it the live release. The current release stays for Roll back.`,
+    extra: <code className="block mono text-sm px-3 py-2 rounded-md bg-hover wrap-anywhere">cd {tilde(path)} && lf {argv.join(" ")}</code>,
+    ok: "Redeploy",
+    onOk: () => run(argv, { server, cwd: path, after: openAfter }),
+  });
 }
 
 /** Detect the project in path, then open the deploy dialog for it. */
@@ -498,7 +532,7 @@ function FolderDialog({ b, site }: { b: Any; site?: Any }) {
       </div>
       <div className={DBTNS}>
         <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-        <Btn type="submit" cls="primary">{site ? "Redeploy from this folder…" : "Deploy this folder…"}</Btn>
+        <Btn type="submit" cls="primary">{site ? "Redeploy from this folder" : "Deploy this folder"}</Btn>
       </div>
     </form>
   );

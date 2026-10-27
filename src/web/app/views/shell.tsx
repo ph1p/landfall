@@ -17,6 +17,7 @@ import { FirewallView } from "./firewall";
 import { HistoryView } from "./history";
 import { HomeView } from "./home";
 import { SitesView } from "./sites";
+import { LayoutGrid, RotateCw } from "lucide-react";
 
 
 export function App() {
@@ -65,7 +66,7 @@ function Header() {
         <span className={cx("overflow-hidden text-ellipsis whitespace-nowrap max-w-[36vw] max-[760px]:hidden", MONO)} title={st.cwd}>
           {p ? <><b>{p.name}</b> · {p.domains.join(", ")}</> : tilde(st.cwd)}
         </span>
-        <Btn on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder…</Btn>
+        <Btn on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder</Btn>
         <Btn cls="primary" on={deployHere} title={p ? `lf deploy (.landfall.json in ${st.cwd})` : `lf deploy from ${st.cwd}`}>{p ? "Deploy" : "Deploy this folder"}</Btn>
       </div>
     </header>
@@ -165,9 +166,7 @@ function Nav() {
       </div>
       <div className="px-2 pb-4">
         <button type="button" className={cx(SRV, "grid-cols-[14px_minmax(0,1fr)] gap-x-1 mt-1.5 mb-0.5", !S.sel && SRV_ON)} aria-current={S.sel ? undefined : "page"} onClick={() => go(null)}>
-          <svg className={cx("size-3.5", S.sel ? "text-faint" : "text-accent")} viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5h-4.5zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5h-4.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          </svg>
+          <LayoutGrid className={cx("size-3.5", S.sel ? "text-faint" : "text-accent")} aria-hidden="true" />
           <div className="col-start-2 font-[550]">Overview</div>
         </button>
         {group("own", "Servers", own)}
@@ -188,7 +187,7 @@ function Nav() {
 function ReachSummary({ list }: { list: Any[] }) {
   const btn = (
     <Btn cls="sm ghost flex-none inline-flex items-center gap-1.5" disabled={S.reaching} title="Try landfall's ssh login on every server again (lf server list --check)" on={() => loadReach(true)}>
-      {S.reaching ? <Spin className="size-2.5!" aria-hidden="true" /> : <span aria-hidden="true">↻</span>}
+      {S.reaching ? <Spin className="size-2.5!" aria-hidden="true" /> : <RotateCw className="size-3" aria-hidden="true" />}
       {S.reaching ? "Checking" : "Check"}
     </Btn>
   );
@@ -263,7 +262,7 @@ function Main() {
       <Card>
         <Empty title={`No server named ${n}`}>
           <p>It is not in landfall's list or in ~/.ssh/config (anymore).</p>
-          <p><Btn cls="primary" on={() => go(null)}>All servers</Btn> <Btn on={addServer}>Add a server…</Btn></p>
+          <p><Btn cls="primary" on={() => go(null)}>All servers</Btn> <Btn on={addServer}>Add a server</Btn></p>
         </Empty>
       </Card>
     );
@@ -290,8 +289,8 @@ function Main() {
         </div>
         <div className="flex flex-wrap gap-1.5 ml-auto">
           {(!k || k.setup) && <Btn on={() => setupFlow([n])} title="Shows what is installed and what setup would change; asks before applying">Set up / check</Btn>}
-          <Btn on={() => runCommand(n)} title="Run a shell command over ssh">Run…</Btn>
-          <Btn on={() => load(n, S.tab, true)} title="Reload" aria-label="Reload">↻</Btn>
+          <Btn on={() => runCommand(n)} title="Run a shell command over ssh">Run</Btn>
+          <Btn on={() => load(n, S.tab, true)} title="Reload" aria-label="Reload"><RotateCw className="inline-block size-3.5 -mt-px align-middle" aria-hidden="true" /></Btn>
           <MenuBtn
             title="More"
             cls=""
@@ -299,10 +298,10 @@ function Main() {
               { label: "Server info", hint: "lf server info", run: () => run(["server", "info", n]) },
               (!k || k.docker) && { label: "Traefik status", hint: "lf traefik status", run: () => run(["traefik", "status", ...sv(n)]) },
               (!k || k.admin) && "-",
-              (!k || k.admin) && { label: "Reboot…", cls: "danger", hint: "lf reboot", run: () => rebootDlg(n) },
+              (!k || k.admin) && { label: "Reboot", cls: "danger", hint: "lf reboot", run: () => rebootDlg(n) },
               !s.isDefault && { label: "Make default", title: "Commands without -s use it", run: () => makeDefault(n) },
               s.registered && "-",
-              s.registered && { label: `Forget ${n}…`, cls: "danger", hint: "lf server rm", run: () => forget(n) },
+              s.registered && { label: `Forget ${n}`, cls: "danger", hint: "lf server rm", run: () => forget(n) },
             ]}
           />
         </div>

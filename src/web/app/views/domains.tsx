@@ -1,10 +1,11 @@
-import { S, plural, sv, type Any } from "../lib/store";
+import { S, plural, sv, tilde, type Any } from "../lib/store";
 import { fetchInto, go, refreshState } from "../lib/api";
 import { run, ifOk } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Btn, Dot } from "../ui/kit";
-import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words } from "../ui/dialog";
-import { autoDomain, mainDomain } from "./flows";
+import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
+import { autoDomain, browse, buildForm, mainDomain, openAfter } from "./flows";
+import { Copy } from "lucide-react";
 
 // ---- domains & login ---------------------------------------------------------
 
@@ -15,59 +16,118 @@ export function copy(text: string) {
 const servedByOther = (n: string, site: string, d: string): string | undefined =>
   S.overview[n]?.data?.sites.find((s: Any) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
 
-export function domainsDialog(n: string, m: Any) {
-  const main = mainDomain(n);
-  const free = autoDomain(n, m.name);
-  const ips: string[] = S.dns[n]?.data?.ips ?? [];
-  dialog({
-    title: `Domains of ${m.name}`,
-    text: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
-    fields: [
-      {
-        name: "domains", label: "Domains (space separated)", value: m.domains.join(" "), mono: true, off: (v) => v.noDomain,
-        check: (x) => words(x).filter((d) => !domainOk(d)).map((d) => `Not a domain: ${d}`)[0],
-      },
-      { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !m.domains.length, hint: "Nothing is served on the internet; the site keeps running. Open via tunnel reaches it." },
-      ...(main && !m.domains.includes(main)
-        ? [{ name: "apex", label: `Also serve ${main}`, type: "check" as const, value: false, when: (v: Any) => !v.noDomain, hint: servedByOther(n, m.name, main) ? `${servedByOther(n, m.name, main)} serves it now and hands it over.` : "The main domain itself." }]
-        : []),
-      ...(free && !m.domains.includes(free)
-        ? [{ name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check" as const, value: false, when: (v: Any) => !v.noDomain, hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup." }]
-        : []),
-    ],
-    ok: "Save",
-    onOk: (v) => {
-      const domains: string[] = v.noDomain ? [] : v.domains.split(/[\s,]+/).filter(Boolean);
-      if (v.free && !v.noDomain) domains.push(free!);
-      if (v.apex && !v.noDomain) domains.push(main!);
-      // None left: the site keeps running, unrouted.
-      const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d: string) => ["--rm", d]);
-      if (!args.length) return;
-      run(["domains", m.name, ...sv(n), ...args, "-y"], { server: n });
-    },
-  });
+/**
+ * Everything about a site in one form: its domains, login, environment and, deployed from here, how it builds.
+ * Each section that changed runs its own lf command, one after the other; a build change redeploys.
+ */
+export function siteSettings(n: string, site: Any) {
+  const m = site.meta;
+  const proj = m.adopted ? undefined : (S.state.projects ?? []).find((p: Any) => p.server === n && p.name === m.name);
+  if (!proj) return settingsDialog(n, site);
+  delete S.det[proj.path];
+  browse(proj.path).then((x) => settingsDialog(n, site, proj.path, x.detected), () => settingsDialog(n, site));
 }
 
-export function authDialog(n: string, m: Any) {
+/** The values a form starts with. */
+const defaults = (specs: Spec[]): Values =>
+  Object.assign({}, ...specs.map((x: Any) => (x.fields ? defaults(x.fields) : x.row ? defaults(x.row) : { [x.name]: x.value ?? (x.type === "check" ? false : "") })));
+
+function settingsDialog(n: string, site: Any, path?: string, det?: Any) {
+  const { meta: m, main: svc } = site;
+  const name: string = m.name;
+  const managed = site.state === "managed";
+  const main = mainDomain(n);
+  const free = autoDomain(n, name);
+  const ips: string[] = S.dns[n]?.data?.ips ?? [];
   const users: string[] = (m.auth ?? []).map((a: string) => a.split(":")[0]);
+  const build = det && buildForm(det);
+  const served = (v: Values) => !build || build.served(v);
+  // The untouched form already asks for flags (a detected build not yet saved): only a change from them redeploys.
+  const untouched = build ? build.argv(defaults(build.fields)).join("\0") : "";
   dialog({
-    title: `Password for ${m.name}`,
-    text: users.length
-      ? `Visitors log in as ${users.join(", ")}. Saving an existing user changes their password.`
-      : "Visitors have to log in (HTTP basic auth) before they see the site.",
+    title: `Edit ${name}`,
+    text: `On ${n}${path ? `, deployed from ${tilde(path)}` : ""}. Saving runs one lf command per changed section${build ? "; a build change redeploys" : ""}.`,
+    sidebar: true,
     fields: [
-      { name: "off", label: "Remove the login: the site is public again", type: "check", value: false, when: () => users.length },
-      {
-        row: [
-          { name: "user", label: "User", value: users[0] ?? "admin", off: (v) => v.off, check: (x) => userError(x || "admin") },
-          { name: "password", label: `Password (${S.state.rules.minPassword}+ characters)`, type: "password", off: (v) => v.off, required: "Pick a password", check: passwordError },
+      svc && {
+        legend: "Domains", when: served,
+        note: `Each domain needs an A record pointing at ${ips.join(", ") || "the server"}. Traefik fetches the certificate once it resolves.`,
+        fields: [
+          {
+            name: "domains", label: "Domains (space separated)", value: m.domains.join(" "), mono: true, off: (v: Values) => v.noDomain,
+            check: (x: string) => words(x).filter((d) => !domainOk(d)).map((d) => `Not a domain: ${d}`)[0],
+          },
+          { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: !m.domains.length, hint: "Nothing is served on the internet; the site keeps running. Open via tunnel reaches it." },
+          main && !m.domains.includes(main) && {
+            name: "apex", label: `Also serve ${main}`, type: "check", value: false, when: (v: Values) => !v.noDomain,
+            hint: servedByOther(n, name, main) ? `${servedByOther(n, name, main)} serves it now and hands it over.` : "The main domain itself.",
+          },
+          free && !m.domains.includes(free) && {
+            name: "free", label: main ? `Also add ${free}` : `Also add the free address ${free}`, type: "check", value: false, when: (v: Values) => !v.noDomain,
+            hint: main ? `Under the main domain: works once *.${main} points at the server.` : "Works right away, no DNS setup.",
+          },
+        ].filter(Boolean),
+      },
+      managed && {
+        legend: "Visitor login", when: served,
+        note: users.length ? `Visitors log in as ${users.join(", ")}. A new password for an existing user changes theirs.` : "Optional: visitors log in (HTTP basic auth) before they see the site.",
+        fields: [
+          { name: "off", label: "Remove the login: the site is public again", type: "check", value: false, when: () => users.length },
+          {
+            row: [
+              { name: "user", label: "User", value: users[0] ?? "admin", off: (v: Values) => v.off, check: (x: string, v: Values) => v.password && userError(x || "admin") },
+              { name: "password", label: `Password (${S.state.rules.minPassword}+ characters)`, type: "password", placeholder: users.length ? "unchanged" : "none", off: (v: Values) => v.off, check: (x: string) => x && passwordError(x) },
+            ],
+          },
         ],
       },
-    ],
+      managed && {
+        legend: "Environment",
+        note: `The site's .env. Changes recreate its containers; lf env ${name} shows the current values.`,
+        fields: [
+          {
+            name: "set", label: "Set (KEY=VALUE, one per line)", type: "textarea", value: "", placeholder: "DATABASE_URL=postgres://…\nLOG_LEVEL=info", mono: true,
+            check: (x: string) => x.split("\n").map((l) => l.trim()).filter((l) => l && !/^[^=]+=/.test(l)).map((l) => `Not KEY=VALUE: ${l.slice(0, 40)}`)[0],
+          },
+          { name: "unset", label: "Remove (names, space separated)", value: "", placeholder: "OLD_KEY", mono: true },
+        ],
+      },
+      ...(build?.fields ?? []),
+    ].filter(Boolean) as Spec[],
     ok: "Save",
     onOk: (v) => {
-      if (v.off) return void run(["auth", m.name, ...sv(n), "--off", "-y"], { server: n });
-      run(["auth", m.name, ...sv(n), "-u", v.user.trim() || "admin", "--password", v.password], { server: n });
+      const jobs: { argv: string[]; cwd?: string }[] = [];
+      if (managed && served(v)) {
+        if (v.off) jobs.push({ argv: ["auth", name, ...sv(n), "--off", "-y"] });
+        else if (v.password) jobs.push({ argv: ["auth", name, ...sv(n), "-u", v.user.trim() || "admin", "--password", v.password] });
+      }
+      if (managed) {
+        const pairs = v.set.split("\n").map((l: string) => l.trim()).filter((l: string) => l.includes("="));
+        const unset = words(v.unset).flatMap((k) => ["-u", k]);
+        if (pairs.length || unset.length) jobs.push({ argv: ["env", name, ...sv(n), ...pairs, ...unset] });
+      }
+      let domains: string[] | undefined;
+      if (svc && served(v)) {
+        const next = v.noDomain ? [] : words(v.domains);
+        if (v.free && !v.noDomain) next.push(free);
+        if (v.apex && !v.noDomain) next.push(main!);
+        if (next.join(" ") !== m.domains.join(" ")) domains = next;
+      }
+      const flags = build?.argv(v) ?? [];
+      const rebuild = flags.join("\0") !== untouched;
+      // A redeploy takes the new domains along; run from the folder, both keep .landfall.json in step.
+      if (rebuild) {
+        const to = domains && (domains.length ? domains.flatMap((d) => ["-d", d]) : ["--no-domain"]);
+        jobs.push({ argv: ["deploy", "-y", ...sv(n), "-n", name, ...flags, ...(to ?? [])], cwd: path });
+      } else if (domains) {
+        // None left: the site keeps running, unrouted.
+        const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d: string) => ["--rm", d]);
+        jobs.push({ argv: ["domains", name, ...sv(n), ...args, "-y"], cwd: path });
+      }
+      if (!jobs.length) return void toast("Nothing changed");
+      const chain = ([j, ...rest]: typeof jobs): unknown =>
+        j && run(j.argv, { server: n, cwd: j.cwd, after: rest.length ? ifOk(() => chain(rest)) : j.argv[0] === "deploy" ? openAfter : undefined });
+      chain(jobs);
     },
   });
 }
@@ -97,7 +157,7 @@ export function DomainChip({ n, d }: { n: string; d: string }) {
     <span className="group inline-flex items-center gap-0.5 max-w-full">
       <Dot kind={dot} title={title} />
       <a href={url} target="_blank" rel="noopener" title={title} className="overflow-hidden text-ellipsis whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{d}</a>
-      <Btn cls="ghost px-[5px]! py-0! text-sm! min-w-6 min-h-6 text-faint! group-hover:text-fg! focus-visible:text-fg!" title="Copy the address" on={() => copy(url)}>⧉</Btn>
+      <Btn cls="ghost px-[5px]! py-0! text-sm! min-w-6 min-h-6 text-faint! group-hover:text-fg! focus-visible:text-fg!" title="Copy the address" on={() => copy(url)}><Copy className="size-3.5" aria-hidden="true" /></Btn>
     </span>
   );
 }

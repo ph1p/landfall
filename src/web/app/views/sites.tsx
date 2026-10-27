@@ -1,13 +1,14 @@
 import { useEffect, type ReactNode } from "react";
 import { S, ago, render, sv, tilde, type Any } from "../lib/store";
 import { run, TunnelBtn } from "../lib/jobs";
-import { ACTS, Badge, Btn, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Table } from "../ui/kit";
+import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
-import { Describe, buildSettings, detected, folderDialog, openAfter, setupFlow } from "./flows";
-import { DomainChip, authDialog, domainsDialog, ensureDns } from "./domains";
+import { Describe, detected, folderDialog, redeploy, setupFlow } from "./flows";
+import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
 import { StatusDot, can, isUp } from "./shared";
+import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
 const CHIP = "inline-flex items-center gap-0.5 max-w-full";
@@ -40,7 +41,7 @@ export function SitesView({ n, o }: { n: string; o: Any }) {
         <Card>
           <Empty title="No sites yet">
             <p>Deploy a folder with a compose.yaml, a Dockerfile, static files, or an image. It gets HTTPS automatically.</p>
-            <p><Btn cls="primary" on={() => folderDialog(S.state.cwd)}>Deploy a folder…</Btn> <span className="dim">or drop one here</span></p>
+            <p><Btn cls="primary" on={() => folderDialog(S.state.cwd)}>Deploy a folder</Btn> <span className="dim">or drop one here</span></p>
             <p className="faint mono">lf deploy ./dist -d example.com -s {n}</p>
           </Empty>
         </Card>
@@ -97,57 +98,48 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
         { label: "Logs", hint: `lf logs ${name} ${x.service}`, run: () => run(["logs", name, x.service, ...sv(n), "-f"]) },
         { label: "Restart", hint: "lf restart", run: () => run(["restart", name, x.service, ...sv(n)]) },
         isUp(x.status)
-          ? { label: "Stop…", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${x.service} of ${name}?`, text: "It stays stopped until you start it again.", ok: "Stop it", danger: true, onOk: () => run(["stop", name, x.service, ...sv(n)]) }) }
+          ? { label: "Stop", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${x.service} of ${name}?`, text: "It stays stopped until you start it again.", ok: "Stop it", danger: true, onOk: () => run(["stop", name, x.service, ...sv(n)]) }) }
           : { label: "Start", hint: "lf start", run: () => run(["start", name, x.service, ...sv(n)]) },
       ]}
     />
   );
-  const editBuild = () => buildSettings(proj.path, { server: n, name, domains: m.domains ?? [], old });
+  const edit = () => siteSettings(n, site);
+  const stop = () => confirmDlg({ title: `Stop ${name}?`, text: `${domains.join(", ") || "The site"} stops answering until you start it again.`, ok: "Stop it", danger: true, onOk: () => run(["stop", name, ...sv(n)]) });
+  // The everyday actions sit in the row, each titled with the command it runs; the rest is under More.
   const acts = (
-    <>
+    <div className="inline-flex flex-wrap items-center justify-end gap-1.5 [&>button]:ml-0!">
       {deploys ? (
-        <Btn
-          cls="sm primary"
-          title={`lf deploy in ${proj.path}`}
-          on={() =>
-            confirmDlg({
-              title: `Redeploy ${name}?`,
-              text: `From ${tilde(proj.path)}${proj.kind === "static" ? " (runs its build first, if it has one)" : ""}.`,
-              ok: "Deploy",
-              onOk: () => run(["deploy", "-y", ...sv(n)], { server: n, cwd: proj.path, after: openAfter }),
-            })
-          }
-        >
-          Redeploy
-        </Btn>
+        <Btn cls="sm primary" title={`Build and upload ${tilde(proj.path)} again, then switch to it (lf deploy)`} on={() => redeploy(proj.path, n, name, proj.kind)}><Icon name="deploy" />Redeploy</Btn>
       ) : m.adopted || m.kind === "image" ? null : (
-        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains ?? [], old })}>Redeploy…</Btn>
+        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains ?? [], old })}><Icon name="deploy" />Redeploy</Btn>
       )}
-      {!old && <Btn cls="sm" title="Follow the logs of all its services" on={() => run(["logs", name, ...sv(n), "-f"])}>Logs</Btn>}
+      {(main || managed || deploys) && <Btn cls="sm" title="Domains, login, environment and how it builds (lf domains, lf auth, lf env, lf deploy)" on={edit}><Icon name="edit" />Edit</Btn>}
+      {!old && (
+        <BtnGroup label={`Containers of ${name}`}>
+          <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}><Icon name="logs" />Logs</Btn>
+          <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}><Icon name="restart" />Restart</Btn>
+          {up
+            ? <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}><Icon name="stop" />Stop</Btn>
+            : <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}><Icon name="start" />Start</Btn>}
+        </BtnGroup>
+      )}
       <MenuBtn
         title={`More for ${name}`}
+        cls="sm ghost"
         items={[
-          !old && { label: "Restart", hint: "lf restart", run: () => run(["restart", name, ...sv(n)]) },
-          old ? null
-          : up ? { label: "Stop…", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${name}?`, text: `${domains.join(", ") || "The site"} stops answering until you start it again.`, ok: "Stop it", danger: true, onOk: () => run(["stop", name, ...sv(n)]) }) }
-          : { label: "Start", hint: "lf start", run: () => run(["start", name, ...sv(n)]) },
           managed && older.length > 0 && {
-            label: "Roll back…",
+            label: "Roll back",
             hint: "lf rollback",
             title: `To ${older[0].id} (${ago(older[0].at)})`,
             run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }),
           },
           "-",
           !old && { label: "Open via tunnel", hint: "lf tunnel", title: "An SSH tunnel straight to the container: test it on localhost, no domain needed", run: () => run(["tunnel", name, ...sv(n)], { server: n }) },
-          main && { label: "Domains…", hint: "lf domains", run: () => domainsDialog(n, m) },
-          managed && { label: m.auth?.length ? "Login…" : "Password…", hint: "lf auth", title: "Protect the site with a user and password", run: () => authDialog(n, m) },
-          managed && { label: "Environment…", hint: "lf env", run: () => envDialog(n, name) },
-          deploys && { label: "Build settings…", hint: "lf deploy --build --start", title: "What it builds and starts with, its port, static or Node.js", run: editBuild },
           "-",
-          { label: m.adopted ? `Forget ${name}…` : `Delete ${name}…`, cls: "danger", hint: "lf sites rm", run: deleteSite },
+          { label: m.adopted ? `Forget ${name}` : `Delete ${name}`, cls: "danger", hint: "lf sites rm", run: deleteSite },
         ]}
       />
-    </>
+    </div>
   );
   const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
   const svcDomains = (svc: string): string[] => (svc === main ? m.domains : (cur?.services?.find((x: Any) => x.name === svc)?.domains ?? []));
@@ -175,12 +167,12 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
     pairs.push([
       "Source",
       proj ? <><span className="mono">{tilde(proj.path)}</span> <span className="dim">· redeploy runs there</span></>
-      : <span className="dim">not deployed from this machine{m.kind === "image" ? "" : " (or the folder moved): Redeploy… picks the folder"}</span>,
+      : <span className="dim">not deployed from this machine{m.kind === "image" ? "" : " (or the folder moved): Redeploy picks the folder"}</span>,
     ]);
   if (det !== undefined)
     pairs.push([
       "Build",
-      det ? <><Describe d={det} before={false} /> <Btn cls="sm ghost" title="Build settings: lf deploy --build --start" on={editBuild}>Edit…</Btn></>
+      det ? <><Describe d={det} before={false} /> <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>Edit</Btn></>
       : <span className="faint">{det === false ? "cannot read its folder" : "reading its folder…"}</span>,
     ]);
   pairs.push(["Kind", <>{kind}{main || !managed ? "" : <> <span className="dim">· domains set in compose.yaml</span></>}</>]);
@@ -224,9 +216,9 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
               aria-expanded={open}
               onClick={(e) => (e.stopPropagation(), toggle())}
             >
-              <b>{name}</b> <span className="faint" aria-hidden="true">{open ? "▾" : "▸"}</span>
+              <b>{name}</b> {open ? <ChevronDown className="size-3.5 text-faint" aria-hidden="true" /> : <ChevronRight className="size-3.5 text-faint" aria-hidden="true" />}
             </button>
-            {m.auth?.length > 0 && <span className="text-xs ml-1" title="password protected" role="img" aria-label="password protected">🔒</span>}
+            {m.auth?.length > 0 && <span className="ml-1 text-dim" title="password protected" role="img" aria-label="password protected"><Lock className="size-3" aria-hidden="true" /></span>}
           </div>
           <div className={cx(CHIPS, SHOW, "mt-1")}>{where}</div>
         </td>
@@ -280,7 +272,7 @@ function OthersCard({ n, o }: { n: string; o: Any }) {
             <td className={cx(HIDE, MONO, "dim")}>{e.dir ?? e.containers.join(", ")}</td>
             <td className={ACTS}>
               <Btn cls="sm" title="lf tunnel: an SSH tunnel straight to the container, until you stop it" on={() => run(["tunnel", e.name, ...sv(n)], { server: n })}>Tunnel</Btn>
-              {e.dir && <Btn cls="sm" title="lf adopt" on={() => adoptDialog(n, e)}>Adopt…</Btn>}
+              {e.dir && <Btn cls="sm" title="lf adopt" on={() => adoptDialog(n, e)}>Adopt</Btn>}
             </td>
           </tr>
         ))}
@@ -296,25 +288,5 @@ function adoptDialog(n: string, e: Any) {
     fields: [{ name: "name", label: "Site name", value: e.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, ""), required: true, check: siteNameError }],
     ok: "Adopt",
     onOk: (v) => run(["adopt", e.name, ...sv(n), "--name", v.name.trim()], { server: n }),
-  });
-}
-
-function envDialog(n: string, name: string) {
-  dialog({
-    title: `Environment of ${name}`,
-    text: "Changes recreate the container. Leave both empty to only show the current values.",
-    fields: [
-      {
-        name: "set", label: "Set (KEY=VALUE, one per line)", type: "textarea", value: "", placeholder: "DATABASE_URL=postgres://…\nLOG_LEVEL=info",
-        check: (x: string) => x.split("\n").map((l) => l.trim()).filter((l) => l && !/^[^=]+=/.test(l)).map((l) => `Not KEY=VALUE: ${l.slice(0, 40)}`)[0],
-      },
-      { name: "unset", label: "Remove (names, space separated)", value: "", placeholder: "OLD_KEY" },
-    ],
-    ok: "Apply",
-    onOk: (v) => {
-      const pairs = v.set.split("\n").map((l: string) => l.trim()).filter((l: string) => l && l.includes("="));
-      const unset = v.unset.split(/[\s,]+/).filter(Boolean).flatMap((k: string) => ["-u", k]);
-      run(["env", name, ...sv(n), ...pairs, ...unset]);
-    },
   });
 }

@@ -2,6 +2,7 @@ import { S, ago, plural, sv, type Any } from "../lib/store";
 import { run } from "../lib/jobs";
 import { confirmDlg, dialog } from "../ui/dialog";
 import { Actions, Btn, Card, CardHead, Empty, Sub, pending, cx, HIDE } from "../ui/kit";
+import { Check, Dot, RotateCcw, Undo2 } from "lucide-react";
 
 // ---- history -------------------------------------------------------------------
 
@@ -66,10 +67,10 @@ export function HistoryView({ n }: { n: string }) {
             </div>
             <ul className="steps list-none mt-2 mb-0 mx-0 pl-1">
               {r.steps.map((x: Any, i: number) => {
-                const [cls, ico] = x.reverts ? ["fixed", "↩"] : x.undone ? ["undone", "✓"] : x.undo ? ["", "↺"] : ["fixed", "·"];
+                const [cls, Ico] = x.reverts ? ["fixed", Undo2] : x.undone ? ["undone", Check] : x.undo ? ["", RotateCcw] : ["fixed", Dot];
                 return (
                   <li key={i} className={cx("flex gap-2 items-baseline py-0.5 text-md", cls && "text-faint")}>
-                    <span className="w-4 text-center flex-none">{ico}</span>
+                    <Ico className="size-3.5 flex-none self-center" aria-hidden="true" />
                     <span className={cx(cls === "undone" && "line-through")}>{x.what}</span>
                     {!x.undo && !x.reverts && <span className="faint">(not reversible)</span>}
                     {x.undone && <span className="faint">(undone)</span>}
