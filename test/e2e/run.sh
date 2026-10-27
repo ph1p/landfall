@@ -21,9 +21,30 @@ trap cleanup EXIT
 
 pass() { printf '\033[32mPASS\033[0m %s\n' "$*"; }
 die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
+
+# E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
+SECTIONS="static spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
+  system security traefik remove firewall undo ui undo-all legacy uninstall fresh debian dnf"
+needs() {
+  case $1 in
+    environments) echo secrets ;;
+    updates | traffic | prune) echo dockerfile ;;
+    domains | traefik | remove) echo image ;;
+    undo) echo static dockerfile firewall ;;
+    ui) echo dockerfile image domains ;;
+  esac
+}
+ONLY=" "
+for s in ${E2E_ONLY//,/ }; do
+  [ "$s" = setup ] || [[ " $(echo $SECTIONS) " == *" $s "* ]] || die "E2E_ONLY: no section $s (setup $(echo $SECTIONS))"
+  ONLY+="$s $(needs "$s") "
+done
+want() { [ -z "${E2E_ONLY:-}" ] || [[ "$ONLY" == *" $1 "* ]]; }
 # Not grep -q: it stops reading at the first match, and under pipefail the writer's SIGPIPE fails the check.
 has() { grep "$@" >/dev/null; }
 lf() { node "$ROOT/dist/cli.mjs" "$@"; }
+srv() { docker exec "$NAME" "$@"; }
+ufw_added() { docker exec "$NAME" ufw show added; }
 get() { curl -sk --max-time 10 --resolve "$1:$HTTPS_PORT:127.0.0.1" "https://$1:$HTTPS_PORT${2:-/}"; }
 # code <host> [/path] [curl args...]
 code() {
@@ -85,7 +106,7 @@ pass "server add fixes the key of an own Host block, server config shows it"
 lf server rm ownbox -y >/dev/null
 
 [ "${STOP_AFTER_SETUP:-}" = 1 ] && exit 0
-echo "== static"
+if want static; then echo "== static"
 mkdir -p "$WORK/site/dist" && cd "$WORK/site"
 echo '<h1>v1</h1>' > dist/index.html
 echo old > dist/old.txt
@@ -116,14 +137,16 @@ out=$(lf deploy -d 'site.test`)' -y 2>&1) && die "deploy accepts a bad domain"
 echo "$out" | has uploading && die "deploy uploads before checking the domain"
 lf deploy --keep abc -y >/dev/null 2>&1 && die "deploy accepts --keep abc"
 pass "deploy rejects bad input"
+fi
 
-echo "== spa"
+if want spa; then echo "== spa"
 mkdir -p "$WORK/spa/build" && cd "$WORK/spa"
 echo '<div id=app>spa</div>' > build/index.html
 lf deploy -d spa.test --spa -y
 expect spa.test /deep/link spa
+fi
 
-echo "== dockerfile"
+if want dockerfile; then echo "== dockerfile"
 mkdir -p "$WORK/app" && cd "$WORK/app"
 cat > Dockerfile <<'EOF'
 FROM busybox:1.37
@@ -139,8 +162,28 @@ lf env --reveal | grep -qx 'GREETING=world' || die "lf env --reveal"
 [ "$(lf env --keys)" = GREETING ] || die "lf env --keys"
 lf env --pull "$WORK/pulled.env" -y >/dev/null && grep -qx 'GREETING=world' "$WORK/pulled.env" || die "lf env --pull"
 pass "lf env hides, reveals, lists and pulls"
+# A release that does not come up: the site is put back at once, .env too, and the release goes.
+cp Dockerfile "$WORK/Dockerfile.ok"
+printf 'HEALTHCHECK --interval=1s --retries=1 CMD false\n' >> Dockerfile
+{ ! lf deploy -e GREETING=broken -y >"$WORK/broken.log" 2>&1; } || die "a release that does not start fails the deploy"
+{ has "is back as it was" "$WORK/broken.log"; } || { cat "$WORK/broken.log"; die "failed start puts the site back"; }
+expect app.test / "app world"
+lf env --reveal | grep -qx 'GREETING=world' || die ".env put back"
+[ "$(docker exec "$NAME" ls /opt/landfall/sites/app/releases | wc -l)" -eq 1 ] || die "failed release removed"
+{ lf history 2>&1 | has "undid: deploy app release"; } || die "the rolled back deploy is marked undone"
+pass "a release that does not start goes back to the one before, with its .env"
+cp "$WORK/Dockerfile.ok" Dockerfile
+docker exec "$NAME" mkdir /opt/landfall/sites/.app.deploying
+{ ! lf deploy -y >"$WORK/locked.log" 2>&1 && has "another deploy of app is running" "$WORK/locked.log"; } || { cat "$WORK/locked.log"; die "deploy lock"; }
+docker exec "$NAME" rmdir /opt/landfall/sites/.app.deploying
+pass "one deploy of a site at a time"
+lf deploy --build-local -y >"$WORK/local.log" 2>&1 || { cat "$WORK/local.log"; die "deploy --build-local"; }
+{ has "built here, sent" "$WORK/local.log" && ! grep -q "building app$" "$WORK/local.log"; } || { cat "$WORK/local.log"; die "--build-local builds here"; }
+expect app.test / "app world"
+pass "--build-local builds the image here and sends it"
+fi
 
-echo "== secrets"
+if want secrets; then echo "== secrets"
 # A file under /run/secrets, read once at start: changing it must restart the service.
 mkdir -p "$WORK/vault" && cd "$WORK/vault"
 cat > Dockerfile <<'EOF'
@@ -163,8 +206,9 @@ expect vault.test / "token s3cret"
 lf secret -u TOKEN -y >/dev/null 2>&1 || die "lf secret -u"
 expect vault.test / "token none"
 pass "lf secret mounts, rotates, undoes and survives a redeploy"
+fi
 
-echo "== environments"
+if want environments; then echo "== environments"
 # The same folder deployed again as its own site, with its own secrets.
 lf deploy -E staging -d vault-staging.test -y >/dev/null 2>&1 || die "deploy -E staging"
 expect vault-staging.test / "token none"
@@ -189,8 +233,9 @@ expect layers-staging.test / "mode staging"
 docker exec "$NAME" sh -c 'cd /opt/landfall/sites/layers-staging/current && docker compose config' | has "MODE: staging" || die "the release's compose.yaml holds the merge"
 lf sites rm layers -y >/dev/null 2>&1; lf sites rm layers-staging -y >/dev/null 2>&1
 pass "compose.<env>.yaml layers on compose.yaml"
+fi
 
-echo "== node"
+if want node; then echo "== node"
 # No Dockerfile: landfall writes one; the build runs on the server, the app gets PORT and HOST.
 mkdir -p "$WORK/node" && cd "$WORK/node"
 echo '{"name":"node-app","scripts":{"build":"echo built > built.txt"}}' > package.json
@@ -203,15 +248,17 @@ lf deploy -y >/dev/null
 expect node.test / "node 4000 built v2"
 lf init >/dev/null
 { grep '^CMD node server.js$' Dockerfile >/dev/null && grep 'init: true' compose.yaml >/dev/null; } || die "init writes the Dockerfile"; pass "init writes the Dockerfile"
+fi
 
-echo "== image"
+if want image; then echo "== image"
 cd "$WORK"
 lf deploy --no-save -n who --image traefik/whoami:v1.11 --port 80 -d who.test -y
 expect who.test / "Hostname"
 { lf sites info who | has who-app-1; } || die "sites info"; pass "sites info"
 { lf logs who -n 5 >/dev/null; } || die "logs"; pass "logs"
+fi
 
-echo "== compose"
+if want compose; then echo "== compose"
 # lf init writes the files; the same compose.yaml runs locally and on the server.
 mkdir -p "$WORK/stack" && cd "$WORK/stack"
 stack_app() { printf 'FROM busybox:1.37\nEXPOSE 8000\nCMD sh -c "mkdir -p /www && echo stack %s > /www/index.html && httpd -f -p 8000 -h /www"\n' "$1" > Dockerfile; }
@@ -224,7 +271,6 @@ pass "init writes compose.yaml and compose.override.yaml, a second init changes 
 # compose.yaml requires POSTGRES_PASSWORD: -e on the first deploy must satisfy it.
 lf deploy -d stack.test -e POSTGRES_PASSWORD=pw1 -y >"$WORK/stack.log" 2>&1 || { cat "$WORK/stack.log"; die "deploy compose site"; }
 expect stack.test / "stack v1"
-srv() { docker exec "$NAME" "$@"; }
 [ -z "$(srv docker port stack-db-1)" ] && [ -z "$(srv docker port stack-app-1)" ] || die "compose.override.yaml ports stay local"
 { ! srv docker inspect -f '{{json .NetworkSettings.Networks}}' stack-db-1 | has '"web"'; } || die "db stays off the proxy network"
 pass "only the routed service is on Traefik's network, nothing is published"
@@ -247,8 +293,9 @@ for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
 lf sites rm stack --volumes -y >/dev/null 2>&1
 { ! srv docker volume ls -q | has -x stack_db; } || die "rm --volumes deletes it"
 pass "sites rm keeps volumes, --volumes deletes them"
+fi
 
-echo "== volumes"
+if want volumes; then echo "== volumes"
 mkdir -p "$WORK/vols/seed/sub" && cd "$WORK/vols"
 printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
 lf deploy -n vols --no-domain -y >"$WORK/vols.log" 2>&1 || { cat "$WORK/vols.log"; die "deploy vols"; }
@@ -268,8 +315,16 @@ lf volume pull vols data --into "$WORK/vols/out" >/dev/null 2>&1 && [ "$(cat "$W
 vol 'rm old'
 lf volume restore vols data -y >/dev/null 2>&1 && [ "$(vol 'cat old')" = old ] || die "volume restore"
 pass "volume backup, pull and restore"
+lf volume backup vols --schedule hourly --keep 2 >"$WORK/sched.log" 2>&1 || { cat "$WORK/sched.log"; die "volume backup --schedule"; }
+{ lf volumes vols | has 'hourly, keep 2'; } && srv sh -c 'crontab -u deploy -l | grep -q "backups/backup.sh .*# landfall backup vols: hourly, keep 2"' || die "the schedule is a crontab line"
+srv sh -c 'cd /opt/landfall/sites/vols/backups && for i in 1 2 3; do touch data-20200101-00000$i.tar.gz; done && sh backup.sh' || die "backup.sh runs by hand"
+[ "$(srv sh -c 'ls /opt/landfall/sites/vols/backups | grep -c "^data-[0-9]*-[0-9]*\.tar\.gz$"')" = 2 ] && srv test ! -e /opt/landfall/sites/vols/backups/data-20200101-000002.tar.gz || die "backup.sh keeps the newest 2"
+lf undo -s box -y >/dev/null 2>&1 && { lf volumes vols | has 'scheduled backups: none'; } || die "undo stops the schedule"
+lf volume backup vols --schedule daily >/dev/null 2>&1 || die "volume backup --schedule daily"
+pass "scheduled backups: a crontab line, backup.sh keeps the newest, undo stops it"
 lf sites rm vols -y >/dev/null 2>&1
 srv sh -c 'ls /opt/landfall/sites/vols/backups/data-*.tar.gz' >/dev/null && ! srv test -e /opt/landfall/sites/vols/site.json || die "rm keeps backups"
+! srv sh -c 'crontab -u deploy -l 2>/dev/null | grep -q "landfall backup vols:"' || die "rm stops scheduled backups"
 lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'newest'; } || die "a site deployed again finds its backups"
 lf sites rm vols --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vols || die "rm --volumes deletes the backups"
 pass "sites rm keeps backups with the volumes, --volumes deletes both"
@@ -355,8 +410,9 @@ got=$(curl -s http://127.0.0.1:18099/ || true); kill $TUNNEL_PID 2>/dev/null || 
 pass "a private port is not routed, lf tunnel priv admin opens it"
 lf sites rm priv -y >/dev/null 2>&1
 cd "$WORK"
+fi
 
-echo "== password, domains, free address"
+if want domains; then echo "== password, domains, free address"
 lf auth who -u bob -p secretpw1 >/dev/null
 for _ in $(seq 1 20); do [ "$(code who.test)" = 401 ] && break; sleep 1; done
 [ "$(code who.test)" = 401 ] || die "auth asks for a login"; pass "auth asks for a login"
@@ -384,8 +440,9 @@ expect "$free" / free
 pass "deploy without a domain uses $free"
 { grep -q '"path": ".*'"$(basename "$WORK")"'/free"' "$LANDFALL_CONFIG_DIR/projects.json"; } || die "project remembered"; pass "project remembered"
 cd "$WORK"
+fi
 
-echo "== main domain"
+if want main; then echo "== main domain"
 lf server domain box box.test >/dev/null 2>&1 || die "server domain"
 lf server domain box --add other.test >/dev/null 2>&1 || die "server domain --add"
 { lf server config box --json | tr -d ' \n' | has '"domains":\["box.test","other.test"\]'; } || die "main domains remembered"; pass "main domains remembered, first is primary"
@@ -433,16 +490,18 @@ lf traefik setup --dashboard off >/dev/null 2>&1
 lf sites rm main -y >/dev/null
 lf server domain box --clear -y >/dev/null
 cd "$WORK"
+fi
 
-echo "== os and updates"
+if want updates; then echo "== os and updates"
 { lf info --json | has '"id": "alpine"'; } || die "server info detects the os"; pass "server info detects alpine"
 out=$(lf updates --no-refresh --json) || die "updates"
 { echo "$out" | has '"mgr": "apk"' && echo "$out" | has '"name": "traefik"'; } || { echo "$out" | head -40; die "updates lists packages and images"; }
 pass "updates lists apk packages and images"
 { echo "$out" | has 'built on the server: redeploy to rebuild'; } || { echo "$out" | head -60; die "updates marks images built on the server"; }
 pass "updates marks images built on the server"
+fi
 
-echo "== stats"
+if want stats; then echo "== stats"
 out=$(lf stats --json) || die "stats"
 { echo "$out" | has '"docker": true' && echo "$out" | has '"name": "traefik"' && echo "$out" | has '"cpus": '; } || { echo "$out" | head -60; die "stats lists host and containers"; }
 pass "stats lists host and containers"
@@ -450,8 +509,9 @@ pass "stats lists host and containers"
 out=$(lf disk --json) || die "disk"
 { echo "$out" | has '"type": "Images"' && echo "$out" | has '"logs"'; } || { echo "$out" | head -60; die "disk sums up docker"; }
 pass "disk sums up docker"
+fi
 
-echo "== traffic, certs, check"
+if want traffic; then echo "== traffic, certs, check"
 { docker exec "$NAME" docker inspect traefik | has 'accesslog.format=json'; } || die "traefik logs json"; pass "traefik writes a json access log"
 get app.test /nope >/dev/null; get app.test / >/dev/null
 out=$(lf traffic --since 1h --json) || die "traffic"
@@ -464,8 +524,9 @@ pass "certs finds app.test's certificate"
 out=$(lf check app.test --resolve "127.0.0.1:$HTTPS_PORT" --json) && die "check fails on a self-signed certificate"
 { echo "$out" | has '"status": 200' && echo "$out" | has '"valid": false'; } || { echo "$out"; die "check reads status and certificate"; }
 pass "check: status 200, self-signed certificate fails"
+fi
 
-echo "== prune"
+if want prune; then echo "== prune"
 junk=$(printf 'FROM scratch\nLABEL junk=%s\n' "$RANDOM" | docker exec -i "$NAME" docker build -q - 2>/dev/null | tail -n1)
 [ -n "$junk" ] || die "build a dangling image"
 out=$(lf prune --dry-run --json) || die "prune --dry-run"
@@ -477,8 +538,9 @@ lf prune -y >/dev/null 2>&1 || die "prune"
 { docker exec "$NAME" docker image ls --format '{{.Repository}}' | grep -q '^app-'; } || die "prune keeps built images"
 { lf history 2>&1 | has "pruned"; } || die "prune is journaled"
 pass "prune removes unused images, keeps built images, journals it"
+fi
 
-echo "== system"
+if want system; then echo "== system"
 # deploy has no sudo here: root's keys and daemon.json come through root's key login.
 out=$(lf system -s box --json) || die "system --json"
 { echo "$out" | has '"init": "openrc"' && echo "$out" | has '"mine": true' && echo "$out" | has '"driver": "json-file"'; } || { echo "$out" | head -60; die "system lists init, keys, docker logs"; }
@@ -502,8 +564,9 @@ lf log-limit 10m --files 2 -s box >/dev/null 2>&1 || die "log-limit"
 { lf system -s box --json | has '"maxSize": "10m"'; } || die "system shows the limit"
 lf undo -s box -y >/dev/null 2>&1 || die "undo log-limit"
 { ! docker exec "$NAME" grep -qs max-size /etc/docker/daemon.json; } || die "undo restores daemon.json"; pass "log-limit, undo restores daemon.json"
+fi
 
-echo "== security"
+if want security; then echo "== security"
 # A user who logs in with a password only, and sshd taking passwords again.
 docker exec "$NAME" sh -c 'rm -f /etc/ssh/sshd_config.d/00-landfall.conf && adduser -D alice && echo alice:e2e-pw | chpasswd'
 out=$(lf security -s box --json) || die "security --json"
@@ -537,8 +600,9 @@ pass "harden updates on alpine: daily apk upgrade, crond running"
 lf undo -s box -y >/dev/null 2>&1 || die "undo apk updates"
 { lf security -s box --json | has '"autoUpdates": false' && ! docker exec "$NAME" test -e /etc/periodic/daily/landfall-upgrade; } \
   || die "undo apk updates"; pass "undo removes the apk upgrade job"
+fi
 
-echo "== traefik host network"
+if want traefik; then echo "== traefik host network"
 lf traefik setup --host-network --image traefik:v3.6 >/dev/null 2>&1 || die "traefik setup --host-network"
 { lf updates -s box --no-refresh 2>&1 | has "newer version traefik:v3."; } || die "updates names the newer traefik tag"; pass "updates names the newer traefik tag"
 { [ "$(docker exec "$NAME" docker inspect -f '{{.HostConfig.NetworkMode}}' traefik)" = host ]; } || die "traefik on host network"; pass "traefik on host network"
@@ -555,14 +619,15 @@ docker exec "$NAME" sh -c '! docker inspect traefik >/dev/null 2>&1 && [ ! -e /o
 lf undo -y >/dev/null 2>&1 || die "undo traefik rm"
 expect who.test / "Hostname"
 pass "undo puts the removed traefik back"
+fi
 
-echo "== remove"
+if want remove; then echo "== remove"
 lf sites rm who -y
 lf ls | has who && die "who still listed" || pass "site removed"
+fi
 
-echo "== firewall"
+if want firewall; then echo "== firewall"
 # deploy has no sudo here, so these go through root's key login.
-ufw_added() { docker exec "$NAME" ufw show added; }
 { lf firewall -s box 2>&1 | has "firewall on box: off"; } || die "firewall status"; pass "firewall status shows off"
 lf firewall allow 5432 --from 10.0.0.0/8 -s box >/dev/null
 { ufw_added | has -x "ufw allow from 10.0.0.0/8 to any port 5432"; } || die "firewall allow"; pass "firewall allow --from"
@@ -578,8 +643,9 @@ lf firewall rm "deny from 10.0.0.0/8 to any port 5432" -s box -y >/dev/null
 lf firewall disable -s box -y >/dev/null
 [ "$(docker exec "$NAME" ufw status | head -1)" = "Status: inactive" ] || die "firewall disable"; pass "firewall disable"
 ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes box true || die "ssh after firewall"; pass "ssh still works"
+fi
 
-echo "== history and undo"
+if want undo; then echo "== history and undo"
 out=$(lf history -s box -n 100 2>&1)
 for want in "created user deploy" "installed traefik" "deploy site release" "ufw allow from 10.0.0.0/8"; do
   { grep -q "$want" <<<"$out"; } || { echo "$out"; die "history shows: $want"; }
@@ -656,8 +722,9 @@ for (const r of runs) { const i = r.steps.findIndex((s) => /^ufw allow 22\/tcp/.
 out=$(lf undo "$ref" -s box -y 2>&1) && die "undo refuses to drop the ssh rule"
 { grep -q "lock you out" <<<"$out" && ufw_added | has "22/tcp"; } || { echo "$out"; die "undo ssh guard"; }
 pass "undo refuses to remove the ssh rule while ufw is on"
+fi
 
-echo "== web dashboard"
+if want ui; then echo "== web dashboard"
 UI_PORT=${UI_PORT:-4799}
 # node itself, not the lf function: $! of a backgrounded function is a subshell that kill leaves node behind.
 node "$ROOT/dist/cli.mjs" ui --port "$UI_PORT" --no-open >"$WORK/ui.log" 2>&1 &
@@ -697,8 +764,9 @@ job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":'"$argv"
   || die "ui fix starts fail2ban"; pass "ui security fix button starts fail2ban"
 kill "$UI_PID"; wait "$UI_PID" 2>/dev/null || true
 pass "web dashboard: login, host check, servers, jobs"
+fi
 
-echo "== undo everything"
+if want undo-all; then echo "== undo everything"
 lf undo --all -s box -y >"$WORK/undo.log" 2>&1 || { cat "$WORK/undo.log"; die "undo --all"; }
 docker exec "$NAME" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall/sites ] && [ ! -e /etc/ssh/sshd_config.d/00-landfall.conf ]' \
   || die "undo --all removes user, layout and hardening"
@@ -707,8 +775,9 @@ docker exec "$NAME" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall/sites
 # The deploy user is gone now, so look at the journal directly.
 { docker exec "$NAME" grep -q "$(printf '\tundo\t')" /opt/landfall/journal.log; } || die "journal kept"
 pass "undo --all leaves the server as it was, journal kept"
+fi
 
-echo "== site from before Compose sites"
+if want legacy; then echo "== site from before Compose sites"
 lf setup box --host 127.0.0.1 --port "$SSH_PORT" --key "$WORK/key" --email test@example.com --staging --no-firewall -y >/dev/null 2>&1 || die "setup again"
 trust_test_hosts
 # A site as the landfall before Compose sites wrote it: one container from sites/<name>/docker-compose.yml.
@@ -749,14 +818,16 @@ expect mig.test / Hostname
   && ! docker exec "$NAME" test -e /opt/landfall/sites/mig/docker-compose.yml; } || die "old site taken over"
 pass "deploy moves an old site to a Compose project"
 cd "$WORK"
+fi
 
-echo "== uninstall"
+if want uninstall; then echo "== uninstall"
 lf server uninstall box --volumes -y >"$WORK/uninstall.log" 2>&1 || { cat "$WORK/uninstall.log"; die "server uninstall"; }
 { [ -z "$(docker exec "$NAME" docker ps -aq)" ] && docker exec "$NAME" test ! -e /opt/landfall; } || die "uninstall removes sites, traefik and /opt/landfall"
 { ! has '"box"' "$LANDFALL_CONFIG_DIR/config.json" && ! has "landfall:box" "$LANDFALL_SSH_CONFIG"; } || die "uninstall forgets box"
 pass "server uninstall removes sites, traefik and /opt/landfall, forgets the server"
+fi
 
-echo "== fresh server with password"
+if want fresh; then echo "== fresh server with password"
 FRESH_PORT=${FRESH_PORT:-2223}
 docker rm -fv "$NAME-fresh" >/dev/null 2>&1 || true
 docker run -d --privileged --name "$NAME-fresh" -p "$FRESH_PORT:22" -e ROOT_PASSWORD=hunter2 landfall-e2e >/dev/null
@@ -809,8 +880,9 @@ mkdir -p "$WORK/freshsite" && echo "fresh site" > "$WORK/freshsite/index.html"
 docker exec "$NAME-fresh" sh -c 'id deploy >/dev/null && docker inspect traefik >/dev/null && [ -f /opt/landfall/sites/freshsite/site.json ]' \
   || { cat "$WORK/fresh-deploy.log"; die "deploy --host: setup, traefik, site"; }
 pass "deploy --host sets up a new server with the password, then deploys"
+fi
 
-echo "== debian: automatic updates"
+if want debian; then echo "== debian: automatic updates"
 # apt's unattended-upgrades and no init system, which the Alpine box cannot show. No 20auto-upgrades: they start off.
 DEB_PORT=${DEB_PORT:-2224}
 docker build -q -t landfall-e2e-debian "$ROOT/test/e2e/debian" >/dev/null
@@ -825,8 +897,9 @@ lf harden updates -s deb >"$WORK/deb.log" 2>&1 || { cat "$WORK/deb.log"; die "ha
 { lf security -s deb --json | has '"autoUpdates": true'; } || die "harden updates turns them on"; pass "harden updates turns on unattended-upgrades"
 lf undo -s deb -y >/dev/null 2>&1 || die "undo updates"
 { lf security -s deb --json | has '"autoUpdates": false'; } || die "undo turns them off"; pass "undo turns automatic updates off"
+fi
 
-echo "== dnf: automatic updates"
+if want dnf; then echo "== dnf: automatic updates"
 # systemd as PID 1. Fedora's dnf5 has one timer and automatic.conf; Rocky 9's dnf 4 has an installing timer.
 port=2225
 for base in fedora:42 rockylinux:9; do
@@ -845,5 +918,6 @@ for base in fedora:42 rockylinux:9; do
   pass "$n: harden updates turns on dnf-automatic, undo turns it off"
   docker rm -fv "$NAME-$n" >/dev/null; port=$((port + 1))
 done
+fi
 
-echo; pass "all e2e checks"
+echo; pass "e2e checks${E2E_ONLY:+: $E2E_ONLY}"
