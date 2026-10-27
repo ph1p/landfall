@@ -228,6 +228,8 @@ export interface ProjectConfig {
   volumes?: string[];
   /** App, Dockerfile or image: runs without a port or a domain (a bot, a queue consumer). */
   worker?: boolean;
+  /** Upload: also leave out what the folder's .gitignore files ignore. */
+  gitignore?: boolean;
   /** Named targets (staging…): the same project deployed again as its own site, with what differs here. */
   environments?: Record<string, EnvironmentConfig>;
 }

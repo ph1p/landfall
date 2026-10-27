@@ -22,7 +22,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Install](#install)
 - [Concepts](#concepts)
 - [Prepare a server](#prepare-a-server)
-- [Deploy a site](#deploy-a-site) ([Environments](#environments))
+- [Deploy a site](#deploy-a-site) ([What gets uploaded](#what-gets-uploaded), [Environments](#environments))
 - [Day-to-day](#day-to-day) ([Volumes and backups](#volumes-and-backups))
 - [Updates](#updates)
 - [Traefik](#traefik)
@@ -191,6 +191,25 @@ only the files that changed and copies the rest from the live release on the ser
 removed); otherwise it uploads the whole folder. Either way it becomes a new release, so `lf rollback` still goes back.
 `--keep 10` keeps more releases. A deploy is refused when another Compose project on the server already uses the
 site's project name, since `docker compose` would otherwise take over its containers.
+
+### What gets uploaded
+
+The deployed folder, without `.git`, `node_modules`, `.DS_Store`, `.landfall.json`, `.env`, `.env.*`, `.secrets` and
+`compose.override.*` (plus the runtime's build caches for an app, e.g. `.venv` or `target`). To leave out more, put a
+`.landfallignore` next to `.landfall.json`. It uses `.gitignore` syntax, with paths relative to its folder, and its
+`!` lines bring back a default (`!node_modules` uploads it after all):
+
+```
+data/
+*.sqlite
+/docs/drafts/
+```
+
+`.gitignore` does not apply by default: a static site uploads `dist/`, which is usually in it. `lf deploy --gitignore`
+also leaves out what the `.gitignore` files inside the deployed folder ignore, and is saved in `.landfall.json`
+(`--no-gitignore` turns it off). An ignored folder is never entered, so nothing inside it comes back.
+
+The first deploy of a site prints the upload's size and its largest entries. Above 100 MB it asks first (`-y` skips that).
 
 ### Compose sites
 
@@ -797,7 +816,7 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
@@ -852,6 +871,7 @@ lf undo -s box -y                           # revert the last run
 | `~/.ssh/landfall_<name>` | generated keys |
 | `~/.ssh/config` | `Host <name>` blocks between `# >>> landfall:<name>` markers |
 | `./.landfall.json` | per-project deploy settings |
+| `./.landfallignore` | what `lf deploy` leaves out, in `.gitignore` syntax ([What gets uploaded](#what-gets-uploaded)) |
 
 | env var | effect |
 |---|---|

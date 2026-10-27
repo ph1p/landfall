@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { envVar, expandHome, type Server } from "./config";
+import type { Entry } from "./ignore";
 import { ROOT } from "./templates";
 import { fail } from "./ui";
 
@@ -191,10 +192,6 @@ export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-logi
   return code === 0 ? "ready" : code === 255 ? "no-login" : "bare";
 }
 
-/** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", ".secrets", "compose.override.*", "docker-compose.override.*"];
-const excludeArgs = (more: string[]) => [...new Set([...EXCLUDE, ...more])].flatMap((e) => ["--exclude", e]);
-
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
 export async function bsdtarFlags(): Promise<string[]> {
@@ -211,10 +208,16 @@ const hasRsync = () => (localRsync ??= spawnP("rsync", ["--version"], { capture:
 /** How upload sent the files: rsync (only the changes) or tar (everything, and why). */
 export type Sent = "rsync" | "tar" | "tar:no-local-rsync" | "tar:no-server-rsync";
 
-/** Uploads localDir to remoteDir, without `exclude`. With a seed (the live release's copy on the server), rsync sends only what changed. */
-export async function upload(s: Server, localDir: string, remoteDir: string, seed?: string, exclude: string[] = []): Promise<Sent> {
+/** NUL-separated, for tar --null -T - and rsync --from0 --files-from=-. */
+const fileList = (list: Entry[]) => list.map((e) => `${e.path}\0`).join("");
+
+/**
+ * Uploads the `list` of localDir (see uploadList) to remoteDir. With a seed (the live release's copy on the
+ * server), rsync sends only what changed.
+ */
+export async function upload(s: Server, localDir: string, remoteDir: string, list: Entry[], seed?: string): Promise<Sent> {
   if (!fs.existsSync(localDir)) fail(`directory not found: ${localDir}`);
-  const tar = async (sent: Sent) => (await tarUpload(s, localDir, remoteDir, exclude), sent);
+  const tar = async (sent: Sent) => (await tarUpload(s, localDir, remoteDir, list), sent);
   if (!seed) return tar("tar");
   if (!(await hasRsync())) return tar("tar:no-local-rsync");
   const { stdout } = await runScript(
@@ -227,21 +230,26 @@ export async function upload(s: Server, localDir: string, remoteDir: string, see
   if (answer !== "ok") return tar("tar");
   // --copy-dest copies unchanged files from the seed: real copies, since landfall rewrites some release files in place.
   const shell = ["ssh", ...sshOptions(s)].map(shq).join(" ");
-  const args = ["-rlptz", `--copy-dest=${seed}`, ...excludeArgs(exclude), "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
-  const { code } = await spawnP("rsync", args, {});
+  // No -r: the list names every folder and file, and -r would send what it leaves out of a folder.
+  const args = ["-lptz", "--from0", "--files-from=-", `--copy-dest=${seed}`, "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
+  const rsync = spawn("rsync", args, { stdio: ["pipe", "inherit", "inherit"] });
+  rsync.stdin.end(fileList(list));
+  const code = await new Promise<number>((done, reject) => (rsync.on("error", reject), rsync.on("close", (c) => done(c ?? 1))));
   if (code !== 0) throw new Error(`rsync failed (exit ${code})`);
   return "rsync";
 }
 
-async function tarUpload(s: Server, localDir: string, remoteDir: string, exclude: string[]) {
-  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", ...excludeArgs(exclude), "-C", localDir, "."];
+async function tarUpload(s: Server, localDir: string, remoteDir: string, list: Entry[]) {
+  // "." first: an empty list still makes a valid archive. --no-recursion before -T (GNU tar reads it in order).
+  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", "-C", localDir, "--no-recursion", "--null", "-T", "-"];
   const remote = `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`;
   await new Promise<void>((resolve, reject) => {
     // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.
     const tar = spawn("tar", tarArgs, {
-      stdio: ["ignore", "pipe", "inherit"],
+      stdio: ["pipe", "pipe", "inherit"],
       env: { ...process.env, COPYFILE_DISABLE: "1" },
     });
+    tar.stdin.end(`.\0${fileList(list)}`);
     const ssh = spawn("ssh", [...sshArgs(s), remote], { stdio: ["pipe", "inherit", "inherit"] });
     tar.stdout.pipe(ssh.stdin);
     tar.on("error", reject);

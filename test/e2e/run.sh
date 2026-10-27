@@ -88,14 +88,21 @@ echo "== static"
 mkdir -p "$WORK/site/dist" && cd "$WORK/site"
 echo '<h1>v1</h1>' > dist/index.html
 echo old > dist/old.txt
-lf deploy -d site.test -y
+echo secret > dist/notes.txt && echo dist/notes.txt > .landfallignore
+echo draft > dist/draft.html && echo draft.html > dist/.gitignore
+out=$(lf deploy -d site.test -y 2>&1) || { echo "$out"; die "deploy static site"; }
+has "upload: 4 files" <<<"$out" || { echo "$out"; die "first deploy says what it uploads"; }
 expect site.test / v1
+[ "$(code site.test /notes.txt)" = 404 ] && [ "$(code site.test /draft.html)" = 200 ] || die ".landfallignore leaves files out, .gitignore only with --gitignore"
+pass ".landfallignore leaves files out, .gitignore only with --gitignore"
 { grep -q '"site.test"' .landfall.json; } || die ".landfall.json written"; pass ".landfall.json written"
 echo '<h1>v2</h1>' > dist/index.html   # same second as v1 on purpose: release ids must not collide
 rm dist/old.txt
-out=$(lf deploy -y 2>&1) || { echo "$out"; die "redeploy static site"; }
+out=$(lf deploy --gitignore -y 2>&1) || { echo "$out"; die "redeploy static site"; }
 has "only what changed" <<<"$out" || die "redeploy sends only changes"; pass "redeploy sends only changes"
 expect site.test / v2
+[ "$(code site.test /draft.html)" = 404 ] && [ "$(code site.test /notes.txt)" = 404 ] && grep -q '"gitignore": true' .landfall.json || die "--gitignore with rsync, saved"
+pass "--gitignore leaves out what .gitignore ignores, also with rsync, and is saved"
 [ "$(code site.test /nope)" = 404 ] || die "unknown path 404s"; pass "unknown path 404s"
 [ "$(code site.test /old.txt)" = 404 ] || die "a file deleted locally is gone after redeploy"; pass "a file deleted locally is gone after redeploy"
 lf rollback -y
