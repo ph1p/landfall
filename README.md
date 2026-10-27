@@ -229,9 +229,30 @@ volumes:
 - **`x-landfall`** on a service routes it: `port` is where Traefik sends requests, `domains` gives it its own
   (a bare name or `@` works as in `-d`). One routed service without `domains` serves the site's domains, which
   `-d` and `lf domains` manage. Services without `x-landfall` (the database) stay off Traefik's network.
-- **`ports:` is refused**, since a published port bypasses Traefik and the firewall. Put local ports in
-  `compose.override.yaml`: `docker compose` merges it locally, `lf deploy` leaves it out. To publish a port on
-  the server anyway, add `x-landfall: { publish: true }` to that service.
+- **More ports of one service**: `routes` sends further ports to their own domains, and `private` names ports
+  that are never routed (reach them with `lf tunnel <site> <name>`). `subdomain: admin` serves
+  `admin.<domain>` for every domain of the site, and follows `lf domains`:
+
+  ```yaml
+  x-landfall:
+    port: 3000                                # the site's domains
+    routes:
+      - { port: 3001, subdomain: admin }      # admin.<each site domain>
+      - { port: 9000, domains: [s3.example.com] }
+    private: { cms: 3002 }                    # lf tunnel blog cms
+  ```
+
+- **A compose.yaml without `x-landfall` deploys as it is.** landfall routes the HTTP ports its services
+  publish (`ports:`) or `expose:`: the first service with `build:` (else one on a usual web port) gets the
+  site's domains with its first port, every other port a subdomain (`<service>` or `<service>-<port>`).
+  Databases, mail and other non-HTTP ports stay internal. `lf deploy` prints this route plan and marks new
+  routes; every routed port is public, so check it. `lf init` writes the plan down as `x-landfall` in your
+  compose.yaml (shows the diff), and any `x-landfall` turns this off for the whole file.
+- **Published `ports:` stay local.** A published port would bypass Traefik and the firewall, so on the server
+  the release's override resets them (`ports: !reset []`). Your compose.yaml is not changed, and `lf init` moves
+  them to `compose.override.yaml`, which `docker compose` merges locally and `lf deploy` leaves out. With
+  `x-landfall` set, `ports:` is refused instead; to publish a port on the server anyway, add
+  `x-landfall: { publish: true }` to that service.
 - **Named volumes keep your data** across deploys and rollbacks. `lf sites rm` keeps them, so deploying the
   site again finds its data; `lf sites rm --volumes` deletes them. Each deploy gets a new release folder, so
   a writable bind mount like `./data` is refused: write data to a named volume (read-only `./dist:…:ro` is fine).
@@ -293,6 +314,12 @@ cd /opt/landfall/sites/blog                     # roll back by hand: point curre
 ln -sfn releases/20260122143005 current
 cd -P current && docker compose up -d           # … and bring it up
 ```
+
+Everything landfall adds is in the release's `compose.override.yaml`, plain Compose: the project name, the
+image tags, the Traefik labels (a router `<site>_<service>` per service, `<site>_<service>_<port>` per extra
+route), the proxy network and `ports: !reset []`. To leave landfall, copy your `compose.yaml` and that override
+to any host with Docker and run `docker compose up -d`, behind your own Traefik with the same labels (or drop
+the override and publish ports yourself). `x-landfall` is a Compose extension field: `docker compose` ignores it.
 
 `/opt/landfall/README` on the server explains the same. A project you started yourself behind landfall's
 Traefik shows up in `lf sites` as not deployed by landfall; `lf adopt <project>` makes it a site that `lf` can
@@ -837,7 +864,7 @@ On the server:
 | no certificate at all | DNS must point at the server and 80/443 must be open; see `lf traefik logs` |
 | TLS handshake fails | no site serves the domain (`lf domains --add …`), or its certificate isn't issued yet: `lf traefik logs` |
 | site container keeps restarting | `lf logs`; for apps check `--port` / `x-landfall.port` and env |
-| `… publishes 5432 on the server, past Traefik and the firewall` | move `ports:` to `compose.override.yaml`, or allow it with `x-landfall: { publish: true }` |
+| `… publishes 5432 on the server, past Traefik and the firewall` | `lf init` moves `ports:` to `compose.override.yaml`; or allow it with `x-landfall: { publish: true }` |
 | `sites need docker compose 2.24 or newer` | `lf update --compose` |
 | `required variable … is missing` | set it on the server: `lf env KEY=…` or `lf deploy -e KEY=…` |
 | `… was edited by hand` (traefik setup) | move your change to `dynamic/` or flags, or `lf traefik setup --force` |

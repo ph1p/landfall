@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, editList, expandDomain, loadProject, saveProject, type Server } from "../config";
 import { checkDns, serverIps } from "../facts";
 import { updateProjectDomains } from "../projects";
-import { isOld, siteDomains, siteMain } from "../compose";
+import { currentRelease, isOld, siteDomains, siteMain, subDomains } from "../compose";
 import { changeSite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
 import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn } from "../ui";
@@ -89,7 +89,8 @@ and update .landfall.json of remembered projects.`,
       await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.${left}`);
     }
     const added = next.filter((d) => !meta.domains.includes(d));
-    const move = await claimDomains(server, serverName, site, added, proxy);
+    const services = currentRelease(meta)?.services ?? [];
+    const move = await claimDomains(server, serverName, site, [...added, ...subDomains(services, added)], proxy);
     await move();
     await changeSite(server, meta, proxy, `domains of ${site}: ${next.join(", ")}`, (m) => void (m.domains = next));
     updateProjectDomains(serverName, site, next);
@@ -98,7 +99,7 @@ and update .landfall.json of remembered projects.`,
     if (!next.length) ok(`${site} serves no domain now ${c.dim(`(lf domains ${site} --add <domain> routes it again)`)}`);
     else ok(`${site} serves ${next.map((d) => c.cyan(`https://${d}`)).join(", ")}`);
     const ips = await serverIps(server);
-    for (const d of await checkDns(added, ips)) {
+    for (const d of await checkDns([...added, ...subDomains(services, added)], ips)) {
       if (!d.ok) warn(`${d.domain} ${d.ips.length ? `points at ${d.ips.join(", ")}` : "has no DNS record"}, not ${ips.join(" or ")}: HTTPS waits for it`);
     }
   },

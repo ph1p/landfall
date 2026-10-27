@@ -2,9 +2,9 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand } from "../cmd";
 import { checkInt } from "../config";
-import { volumeName } from "../compose";
+import { adoptCompose, OVERRIDE_FILES, volumeName } from "../compose";
 import { detectApp, detectProject } from "../projects";
-import { c, fail, info, ok, showStack } from "../ui";
+import { c, fail, info, ok, showDiff, showStack, warn } from "../ui";
 
 export const init = defineCommand({
   name: "init",
@@ -19,7 +19,9 @@ export const init = defineCommand({
                          change it here
 
 \`docker compose up\` then runs the site locally, \`lf deploy\` on a server. Existing
-files are never overwritten.`,
+files are never overwritten, except an existing compose.yaml: init writes down the routes
+a deploy picks without x-landfall, moves its ports: into compose.override.yaml and shows
+the diff.`,
   options: {
     port: { type: "string", desc: "container port (default: EXPOSE, the saved port or the app's usual one)" },
     postgres: { type: "boolean", desc: "add a Postgres service with a volume; the app gets DATABASE_URL" },
@@ -29,7 +31,7 @@ files are never overwritten.`,
     if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) fail(`${dirArg} is not a folder`);
     const d = detectProject(root);
     showStack(d.stack);
-    if (d.kind === "compose") fail(`${d.compose} exists already: add x-landfall: { port: <port> } to the service Traefik should serve`);
+    if (d.kind === "compose") return adopt(root, d.compose!, d.analysis!);
     const files: Record<string, string> = { "compose.yaml": "", "compose.override.yaml": "" };
     const taken = Object.keys(files).filter((f) => fs.existsSync(join(root, f)));
     if (taken.length) fail(`${taken.join(" and ")} exist already`);
@@ -121,3 +123,35 @@ services:
     info(`deploy it: lf deploy${db ? " -e POSTGRES_PASSWORD=<secret>   (the first time)" : ""}`);
   },
 });
+
+/**
+ * An existing compose file: write down the routes a deploy would pick (auto mode) as x-landfall, and move
+ * published ports into the local-only override. Shows what changed; the files stay plain Compose.
+ */
+function adopt(root: string, file: string, a: NonNullable<ReturnType<typeof detectProject>["analysis"]>) {
+  const fixable = (e: string) => / publishes .* on the server/.test(e);
+  const errors = a.errors.filter((e) => !fixable(e));
+  if (errors.length) fail(`${file}: ${errors.join("; ")}`);
+  const overFile = OVERRIDE_FILES.find((f) => fs.existsSync(join(root, f))) ?? "compose.override.yaml";
+  const before = fs.readFileSync(join(root, file), "utf8");
+  const overBefore = fs.existsSync(join(root, overFile)) ? fs.readFileSync(join(root, overFile), "utf8") : undefined;
+  const r = adoptCompose(before, overBefore, a);
+  if (!r.routed.length && !r.moved.length) {
+    ok(`${file} is ready for lf deploy: nothing to change`);
+    for (const w of a.warnings) warn(w);
+    return;
+  }
+  fs.writeFileSync(join(root, file), r.compose);
+  showDiff(file, before, r.compose);
+  if (r.moved.length) {
+    fs.writeFileSync(join(root, overFile), r.override);
+    showDiff(overFile, overBefore ?? "", r.override);
+  }
+  const at = relative(process.cwd(), root) || ".";
+  ok(`wrote ${[file, ...(r.moved.length ? [overFile] : [])].join(" and ")} in ${at}`);
+  if (r.routed.length) info(`x-landfall on ${r.routed.join(", ")}: the routes a deploy picked without it; change the ports or subdomains as you like`);
+  if (r.moved.length) info(`ports of ${r.moved.join(", ")} now in ${overFile}: \`docker compose up\` still publishes them locally, lf deploy leaves them out`);
+  for (const n of a.notes) info(c.dim(n));
+  for (const w of a.warnings) warn(w);
+}
+
