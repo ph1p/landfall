@@ -112,7 +112,7 @@ export function whileStopped(vol: string, steps: string[]) {
   ].join("\n");
 }
 
-async function volumes(server: Server, site: string, sizes = false) {
+export async function volumes(server: Server, site: string, sizes = false) {
   const { meta } = await requireSite(server, site);
   const { stdout } = await runScript(server, listScript(projectName(meta), siteDir(site)), { capture: true, env: { SIZES: sizes } });
   return parseVolumes(stdout);

@@ -14,6 +14,7 @@ import { browse, jobCwd, receiveUpload } from "./local";
 import { startJob, type Job } from "../job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../remote";
 import { parseSince } from "../traffic";
+import { volumes } from "../commands/volume";
 import { USER_NAME } from "../users";
 import { configView, defaultsView, diskView, dnsView, factsView, firewallView, historyView, pruneView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../views";
 import { newRunId, setQuiet } from "../ssh";
@@ -223,6 +224,10 @@ async function api(req: Request, path: string[]): Promise<Response> {
       await requireSite(server, site, { deployed: "manage the secrets of" });
       // Names and sizes only: no route ever sends a secret's content.
       return json({ vars: (await readSecrets(server, site)).map((x) => ({ key: x.key, length: x.size })) });
+    }
+    if (method === "GET" && sub === "volumes") {
+      // lf volumes --json: sizes, mounts and backups.
+      return json(await volumes(server, validName(new URL(req.url).searchParams.get("site") ?? ""), true));
     }
     if (method === "GET" && sub === "dns") {
       const domains = (new URL(req.url).searchParams.get("domains") ?? "").split(",").filter((d) => DOMAIN.test(d)).slice(0, 50);
