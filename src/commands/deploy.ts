@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
-import { analyze, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
+import { analyze, envComposeFile, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../ui";
@@ -67,6 +67,9 @@ Kinds:
 Every site is a Compose project on the server (/opt/landfall/sites/<name>/current),
 so \`docker compose\` works there without landfall. Settings are saved to
 ./.landfall.json, so later deploys are just \`lf deploy\`.
+
+-E staging deploys the project's staging environment as its own site (<name>-staging);
+a compose.staging.yaml next to compose.yaml is merged in for it.
 
 A server landfall has not set up yet is set up first (\`lf setup\`), asking
 before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\`.`,
@@ -137,6 +140,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     // paths (build: ., ./data:/data) would point elsewhere.
     if (compose?.includes("/")) fail(`${named} is not in the folder deployed; deploy its folder instead: lf deploy ${dirname(join(relative(cwd, root) || ".", compose))} -f ${basename(compose)}`);
     if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
+    // compose.staging.yaml next to compose.yaml: what -E staging changes, merged in on the server.
+    const layer = compose && environment ? envComposeFile(compose, environment) : undefined;
+    const layered = layer && fs.existsSync(join(root, layer)) ? layer : undefined;
+    if (layered) info(c.dim(`layering ${layered} over ${compose}`));
     const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
     if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
     // Without a Dockerfile of its own: an app landfall writes one for.
@@ -210,7 +217,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
         else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
       }
-      const prepared = await prepareRelease(server, name, id, { file: compose, generated, env });
+      const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
       const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server));
       for (const w of a.warnings) warn(w);
       if (a.errors.length) fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);

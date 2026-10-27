@@ -291,7 +291,7 @@ export async function prepareRelease(
   s: Server,
   name: string,
   id: string,
-  o: { file?: string; generated?: Record<string, string>; env?: string } = {},
+  o: { file?: string; generated?: Record<string, string>; env?: string; layer?: string } = {},
 ): Promise<{ dir: string; config: any }> {
   const site = siteDir(name);
   const rel = `${site}/releases/${id}`;
@@ -311,6 +311,13 @@ export async function prepareRelease(
     ...Object.entries(o.generated ?? {}).map(([f, text]) => writeFileCmd(f, text)),
     ...(file && file !== "compose.yaml" ? [`mv -f ${shq(file)} compose.yaml`] : []),
     `rm -f ${others.map(shq).join(" ")}`,
+    // An environment's file merged in, uninterpolated: plain `docker compose up` in the release still runs what was deployed.
+    ...(o.layer
+      ? [
+          `dc -f compose.yaml -f ${shq(o.layer)} config --no-interpolate --no-path-resolution --no-normalize >.merged.yaml || { rm -f .merged.yaml; exit 1; }`,
+          `{ printf '%s\\n' ${shq(`# ${file ?? "compose.yaml"} with ${o.layer} merged in by landfall`)}; cat .merged.yaml; } >compose.yaml && rm -f .merged.yaml`,
+        ]
+      : []),
     // The .env this deploy is about to write, so a first deploy can set what compose.yaml requires.
     ...(o.env !== undefined ? [writeFileCmd(".env.next", o.env, "600")] : []),
     `[ -f compose.yaml ] || { echo "no compose.yaml in the upload" >&2; exit 1; }`,
