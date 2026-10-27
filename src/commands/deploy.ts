@@ -5,9 +5,10 @@ import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { analyze, currentRelease, envComposeFile, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
 import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
+import { IGNORE_FILE, uploadList, uploadSize } from "../ignore";
 import { setUpState, upload } from "../ssh";
 import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../ui";
-import { pickIp, serverIps, sslipDomain } from "../facts";
+import { bytes, pickIp, serverIps, sslipDomain } from "../facts";
 import { detectBuild } from "../frameworks";
 import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../projects";
 import { claimDomains } from "./access";
@@ -16,6 +17,9 @@ import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
 
 
 /** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
+/** The first upload of a site above this size asks first. */
+const BIG_UPLOAD = 100 * 1024 * 1024;
+
 const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
   compose: { files: "" },
   dockerfile: { files: "", port: true },
@@ -89,6 +93,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
     volume: { type: "string", multiple: true, desc: "app/dockerfile/image: a folder in the container that outlives deploys, e.g. /app/data (a named volume; '' for none)" },
     worker: { type: "boolean", desc: "app/dockerfile/image: run without a port or a domain (a bot, a queue consumer; --no-worker serves one again)" },
+    gitignore: { type: "boolean", desc: "also leave out what .gitignore ignores (saved; --no-gitignore uploads it again). .landfallignore always applies" },
     keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
     host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
@@ -204,15 +209,25 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = app.ignore.join("\n") + "\n";
     }
 
+    const files = KINDS[kind].files;
+    const gitignore = !!(o.gitignore ?? project.gitignore);
+    const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: cwd, gitignore });
+    // The first upload of a site says what it sends: a folder of data or a build cache is easy to miss.
+    if (files !== undefined && !prev) {
+      const { total, files: n, largest } = uploadSize(list);
+      info(c.dim(`upload: ${n} files, ${bytes(total)}${largest.length ? ` (largest: ${largest.map(([p, b]) => `${p} ${bytes(b)}`).join(", ")})` : ""}`));
+      const hint = `${IGNORE_FILE} leaves files out${gitignore ? "" : ", --gitignore what .gitignore ignores"}`;
+      if (total > BIG_UPLOAD && !(await confirm(`That is a big upload: ${hint}. Upload it?`, false))) fail("not deployed");
+    }
+
     // Anything that fails from the upload until the site switches takes the half-made release away again.
     let release: Release, domains: string[], move: () => Promise<void>;
     try {
-      const files = KINDS[kind].files;
       if (files !== undefined) {
         step(`uploading ${relative(cwd, dir) || "."}`);
         // A redeploy starts from the live release's files and sends only what changed.
         const seedRelease = prev?.kind === kind ? prev.current : undefined;
-        const sent = await upload(server, dir, releaseDir + files, seedRelease && `${siteDir(name)}/current${files}`, app ? app.ignore : []);
+        const sent = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
         if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
         else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
         else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
@@ -307,6 +322,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       // Saved even when empty: --volume '' turns off the volumes an app would get by default.
       if (o.volume?.length || project.volumes) saved.volumes = volumes;
       if (worker) saved.worker = true;
+      if (gitignore) saved.gitignore = true;
       if (buildCmd || (app && buildCmd === "")) saved.build = buildCmd;
       saveProject(cwd, saved);
       rememberProject({ path: cwd, name, server: serverName, domains: all, kind, ...(environment ? { environment } : {}) });

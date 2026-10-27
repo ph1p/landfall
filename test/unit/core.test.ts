@@ -9,6 +9,7 @@ import { detectApp, detectStaticDir, nodeDockerfile, slug } from "../../src/proj
 import { detectBuild } from "../../src/frameworks";
 import { nodeMajor } from "../../src/runtimes";
 import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/commands/volume";
+import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/ignore";
 import { portScheme, routerPort } from "../../src/tunnel";
 import { ruleArgs } from "../../src/commands/firewall";
 import { guardSsh, type FirewallState } from "../../src/firewall";
@@ -1545,5 +1546,58 @@ describe("volumes", () => {
     expect(log).toEqual(["ps -q --filter volume=blog_content", "stop abc", "start abc", "ps -q --filter volume=blog_content", "stop abc", "start abc"]);
     expect(tarIn("v", true)).toContain("chown -R $o /v");
     expect(tarIn("v")).not.toContain("chown");
+  });
+});
+
+describe("upload filtering", () => {
+  const m = (pattern: string, path: string, dir = false) => matches(parseIgnore(pattern), path, dir);
+  test("gitignore patterns", () => {
+    expect(m("*.log", "a/b/x.log")).toBe(true);
+    expect(m("/build", "build", true)).toBe(true);
+    expect(m("/build", "src/build", true)).toBeUndefined();
+    expect(m("data/", "data")).toBeUndefined();
+    expect(m("data/", "x/data", true)).toBe(true);
+    expect(m("a/*.txt", "a/x.txt")).toBe(true);
+    expect(m("a/*.txt", "a/b/x.txt")).toBeUndefined();
+    expect(m("**/cache", "x/y/cache", true)).toBe(true);
+    expect(m("a/**/z", "a/z")).toBe(true);
+    expect(m("a/**/z", "a/b/c/z")).toBe(true);
+    expect(m("logs/**", "logs/a/b")).toBe(true);
+    expect(m("logs/**", "logs", true)).toBeUndefined();
+    expect(m("x[0-9].png", "x7.png")).toBe(true);
+    expect(m("x?.png", "x.png")).toBeUndefined();
+    expect(m("*.env\n!keep.env", "keep.env")).toBe(false);
+    expect(m("\\#not-comment", "#not-comment")).toBe(true);
+    expect(m("a.b", "aXb")).toBeUndefined();
+    expect(compile("# comment")).toBeUndefined();
+    expect(compile("   ")).toBeUndefined();
+  });
+
+  test("uploadList: defaults, .landfallignore, --gitignore", () => {
+    const root = fs.mkdtempSync(join(tmpdir(), "lf-ignore-"));
+    const put = (p: string, body = "x") => (fs.mkdirSync(join(root, p, ".."), { recursive: true }), fs.writeFileSync(join(root, p), body));
+    put("index.html");
+    put(".env", "SECRET=1");
+    put("node_modules/a/index.js");
+    put("data/big.bin", "x".repeat(1000));
+    put("dist/app.js");
+    put("logs/a.log");
+    put("sub/.gitignore", "*.tmp\n");
+    put("sub/keep.txt");
+    put("sub/x.tmp");
+    put(".gitignore", "dist/\nlogs/\n");
+    put(".landfallignore", "data/\n!node_modules\n");
+    const paths = (o = {}) => uploadList(root, o).map((e) => e.path);
+    expect(paths()).toEqual([".gitignore", ".landfallignore", "dist", "dist/app.js", "index.html", "logs", "logs/a.log", "node_modules", "node_modules/a", "node_modules/a/index.js", "sub", "sub/.gitignore", "sub/keep.txt", "sub/x.tmp"]);
+    expect(paths({ gitignore: true })).not.toContain("dist");
+    expect(paths({ gitignore: true })).not.toContain("sub/x.tmp");
+    expect(paths({ gitignore: true })).toContain("sub/keep.txt");
+    // A subfolder upload (a static site's dist/) never matches its own root, and .landfallignore lives in the project.
+    fs.writeFileSync(join(root, ".landfallignore"), "dist/app.js\n");
+    expect(uploadList(join(root, "dist"), { project: root, gitignore: true }).map((e) => e.path)).toEqual([]);
+    expect(uploadList(join(root, "dist"), { gitignore: true }).map((e) => e.path)).toEqual(["app.js"]);
+    const size = uploadSize(uploadList(root, { exclude: ["sub"] }));
+    expect(size.largest[0]).toEqual(["data", 1000]);
+    expect(size.files).toBe(5);
   });
 });
