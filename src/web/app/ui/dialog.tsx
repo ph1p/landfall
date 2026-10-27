@@ -38,7 +38,12 @@ export function DialogHost() {
     <dialog
       ref={ref}
       aria-labelledby="dlg-title"
-      className={cx("p-0", D.cls === "wide" && "w-[min(680px,calc(100vw-32px))]")}
+      className={cx(
+        "p-0",
+        D.cls === "wide" && "w-[min(680px,calc(100vw-32px))]",
+        // A fixed height: sections that come and go do not make it jump.
+        D.cls === "sidebar" && "w-[min(860px,calc(100vw-32px))] sm:h-[min(760px,calc(100dvh-32px))]",
+      )}
       onClose={() => {
         if (ref.current?.open) return;
         D.node = null;
@@ -98,12 +103,14 @@ export interface DialogSpec {
   after?: ReactNode;
   /** A name the user types before the (dangerous) action is enabled. */
   typeToConfirm?: string;
+  /** Wide, with the top-level groups as sections a side list jumps to (fields outside a group lead, untitled). */
+  sidebar?: boolean;
 }
 
 /** A modal form; see DialogSpec and Field. */
 export function dialog(spec: DialogSpec) {
   let key = 0;
-  key = openDialog(<FormDialog spec={spec} isCurrent={() => D.key === key} />);
+  key = openDialog(<FormDialog spec={spec} isCurrent={() => D.key === key} />, spec.sidebar ? "sidebar" : "");
 }
 export const invalid = (field: string, error: string) => ({ field, error });
 export const confirmDlg = (o: Omit<DialogSpec, "onOk"> & { onOk: () => unknown }) => dialog({ ...o, onOk: () => o.onOk() });
@@ -148,15 +155,18 @@ const flat = (list: Spec[], whens: When[] = []): { f: Field; whens: When[] }[] =
   });
 
 const HINT = "text-sm font-normal text-faint mt-1";
+const isGroup = (s: Spec): s is Group => "fields" in s;
 
 function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => boolean }) {
-  const { title, text = "", fields = [], ok = "OK", danger = false, onOk, extra, after, typeToConfirm = "" } = spec;
+  const { title, text = "", fields = [], ok = "OK", danger = false, onOk, extra, after, typeToConfirm = "", sidebar = false } = spec;
   const specs = flat(fields);
   const form = useRef<HTMLFormElement>(null);
   const [values, setValues] = useState<Values>(() => Object.fromEntries(specs.map(({ f }) => [f.name, f.type === "check" ? !!f.value : String(f.value ?? "")])));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formErr, setFormErr] = useState("");
   const [typed, setTyped] = useState("");
+  const pane = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
 
   const shown = (whens: When[], v: Values) => whens.every((w) => w(v));
   // Hidden or greyed out: neither checked nor reported.
@@ -282,35 +292,112 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
           <div className="px-3.5 pt-0.5 pb-3 grid gap-2.5">{inner}</div>
         </details>
       );
+    if (sidebar)
+      return (
+        <div key={i} className="grid gap-3.5 mt-1" data-group={s.id}>
+          <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-faint">{s.legend}</h4>
+          {inner}
+        </div>
+      );
     return <fieldset key={i} data-group={s.id}><legend>{s.legend}</legend>{inner}</fieldset>;
   };
 
+  const confirmField = typeToConfirm && (
+    <label>
+      Type <b className="mono">{typeToConfirm}</b> to confirm
+      <input id="dlg-confirm" autoComplete="off" spellCheck={false} autoCapitalize="off" value={typed} onChange={(e) => (setTyped(e.target.value), setFormErr(""))} />
+    </label>
+  );
+  const errLine = formErr && <div className={cx(noteClass("bad"), "m-0")} id="dlg-err" role="alert">{formErr}</div>;
+  const buttons = (
+    <>
+      <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
+      <Btn type="submit" cls={danger ? "danger solid" : "primary"} disabled={submitOff}>{ok}</Btn>
+    </>
+  );
+  const formProps = {
+    ref: form,
+    method: "dialog",
+    noValidate: true,
+    onSubmit: submit,
+    // Cmd/Ctrl+Enter sends from a text area too.
+    onKeyDown: (e: React.KeyboardEvent) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && (e.preventDefault(), form.current!.requestSubmit()),
+  } as const;
+
+  if (sidebar) {
+    // Fields before the first group lead untitled; each shown group is a section.
+    const lead = fields.filter((s) => !isGroup(s));
+    const sections = fields.filter((s): s is Group => isGroup(s) && (!s.when || !!s.when(values)));
+    const bad = (s: Group) => flat(s.fields).some(({ f }) => errors[f.name]);
+    const at = Math.min(active, sections.length - 1);
+    const spy = () => {
+      const p = pane.current!;
+      const els = [...p.querySelectorAll<HTMLElement>(":scope > section")];
+      // At the bottom the last section counts, however short it is.
+      if (p.scrollTop + p.clientHeight >= p.scrollHeight - 4) return setActive(els.length - 1);
+      const top = p.getBoundingClientRect().top + 32;
+      setActive(Math.max(0, els.findLastIndex((x) => x.getBoundingClientRect().top <= top)));
+    };
+    const jump = (i: number) => {
+      setActive(i);
+      pane.current!.querySelectorAll<HTMLElement>(":scope > section")[i]?.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+    return (
+      <form {...formProps} className="flex flex-col min-h-0 flex-1 max-sm:overflow-y-auto overscroll-contain">
+        <header className="px-6 pt-[22px] pb-4 grid gap-3 border-b border-line">
+          <h2 id="dlg-title" className={DTITLE}>{title}</h2>
+          {text && <div className={DTEXT}>{text}</div>}
+          {extra}
+        </header>
+        <div className="sm:flex sm:flex-1 sm:min-h-0">
+          <nav aria-label="Sections" className="max-sm:hidden w-48 shrink-0 border-r border-line p-3 grid content-start gap-0.5 overflow-y-auto">
+            {sections.map((s, i) => (
+              <button
+                key={s.legend}
+                type="button"
+                aria-current={i === at ? "true" : undefined}
+                className={cx(
+                  "flex items-center gap-2 text-left text-md px-2.5 py-1.5 rounded-md cursor-pointer border-transparent! shadow-none! font-normal",
+                  i === at ? "bg-hover! text-fg font-medium!" : "bg-transparent! text-dim hover:bg-hover! hover:text-fg",
+                )}
+                onClick={() => jump(i)}
+              >
+                <span className="flex-1 min-w-0 truncate">{s.legend}</span>
+                {bad(s) && <span className="size-1.5 rounded-full bg-bad shrink-0" aria-label="has a problem" />}
+              </button>
+            ))}
+          </nav>
+          <div ref={pane} onScroll={spy} className="flex-1 min-w-0 sm:overflow-y-auto overscroll-contain px-6 pt-5 pb-8 grid content-start gap-8">
+            {lead.length > 0 && <div className="grid gap-3.5">{lead.map((s, i) => group(s, -1 - i))}</div>}
+            {sections.map((s, i) => (
+              <section key={s.legend} data-group={s.id} aria-labelledby={`sec-${i}`} className="grid gap-3.5 scroll-mt-5">
+                <div>
+                  <h3 id={`sec-${i}`} className="m-0 text-md font-semibold">{s.legend}</h3>
+                  {s.note && <div className={HINT}>{s.note}</div>}
+                </div>
+                {s.fields.map(group)}
+              </section>
+            ))}
+            {after}
+            {confirmField}
+          </div>
+        </div>
+        {errLine && <div className="px-6 pt-3">{errLine}</div>}
+        <div className="flex justify-end gap-2 sticky bottom-0 z-1 bg-panel px-6 pt-3 pb-[18px] border-t border-line">{buttons}</div>
+      </form>
+    );
+  }
+
   return (
-    <form
-      ref={form}
-      method="dialog"
-      noValidate
-      className={DFORM}
-      onSubmit={submit}
-      // Cmd/Ctrl+Enter sends from a text area too.
-      onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && (e.preventDefault(), form.current!.requestSubmit())}
-    >
+    <form {...formProps} className={DFORM}>
       <h2 id="dlg-title" className={DTITLE}>{title}</h2>
       {text && <div className={DTEXT}>{text}</div>}
       {extra}
       {fields.map(group)}
       {after}
-      {typeToConfirm && (
-        <label>
-          Type <b className="mono">{typeToConfirm}</b> to confirm
-          <input id="dlg-confirm" autoComplete="off" spellCheck={false} autoCapitalize="off" value={typed} onChange={(e) => (setTyped(e.target.value), setFormErr(""))} />
-        </label>
-      )}
-      {formErr && <div className={cx(noteClass("bad"), "m-0")} id="dlg-err" role="alert">{formErr}</div>}
-      <div className={DBTNS}>
-        <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-        <Btn type="submit" cls={danger ? "danger solid" : "primary"} disabled={submitOff}>{ok}</Btn>
-      </div>
+      {confirmField}
+      {errLine}
+      <div className={DBTNS}>{buttons}</div>
     </form>
   );
 }

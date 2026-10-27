@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Btn, cx } from "./kit";
+import { ChevronDown } from "lucide-react";
 
 export interface MenuItem { label: string; run: () => void; cls?: string; title?: string; hint?: string }
 type Item = MenuItem | "-" | false | null | undefined | "";
@@ -24,13 +25,13 @@ export function closeMenu(restore = true) {
 }
 export const menuOpen = () => !!open;
 
-/** A "⋯" button for the less used actions; falsy items are skipped, "-" is a divider. */
+/** A "More" button for the less used actions; falsy items are skipped, "-" is a divider. */
 export function MenuBtn({ items, title = "More actions", cls = "sm" }: { items: Item[]; title?: string; cls?: string }) {
   const list = items.filter(Boolean) as (MenuItem | "-")[];
   if (!list.length) return null;
   return (
-    <Btn cls={`${cls} more`} title={title} aria-haspopup="menu" aria-expanded="false" aria-label={title} on={(e) => openMenu(e.currentTarget, list)}>
-      ⋯
+    <Btn cls={cls} title={title} aria-haspopup="menu" aria-expanded="false" aria-label={title} on={(e) => openMenu(e.currentTarget, list)}>
+      More <ChevronDown aria-hidden="true" className="inline-block size-3.5 -mt-px ml-0.5 align-middle text-faint" />
     </Btn>
   );
 }

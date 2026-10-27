@@ -1,5 +1,6 @@
 import type { ReactNode, ButtonHTMLAttributes, HTMLAttributes } from "react";
 import type { Slot } from "../lib/store";
+import { Pencil, Play, RotateCw, ScrollText, Square, Upload, type LucideIcon } from "lucide-react";
 
 /** Joins class names, skipping the falsy ones. */
 export const cx = (...c: (string | false | null | undefined | 0)[]) => c.filter(Boolean).join(" ");
@@ -22,8 +23,6 @@ const LOOK: Record<string, string> = {
   primary: "bg-accent-solid border-accent-solid text-white hover:brightness-110",
   danger: "text-bad hover:bg-bad-bg",
   ghost: "border-transparent bg-transparent text-dim shadow-none hover:text-fg hover:bg-hover",
-  // Beats sm's padding: "sm more".
-  more: "px-2! tracking-[.05em]",
 };
 const SOLID = "bg-bad-solid border-bad-solid text-white hover:brightness-110";
 export function btnClass(cls = "") {
@@ -39,6 +38,22 @@ export function Btn({ cls, on, children, type = "button", ...rest }: BtnProps) {
     <button type={type} className={btnClass(cls)} onClick={on && ((e) => (e.preventDefault(), e.stopPropagation(), on(e)))} {...rest}>
       {children}
     </button>
+  );
+}
+
+// The row actions' lucide icons, by what they do.
+const ICONS = { deploy: Upload, edit: Pencil, logs: ScrollText, restart: RotateCw, stop: Square, start: Play } satisfies Record<string, LucideIcon>;
+/** A small line icon before a button's label. */
+export function Icon({ name }: { name: keyof typeof ICONS }) {
+  const I = ICONS[name];
+  return <I aria-hidden="true" className="inline-block size-3.5 -mt-px mr-1.5 align-middle opacity-80" />;
+}
+/** Buttons joined into one segmented control: related actions read as one group. */
+export function BtnGroup({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <span role="group" aria-label={label} className="inline-flex [&>button]:ml-0! [&>button]:rounded-none! [&>button:first-child]:rounded-l-sm! [&>button:last-child]:rounded-r-sm! [&>button+button]:-ml-px! [&>button:hover]:z-1 [&>button:focus-visible]:z-2 [&>button]:relative">
+      {children}
+    </span>
   );
 }
 

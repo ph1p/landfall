@@ -1,7 +1,7 @@
 import { S, ago, plural, tilde, type Any } from "../lib/store";
 import { go } from "../lib/api";
 import { Badge, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
-import { addServer, defaultsDialog, deployFrom, folderDialog } from "./flows";
+import { addServer, defaultsDialog, deployFrom, folderDialog, redeploy } from "./flows";
 import { ReachDot, REACH_KIND, REACH_WORD, Star, reachCount, reachRank } from "./shared";
 
 const H3 = "m-0 mb-2 text-xs font-medium text-faint uppercase tracking-[.04em]";
@@ -65,17 +65,20 @@ export function HomeView() {
         <Card>
           <CardHead>
             Recent deploys {recent.length > 0 && <Badge>{projects.length}</Badge>}
-            <Actions><Btn cls="sm" on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder…</Btn></Actions>
+            <Actions><Btn cls="sm" on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Deploy folder</Btn></Actions>
           </CardHead>
           {recent.length ? (
             <ul className="list-none m-0 p-0">
               {recent.map((r) => (
                 <li key={r.path} className="flex items-center gap-3 px-[18px] py-2.5 border-b border-line last:border-b-0">
                   <div className="flex-1 min-w-0">
-                    <b>{r.name}</b> <span className="dim">→ {r.server}{r.domains[0] ? ` · ${r.domains[0]}` : " · tunnel only"}</span>
+                    <b>{r.name}</b> <span className="dim">→ <a href={`#/${encodeURIComponent(r.server)}`} title={`The sites on ${r.server}`}>{r.server}</a>{r.domains[0] ? ` · ${r.domains[0]}` : " · tunnel only"}</span>
                     <div className="faint mono text-xs! overflow-hidden text-ellipsis whitespace-nowrap" title={r.path}>{tilde(r.path)} · {ago(r.at)}</div>
                   </div>
-                  <Btn cls="sm" title={`lf deploy from ${r.path}`} on={() => deployFrom(r.path)}>Deploy again</Btn>
+                  <div className="flex gap-1 shrink-0">
+                    <Btn cls="sm" title="Change the name, server, domains or build before deploying" on={() => deployFrom(r.path)}>Settings</Btn>
+                    <Btn cls="sm primary" title={`Deploy ${tilde(r.path)} again with the same settings (lf deploy)`} on={() => redeploy(r.path, r.server, r.name, r.kind)}>Redeploy</Btn>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -86,7 +89,7 @@ export function HomeView() {
         <Card>
           <CardHead>
             Defaults <Sub>for every server, unless it sets its own</Sub>
-            <Actions><Btn cls="sm" on={defaultsDialog} title="lf config">Edit…</Btn></Actions>
+            <Actions><Btn cls="sm" on={defaultsDialog} title="lf config">Edit</Btn></Actions>
           </CardHead>
           <Body>
             <Kv

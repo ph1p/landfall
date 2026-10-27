@@ -42,11 +42,11 @@ export function SystemView({ n }: { n: string }) {
               : <><Badge kind={i.mem < 4 * 1024 ** 3 ? "warn" : ""}>none</Badge> <span className="faint">{size(i.mem)} memory</span></>}{" "}
             {!set ? null : i.swap.some((x: Any) => x.file === "/swapfile")
               ? <Btn cls="ghost sm danger" on={() => confirmDlg({ title: `Remove the swap file on ${n}?`, text: "What is swapped out moves back to memory first.", ok: "Remove it", danger: true, onOk: () => go_(["swap", "off", "-y"]) })}>Remove</Btn>
-              : swapTotal ? null : <Btn cls="ghost sm" on={() => addSwapDlg(n, i)}>Add…</Btn>}
+              : swapTotal ? null : <Btn cls="ghost sm" on={() => addSwapDlg(n, i)}>Add</Btn>}
           </>],
           ["Docker logs", !d ? <span className="faint">no docker</span> : <>
             {d.maxSize ? `${d.maxSize} × ${d.maxFile ?? 1} per container` : d.driver === "json-file" ? <Badge kind="warn">unlimited</Badge> : ""} <span className="faint">{d.driver}</span>{" "}
-            {d.daemonError || !set ? null : <Btn cls="ghost sm" on={() => logLimitDlg(n, d)}>{d.maxSize ? "Change" : "Limit…"}</Btn>}
+            {d.daemonError || !set ? null : <Btn cls="ghost sm" on={() => logLimitDlg(n, d)}>{d.maxSize ? "Change" : "Limit"}</Btn>}
           </>],
         ]} />
         {d?.daemonError && <Note kind="bad" className="mt-3 mb-0">{d.daemonError}</Note>}
@@ -85,7 +85,7 @@ export function SystemView({ n }: { n: string }) {
             <Btn cls="sm" on={() => run(["services", "logs", u, "-n", "200", ...s], { server: n })}>Logs</Btn>
             {may(adm, <MenuBtn title={`Actions for ${u}`} items={[
               { label: "Restart", run: restart },
-              SVC_UP(x) ? { label: "Stop…", cls: "danger", run: stop } : { label: "Start", run: () => void go_(["services", "start", u]) },
+              SVC_UP(x) ? { label: "Stop", cls: "danger", run: stop } : { label: "Start", run: () => void go_(["services", "start", u]) },
             ]} />)}
           </td>
         </tr>
@@ -106,7 +106,7 @@ export function SystemView({ n }: { n: string }) {
     <Card>
       <CardHead>
         SSH keys <Badge>{i.keys.length}</Badge> <Sub>who may log in</Sub>
-        <Actions><Btn cls="sm" on={() => addKeyDlg(n)}>Add key…</Btn></Actions>
+        <Actions><Btn cls="sm" on={() => addKeyDlg(n)}>Add key</Btn></Actions>
       </CardHead>
       <Table head={<><th>User</th><th>Comment</th><th className={HIDE}>Key</th><th><span className={SR}>Actions</span></th></>}>
         {i.keys.length ? i.keys.map((k: Any) => {
@@ -169,13 +169,13 @@ function securityCard(n: string, i: Any) {
     const f = a.fix;
     if (!f) return null;
     // A key pair for someone else: say where it goes before making it.
-    if (f.user) return <Btn cls="sm" on={() => addKeyDlg(n, f.user, true)}>{f.label}…</Btn>;
-    if (f.argv[0] === "reboot") return <Btn cls="sm" on={() => rebootDlg(n)}>{f.label}…</Btn>;
+    if (f.user) return <Btn cls="sm" on={() => addKeyDlg(n, f.user, true)}>{f.label}</Btn>;
+    if (f.argv[0] === "reboot") return <Btn cls="sm" on={() => rebootDlg(n)}>{f.label}</Btn>;
     return (
       <Btn cls="sm" on={() => f.confirm
         ? confirmDlg({ title: `${a.title}: ${f.label.toLowerCase()} on ${n}?`, text: f.confirm, ok: f.label, onOk: () => run([...f.argv, "-y"], { server: n }) })
         : void run(f.argv, { server: n })}>
-        {f.confirm ? `${f.label}…` : f.label}
+        {f.label}
       </Btn>
     );
   };

@@ -1,6 +1,7 @@
 import { S, type Any } from "../lib/store";
 import { SECTIONS, type Tab } from "../lib/api";
 import { Badge, Dot, cx, noteClass } from "../ui/kit";
+import { Star as StarIcon } from "lucide-react";
 
 // Small pieces many views share.
 
@@ -42,7 +43,7 @@ export function reachCount(list: Any[]) {
 export const Zero = () => <span className="faint">0</span>;
 /** used as a whole percentage of total. */
 export const pct = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
-export const Star = () => <span className="text-warn text-xs" title="default server">★</span>;
+export const Star = () => <span className="text-warn" title="default server"><StarIcon className="inline-block size-3 -mt-0.5 align-middle fill-current" aria-label="default server" /></span>;
 /** Whether landfall's ssh login to n works, from /api/reach. */
 export function ReachDot({ n, className }: { n: string; className?: string }) {
   const r = S.reach[n];

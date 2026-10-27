@@ -88,7 +88,7 @@ export function TraefikView({ n }: { n: string }) {
   return (
     <>
       <Card>
-        <CardHead>Dashboard <Actions>{!foreign && <Btn cls="sm" on={dashboard}>{dash.hosts.length ? "Domain & login…" : "Put on a domain…"}</Btn>}</Actions></CardHead>
+        <CardHead>Dashboard <Actions>{!foreign && <Btn cls="sm" on={dashboard}>{dash.hosts.length ? "Domain & login" : "Put on a domain"}</Btn>}</Actions></CardHead>
         <Body>
           <Kv pairs={[
             ["domain", dash.hosts.length
@@ -106,7 +106,7 @@ export function TraefikView({ n }: { n: string }) {
           Traefik
           <Actions>
             <Btn cls="sm" title="lf traefik status" on={() => run(["traefik", "status", ...sv(n)])}>Status</Btn>
-            {!foreign && <Btn cls="sm" on={traefikDialog}>Settings…</Btn>}
+            {!foreign && <Btn cls="sm" on={traefikDialog}>Settings</Btn>}
           </Actions>
         </CardHead>
         <Body>
@@ -168,7 +168,7 @@ export function SettingsView({ n }: { n: string }) {
   return (
     <>
       <Card>
-        <CardHead>Main domains <Actions><Btn cls="sm" on={addDomain}>Add domain…</Btn></Actions></CardHead>
+        <CardHead>Main domains <Actions><Btn cls="sm" on={addDomain}>Add domain</Btn></Actions></CardHead>
         <Body>
           {x.domains.length ? (
             <>
@@ -180,10 +180,10 @@ export function SettingsView({ n }: { n: string }) {
                     <div className="faint">{servedBy(d) ? <>served by <b>{servedBy(d)}</b></> : external(d) ? <>served by <b>{external(d)}</b> (not landfall)</> : "no site serves it"}</div>
                   </div>
                   <Actions className="flex-none">
-                    <Btn cls="sm" on={() => serve(d)}>{servedBy(d) ? "Serve another site…" : "Serve a site…"}</Btn>
+                    <Btn cls="sm" on={() => serve(d)}>{servedBy(d) ? "Serve another site" : "Serve a site"}</Btn>
                     <MenuBtn title={`More for ${d}`} items={[
                       i ? { label: "Make primary", hint: "--primary", run: () => void run(["server", "domain", n, "--primary", d], reload) } : null,
-                      { label: `Remove ${d}…`, cls: "danger", hint: "--rm", run: () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }) },
+                      { label: `Remove ${d}`, cls: "danger", hint: "--rm", run: () => confirmDlg({ title: `Remove ${d} from ${n}?`, text: "New sites stop getting names under it. Sites keep their domains.", ok: "Remove it", danger: true, onOk: () => run(["server", "domain", n, "--rm", d, "-y"], reload) }) },
                     ]} />
                   </Actions>
                 </div>
@@ -199,7 +199,7 @@ export function SettingsView({ n }: { n: string }) {
           <div className={DROW}>
             <div className="flex-[1_1_260px] min-w-0">
               New sites: {tunnel
-                ? <><b>no domain</b> <span className="dim">· tunnel only until you give one (Domains… on the site, or deploy with a domain)</span></>
+                ? <><b>no domain</b> <span className="dim">· tunnel only until you give one (Edit on the site, or deploy with a domain)</span></>
                 : <><b>get a domain</b> <span className="dim">· unless you tick “No domain” when deploying</span></>}
               {!x.tunnelOnlyOwn && <> <span className="faint">(landfall default)</span></>}
             </div>
