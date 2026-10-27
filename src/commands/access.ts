@@ -5,7 +5,7 @@ import { updateProjectDomains } from "../projects";
 import { isOld, siteDomains, siteMain } from "../compose";
 import { changeSite, overview, requireSite } from "../remote";
 import type { Proxy } from "../templates";
-import { c, confirmRemoval, fail, info, ok, openUrl, readStdin, warn } from "../ui";
+import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn } from "../ui";
 import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
 import { target } from "./sites";
 import { dnsView } from "../views";
@@ -125,7 +125,7 @@ export const auth = defineCommand({
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
     const users = (meta.auth ?? []).map(loginUser);
-    const password: string | undefined = o["password-stdin"] ? (await readStdin()).replace(/\r?\n$/, "") : o.password;
+    const password = await passwordOption(o);
     const user = o.user ?? (password ? DEFAULT_USER : undefined);
     if (!user && !o["rm-user"] && !o.off) {
       if (!users.length) return void console.log(`${site} is public ${c.dim("(add a login with --user)")}`);

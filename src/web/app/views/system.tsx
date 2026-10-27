@@ -3,7 +3,7 @@ import { S, plural, render, sv, type Any } from "../lib/store";
 import { run } from "../lib/jobs";
 import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, SR, Scroll, Sub, cx, pending, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
-import { confirmDlg, dialog } from "../ui/dialog";
+import { confirmDlg, dialog, keyError } from "../ui/dialog";
 import { size } from "./shared";
 
 // ---- system ----------------------------------------------------------------
@@ -269,7 +269,7 @@ function logLimitDlg(n: string, d: Any) {
     },
   });
 }
-function addKeyDlg(n: string, user = "", generate = false) {
+export function addKeyDlg(n: string, user = "", generate = false) {
   dialog({
     title: `Add an SSH key to ${n}`,
     text: "Paste a public key (the .pub file, one line), or make a new pair on this computer. Whoever holds the private key can log in.",
@@ -277,7 +277,7 @@ function addKeyDlg(n: string, user = "", generate = false) {
       { name: "generate", label: "Make a new key pair", type: "check", value: generate, hint: `Saved as ~/.ssh/${n}_<user>, without a passphrase (add one with ssh-keygen -p). Hand it to whoever logs in as that user.` },
       {
         name: "key", label: "Public key", type: "textarea", value: "", placeholder: "ssh-ed25519 AAAA… name@laptop", when: (v) => !v.generate, required: "Paste the public key",
-        check: (k) => !/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(k.split("\n")[0]) && "That does not look like a public key (the .pub file)",
+        check: keyError,
       },
       { name: "user", label: "User", value: user, placeholder: "the login user", hint: "Whose account it logs in to. Empty: the user landfall logs in as." },
     ],

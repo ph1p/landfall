@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import type { Server } from "./config";
+import { expandHome, type Server } from "./config";
 import { runScript, shq } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
@@ -182,6 +182,14 @@ export function parseKeyLine(line: string): Omit<AuthorizedKey, "user"> | undefi
     options: toks.slice(0, i).join(" "),
     line: line.trim(),
   };
+}
+
+/** A key line as given, or the contents of a .pub file. */
+export function readKey(arg: string): string {
+  const p = expandHome(arg);
+  const line = !/^\S+ AAAA/.test(arg) && fs.existsSync(p) ? fs.readFileSync(p, "utf8").trim().split("\n")[0] : arg.trim();
+  if (!parseKeyLine(line)) fail(`not a public key: ${arg} (a line like ssh-ed25519 AAAA… or a .pub file)`);
+  return line;
 }
 
 /** Fingerprints of the public keys next to the identity files this machine uses for `s`. */

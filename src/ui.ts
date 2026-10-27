@@ -9,6 +9,9 @@ export const readStdin = async () => {
   for await (const chunk of process.stdin) out += chunk;
   return out;
 };
+/** --password-stdin's line, else --password: undefined when neither was given. */
+export const passwordOption = async (o: { password?: string; "password-stdin"?: boolean }): Promise<string | undefined> =>
+  o["password-stdin"] ? (await readStdin()).replace(/\r?\n$/, "") : o.password;
 
 const color = process.stdout.isTTY && !process.env.NO_COLOR;
 const wrap = (code: string) => (s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);

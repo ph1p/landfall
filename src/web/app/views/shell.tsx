@@ -8,6 +8,7 @@ import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
 import { ReachDot, StatusDot, FactsLine, FactsNote, errorHint, can, sections, reachRank, reachCount, Star, REACH_WORD, REACH_KIND } from "./shared";
 import { runCommand, forget, makeDefault } from "./domains";
 import { rebootDlg, SystemView } from "./system";
+import { UsersView } from "./users";
 import { updatesBadge, UpdatesView } from "./updates";
 import { TunnelsView } from "./tunnels";
 import { StatsView } from "./stats";
@@ -340,6 +341,7 @@ function View({ n, ov }: { n: string; ov: Any }) {
     case "traefik": return <TraefikView n={n} />;
     case "updates": return <UpdatesView n={n} />;
     case "firewall": return <FirewallView n={n} />;
+    case "users": return <UsersView n={n} />;
     case "system": return <SystemView n={n} />;
     case "settings": return <SettingsView n={n} />;
     default: return <HistoryView n={n} />;

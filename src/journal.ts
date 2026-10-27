@@ -138,7 +138,7 @@ export async function undoSteps(s: Server, steps: Step[]) {
     const { login, sudo } = await loginFor(s, todo[i].user);
     // userdel refuses while landfall is still logged in as that user through a lingering ssh mux. Only then:
     // a fresh session would lose groups (docker) that an earlier undo already took away.
-    if (group.some((x) => x.undo!.includes("userdel"))) await Promise.all(used.map(closeMux));
+    if (group.some((x) => /userdel|user_del/.test(x.undo!))) await Promise.all(used.map(closeMux));
     await runScript(login, [PRELUDE, UNDO_STEP, ...calls].join("\n"), { sudo });
     used.push(login);
     i = j;

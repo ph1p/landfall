@@ -18,11 +18,11 @@ export function route() {
 
 // ---- loading -------------------------------------------------------------
 
-export type Tab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "system" | "history" | "settings";
-export const STORE: Record<Tab, StoreName> = { sites: "overview", tunnels: "overview", stats: "stats", traffic: "traffic", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", system: "system", history: "history", settings: "settings" };
-const URLS: Record<Tab, string> = { sites: "", tunnels: "", stats: "/stats", traffic: "/traffic", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", system: "/system", history: "/history", settings: "/config" };
+export type Tab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "users" | "system" | "history" | "settings";
+export const STORE: Record<Tab, StoreName> = { sites: "overview", tunnels: "overview", stats: "stats", traffic: "traffic", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", users: "users", system: "system", history: "history", settings: "settings" };
+const URLS: Record<Tab, string> = { sites: "", tunnels: "", stats: "/stats", traffic: "/traffic", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", users: "/users", system: "/system", history: "/history", settings: "/config" };
 // A server's sections, in the list and as tabs on phones; keys 1-9 switch between them.
-export const SECTIONS: [Tab, string][] = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traffic", "Traffic"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["system", "System"], ["history", "History"], ["settings", "Settings"]];
+export const SECTIONS: [Tab, string][] = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traffic", "Traffic"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["users", "Users"], ["system", "System"], ["history", "History"], ["settings", "Settings"]];
 
 // The overview and facts drive the header, so every tab needs them.
 export const needs = (tab: string): Tab[] => (STORE[tab as Tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab as Tab]);

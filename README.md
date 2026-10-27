@@ -523,6 +523,26 @@ started service, puts a removed key back, bans an unbanned IP again or restores 
 firewall does. Services work with systemd and OpenRC. The Docker log limit applies to containers created
 afterwards (and Docker restarts only with `--restart`), so redeploy or restart sites to apply it to them.
 
+## Users
+
+Server accounts, one per person or deploy job, each with their own SSH keys, password and sudo:
+
+```sh
+lf users                                   # root and uid 1000+: sudo, password set or not, keys; --json
+lf users add anna --key ~/anna.pub --sudo  # or --generate-key (a pair at ~/.ssh/<server>_anna), --password
+lf users add ci --key "ssh-ed25519 AAAA…"  # key only, no sudo
+lf users passwd anna                       # asks twice; --generate prints a new one once, --remove: key login only
+lf users sudo anna --nopasswd              # landfall's rule in /etc/sudoers.d (checked with visudo); --off takes it away
+lf users rm anna                           # with its home (--keep-home keeps it); asks you to type the name
+lf keys add ~/anna2.pub -u anna            # more keys, as for any user
+```
+
+These need root or passwordless sudo (or root's key login) and `useradd` or busybox's `adduser`. Where that is
+missing, or on a system that manages its own users (Synology DSM), every `lf users` command fails saying why and
+the web UI has no Users tab. landfall never removes root, the user it logs in as, or the login it manages users
+with, nor takes sudo from them. Adding a user and sudo changes are undoable. Removing a user and passwords are
+not: the journal keeps no hashes. Passwords reach the server on the script's stdin, never on a command line.
+
 ## Security
 
 ```sh
@@ -556,6 +576,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | Traffic | `lf traffic --since 1h/24h/7d`, `lf certs`; the Sites tab shows failing requests of the last 24h and `lf check` on each domain |
 | Updates | `lf updates`, `lf update` |
 | Firewall | `lf firewall` and its subcommands |
+| Users | `lf users` and its subcommands; the tab shows only where landfall may manage users |
 | System | `lf system`, `services`, `keys`, `unban`, `swap`, `hostname`, `timezone`, `log-limit` |
 | History | `lf history`, `lf undo` |
 | Settings | `lf server config`, `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard` |
@@ -636,6 +657,11 @@ lf undo -s box -y                           # revert the last run
 | `lf security [--json]` | Checks ssh password and root login, firewall, fail2ban, automatic updates and a pending reboot, and names the command that fixes each. |
 | `lf harden [ssh\|fail2ban\|updates…] [--force]` | Turns ssh passwords off, installs and starts fail2ban, turns on automatic security updates; all three without arguments. `ssh` refuses to lock out password-only users without `--force`. Undoable. |
 | `lf keys rm <fingerprint\|comment> [--user u]` | Removes a key by comment or fingerprint prefix. Refuses the key this machine uses without `--force`. Undoable. |
+| `lf users [--json]` | Lists root and the accounts with a uid from 1000: sudo (and whether without a password), password set/locked/none, SSH keys, shell. ★ marks the user landfall logs in as. Alias: `users ls`. |
+| `lf users add <name> [--key k\|file.pub] [--generate-key] [--password p] [--sudo [--nopasswd]] [--shell s]` | Adds an account with a home; it needs a key, a new pair or a password. Undoable. |
+| `lf users rm <name> [--keep-home]` | Removes an account and (unless `--keep-home`) its home. Refuses root, landfall's login and the admin login. Not undoable. |
+| `lf users passwd <name> [--password p \| --password-stdin \| --generate \| --remove]` | Sets (asked twice in a terminal), makes up or removes a password. Not undoable. Alias: `users password`. |
+| `lf users sudo <name> [--nopasswd \| --off]` | Grants sudo through `/etc/sudoers.d/landfall-<name>`, or takes it away (that file and the sudo/wheel groups). Undoable. |
 | `lf bans [--json]` | Shows banned IPs per fail2ban jail. |
 | `lf unban <ip>` | Unbans an IP in every jail that bans it. Undo bans it again. |
 | `lf swap [size\|off]` | Shows swap, adds a swap file at `/swapfile` (at least 64M, keeps 2 GB of disk free) or removes it. Adding is undoable. Alias: `server swap`. |

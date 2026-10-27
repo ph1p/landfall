@@ -97,6 +97,8 @@ apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/cr
 
 /** Shared shell helpers prepended to every remote script. */
 export const PRELUDE = String.raw`
+# useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.
+PATH="$PATH:/usr/sbin:/sbin"
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
 SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 ${SEC_CHECKS}
@@ -160,6 +162,22 @@ svc() {
     case "$1" in enable) $SUDO rc-update add "$2" default ;; disable) $SUDO rc-update del "$2" default ;; *) $SUDO rc-service "$2" "$1" ;; esac
   else log "no systemd or OpenRC: cannot $1 $2"; return 1; fi
 }
+# user_del <user> [keep-home]: userdel (busybox: deluser) refuses while the user has processes, so it retries.
+user_del() {
+  r=-r; [ $# -lt 2 ] || r=""
+  [ "$(id -un)" = "$1" ] || $SUDO pkill -u "$1" 2>/dev/null || true
+  for i in 1 2 3 4 5; do
+    if command -v userdel >/dev/null 2>&1; then $SUDO userdel $r "$1" 2>/dev/null
+    elif [ -n "$r" ]; then $SUDO deluser --remove-home "$1" 2>/dev/null
+    else $SUDO deluser "$1" 2>/dev/null; fi
+    id "$1" >/dev/null 2>&1 || return 0
+    sleep 1
+  done
+  log "could not remove user $1"; return 1
+}
+# user_nopw <user>: no password, but not locked ('*'): sshd without PAM refuses locked accounts even for keys.
+# busybox chpasswd reports success on stderr: its output shows only when it fails.
+user_nopw() { $SUDO usermod -p '*' "$1" 2>/dev/null || { e=$(printf '%s:*\n' "$1" | $SUDO chpasswd -e 2>&1) || { log "$e"; return 1; }; }; }
 sshd_reload() { $SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd 2>/dev/null || $SUDO service ssh reload 2>/dev/null || true; }
 
 # Journal. LANDFALL_RUN/LANDFALL_ACTOR/LANDFALL_CMD come from runScript. Writing it never fails a script.
@@ -334,10 +352,8 @@ if [ -n "$DEPLOY_USER" ]; then
   if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
     log "creating user $DEPLOY_USER"
     $SUDO useradd -m -s /bin/bash "$DEPLOY_USER"
-    # '*' = no password but not locked; sshd without PAM refuses locked accounts even for keys.
-    $SUDO usermod -p '*' "$DEPLOY_USER"
-    # userdel refuses while the user has processes (a lingering ssh session of landfall's own).
-    record "created user $DEPLOY_USER" "[ \"\$(id -un)\" = $DEPLOY_USER ] || \$SUDO pkill -u $DEPLOY_USER 2>/dev/null || true; for i in 1 2 3 4 5; do \$SUDO userdel -r $DEPLOY_USER 2>/dev/null && break; ! id $DEPLOY_USER >/dev/null 2>&1 && break; sleep 1; done; ! id $DEPLOY_USER >/dev/null 2>&1 || \$SUDO deluser --remove-home $DEPLOY_USER"
+    user_nopw "$DEPLOY_USER"
+    record "created user $DEPLOY_USER" "user_del $DEPLOY_USER"
   fi
   case " $(id -nG "$DEPLOY_USER") " in
     *" docker "*) ;;

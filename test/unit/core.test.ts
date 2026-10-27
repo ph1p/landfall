@@ -24,6 +24,7 @@ import { parseDisk, parseSize, parseStats } from "../../src/stats";
 import { parsePrunePlan, removable } from "../../src/manage";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/system";
 import { detectProject } from "../../src/projects";
+import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/users";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/updates";
 import { safeParts } from "../../src/web/local";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, PRELUDE, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
@@ -1071,7 +1072,7 @@ describe("prune", () => {
 });
 
 describe("capabilities", () => {
-  const base = "os=X\nid=debian\nversion=12\npkg=apt\ndocker=27.0.1\ncompose=2.29.1\ninit=systemd\nuser=root\nadmin=1\nufw=1\n";
+  const base = "os=X\nid=debian\nversion=12\npkg=apt\ndocker=27.0.1\ncompose=2.29.1\ninit=systemd\nuser=root\nadmin=1\nufw=1\nusertool=useradd\n";
   const facts = (extra = "") => parseFacts(base + extra, new Date("2026-01-01"));
 
   test("a plain server can do everything", () => {
@@ -1106,6 +1107,63 @@ describe("capabilities", () => {
     expect(k.can.services).toBe(false);
     expect(k.can.firewall).toBe(true);
     expect(capabilities({ ...f, ufw: false }).why.firewall).toMatch(/no ufw/);
+  });
+
+  test("users: needs admin and useradd or adduser; DSM keeps its own", () => {
+    expect(capabilities(facts("usertool=adduser\n")).can.users).toBe(true);
+    expect(capabilities(facts("usertool=\n")).why.users).toMatch(/no useradd or adduser/);
+    const deck = facts("user=deck\nadmin=0\n");
+    expect(capabilities(deck).can.users).toBe(false);
+    expect(capabilities(deck).why.users).toMatch(/deck has no passwordless sudo/);
+    expect(capabilities(deck, true).can.users).toBe(true);
+    expect(capabilities(facts("id=dsm\npkg=none\nplatform=synology\n")).why.users).toMatch(/Control Panel/);
+  });
+});
+
+describe("users", () => {
+  const out = [
+    "admin=root",
+    "sudo=1",
+    "sshd_passwords=no",
+    "PW\troot\tlocked",
+    "PW\tdeploy\tnone",
+    "PW\tanna\tset",
+    "PW\tci\tnone",
+    "USER\troot\t0\t/root\t/bin/bash\troot\t1\t\t",
+    "USER\tdeploy\t1000\t/home/deploy\t/bin/bash\tdeploy,docker\t2\t1\t1",
+    "USER\tanna\t1001\t/home/anna\t/bin/bash\tanna,sudo\t0\t\t",
+    "USER\tci\t1002\t/home/ci\t/usr/sbin/nologin\tci\t1\t\t",
+  ].join("\n");
+
+  test("parseUsers: sudo from group or landfall's rule, password state, keys, who landfall is", () => {
+    const u = parseUsers(out, "deploy");
+    expect(u).toMatchObject({ admin: "root", sudo: true, passwordLogin: false });
+    const [root, deploy, anna, ci] = u.accounts;
+    expect(root).toMatchObject({ uid: 0, sudo: true, password: "locked", keys: 1, me: false });
+    expect(deploy).toMatchObject({ sudo: true, nopasswd: true, password: "none", keys: 2, me: true, groups: ["deploy", "docker"] });
+    expect(anna).toMatchObject({ sudo: true, nopasswd: false, password: "set", keys: 0 });
+    expect(ci).toMatchObject({ sudo: false, login: false });
+    // Without sudo installed, group sudo gives nothing.
+    expect(parseUsers(out.replace("sudo=1", "sudo="), "deploy").accounts[2].sudo).toBe(false);
+    expect(parseUsers(out.replace("sshd_passwords=no\n", "")).passwordLogin).toBeUndefined();
+  });
+
+  test("never root, landfall's login or the managing login", () => {
+    const u = parseUsers(out, "deploy");
+    const take = (name: string) => () => checkTakeable(account(u, name), "x");
+    expect(take("root")).toThrow(/not root/);
+    expect(take("deploy")).toThrow(/landfall logs in as deploy/);
+    expect(take("anna")).not.toThrow();
+    expect(() => account(u, "bob")).toThrow(/no user bob/);
+  });
+
+  test("user names, passwords and the scripts' shell", () => {
+    for (const ok of ["anna", "_ci", "deploy-2", "a".repeat(32)]) expect(USER_NAME.test(ok)).toBe(true);
+    for (const bad of ["Anna", "1st", "a.b", "a b", "", "a".repeat(33), "-x", "a;rm"]) expect(USER_NAME.test(bad)).toBe(false);
+    expect(() => checkPassword("short")).toThrow(/at least/);
+    expect(() => checkPassword("long enough\nx")).toThrow(/line breaks/);
+    expect(newPassword()).toMatch(/^[\w-]{20}$/);
+    expect(spawnSync("bash", ["-n", "-c", PRELUDE + USERS]).status).toBe(0);
   });
 });
 
