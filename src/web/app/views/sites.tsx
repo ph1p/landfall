@@ -1,13 +1,13 @@
-import { useEffect, type ReactNode } from "react";
-import { S, ago, render, sv, tilde, type Any } from "../lib/store";
-import { run, TunnelBtn } from "../lib/jobs";
+import { useEffect, useState, type ReactNode } from "react";
+import { S, ago, errorMessage, http, render, sv, tilde, type Any } from "../lib/store";
+import { ifOk, run, TunnelBtn } from "../lib/jobs";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
 import { Describe, Stack, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
-import { StatusDot, can, isUp } from "./shared";
+import { StatusDot, can, isUp, size } from "./shared";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
@@ -163,6 +163,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
     ) : <span className="dim">none running</span>,
   ]);
   pairs.push([`On ${n}`, <SiteFiles m={m} state={state} />]);
+  if (!old) pairs.push(["Volumes", <SiteVolumes n={n} name={name} />]);
   if (!m.adopted)
     pairs.push([
       "Source",
@@ -237,6 +238,49 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
           </td>
         </tr>
       )}
+    </>
+  );
+}
+
+/** The site's Docker volumes and their backups (lf volumes), read when the row opens. */
+function SiteVolumes({ n, name }: { n: string; name: string }) {
+  const [d, setD] = useState<Any>(null);
+  const [err, setErr] = useState("");
+  const load = () =>
+    http(`/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}`).then((x) => (setD(x), setErr("")), (e) => setErr(errorMessage(e)));
+  useEffect(() => void load(), [n, name]);
+  if (err) return <span className="text-bad">{err}</span>;
+  if (!d) return <span className="faint">reading its volumes…</span>;
+  if (!d.volumes.length) return <span className="dim">none</span>;
+  // A backup belongs to the volume its name starts with: content-20261027-181500.tar.gz.
+  const own = (key: string) => d.backups.filter((b: Any) => b.file.startsWith(`${key}-`) && /^\d{8}-\d{6}/.test(b.file.slice(key.length + 1)));
+  const restore = (key: string, list: Any[]) =>
+    dialog({
+      title: `Restore ${key} of ${name}?`,
+      text: "Replaces its contents with the backup; the services using it stop meanwhile. The current contents are backed up first: lf undo puts them back.",
+      fields: [{ name: "file", type: "select", label: "Backup", value: list[0].file, options: list.map((b: Any) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })) }],
+      ok: "Restore",
+      danger: true,
+      onOk: (v) => run(["volume", "restore", name, key, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
+    });
+  return (
+    <>
+      <ul className="list-none m-0 p-0">
+        {d.volumes.map((v: Any) => {
+          const baks = own(v.key);
+          return (
+            <li key={v.name} className="flex flex-wrap items-center gap-2 py-[3px]">
+              <b>{v.key}</b>
+              {v.size !== undefined && <span className="dim">{size(v.size)}</span>}
+              {v.mounts.length > 0 && <span className="faint mono">{v.mounts.map((x: Any) => `${x.service}:${x.path}`).join(" ")}</span>}
+              <span className="faint">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
+              <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>
+              {baks.length > 0 && <Btn cls="sm" title={`Replace its contents with a backup (lf volume restore ${name} ${v.key})`} on={() => restore(v.key, baks)}>Restore…</Btn>}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="faint">to or from this machine: <span className="mono">lf volume pull {name}</span> · <span className="mono">lf volume push {name} &lt;folder&gt;</span></div>
     </>
   );
 }

@@ -424,6 +424,7 @@ lf volume restore content          # replace it with its newest backup (or name 
   database's volume may not be.
 - Backups are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with the volumes;
   `lf sites rm --volumes` deletes both.
+- In `lf ui`, an opened site lists its volumes with **Back up** and **Restore…** (the same commands).
 - Nothing here is landfall-specific. Each command prints the `docker` line it runs; by hand it is
   `docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz` and back
   `docker run --rm -i -v blog_content:/v alpine:3 sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v' < content.tar.gz`.
