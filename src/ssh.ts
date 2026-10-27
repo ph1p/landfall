@@ -186,10 +186,17 @@ export function reach(s: Server, timeout = 5): Promise<Reach> {
   });
 }
 
-/** Whether landfall logs in to s and has set it up there; the connection stays open for what follows. */
+/**
+ * Whether landfall logs in to s and has set it up there; the connection stays open for what follows.
+ * ssh exits 255 for any failure of its own: only a refused login is "no-login", the rest (unreachable,
+ * a changed host key) is an error with ssh's own words, since lf setup would not help.
+ */
 export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-login"> {
-  const { code } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${ROOT}`], { capture: true });
-  return code === 0 ? "ready" : code === 255 ? "no-login" : "bare";
+  const { code, stderr } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${ROOT}`], { capture: true, silent: true });
+  if (code !== 255) return code === 0 ? "ready" : "bare";
+  if (/permission denied|too many authentication failures/i.test(stderr)) return "no-login";
+  const why = stderr.trim().split("\n").filter((l) => !/^warning:/i.test(l)).at(-1);
+  return fail(`cannot connect to ${s.host}${why ? `: ${why}` : ""}`);
 }
 
 let bsdtar: string[] | undefined;

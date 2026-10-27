@@ -26,6 +26,8 @@ const isDir = (p: string) => {
 
 const UPLOADS = join(configDir, "uploads");
 const KEEP_MS = 24 * 3600 * 1000;
+/** What an archive may unpack to: a small zip can hold gigabytes of zeros. */
+const MAX_UNPACKED = 2 * 1024 ** 3;
 
 /** "a/../b//c" → ["a", "b", "c"]: nothing may land outside the upload folder. */
 export const safeParts = (rel: string) => rel.split(/[\\/]+/).filter((p) => p && p !== "." && p !== "..");
@@ -60,6 +62,7 @@ export async function receiveUpload(form: FormData) {
     // anywhere (and a later entry be written through it): archives with links are refused.
     const zip = /\.zip$/i.test(file);
     if (hasLinks(file, zip)) throw new Error(`${files[0].name} contains symlinks or hard links: upload the folder instead`);
+    if (unpackedSize(file, zip) > MAX_UNPACKED) throw new Error(`${files[0].name} unpacks to more than ${MAX_UNPACKED / 1024 ** 3} GB`);
     const r = zip ? spawnSync("unzip", ["-q", file, "-d", out]) : spawnSync("tar", ["-xf", file, "-C", out]);
     if (r.error || r.status !== 0) {
       const t = zip ? spawnSync("tar", ["-xf", file, "-C", out]) : r;
@@ -88,6 +91,20 @@ function hasLinks(file: string, zip: boolean): boolean {
   const out = zip ? (list("zipinfo", [file]) ?? list("tar", ["-tvf", file])) : list("tar", ["-tvf", file]);
   if (out === undefined) throw new Error(`could not read ${file.split("/").pop()}`);
   return out.split("\n").some((l) => /^[lh]/.test(l) || / link to /.test(l));
+}
+
+/**
+ * Bytes the archive's files hold, counted by streaming them to nowhere (no listing format to parse);
+ * stops just past the limit. Without a working unzip, bsdtar reads the zip.
+ */
+function unpackedSize(file: string, zip: boolean): number {
+  const count = (cat: string) => {
+    const r = spawnSync("sh", ["-c", `${cat} | head -c ${MAX_UNPACKED + 1} | wc -c`, "sh", file], { encoding: "utf8" });
+    return r.error || r.status !== 0 ? undefined : Number(r.stdout.trim());
+  };
+  const n = zip ? (count('unzip -p "$1"') || count('tar -xOf "$1"')) : count('tar -xOf "$1"');
+  if (n === undefined || Number.isNaN(n)) throw new Error(`could not read ${file.split("/").pop()}`);
+  return n;
 }
 
 /** Remove any link that got through anyway: deploy must only ship what was uploaded. */

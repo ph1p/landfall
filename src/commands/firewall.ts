@@ -32,13 +32,22 @@ export function ruleArgs(r: NewRule): string[] {
 const ufwAdd = (args: string[]) => `ufw_add ${args.map(shq).join(" ")}`;
 /** Adds a rule; a deny goes first so it wins over an allow for the same port (ufw rejects prepend on an empty list). */
 const addRule = (args: string[]) => (args[0] === "deny" ? `${ufwAdd(["prepend", ...args])} 2>/dev/null || ${ufwAdd(args)}` : ufwAdd(args));
+/** A rule from `ufw show added` as quoted ufw arguments: its comment is text the user typed, never shell. */
+export function specArgs(spec: string): string {
+  const m = spec.match(/^(.*?)\s+comment\s+'(.*)'$/);
+  const w = (m ? m[1] : spec).split(/\s+/).filter(Boolean);
+  return [...w, ...(m ? ["comment", m[2]] : [])].map(shq).join(" ");
+}
+
 /** Re-adds a deleted rule: at its old number when known, else where its action belongs. */
-const readd = (r: Rule, at?: number) =>
-  `${at ? `$SUDO ufw insert ${at} ${r.spec} >/dev/null 2>&1 || ` : ""}$SUDO ufw ${r.action === "allow" || r.action === "limit" ? "" : "prepend "}${r.spec} >/dev/null 2>&1 || $SUDO ufw ${r.spec} >/dev/null`;
+const readd = (r: Rule, at?: number) => {
+  const a = specArgs(r.spec);
+  return `${at ? `$SUDO ufw insert ${at} ${a} >/dev/null 2>&1 || ` : ""}$SUDO ufw ${r.action === "allow" || r.action === "limit" ? "" : "prepend "}${a} >/dev/null 2>&1 || $SUDO ufw ${a} >/dev/null`;
+};
 
 /** Journals the delete of an existing rule with the shell that adds it back. */
 const deleteRule = (r: Rule, at?: number) =>
-  `$SUDO ufw --force delete ${r.spec} >/dev/null
+  `$SUDO ufw --force delete ${specArgs(r.spec)} >/dev/null
 record ${shq(`ufw delete ${r.spec}`)} ${shq(readd(r, at))}`;
 
 /**
@@ -210,7 +219,7 @@ export const firewallUpdate = defineCommand({
       `${PRELUDE}
 ${NEEDS_UFW}
 ${deleteRule(rule, at)}
-${add} || { ${readd(rule, at)}; record "restored ufw ${rule.spec}"; echo "kept rule ${n}" >&2; exit 1; }`,
+${add} || { ${readd(rule, at)}; record ${shq(`restored ufw ${rule.spec}`)}; echo "kept rule ${n}" >&2; exit 1; }`,
     );
     ok(`rule ${n}: ${rule.spec} → ${args.join(" ")}`);
   },

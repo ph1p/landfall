@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import { basename, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { loadProject, type Server } from "../config";
+import { checkInt, loadProject, type Server } from "../config";
 import { projectName } from "../compose";
 import { bytes } from "../facts";
-import { requireSite, siteDir } from "../remote";
-import { bsdtarFlags, journal, runScript, shq, sshPipe } from "../ssh";
+import { cronMark, requireSite, siteDir } from "../remote";
+import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../ssh";
 import { PRELUDE } from "../templates";
-import { ago, c, confirm, fail, info, ok, step, table } from "../ui";
+import { ago, c, confirm, fail, info, ok, step, table, warn } from "../ui";
 import { target } from "./sites";
 
 /** Any image with sh, tar, find and chown does; landfall needs nothing of its own on the server. */
@@ -28,11 +28,12 @@ export interface Backup {
   time: string;
 }
 
-/** Parses listScript's output: `vol`, `mnt`, `size` and `bak` lines. */
-export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[] } {
+/** Parses listScript's output: `vol`, `mnt`, `size`, `bak` and `sched` lines. */
+export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[]; schedule?: string } {
   const vols = new Map<string, Volume>();
   const vol = (name: string) => vols.get(name) ?? vols.set(name, { name, key: name, mounts: [] }).get(name)!;
   const backups: Backup[] = [];
+  let schedule: string | undefined;
   for (const line of out.split("\n")) {
     const [kind, a, b, d] = line.split("\t");
     if (kind === "vol" && a) vol(a).key = b || a;
@@ -41,12 +42,17 @@ export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[
       if (!v.mounts.some((m) => m.service === b && m.path === d)) v.mounts.push({ service: b, path: d });
     } else if (kind === "size" && vols.has(a)) vol(a).size = Number(b);
     else if (kind === "bak" && a) backups.push({ file: a, size: Number(b), time: new Date(Number(d) * 1000).toISOString() });
+    else if (kind === "sched" && a) schedule = a;
   }
-  return { volumes: [...vols.values()].sort((x, y) => x.key.localeCompare(y.key)), backups: backups.sort((x, y) => y.time.localeCompare(x.time)) };
+  return {
+    volumes: [...vols.values()].sort((x, y) => x.key.localeCompare(y.key)),
+    backups: backups.sort((x, y) => y.time.localeCompare(x.time)),
+    ...(schedule && { schedule }),
+  };
 }
 
 /** Volumes of a Compose project, what mounts them, their sizes and the site's backups. */
-export const listScript = (project: string, dir: string) => String.raw`
+export const listScript = (project: string, dir: string, site: string) => String.raw`
 cd ${shq(dir)}
 vols=""
 for v in $(docker volume ls -q --filter label=com.docker.compose.project=${shq(project)}); do
@@ -66,6 +72,7 @@ fi
 for f in backups/*.tar.gz; do
   [ ! -f "$f" ] || printf 'bak\t%s\t%s\t%s\n' "$(basename "$f")" "$(stat -c %s "$f")" "$(stat -c %Y "$f")"
 done
+! command -v crontab >/dev/null || { crontab -l 2>/dev/null || true; } | awk -v m=${shq(cronMark(site) + " ")} 'i = index($0, m) { print "sched\t" substr($0, i + length(m)) }'
 `;
 
 /** `blog_content` from `content`, or the full name. */
@@ -89,14 +96,14 @@ export const backupsOf = (backups: Backup[], key: string) =>
   backups.filter((b) => b.file.startsWith(`${key}-`) && STAMP.test(b.file.slice(key.length + 1)));
 
 /** `docker run` that writes the volume's contents as tar.gz to stdout. Read-only: it never changes the volume. */
-export const tarOut = (vol: string) => `docker run --rm -v ${vol}:/v:ro ${HELPER} tar czf - -C /v .`;
+export const tarOut = (vol: string) => `docker run --rm -v ${shq(`${vol}:/v:ro`)} ${HELPER} tar czf - -C /v .`;
 
 /**
  * `docker run` that replaces the volume's contents with the tar.gz on stdin. own: give the files to the
  * owner of the volume's root (an upload from this machine carries your uid; a backup keeps its owners).
  */
 export const tarIn = (vol: string, own = false) =>
-  `docker run --rm -i -v ${vol}:/v ${HELPER} sh -c ${shq(`${own ? "o=$(stat -c %u:%g /v) && " : ""}find /v -mindepth 1 -delete && tar xzf - -C /v${own ? " && chown -R $o /v" : ""}`)}`;
+  `docker run --rm -i -v ${shq(`${vol}:/v`)} ${HELPER} sh -c ${shq(`${own ? "o=$(stat -c %u:%g /v) && " : ""}find /v -mindepth 1 -delete && tar xzf - -C /v${own ? " && chown -R $o /v" : ""}`)}`;
 
 /**
  * Shell that stops the containers using `vol`, runs `steps` (joined with &&: one failing skips the rest) and
@@ -104,7 +111,7 @@ export const tarIn = (vol: string, own = false) =>
  */
 export function whileStopped(vol: string, steps: string[]) {
   return [
-    `ids=$(docker ps -q --filter volume=${vol})`,
+    `ids=$(docker ps -q --filter ${shq(`volume=${vol}`)})`,
     `[ -z "$ids" ] || docker stop $ids >/dev/null`,
     `if ${steps.join(" && ")}; then rc=0; else rc=1; fi`,
     `[ -z "$ids" ] || docker start $ids >/dev/null`,
@@ -114,7 +121,7 @@ export function whileStopped(vol: string, steps: string[]) {
 
 export async function volumes(server: Server, site: string, sizes = false) {
   const { meta } = await requireSite(server, site);
-  const { stdout } = await runScript(server, listScript(projectName(meta), siteDir(site)), { capture: true, env: { SIZES: sizes } });
+  const { stdout } = await runScript(server, listScript(projectName(meta), siteDir(site), site), { capture: true, env: { SIZES: sizes } });
   return parseVolumes(stdout);
 }
 
@@ -146,8 +153,8 @@ export const volumeList = defineCommand({
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run([n], o) {
     const { site, server } = target(n, o.server);
-    const { volumes: vols, backups } = await volumes(server, site, true);
-    if (o.json) return console.log(JSON.stringify({ volumes: vols, backups }, null, 2));
+    const { volumes: vols, backups, schedule } = await volumes(server, site, true);
+    if (o.json) return console.log(JSON.stringify({ volumes: vols, backups, schedule }, null, 2));
     if (!vols.length) return info(`${site} has no volumes`);
     table([
       ["VOLUME", "SIZE", "MOUNTED BY", "BACKUPS"].map((h) => c.dim(h)),
@@ -161,6 +168,7 @@ export const volumeList = defineCommand({
         ];
       }),
     ]);
+    console.log(c.dim(`\nscheduled backups: ${schedule ?? "none (lf volume backup --schedule daily)"}`));
     if (backups.length) {
       console.log(`\n${c.dim(`backups in ${siteDir(site)}/backups:`)}`);
       table(backups.map((b) => [b.file, bytes(b.size), c.dim(ago(b.time))]));
@@ -168,25 +176,106 @@ export const volumeList = defineCommand({
   },
 });
 
+const KEEP_BACKUPS = 7;
+
 export const volumeBackup = defineCommand({
   name: "volume backup",
   args: "[name] [volume]",
   summary: `Save a volume (default: all of the site's) as a .tar.gz in /opt/landfall/sites/<name>/backups.
-The services keep running: for a database, prefer its own dump tool.`,
-  options: { server: serverOpt },
+The services keep running: for a database, prefer its own dump tool.
+
+  lf volume backup blog --schedule daily --keep 14   every night, the newest 14 of each volume kept
+  lf volume backup blog --schedule off
+
+A schedule is a line in the login user's crontab running backups/backup.sh, a plain
+script that also runs by hand (sh backup.sh).`,
+  options: {
+    server: serverOpt,
+    schedule: { type: "string", desc: "hourly, daily, weekly, or off: back up every volume on a timer" },
+    keep: { type: "string", desc: `scheduled backups kept per volume (default ${KEEP_BACKUPS})` },
+  },
   async run(pos, o) {
     const { site, server, rest, found } = await locate(pos, 1, o.server);
+    if (o.schedule !== undefined) {
+      if (rest[0]) fail("--schedule backs up every volume of the site: leave out the volume");
+      return scheduleBackups(server, site, o.schedule, checkInt(o.keep ?? KEEP_BACKUPS, "--keep", 1, 1000));
+    }
+    if (o.keep !== undefined) fail("--keep goes with --schedule");
     const vols = rest[0] ? [pickVolume(found.volumes, rest[0], site)] : found.volumes;
     if (!vols.length) fail(`${site} has no volumes`);
     for (const v of vols) {
       const file = `backups/${backupName(v.key)}`;
       step(`backup ${v.key} of ${site}`);
       runs(`${tarOut(v.name)} > ${file}`);
-      await runScript(server, `cd ${shq(siteDir(site))} && mkdir -p backups\n${tarOut(v.name)} > ${file}.part || { rm -f ${file}.part; exit 1; }\nmv ${file}.part ${file}`);
+      const f = shq(file);
+      await runScript(server, `cd ${shq(siteDir(site))} && mkdir -p backups\n${tarOut(v.name)} > ${f}.part || { rm -f ${f}.part; exit 1; }\nmv ${f}.part ${f}`);
       ok(`${siteDir(site)}/${file}`);
     }
   },
 });
+
+const EVERY: Record<string, (m: number) => string> = { hourly: (m) => `${m} * * * *`, daily: (m) => `${m} 3 * * *`, weekly: (m) => `${m} 3 * * 0` };
+
+/**
+ * The script a schedule runs: every volume of the Compose project into a .tar.gz next to it, then all but the
+ * newest `keep` of each volume's timestamped backups (not those like `-before-push`) deleted. Plain sh.
+ */
+export const backupScript = (project: string, keep: number) => `#!/bin/sh
+# Written by landfall (lf volume backup --schedule). Runs without it too: sh backup.sh
+# Saves every volume of the Compose project ${project} here, keeping the newest ${keep} of each.
+PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+cd "$(dirname "$0")" || exit 1
+keep=${keep}
+rc=0
+for v in $(docker volume ls -q --filter label=com.docker.compose.project=${project}); do
+  key=$(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}' "$v"); [ -n "$key" ] || key=$v
+  f="$key-$(date -u +%Y%m%d-%H%M%S).tar.gz"
+  if docker run --rm -v "$v:/v:ro" ${HELPER} tar czf - -C /v . >"$f.part"; then mv "$f.part" "$f"; else rm -f "$f.part"; echo "$(date -u) backup of $v failed" >&2; rc=1; continue; fi
+  n=0
+  for old in $(ls -1r 2>/dev/null | grep -F "$key-"); do
+    case "$old" in "$key"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].tar.gz) ;; *) continue ;; esac
+    n=$((n + 1)); [ "$n" -le "$keep" ] || rm -f -- "$old"
+  done
+done
+exit $rc
+`;
+
+/** Shell: the crontab without the site's line, in $c. */
+const cronWithout = (site: string) => `c=$(crontab -l 2>/dev/null | grep -vF ${shq(cronMark(site))} || true)`;
+/** Shell: install $c plus `line` (none: just $c) as the crontab. */
+const cronSet = (line: string) => `printf '%s\\n%s\\n' "$c" ${line} | sed '/^$/d' | crontab -`;
+
+export async function scheduleBackups(server: Server, site: string, every: string, keep: number) {
+  if (every !== "off" && !EVERY[every]) fail(`--schedule takes hourly, daily, weekly or off, not ${every}`);
+  const { meta } = await requireSite(server, site);
+  const dir = `${siteDir(site)}/backups`;
+  const mark = cronMark(site);
+  // A minute of its own per site: not every server's backups at 03:00 sharp.
+  const minute = [...site].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 60, 7);
+  const [head, tail] = cronSet("@").split(" @ ");
+  const line = every === "off" ? "" : `${EVERY[every](minute)} sh ${dir}/backup.sh >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}`;
+  const { stdout } = await runScript(
+    server,
+    [
+      PRELUDE,
+      `command -v crontab >/dev/null || { echo "the server has no cron: install it (cron, cronie or busybox crond) to schedule backups" >&2; exit 1; }`,
+      // busybox crontab (Alpine) gives a user other than root a crontab only when setuid.
+      `[ "$(id -u)" = 0 ] || [ "$(pkg_mgr)" != apk ] || pkg_has busybox-suid || pkg_install busybox-suid || true`,
+      `old=$(crontab -l 2>/dev/null | grep -F ${shq(mark)} || true)`,
+      ...(line ? [`mkdir -p ${shq(dir)}`, writeFileCmd(`${dir}/backup.sh`, backupScript(projectName(meta), keep), "755")] : []),
+      cronWithout(site),
+      `${cronSet(line ? shq(line) : '""')} || { echo "could not change the crontab of $(id -un): a server without setuid crontab (Alpine: apk add busybox-suid) lets only root have one" >&2; exit 1; }`,
+      // Undo puts back the line that was there (or none); backup.sh stays, it does nothing on its own.
+      `record ${shq(line ? `schedule backups of ${site} ${every}, keep ${keep}` : `stop scheduled backups of ${site}`)} ${shq(`${cronWithout(site)}; ${head} `)}"$(printf %q "$old")"${shq(` ${tail}`)}`,
+      `[ -z ${shq(line)} ] || pidof crond >/dev/null || pidof cron >/dev/null || echo nocron`,
+    ].join("\n"),
+    { capture: true },
+  );
+  if (!line) return ok(`no scheduled backups of ${site}`);
+  ok(`${site}'s volumes are backed up ${every}, the newest ${keep} of each kept in ${dir}`);
+  info(c.dim(`runs: ${dir}/backup.sh from the crontab of ${server.user ?? "the login user"} (log: ${dir}/backup.log)`));
+  if (stdout.includes("nocron")) warn("cron is not running on the server: start it (Alpine: rc-service crond start), or nothing runs");
+}
 
 export const volumePull = defineCommand({
   name: "volume pull",
@@ -229,7 +318,7 @@ async function replace(server: Server, site: string, v: Volume, source: string, 
   const before = `${dir}/backups/${backupName(v.key, new Date(), `before-${o.verb}`)}`;
   // `lf sites rm --volumes` takes the volume and the backup: skip, as `docker run -v` would create an empty volume.
   const gone = shq(`${v.name} was removed since, nothing to put back`);
-  const undo = `if [ -f ${shq(before)} ] && docker volume inspect ${v.name} >/dev/null 2>&1; then\n${whileStopped(v.name, [`${tarIn(v.name)} < ${shq(before)}`])}\nelse log ${gone}; fi`;
+  const undo = `if [ -f ${shq(before)} ] && docker volume inspect ${shq(v.name)} >/dev/null 2>&1; then\n${whileStopped(v.name, [`${tarIn(v.name)} < ${shq(before)}`])}\nelse log ${gone}; fi`;
   runs(`${tarIn(v.name, own)} < ${source}`);
   await runScript(
     server,

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../config";
-import { COMPOSE_FILES, currentRelease, isOld, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
+import { COMPOSE_FILES, currentRelease, gitLabel, isOld, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../compose";
 import { bytes } from "../facts";
 import { adoptSite, changeSite, composeCmd, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSecrets, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../remote";
 import { shq, writeFileCmd } from "../ssh";
@@ -80,6 +80,7 @@ export const sitesInfo = defineCommand({
       const mark = r.id === meta.current ? c.green("● ") : "  ";
       const routes = r.services.filter((x) => x.port || x.own).map((x) => `${x.name}${x.port ? ":" + x.port : ""}`);
       console.log(`${mark}${r.id}  ${c.dim(ago(r.at))}  ${c.dim(r.services.map((x) => x.name).join(", "))}${routes.length ? c.dim(`  → ${routes.join(", ")}`) : ""}`);
+      if (r.git || r.by) console.log(c.dim(`    ${[gitLabel(r.git), r.by && `by ${r.by}`].filter(Boolean).join("  ")}`));
     }
   },
 });
@@ -215,7 +216,7 @@ export const sitesEnv = defineCommand({
   },
   async run(pos, o) {
     const [n] = pos.filter((p) => !p.includes("="));
-    const set = { ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("="))) };
+    const set = { ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("=")), true) };
     const { site, server } = target(n, o.server);
     const { env } = await requireSite(server, site, { deployed: "manage the .env of" });
     if (!Object.keys(set).length && !o.unset?.length) {
