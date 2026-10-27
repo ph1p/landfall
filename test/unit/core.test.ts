@@ -725,6 +725,24 @@ describe("folders and access", () => {
     expect(detectProject(d)).toMatchObject({ kind: "dockerfile", port: 8080 });
   });
 
+  test("names a folder's languages, framework and tools", () => {
+    const labels = (d: string) => detectProject(d).stack.map((t) => `${t.role}:${t.label}`);
+    const v = tmp();
+    fs.writeFileSync(join(v, "package.json"), JSON.stringify({ scripts: { build: "vite build" }, devDependencies: { vite: "7" } }));
+    fs.writeFileSync(join(v, "tsconfig.json"), "{}");
+    fs.writeFileSync(join(v, "pnpm-lock.yaml"), "");
+    expect(labels(v)).toEqual(["language:TypeScript", "framework:Vite", "tooling:pnpm"]);
+    const py = tmp();
+    fs.writeFileSync(join(py, "pyproject.toml"), "[project]\ndependencies = ['fastapi']\n");
+    fs.writeFileSync(join(py, "uv.lock"), "");
+    fs.writeFileSync(join(py, "main.py"), "app = FastAPI()\n");
+    expect(labels(py)).toEqual(["language:Python", "framework:FastAPI", "tooling:uv"]);
+    const j = tmp();
+    fs.writeFileSync(join(j, "pom.xml"), "<project></project>");
+    fs.writeFileSync(join(j, "Dockerfile"), "FROM x\n");
+    // "Java (Maven)" names no framework, and Maven only once
+    expect(labels(j)).toEqual(["language:Java", "tooling:Maven", "tooling:Dockerfile"]);
+  });
   test("the publish folder comes from the site generator, before its first build", () => {
     const d = tmp();
     const pkg = (deps: Record<string, string>) => fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "x" }, devDependencies: deps }));

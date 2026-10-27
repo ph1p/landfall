@@ -3,7 +3,7 @@ import { S, http, plural, render, serverNamed, sv, tilde, errorMessage, type Any
 import { go, load, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
-import { Btn, cx } from "../ui/kit";
+import { Badge, Btn, cx } from "../ui/kit";
 import {
   dialog, confirmDlg, promptDlg, invalid, openDialog, closeDialog, D, siteNameError, words, domainOk, portError, userError, passwordError,
   DFORM, DTITLE, DTEXT, DBTNS, type Spec, type Values,
@@ -203,6 +203,20 @@ export function autoDomain(n: string, name: string) {
 const slugify = (s: string) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
 
 /** What landfall found in a folder and how it deploys it. */
+const ROLE: Record<string, string> = { language: "Language", framework: "Framework", tooling: "Package manager or build tool" };
+
+/** The languages, framework and tools landfall found in a folder, as chips: what it builds with at a glance. */
+export function Stack({ d, className }: { d: Any; className?: string }) {
+  if (!d.stack?.length) return null;
+  return (
+    <div className={cx("flex flex-wrap gap-1.5", className)} aria-label="Detected">
+      {d.stack.map((t: Any) => (
+        <Badge key={t.label} kind={t.role === "tooling" ? "" : "accent"} className={t.role === "framework" ? "font-semibold" : undefined} title={ROLE[t.role]}>{t.label}</Badge>
+      ))}
+    </div>
+  );
+}
+
 export function Describe({ d, before = true }: { d: Any; before?: boolean }) {
   const built = d.build ? <> · builds with <code>{d.build}</code> first</> : null;
   const what: ReactNode =
@@ -337,7 +351,7 @@ export function deployDialog(det: Any, o: DeployOpts = {}) {
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
     text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
       + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back returns to the current one."}` : ""),
-    extra: <div className={DETECTED}><Describe d={det} /></div>,
+    extra: <div className={DETECTED}><Stack d={det} className="mb-2" /><Describe d={det} /></div>,
     sidebar: true,
     fields: [
       {
@@ -499,7 +513,7 @@ function FolderDialog({ b, site }: { b: Any; site?: Any }) {
           <div className={cx(ROW, "faint hover:bg-transparent")}>no subfolders</div>
         )}
       </div>
-      <div className={DETECTED}><b>{b.detected.name}</b>: <Describe d={b.detected} /></div>
+      <div className={DETECTED}><Stack d={b.detected} className="mb-2" /><b>{b.detected.name}</b>: <Describe d={b.detected} /></div>
       <div className="border-[1.5px] border-dashed border-line-strong rounded-md p-3.5 text-center text-dim text-md">
         Or drop a folder or .zip anywhere ·{" "}
         <label className={PICK}>

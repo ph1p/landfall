@@ -30,6 +30,10 @@ export const step = (msg: string) => console.error(`${c.cyan("==>")} ${c.bold(ms
 export const ok = (msg: string) => console.error(`${c.green("✓")} ${msg}`);
 export const info = (msg: string) => console.error(`  ${msg}`);
 export const warn = (msg: string) => console.error(`${c.yellow("!")} ${msg}`);
+/** What landfall found in a project: languages and framework in bold, its tools after them. */
+export function showStack(stack: { label: string; role: string }[]) {
+  if (stack.length) info(`detected: ${stack.map((t) => (t.role === "tooling" ? t.label : c.bold(t.label))).join(c.dim(" · "))}`);
+}
 
 export class CliError extends Error {}
 /** Starts a marker line on stderr: what follows is JSON for the web UI, not text to show. */

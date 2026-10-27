@@ -4,7 +4,7 @@ import { defineCommand } from "../cmd";
 import { checkInt } from "../config";
 import { volumeName } from "../compose";
 import { detectApp, detectProject } from "../projects";
-import { c, fail, info, ok } from "../ui";
+import { c, fail, info, ok, showStack } from "../ui";
 
 export const init = defineCommand({
   name: "init",
@@ -28,6 +28,7 @@ files are never overwritten.`,
     const root = resolve(process.cwd(), dirArg ?? ".");
     if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) fail(`${dirArg} is not a folder`);
     const d = detectProject(root);
+    showStack(d.stack);
     if (d.kind === "compose") fail(`${d.compose} exists already: add x-landfall: { port: <port> } to the service Traefik should serve`);
     const files: Record<string, string> = { "compose.yaml": "", "compose.override.yaml": "" };
     const taken = Object.keys(files).filter((f) => fs.existsSync(join(root, f)));

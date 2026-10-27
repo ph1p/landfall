@@ -4,7 +4,7 @@ import { run, TunnelBtn } from "../lib/jobs";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
-import { Describe, detected, folderDialog, redeploy, setupFlow } from "./flows";
+import { Describe, Stack, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
 import { StatusDot, can, isUp } from "./shared";
@@ -172,7 +172,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
   if (det !== undefined)
     pairs.push([
       "Build",
-      det ? <><Describe d={det} before={false} /> <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>Edit</Btn></>
+      det ? <><Stack d={det} className="mb-1.5" /><Describe d={det} before={false} /> <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>Edit</Btn></>
       : <span className="faint">{det === false ? "cannot read its folder" : "reading its folder…"}</span>,
     ]);
   pairs.push(["Kind", <>{kind}{main || !managed ? "" : <> <span className="dim">· domains set in compose.yaml</span></>}</>]);
