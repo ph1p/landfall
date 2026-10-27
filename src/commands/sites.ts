@@ -179,8 +179,8 @@ export const sitesRemove = defineCommand({
   args: "<name>",
   summary: `Stop a site and delete its files and releases from the server.
 
-Named volumes (databases, uploads) stay, so deploying the site again finds its data;
---volumes deletes them too. An adopted site is stopped and forgotten; its folder stays.`,
+Named volumes (databases, uploads) and their backups stay, so deploying the site again finds its
+data; --volumes deletes them too. An adopted site is stopped and forgotten; its folder stays.`,
   options: { server: serverOpt, volumes: { type: "boolean", desc: "also delete the site's named volumes (its data)" } },
   async run([n], o) {
     if (!n) fail("usage: lf sites rm <name>");

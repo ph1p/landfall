@@ -197,7 +197,7 @@ const excludeArgs = (more: string[]) => [...new Set([...EXCLUDE, ...more])].flat
 
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
-async function bsdtarFlags(): Promise<string[]> {
+export async function bsdtarFlags(): Promise<string[]> {
   if (!bsdtar) {
     const { stdout } = await spawnP("tar", ["--version"], { capture: true });
     bsdtar = stdout.includes("bsdtar") ? ["--no-xattrs", "--no-mac-metadata", "--no-acls"] : [];
@@ -251,6 +251,41 @@ async function tarUpload(s: Server, localDir: string, remoteDir: string, exclude
     Promise.all([exit(tar), exit(ssh)]).then(([tarCode, code]) => {
       if (tarCode !== 0) reject(new Error(`tar failed (exit ${tarCode})`));
       else if (code !== 0) reject(new Error(`upload failed (exit ${code})`));
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Streams between this machine and a remote command: "up" pipes the local side into it, "down" pipes
+ * its output into the local side. The local side is a command (argv) or a file.
+ */
+export async function sshPipe(s: Server, remote: string, local: string[] | { file: string }, dir: "up" | "down") {
+  const env = { ...process.env, COPYFILE_DISABLE: "1" };
+  const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
+  const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], { stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"] });
+  const done: Promise<number>[] = [exit(ssh)];
+  await new Promise<void>((resolve, reject) => {
+    ssh.on("error", reject);
+    if ("file" in local) {
+      const f = dir === "up" ? fs.createReadStream(local.file) : fs.createWriteStream(local.file);
+      f.on("error", reject);
+      if (dir === "up") (f as fs.ReadStream).pipe(ssh.stdin!);
+      else {
+        ssh.stdout!.pipe(f as fs.WriteStream);
+        done.push(new Promise((ok) => f.on("close", () => ok(0))));
+      }
+    } else {
+      const p = spawn(local[0], local.slice(1), { stdio: dir === "up" ? ["ignore", "pipe", "inherit"] : ["pipe", "inherit", "inherit"], env });
+      p.on("error", reject);
+      if (dir === "up") p.stdout!.pipe(ssh.stdin!);
+      else ssh.stdout!.pipe(p.stdin!);
+      done.push(exit(p));
+    }
+    // Wait for both ends: one may exit 0 before the other reports that it failed halfway.
+    Promise.all(done).then(([code, other]) => {
+      if (code !== 0) reject(new Error(`${dir === "up" ? "upload" : "download"} failed (exit ${code})`));
+      else if (other !== 0) reject(new Error(`${local instanceof Array ? local[0] : local.file} failed (exit ${other})`));
       else resolve();
     });
   });
