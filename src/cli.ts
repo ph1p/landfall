@@ -10,6 +10,7 @@ import { historyLog, historyUndo } from "./commands/history";
 import { keygen, setup } from "./commands/setup";
 import {
   sitesEnv,
+  sitesSecret,
   sitesInfo,
   sitesList,
   sitesLogs,
@@ -59,6 +60,7 @@ const commands: Command[] = [
   sitesInfo,
   sitesLogs,
   sitesEnv,
+  sitesSecret,
   sitesRollback,
   sitesRestart,
   sitesStop,
@@ -139,6 +141,7 @@ const aliases: Record<string, string> = {
   "server ssh": "ssh",
   "sites logs": "logs",
   "sites env": "env",
+  "sites secret": "secret",
   "sites rollback": "rollback",
   "sites restart": "restart",
   "sites stop": "stop",
@@ -201,7 +204,7 @@ function help() {
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
-    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "rollback", "restart", "stop", "start", "sites rm"]],
+    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "secret", "rollback", "restart", "stop", "start", "sites rm"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update"]],
     ["History", ["history", "undo"]],
@@ -260,6 +263,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   setAssumeYes(!!values.yes);
+  if (values.environment !== undefined) process.env.LANDFALL_ENV = values.environment;
   journal.cmd = journalCmd(cmd, positionals, values);
   const code = await cmd.run(positionals, values, passthrough);
   return typeof code === "number" ? code : 0;

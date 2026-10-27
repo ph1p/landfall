@@ -6,6 +6,7 @@ import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
 import { autoDomain, browse, buildForm, mainDomain, openAfter } from "./flows";
 import { Copy } from "lucide-react";
+import { EnvTable, NO_ENV_CHANGE, type EnvChange } from "./env";
 
 // ---- domains & login ---------------------------------------------------------
 
@@ -25,14 +26,14 @@ export function siteSettings(n: string, site: Any) {
   const proj = m.adopted ? undefined : (S.state.projects ?? []).find((p: Any) => p.server === n && p.name === m.name);
   if (!proj) return settingsDialog(n, site);
   delete S.det[proj.path];
-  browse(proj.path).then((x) => settingsDialog(n, site, proj.path, x.detected), () => settingsDialog(n, site));
+  browse(proj.path).then((x) => settingsDialog(n, site, proj.path, x.detected, proj.environment), () => settingsDialog(n, site));
 }
 
 /** The values a form starts with. */
 const defaults = (specs: Spec[]): Values =>
   Object.assign({}, ...specs.map((x: Any) => (x.fields ? defaults(x.fields) : x.row ? defaults(x.row) : { [x.name]: x.value ?? (x.type === "check" ? false : "") })));
 
-function settingsDialog(n: string, site: Any, path?: string, det?: Any) {
+function settingsDialog(n: string, site: Any, path?: string, det?: Any, environment?: string) {
   const { meta: m, main: svc } = site;
   const name: string = m.name;
   const managed = site.state === "managed";
@@ -46,7 +47,7 @@ function settingsDialog(n: string, site: Any, path?: string, det?: Any) {
   const untouched = build ? build.argv(defaults(build.fields)).join("\0") : "";
   dialog({
     title: `Edit ${name}`,
-    text: `On ${n}${path ? `, deployed from ${tilde(path)}` : ""}. Saving runs one lf command per changed section${build ? "; a build change redeploys" : ""}.`,
+    text: `On ${n}${path ? `, deployed from ${tilde(path)}${environment ? ` as its ${environment} environment` : ""}` : ""}. Saving runs one lf command per changed section${build ? "; a build change redeploys" : ""}.`,
     sidebar: true,
     fields: [
       svc && {
@@ -83,13 +84,26 @@ function settingsDialog(n: string, site: Any, path?: string, det?: Any) {
       },
       managed && {
         legend: "Environment",
-        note: `The site's .env. Changes recreate its containers; lf env ${name} shows the current values.`,
+        note: `The site's .env on the server. Saving runs lf env ${name}, which recreates the services whose variables changed.`,
         fields: [
           {
-            name: "set", label: "Set (KEY=VALUE, one per line)", type: "textarea", value: "", placeholder: "DATABASE_URL=postgres://…\nLOG_LEVEL=info", mono: true,
-            check: (x: string) => x.split("\n").map((l) => l.trim()).filter((l) => l && !/^[^=]+=/.test(l)).map((l) => `Not KEY=VALUE: ${l.slice(0, 40)}`)[0],
+            name: "env", type: "custom", value: NO_ENV_CHANGE, check: (x: EnvChange) => x.bad,
+            render: (_: EnvChange, set: (v: EnvChange) => void) => <EnvTable n={n} site={name} onChange={set} />,
           },
-          { name: "unset", label: "Remove (names, space separated)", value: "", placeholder: "OLD_KEY", mono: true },
+        ],
+      },
+      managed && m.kind !== "static" && {
+        legend: "Secrets",
+        note:
+          (m.kind === "compose"
+            ? "Files in the site's .secrets folder; compose.yaml mounts one with secrets: NAME: file: ./.secrets/NAME."
+            : "Files every service reads at /run/secrets/NAME.") +
+          ` Values never come back to this page. Saving runs lf secret ${name}, which restarts the services that use a changed one; multi-line files: lf secret --file NAME=path.`,
+        fields: [
+          {
+            name: "secrets", type: "custom", value: NO_ENV_CHANGE, check: (x: EnvChange) => x.bad,
+            render: (_: EnvChange, set: (v: EnvChange) => void) => <EnvTable n={n} site={name} onChange={set} secrets />,
+          },
         ],
       },
       ...(build?.fields ?? []),
@@ -102,9 +116,14 @@ function settingsDialog(n: string, site: Any, path?: string, det?: Any) {
         else if (v.password) jobs.push({ argv: ["auth", name, ...sv(n), "-u", v.user.trim() || "admin", "--password", v.password] });
       }
       if (managed) {
-        const pairs = v.set.split("\n").map((l: string) => l.trim()).filter((l: string) => l.includes("="));
-        const unset = words(v.unset).flatMap((k) => ["-u", k]);
+        const e: EnvChange = v.env;
+        const pairs = Object.entries(e.set).map(([k, x]) => `${k}=${x}`);
+        const unset = e.unset.flatMap((k) => ["-u", k]);
         if (pairs.length || unset.length) jobs.push({ argv: ["env", name, ...sv(n), ...pairs, ...unset] });
+        const s: EnvChange | undefined = v.secrets;
+        if (s && (Object.keys(s.set).length || s.unset.length)) {
+          jobs.push({ argv: ["secret", name, ...sv(n), ...Object.entries(s.set).map(([k, x]) => `${k}=${x}`), ...s.unset.flatMap((k) => ["-u", k])] });
+        }
       }
       let domains: string[] | undefined;
       if (svc && served(v)) {
@@ -118,7 +137,7 @@ function settingsDialog(n: string, site: Any, path?: string, det?: Any) {
       // A redeploy takes the new domains along; run from the folder, both keep .landfall.json in step.
       if (rebuild) {
         const to = domains && (domains.length ? domains.flatMap((d) => ["-d", d]) : ["--no-domain"]);
-        jobs.push({ argv: ["deploy", "-y", ...sv(n), "-n", name, ...flags, ...(to ?? [])], cwd: path });
+        jobs.push({ argv: ["deploy", "-y", ...sv(n), ...(environment ? ["-E", environment] : []), "-n", name, ...flags, ...(to ?? [])], cwd: path });
       } else if (domains) {
         // None left: the site keeps running, unrouted.
         const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d: string) => ["--rm", d]);

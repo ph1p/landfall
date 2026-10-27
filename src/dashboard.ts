@@ -91,6 +91,7 @@ export function changes(argv: string[]): boolean {
   if (cmd === "firewall") return ["enable", "disable", "allow", "deny", "update", "rm", "remove"].includes(sub);
   if (cmd === "traefik") return sub === "setup" || sub === "use";
   if (cmd === "env") return argv.some((a) => a.includes("=") || a === "-u" || a === "--unset");
+  if (cmd === "secret") return argv.some((a) => a.includes("=") || ["-u", "--unset", "--file", "--env-file"].includes(a));
   if (cmd === "domains") return argv.some((a) => ["-a", "--add", "--rm", "--set"].includes(a));
   if (cmd === "auth") return argv.some((a) => ["-u", "--user", "--rm-user", "--off"].includes(a));
   if (cmd === "update" || cmd === "upgrade") return true;

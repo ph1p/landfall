@@ -109,7 +109,7 @@ function SiteRows({ n, site }: { n: string; site: Any }) {
   const acts = (
     <div className="inline-flex flex-wrap items-center justify-end gap-1.5 [&>button]:ml-0!">
       {deploys ? (
-        <Btn cls="sm primary" title={`Build and upload ${tilde(proj.path)} again, then switch to it (lf deploy)`} on={() => redeploy(proj.path, n, name, proj.kind)}><Icon name="deploy" />Redeploy</Btn>
+        <Btn cls="sm primary" title={`Build and upload ${tilde(proj.path)} again, then switch to it (lf deploy)`} on={() => redeploy(proj.path, n, name, proj.kind, proj.environment)}><Icon name="deploy" />Redeploy</Btn>
       ) : m.adopted || m.kind === "image" ? null : (
         <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains ?? [], old })}><Icon name="deploy" />Redeploy</Btn>
       )}

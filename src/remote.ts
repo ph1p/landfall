@@ -13,6 +13,7 @@ import {
   overrideYaml,
   projectName,
   routed,
+  SECRETS_DIR,
   ROUTER_RULE,
   ruleHosts,
   siteState,
@@ -305,6 +306,8 @@ export async function prepareRelease(
     `mkdir -p ${shq(rel)} && cd -P ${shq(rel)}`,
     `[ -e ../../.env ] || { touch ../../.env && chmod 600 ../../.env; }`,
     "ln -sfn ../../.env .env",
+    // Dangling until the site starts (siteLines makes the folder): a refused deploy leaves nothing behind.
+    `ln -sfn ../../${SECRETS_DIR} ${SECRETS_DIR}`,
     ...Object.entries(o.generated ?? {}).map(([f, text]) => writeFileCmd(f, text)),
     ...(file && file !== "compose.yaml" ? [`mv -f ${shq(file)} compose.yaml`] : []),
     `rm -f ${others.map(shq).join(" ")}`,
@@ -359,6 +362,10 @@ export async function discardRelease(s: Server, name: string, id: string) {
 
 export interface ApplyOpts {
   env?: string;
+  /** Files of the site's folder to write (null: remove), e.g. `.secrets/KEY`; undo puts them back. */
+  files?: Record<string, string | null>;
+  /** Services to recreate after it starts: what they read from a changed file is not seen otherwise. */
+  recreate?: string[];
   /** docker compose build the release's services that build (deploy). */
   build?: boolean;
   /** docker compose pull its images first (deploy). */
@@ -386,7 +393,7 @@ const upLines = (name: string) => [
 const rmImage = (i: string) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`;
 
 /** Shell that writes a site's files for meta.current, points `current` at it and starts it. */
-function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: boolean; pull?: boolean } = {}): string[] {
+function siteLines(meta: SiteMeta, proxy: Proxy, o: Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate"> = {}): string[] {
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
   const rel = shq("releases/" + meta.current);
@@ -399,6 +406,12 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: bool
     `other=$(docker ps -a --filter ${shq(`label=com.docker.compose.project=${project}`)} --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null | while read -r d; do case "$d/" in ("$here"*) ;; (*) echo "\${d:-a container without a folder}"; break ;; esac; done || true)`,
     `[ -z "$other" ] || { echo ${shq(`a Compose project named ${project} already runs from`)} "$other:" ${shq(`deploying would replace its containers. Pick another site name, or make it a site with lf adopt ${project}`)} >&2; exit 1; }`,
     o.env !== undefined ? writeFileCmd(".env", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
+    // Secrets are 644 so a container's non-root user reads them; the folder (700) keeps others on the host out.
+    ...Object.entries(o.files ?? {}).map(([f, text]) =>
+      text === null ? `rm -f ${shq(f)}` : writeFileCmd(f, text, f.startsWith(`${SECRETS_DIR}/`) ? "644" : "600"),
+    ),
+    // Releases from before .secrets get the link too, so a rollback still finds them.
+    ...(meta.adopted ? [] : [`[ -d ${SECRETS_DIR} ] || install -d -m 700 ${SECRETS_DIR}`, `(cd -P ${rel} && ln -sfn ../../${SECRETS_DIR} ${SECRETS_DIR}) || exit 1`]),
     `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
   ];
   if (o.build && release.services.some((s) => s.build)) {
@@ -409,6 +422,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: { env?: string; build?: bool
   lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
   lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name));
+  if (o.recreate?.length) lines.push(`log "recreating ${o.recreate.join(", ")}"`, `(cd -P current && ${UP} --force-recreate --no-deps ${o.recreate.map(shq).join(" ")}) || exit 1`);
   return lines;
 }
 
@@ -434,11 +448,11 @@ function takeoverLines(old: SiteMeta, keep?: string): string[] {
 }
 
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
-export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void) {
+export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}) {
   const prev = structuredClone(meta);
   change(meta);
   meta.updatedAt = new Date().toISOString();
-  await applySite(s, meta, proxy, { keep: meta.releases.length, prev, what });
+  await applySite(s, meta, proxy, { ...o, keep: meta.releases.length, prev, what });
 }
 
 /**
@@ -472,6 +486,10 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   let tail = "";
   const saveEnv = o.prev ? o.env !== undefined : !!o.existed;
   if (saveEnv) lines.push(`u=$(saved ${shq(dir + "/.env")})`);
+  const files = Object.keys(o.files ?? {});
+  if (files.some((f) => f.startsWith(`${SECRETS_DIR}/`))) lines.push(`install -d -m 700 ${shq(`${dir}/${SECRETS_DIR}`)}`);
+  files.forEach((f, i) => lines.push(`f${i}=$(saved ${shq(`${dir}/${f}`)})`));
+  const restore = [...(saveEnv ? ['"$u"'] : []), ...files.map((_, i) => `"$f${i}"`)].join(shq("\n"));
   if (!o.prev) {
     // `lf sites rm` may have removed it since.
     head = `[ ! -d ${shq(dir)} ] || {\n${removeLines(meta, { keepDir: o.existed }).join("\n")}\n`;
@@ -482,10 +500,10 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
     const added = kept.filter((r) => !old.releases.some((p) => p.id === r.id));
     // `lf sites rm` took its releases since: putting site.json back would revive a broken site.
     head = `[ -d ${shq(dir)} ] || { log ${shq(`${meta.name} was removed since, nothing to put back`)}; exit 0; }\n`;
-    tail = "\n" + [...siteLines(back, proxy), ...added.flatMap((r) => dropRelease(meta, r))].join("\n");
+    tail = "\n" + [...siteLines(back, proxy, { recreate: o.recreate }), ...added.flatMap((r) => dropRelease(meta, r))].join("\n");
   }
   // Journaled before starting: a site that fails to start is still put back by undo.
-  lines.push(`record ${shq(o.what)} ${shq(head)}${saveEnv ? '"$u"' : ""}${shq(tail)}`);
+  lines.push(`record ${shq(o.what)} ${shq(head)}${restore}${shq(tail)}`);
   lines.push(...siteLines(meta, proxy, o));
   for (const r of pruned) lines.push(...dropRelease(meta, r));
   await runScript(s, lines.join("\n"));
@@ -552,6 +570,38 @@ export const dotenvLines = (text: string): string[] =>
     .filter((l) => l && !l.startsWith("#") && l.includes("="));
 
 /** A local dotenv file as pairs; `-` reads stdin, which keeps the values out of `ps`. */
+/** The files of a site's .secrets folder with their sizes; never their content. */
+export async function readSecrets(s: Server, name: string): Promise<{ key: string; size: number }[]> {
+  const { stdout } = await runScript(
+    s,
+    `cd ${shq(`${siteDir(name)}/${SECRETS_DIR}`)} 2>/dev/null || exit 0; for f in *; do [ -f "$f" ] && printf '%s\t%s\n' "$f" "$(wc -c < "$f")"; done; true`,
+    { capture: true },
+  );
+  return stdout.split("\n").filter(Boolean).map((l) => ({ key: l.split("\t")[0], size: Number(l.split("\t")[1]) }));
+}
+
+/** `docker compose config` of the site's live release, or undefined when it does not resolve. */
+export async function liveConfig(s: Server, name: string): Promise<any> {
+  const { stdout } = await runScript(s, `${PRELUDE}\ncd ${shq(siteDir(name))} && cd -P current && dc config 2>/dev/null || true`, { capture: true });
+  try {
+    return parseYaml(stdout) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The variables of a .env in order, each value as written after `=` (quotes included). */
+export const envEntries = (text: string): { key: string; value: string }[] =>
+  dotenvLines(text).map((l) => ({ key: l.slice(0, l.indexOf("=")).trim(), value: l.slice(l.indexOf("=") + 1) }));
+
+/** What `lf env --json` prints and the web UI lists: values only when revealed, else just their length. */
+export function envView(text: string, reveal = false) {
+  return { vars: envEntries(text).map(({ key, value }) => (reveal ? { key, value } : { key, length: value.length })) };
+}
+
+/** A .env as `lf env` shows it: comments and blank lines dropped, every value hidden. */
+export const maskedEnv = (text: string) => envEntries(text).map(({ key, value }) => `${key}=${"•".repeat(8)} (${value.length})\n`).join("");
+
 export const readEnvFile = async (path: string) =>
   parseEnvPairs(dotenvLines(path === "-" ? await readStdin() : fs.readFileSync(path, "utf8")));
 

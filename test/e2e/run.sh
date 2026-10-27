@@ -126,6 +126,50 @@ lf deploy -d app.test -e GREETING=hello -y
 expect app.test / "app hello"
 lf env GREETING=world -y
 expect app.test / "app world"
+lf env 2>/dev/null | grep -qx 'GREETING=•••••••• (5)' || die "lf env hides values"
+lf env --reveal | grep -qx 'GREETING=world' || die "lf env --reveal"
+[ "$(lf env --keys)" = GREETING ] || die "lf env --keys"
+lf env --pull "$WORK/pulled.env" -y >/dev/null && grep -qx 'GREETING=world' "$WORK/pulled.env" || die "lf env --pull"
+pass "lf env hides, reveals, lists and pulls"
+
+echo "== secrets"
+# A file under /run/secrets, read once at start: changing it must restart the service.
+mkdir -p "$WORK/vault" && cd "$WORK/vault"
+cat > Dockerfile <<'EOF'
+FROM busybox:1.37
+EXPOSE 8000
+CMD sh -c 'mkdir -p /www && echo "token $(cat /run/secrets/TOKEN 2>/dev/null || echo none)" > /www/index.html && httpd -f -p 8000 -h /www'
+EOF
+lf deploy -d vault.test -y >/dev/null 2>&1 || die "vault deploy"
+expect vault.test / "token none"
+lf secret TOKEN=s3cret -y >/dev/null 2>&1 || die "lf secret"
+expect vault.test / "token s3cret"
+lf secret TOKEN=rotated -y >/dev/null 2>&1 || die "lf secret rotates"
+expect vault.test / "token rotated"
+lf secret | grep -q '^TOKEN' || die "lf secret lists"
+lf secret --json | grep -q rotated && die "lf secret --json shows a value"
+lf undo -y >/dev/null 2>&1 || die "undo secret"
+expect vault.test / "token s3cret"
+lf deploy -y >/dev/null 2>&1 || die "vault redeploy"
+expect vault.test / "token s3cret"
+lf secret -u TOKEN -y >/dev/null 2>&1 || die "lf secret -u"
+expect vault.test / "token none"
+pass "lf secret mounts, rotates, undoes and survives a redeploy"
+
+echo "== environments"
+# The same folder deployed again as its own site, with its own secrets.
+lf deploy -E staging -d vault-staging.test -y >/dev/null 2>&1 || die "deploy -E staging"
+expect vault-staging.test / "token none"
+LANDFALL_ENV=staging lf secret TOKEN=stg -y >/dev/null 2>&1 || die "lf secret in an environment"
+expect vault-staging.test / "token stg"
+expect vault.test / "token none"
+grep -q '"vault-staging.test"' .landfall.json && grep -q '"environments"' .landfall.json || die "environment saved in .landfall.json"
+lf deploy -y >/dev/null 2>&1 || die "vault redeploy keeps environments"
+grep -q '"environments"' .landfall.json || die "a deploy without -E keeps environments"
+lf sites rm vault-staging -y >/dev/null 2>&1 || die "sites rm vault-staging"
+{ ! lf ls | has vault-staging; } || die "staging removed"
+expect vault.test / "token none"
+pass "environments deploy and manage their own site"
 
 echo "== node"
 # No Dockerfile: landfall writes one; the build runs on the server, the app gets PORT and HOST.

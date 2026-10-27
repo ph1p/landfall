@@ -77,7 +77,7 @@ export function HomeView() {
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <Btn cls="sm" title="Change the name, server, domains or build before deploying" on={() => deployFrom(r.path)}>Settings</Btn>
-                    <Btn cls="sm primary" title={`Deploy ${tilde(r.path)} again with the same settings (lf deploy)`} on={() => redeploy(r.path, r.server, r.name, r.kind)}>Redeploy</Btn>
+                    <Btn cls="sm primary" title={`Deploy ${tilde(r.path)} again with the same settings (lf deploy)`} on={() => redeploy(r.path, r.server, r.name, r.kind, r.environment)}>Redeploy</Btn>
                   </div>
                 </li>
               ))}

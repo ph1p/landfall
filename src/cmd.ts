@@ -29,6 +29,7 @@ export const serverOpt = { type: "string", short: "s", desc: "server name or ssh
 const GLOBAL_OPTS: Record<string, OptSpec> = {
   help: { type: "boolean", short: "h", desc: "show this help" },
   yes: { type: "boolean", short: "y", desc: "assume yes / defaults for prompts" },
+  environment: { type: "string", short: "E", desc: "an environment of .landfall.json (staging…), deployed as its own site; or LANDFALL_ENV" },
 };
 
 /** `--dashboard-password` → `LANDFALL_SECRET_DASHBOARD_PASSWORD`. */
@@ -67,10 +68,10 @@ export function usage(cmd: Command): string {
 
 /** The command as the server journal shows it: flags too, but never values that may be secrets. */
 export function journalCmd(cmd: Pick<Command, "name" | "options">, positionals: string[], values: Record<string, unknown>): string {
-  // KEY=value arguments (lf env, deploy -e) can be secrets: only the key is kept.
-  const mask = (v: string) => v.replace(/^([A-Za-z_][A-Za-z0-9_]*)=.*/s, "$1=…");
+  // KEY=value arguments (lf env, lf secret, deploy -e) can be secrets: only the key is kept.
+  const mask = (v: string) => v.replace(/^([A-Za-z0-9_][A-Za-z0-9_.-]*)=.*/s, "$1=…");
   const flags = Object.entries(values).flatMap(([k, v]): string[] => {
-    if (k === "server" || k === "yes" || k === "help" || v === undefined || v === cmd.options?.[k]?.default) return [];
+    if (k === "server" || k === "yes" || k === "help" || k === "environment" || v === undefined || v === cmd.options?.[k]?.default) return [];
     if (v === false) return [`--no-${k}`];
     if (v === true) return [`--${k}`];
     return (Array.isArray(v) ? v : [v]).map((x) => (/pass|secret|token/i.test(k) ? `--${k} …` : `--${k} ${mask(String(x))}`));

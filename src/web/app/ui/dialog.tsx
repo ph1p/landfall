@@ -70,8 +70,10 @@ type Problem = string | false | null | undefined | 0;
 export interface Field {
   name: string;
   label?: string;
-  value?: string | boolean;
-  type?: "text" | "number" | "password" | "textarea" | "select" | "check";
+  value?: string | boolean | Any;
+  type?: "text" | "number" | "password" | "textarea" | "select" | "check" | "custom";
+  /** type custom: draws the control itself and reports its value through set. */
+  render?: (value: Any, set: (value: Any) => void) => ReactNode;
   options?: { value: string; label: string }[];
   hint?: string;
   placeholder?: string;
@@ -163,7 +165,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
   const { title, text = "", fields = [], ok = "OK", danger = false, onOk, extra, after, typeToConfirm = "", sidebar = false } = spec;
   const specs = flat(fields);
   const form = useRef<HTMLFormElement>(null);
-  const [values, setValues] = useState<Values>(() => Object.fromEntries(specs.map(({ f }) => [f.name, f.type === "check" ? !!f.value : String(f.value ?? "")])));
+  const [values, setValues] = useState<Values>(() => Object.fromEntries(specs.map(({ f }) => [f.name, f.type === "check" ? !!f.value : f.type === "custom" ? f.value : String(f.value ?? "")])));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formErr, setFormErr] = useState("");
   const [typed, setTyped] = useState("");
@@ -177,7 +179,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     const { f } = x;
     if (!inPlay(x, v)) return "";
     const value = v[f.name];
-    if (f.required && f.type !== "check" && !String(value).trim()) return f.required === true ? `${f.label} is needed` : f.required;
+    if (f.required && f.type !== "check" && f.type !== "custom" && !String(value).trim()) return f.required === true ? `${f.label} is needed` : f.required;
     return f.check?.(typeof value === "string" ? value.trim() : value, v) || "";
   };
   const input = (name: string) => form.current?.elements.namedItem(name) as HTMLElement | null;
@@ -195,7 +197,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     const x = specs.find((s) => s.f.name === name);
     if (x) show(name, problem(x, v));
   };
-  const set = (f: Field, value: string | boolean) => {
+  const set = (f: Field, value: Any) => {
     const v = { ...values, [f.name]: value };
     setValues(v);
     setFormErr("");
@@ -262,6 +264,15 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
           <input type="checkbox" {...attrs} className="w-auto mt-[3px]" checked={!!values[f.name]} onChange={(e) => set(f, e.target.checked)} />
           <span>{f.label}{hint}{below}</span>
         </label>
+      );
+    if (f.type === "custom")
+      return (
+        <div key={f.name} id={id} className="grid gap-1">
+          {f.label && <div className="text-sm font-medium">{f.label}</div>}
+          {f.render!(values[f.name], (v) => set(f, v))}
+          {hint}
+          {below}
+        </div>
       );
     let control: ReactNode;
     const mono = f.mono ? "mono" : undefined;

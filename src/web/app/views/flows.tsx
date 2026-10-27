@@ -430,8 +430,8 @@ export function detected(path: string) {
 }
 
 /** Redeploy a folder with its saved settings (.landfall.json), after saying exactly what runs. */
-export function redeploy(path: string, server: string, name: string, kind?: string) {
-  const argv = ["deploy", "-y", ...sv(server)];
+export function redeploy(path: string, server: string, name: string, kind?: string, environment?: string) {
+  const argv = ["deploy", "-y", ...sv(server), ...(environment ? ["-E", environment] : [])];
   confirmDlg({
     title: `Redeploy ${name} to ${server}?`,
     text: `${kind === "static" ? "Runs its build here (if it has one), uploads" : "Uploads"} ${tilde(path)} with its saved settings and makes it the live release. The current release stays for Roll back.`,
