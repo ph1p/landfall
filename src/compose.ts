@@ -59,7 +59,14 @@ export interface Release {
   id: string;
   at: string;
   services: Service[];
+  /** The commit it was deployed from, when the project is a git checkout; dirty: with uncommitted changes. */
+  git?: { commit: string; branch?: string; dirty?: boolean };
+  /** Who deployed it: user@machine. */
+  by?: string;
 }
+
+/** "a1b2c3d4e5f6 main, uncommitted changes" for a release deployed from git. */
+export const gitLabel = (g: Release["git"]) => (g ? `${g.commit}${g.branch ? ` ${g.branch}` : ""}${g.dirty ? ", uncommitted changes" : ""}` : "");
 
 /** What the site was deployed from: static, image and dockerfile get a generated compose.yaml. */
 export type SiteKind = "compose" | "static" | "image" | "dockerfile";
@@ -186,6 +193,8 @@ export interface Analysis {
 const NOT_HTTP = new Set([22, 25, 53, 110, 143, 389, 443, 465, 587, 636, 993, 995, 1025, 1433, 1521, 1883, 2181, 2525, 3306, 3389, 4222, 4369, 5432, 5672, 5900, 6379, 6380, 7687, 8883, 9042, 9092, 11211, 25672, 26257, 27017]);
 /** Where web servers usually listen: picks the main service when several or none are built here. */
 const WEB_PORTS = new Set([80, 3000, 4000, 5000, 8000, 8080, 8888]);
+/** Images of tools that sit next to an app (database UIs, mail catchers): never the site itself when something else could be. */
+const SIDE_TOOLS = /(^|\/)(adminer|phpmyadmin|pgadmin4?|mailhog|mailpit|maildev|redis-commander|redisinsight|mongo-express|portainer|dozzle|kafka-ui|swagger-ui)(:|@|$)/;
 /** One or more DNS labels: admin, api.v2. */
 const SUBDOMAIN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 const PRIVATE_NAME = /^[a-z0-9][a-z0-9_.-]*$/i;
@@ -225,8 +234,10 @@ function autoRoute(config: any, services: Service[], notes: string[]) {
     .map((s) => ({ s, ports: servicePorts(raw[s.name]).filter((p) => !NOT_HTTP.has(p)) }))
     .filter((f) => f.ports.length)
     .sort((a, b) => a.s.name.localeCompare(b.s.name));
-  const score = (f: (typeof found)[number]) => (f.s.build ? 2 : 0) + (WEB_PORTS.has(f.ports[0]) ? 1 : 0);
+  const score = (f: (typeof found)[number]) => (f.s.build ? 4 : 0) + (SIDE_TOOLS.test(raw[f.s.name].image ?? "") ? 0 : 2) + (WEB_PORTS.has(f.ports[0]) ? 1 : 0);
   const main = found.reduce<(typeof found)[number] | undefined>((best, f) => (!best || score(f) > score(best) ? f : best), undefined);
+  const tied = found.filter((f) => f !== main && main && score(f) === score(main));
+  if (main && tied.length) notes.push(`${main.s.name} serves the site's domains (first by name of ${[main, ...tied].map((f) => f.s.name).join(", ")}): \`lf init\` writes the routes down to change that`);
   for (const f of found) {
     const isMainOne = f === main;
     if (isMainOne) f.s.port = f.ports[0];

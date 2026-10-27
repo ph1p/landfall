@@ -4,9 +4,10 @@ import { basename, dirname, join, normalize, relative, resolve } from "node:path
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../config";
 import { analyze, currentRelease, envComposeFile, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../compose";
-import { applySite, discardRelease, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
+import { applySite, builtImages, discardRelease, lockSite, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../remote";
+import { buildLocally, buildTmp, localBuilds } from "../buildlocal";
 import { IGNORE_FILE, uploadList, uploadSize } from "../ignore";
-import { setUpState, upload } from "../ssh";
+import { journal, setUpState, upload } from "../ssh";
 import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../ui";
 import { bytes, pickIp, serverIps, sslipDomain } from "../facts";
 import { detectBuild } from "../frameworks";
@@ -15,11 +16,10 @@ import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { DEFAULT_USER, loginUser, newLogin } from "../traefik";
 
-
-/** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
 /** The first upload of a site above this size asks first. */
 const BIG_UPLOAD = 100 * 1024 * 1024;
 
+/** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
 const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
   compose: { files: "" },
   dockerfile: { files: "", port: true },
@@ -36,8 +36,23 @@ function withLogin(auth: string[] | undefined, login?: string) {
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
+/** The commit a deploy is made from, if `dir` is in a git checkout. */
+export function gitSource(dir: string): Release["git"] {
+  const git = (...a: string[]) => {
+    const r = spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+    return r.status === 0 ? r.stdout.trim() : undefined;
+  };
+  const commit = git("rev-parse", "--short=12", "HEAD");
+  if (!commit) return;
+  const branch = git("symbolic-ref", "--short", "-q", "HEAD");
+  const dirty = !!git("status", "--porcelain", "--untracked-files=no");
+  return { commit, ...(branch && { branch }), ...(dirty && { dirty }) };
+}
+
 /** A release id not in `taken`: ids have one-second resolution, so a second deploy within it moves on a second. */
-export function nextReleaseId(taken: string[], now = new Date()): string {
+export function nextReleaseId(taken: string[], now: Date | string = new Date()): string {
+  // A release id itself: the server's clock (lockSite).
+  if (typeof now === "string") now = /^\d{14}$/.test(now) ? new Date(now.replace(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/, "$1-$2-$3T$4:$5:$6Z")) : new Date();
   let t = now.getTime();
   while (taken.includes(releaseId(new Date(t)))) t += 1000;
   return releaseId(new Date(t));
@@ -90,6 +105,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
+    "build-local": { type: "boolean", desc: "build the images on this machine (with Docker) and send them, not on the server" },
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
     volume: { type: "string", multiple: true, desc: "app/dockerfile/image: a folder in the container that outlives deploys, e.g. /app/data (a named volume; '' for none)" },
     worker: { type: "boolean", desc: "app/dockerfile/image: run without a port or a domain (a bot, a queue consumer; --no-worker serves one again)" },
@@ -110,6 +126,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     if (project.name) info(c.dim(`using ${PROJECT_FILE}${environment ? `, environment ${environment}` : ""}`));
 
     let { name: serverName, server } = resolveServer(o.server ?? project.server);
+    // A cloned repo's .landfall.json could name any host: never send it the source unasked.
+    if (!o.server && !o.host && project.server && !loadConfig().servers[project.server] && !(await confirm(`${PROJECT_FILE} deploys to ${project.server}, which is not one of your servers (lf server ls). Send the project there?`, false))) fail("cancelled");
     if (o.host && !o.server && !project.server && !loadConfig().default) fail("--host needs --server <name> for the new server");
     const state = o.host ? "bare" : await setUpState(server);
     if (state !== "ready") {
@@ -132,211 +150,250 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
 
-    if (o.start && o.static) fail("--start and --static exclude each other");
-    const buildCmd: string | undefined = o.build ?? project.build;
-    // --start turns a site saved as static into an app.
-    const forceStatic = o.static ?? (o.start ? false : project.static);
-    const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
-    const image = imageArg && checkImage(imageArg);
-    const root = resolve(cwd, dirArg ?? project.dir ?? ".");
-    const named = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
-    const compose = named && normalize(named);
-    // The file becomes the release's compose.yaml, at the root of the upload: from a subfolder its relative
-    // paths (build: ., ./data:/data) would point elsewhere.
-    if (compose?.includes("/")) fail(`${named} is not in the folder deployed; deploy its folder instead: lf deploy ${dirname(join(relative(cwd, root) || ".", compose))} -f ${basename(compose)}`);
-    if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
-    // compose.staging.yaml next to compose.yaml: what -E staging changes, merged in on the server.
-    const layer = compose && environment ? envComposeFile(compose, environment) : undefined;
-    const layered = layer && fs.existsSync(join(root, layer)) ? layer : undefined;
-    if (layered) info(c.dim(`layering ${layered} over ${compose}`));
-    const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
-    if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
-    // Without a Dockerfile of its own: an app landfall writes one for.
-    const app = compose || image || forceStatic || ownDockerfile ? undefined : detectApp(root, o.start ?? project.start);
-    if (app?.fix) fail(`${app.fix}; or say how it starts: --start <command>`);
-    if (buildCmd && !app) {
-      step(`building locally: ${buildCmd}`);
-      const r = spawnSync(buildCmd, { shell: true, stdio: "inherit" });
-      if (r.status !== 0) fail(`build failed (exit ${r.status})`);
-    }
-    const detected = detectBuild(cwd);
-    const dir = compose || image || ownDockerfile || app ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
-    const kind: SiteKind = compose ? "compose" : image ? "image" : ownDockerfile || app ? "dockerfile" : "static";
-    const tool = kind === "static" && !dirArg && !project.dir ? detected.tool : undefined;
-    showStack(detectStack(root, app?.name, app?.tool ?? tool));
-    if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
-    if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
-      warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
-    }
-    if ((o.volume?.some(Boolean) || o.worker) && !KINDS[kind].port) fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
-    const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
-    const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
-    const notPath = volumes.filter((v) => !/^\/[\w.\/-]*\w/.test(v));
-    if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
-    const port = KINDS[kind].port
-      ? checkInt(o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port) ?? 3000, "--port", 1, 65535)
-      : undefined;
-    const appBuild = app && (buildCmd ?? app.build);
-    if (app) info(c.dim(`${app.name} ${worker ? "worker" : "app"}${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start}${worker ? "" : ` on port ${port}`}`));
-    if (volumes.length) info(c.dim(`kept across deploys: ${volumes.join(", ")}`));
-    const spa = kind === "static" && !!(o.spa ?? project.spa);
+    const { buildCmd, forceStatic, image, compose, layered, app, detected, dir, kind, worker, volumes, port, appBuild, spa, root } = planDeploy(cwd, dirArg, o, project, environment);
 
     step(`deploying ${c.bold(name)} (${app ? app.name : kind}) to ${c.bold(serverName)}`);
-    const site = await readSite(server, name);
-    const { env: prevEnv, proxy, exists } = site;
-    const old = site.meta && isOld(site.meta) ? site.meta : undefined;
-    const prev = old ? undefined : site.meta;
-    if (prev?.adopted) fail(`${name} is adopted (${prev.adopted}): deploy it there with docker compose, or pick another --name`);
-    if (old) warn(`${name} was deployed by an older landfall: this moves it to a Compose project (its old releases go, so it cannot be undone)`);
-    else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
-
-    let env: string | undefined;
-    if (o.env?.length || o["env-file"]) {
-      env = prevEnv;
-      if (o["env-file"]) env = mergeEnv(env, await readEnvFile(o["env-file"]));
-      if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env));
-    }
-    // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
-    if (app?.note && (app.secret ? !parseEnvPairs(dotenvLines(env ?? prevEnv ?? ""))[app.secret] : !prev)) warn(app.note);
-
-    // A takeover removes the old layout's release folders: the new id must not be one of them.
-    const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id));
-    const releaseDir = `${siteDir(name)}/releases/${id}`;
-    const generated: Record<string, string> =
-      kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
-    if (app) {
-      generated.Dockerfile = app.dockerfile({ build: appBuild, start: app.start, port: port! });
-      if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = app.ignore.join("\n") + "\n";
-    }
-
-    const files = KINDS[kind].files;
-    const gitignore = !!(o.gitignore ?? project.gitignore);
-    const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: cwd, gitignore });
-    // The first upload of a site says what it sends: a folder of data or a build cache is easy to miss.
-    if (files !== undefined && !prev) {
-      const { total, files: n, largest } = uploadSize(list);
-      info(c.dim(`upload: ${n} files, ${bytes(total)}${largest.length ? ` (largest: ${largest.map(([p, b]) => `${p} ${bytes(b)}`).join(", ")})` : ""}`));
-      const hint = `${IGNORE_FILE} leaves files out${gitignore ? "" : ", --gitignore what .gitignore ignores"}`;
-      if (total > BIG_UPLOAD && !(await confirm(`That is a big upload: ${hint}. Upload it?`, false))) fail("not deployed");
-    }
-
-    // Anything that fails from the upload until the site switches takes the half-made release away again.
-    let release: Release, domains: string[], move: () => Promise<void>;
+    // One deploy of a site at a time; its release id from the server's clock.
+    const lock = await lockSite(server, name);
     try {
-      if (files !== undefined) {
-        step(`uploading ${relative(cwd, dir) || "."}`);
-        // A redeploy starts from the live release's files and sends only what changed.
-        const seedRelease = prev?.kind === kind ? prev.current : undefined;
-        const sent = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
-        if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
-        else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
-        else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
-      }
-      const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
-      const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server), { auto: kind === "compose" });
-      for (const w of a.warnings) warn(w);
-      if (a.auto && a.services.some(routed)) info(c.dim(`no x-landfall in ${compose ?? "compose.yaml"}: routing the HTTP ports it publishes or exposes (\`lf init\` writes them down)`));
-      for (const n of a.notes) info(c.dim(n));
-      if (a.errors.length) fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
-      release = { id, at: new Date().toISOString(), services: a.services };
-      const fixed = fixedDomains(a.services);
+      const site = await readSite(server, name);
+      const { env: prevEnv, proxy, exists } = site;
+      const old = site.meta && isOld(site.meta) ? site.meta : undefined;
+      const prev = old ? undefined : site.meta;
+      if (prev?.adopted) fail(`${name} is adopted (${prev.adopted}): deploy it there with docker compose, or pick another --name`);
+      if (old) warn(`${name} was deployed by an older landfall: this moves it to a Compose project (its old releases go, so it cannot be undone)`);
+      else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
-      // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.
-      // Those from .landfall.json never move from another site: that takes a -d.
-      domains = [];
-      let fromFile = false;
-      if (mainService(release)) {
-        fromFile = !domainArgs?.length && !!project.domains?.length;
-        domains = noDomain ? [] : ([domainArgs, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? []);
-        // Unrouted until -d: deployed with --no-domain, or a site whose domains were all taken off (lf domains --rm).
-        let unrouted = noDomain || (!domains.length && ((!!prev && !!siteMain(prev) && !prev.domains.length) || project.domains?.length === 0));
-        // The server's default: new sites stay off the internet until -d.
-        if (!domains.length && !unrouted && isTunnelOnly(server)) unrouted = true;
-        if (!domains.length && !unrouted) {
-          // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
-          const main = mainDomain(server);
-          const ip = main ? undefined : pickIp(await serverIps(server));
-          const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
-          const answer = await ask("Domain(s) to serve (comma separated; none: reach it by tunnel only):", auto);
-          unrouted = answer === "none";
-          if (!unrouted) domains = answer.split(/[\s,]+/).filter(Boolean);
+      let env: string | undefined;
+      if (o.env?.length || o["env-file"]) {
+        env = prevEnv;
+        if (o["env-file"]) env = mergeEnv(env, await readEnvFile(o["env-file"]));
+        if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env, true));
+      }
+      // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
+      if (app?.note && (app.secret ? !parseEnvPairs(dotenvLines(env ?? prevEnv ?? ""))[app.secret] : !prev)) warn(app.note);
+
+      // A takeover removes the old layout's release folders: the new id must not be one of them.
+      const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id), lock.now);
+      const releaseDir = `${siteDir(name)}/releases/${id}`;
+      const generated: Record<string, string> =
+        kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
+      if (app) {
+        generated.Dockerfile = app.dockerfile({ build: appBuild, start: app.start, port: port! });
+        if (!fs.existsSync(join(root, ".dockerignore"))) generated[".dockerignore"] = app.ignore.join("\n") + "\n";
+      }
+
+      const files = KINDS[kind].files;
+      const gitignore = !!(o.gitignore ?? project.gitignore);
+      const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: cwd, gitignore });
+      // The first upload of a site says what it sends: a folder of data or a build cache is easy to miss.
+      if (files !== undefined && !prev) {
+        const { total, files: n, largest } = uploadSize(list);
+        info(c.dim(`upload: ${n} files, ${bytes(total)}${largest.length ? ` (largest: ${largest.map(([p, b]) => `${p} ${bytes(b)}`).join(", ")})` : ""}`));
+        const hint = `${IGNORE_FILE} leaves files out${gitignore ? "" : ", --gitignore what .gitignore ignores"}`;
+        if (total > BIG_UPLOAD && !(await confirm(`That is a big upload: ${hint}. Upload it?`, false))) fail("not deployed");
+      }
+
+      // Anything that fails from the upload until the site switches takes the half-made release away again.
+      let release: Release, domains: string[], move: () => Promise<void>;
+      // Images built here and (maybe partly) sent: a failed deploy takes them off the server again.
+      let sent: string[] = [];
+      try {
+        if (files !== undefined) {
+          step(`uploading ${relative(cwd, dir) || "."}`);
+          // A redeploy starts from the live release's files and sends only what changed.
+          const seedRelease = prev?.kind === kind ? prev.current : undefined;
+          const sent = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
+          if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
+          else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
+          else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
         }
-        domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
-        const bad = domains.filter((d) => !DOMAIN.test(d));
-        const clash = domains.filter((d) => fixed.includes(d));
-        if (!domains.length && !unrouted) fail("at least one --domain is required");
-        if (unrouted) info(c.dim(`${name} serves no domain: reach it with lf tunnel ${name}, give it one with lf domains ${name} --add <domain>`));
-        if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
-        if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
-        const subClash = subDomains(a.services, domains).filter((d) => domains.includes(d) || fixed.includes(d));
-        if (subClash.length) fail(`${subClash.join(", ")} would be routed twice: by a subdomain route and as a domain`);
-      } else if (domainArgs?.length) warn(`-d ignored: ${release.services.some(routed) ? `every routed service of ${name} names its own x-landfall.domains` : `${name} serves no domain`}`);
+        const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
+        const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server), { auto: kind === "compose" });
+        for (const w of a.warnings) warn(w);
+        if (a.auto && a.services.some(routed)) info(c.dim(`no x-landfall in ${compose ?? "compose.yaml"}: routing the HTTP ports it publishes or exposes (\`lf init\` writes them down)`));
+        for (const n of a.notes) info(c.dim(n));
+        if (a.errors.length) fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
+        const source = gitSource(cwd);
+        release = { id, at: new Date().toISOString(), services: a.services, ...(source && { git: source }), by: journal.actor };
+        const fixed = fixedDomains(a.services);
 
-      showRoutes(a.services, domains, prev && currentRelease(prev));
-      move = await claimDomains(server, serverName, name, [...domains, ...fixed, ...subDomains(a.services, domains)], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
-    } catch (e) {
-      await discardRelease(server, name, id).catch(() => {});
-      throw e;
-    }
+        // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.
+        // Those from .landfall.json never move from another site: that takes a -d.
+        domains = [];
+        let fromFile = false;
+        if (mainService(release)) {
+          fromFile = !domainArgs?.length && !!project.domains?.length;
+          domains = noDomain ? [] : ([domainArgs, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? []);
+          // Unrouted until -d: deployed with --no-domain, or a site whose domains were all taken off (lf domains --rm).
+          let unrouted = noDomain || (!domains.length && ((!!prev && !!siteMain(prev) && !prev.domains.length) || project.domains?.length === 0));
+          // The server's default: new sites stay off the internet until -d.
+          if (!domains.length && !unrouted && isTunnelOnly(server)) unrouted = true;
+          if (!domains.length && !unrouted) {
+            // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
+            const main = mainDomain(server);
+            const ip = main ? undefined : pickIp(await serverIps(server));
+            const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
+            const answer = await ask("Domain(s) to serve (comma separated; none: reach it by tunnel only):", auto);
+            unrouted = answer === "none";
+            if (!unrouted) domains = answer.split(/[\s,]+/).filter(Boolean);
+          }
+          domains = [...new Set(domains.map((d) => expandDomain(d, server)))];
+          const bad = domains.filter((d) => !DOMAIN.test(d));
+          const clash = domains.filter((d) => fixed.includes(d));
+          if (!domains.length && !unrouted) fail("at least one --domain is required");
+          if (unrouted) info(c.dim(`${name} serves no domain: reach it with lf tunnel ${name}, give it one with lf domains ${name} --add <domain>`));
+          if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
+          if (clash.length) fail(`${clash.join(", ")} is already routed by x-landfall.domains`);
+          const subClash = subDomains(a.services, domains).filter((d) => domains.includes(d) || fixed.includes(d));
+          if (subClash.length) fail(`${subClash.join(", ")} would be routed twice: by a subdomain route and as a domain`);
+        } else if (domainArgs?.length) warn(`-d ignored: ${release.services.some(routed) ? `every routed service of ${name} names its own x-landfall.domains` : `${name} serves no domain`}`);
 
-    const now = new Date().toISOString();
-    const meta: SiteMeta = {
-      v: 2,
-      name,
-      kind,
-      domains,
-      auth: withLogin(prev?.auth ?? old?.auth, login),
-      ...(prev?.secrets?.length ? { secrets: prev.secrets } : {}),
-      current: id,
-      releases: [...(prev?.releases ?? []), release],
-      createdAt: prev?.createdAt ?? old?.createdAt ?? now,
-      updatedAt: now,
-    };
-    await move();
-    await applySite(server, meta, proxy, {
-      env,
-      build: true,
-      pull: true,
-      keep,
-      prev,
-      takeover: old,
-      existed: !prev && !old && exists,
-      what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${siteDomains(meta).join(", ")})`}`,
-    });
-
-    const all = siteDomains(meta);
-    if (o.save) {
-      const saved: ProjectConfig = { name, server: serverName, domains };
-      if (kind === "image") Object.assign(saved, { image, port });
-      else {
-        const rel = relative(cwd, dir) || ".";
-        if (kind !== "static") {
-          if (rel !== ".") saved.dir = rel;
-          if (kind === "compose" && (o.file || project.compose)) saved.compose = compose;
-        } else if (rel !== detectStaticDir(cwd, detected)) saved.dir = rel;
-        if (kind === "dockerfile") saved.port = port;
-        if (app && (o.start || project.start)) saved.start = app.start;
-        if (spa) saved.spa = true;
-        if (forceStatic && kind === "static") saved.static = true;
+        showRoutes(a.services, domains, prev && currentRelease(prev));
+        move = await claimDomains(server, serverName, name, [...domains, ...fixed, ...subDomains(a.services, domains)], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
+        if (o["build-local"]) {
+          const tmp = buildTmp();
+          try {
+            const builds = localBuilds(prepared.config, { site: name, id, serverDir: prepared.dir + files, localDir: dir, generated, tmp });
+            sent = builds.map((b) => b.tag);
+            await buildLocally(server, builds);
+          } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+          }
+        }
+      } catch (e) {
+        await discardRelease(server, name, id, sent).catch(() => {});
+        throw e;
       }
-      // Saved even when empty: --volume '' turns off the volumes an app would get by default.
-      if (o.volume?.length || project.volumes) saved.volumes = volumes;
-      if (worker) saved.worker = true;
-      if (gitignore) saved.gitignore = true;
-      if (buildCmd || (app && buildCmd === "")) saved.build = buildCmd;
-      saveProject(cwd, saved);
-      rememberProject({ path: cwd, name, server: serverName, domains: all, kind, ...(environment ? { environment } : {}) });
-    }
 
-    ok(`release ${c.bold(id)} live`);
-    for (const d of all) console.log(`  ${c.cyan(`https://${d}`)}`);
-    if (all[0]) report({ url: `https://${all[0]}` });
-    if (all[0]) await checkLive(all[0]);
+      const now = new Date().toISOString();
+      const meta: SiteMeta = {
+        v: 2,
+        name,
+        kind,
+        domains,
+        auth: withLogin(prev?.auth ?? old?.auth, login),
+        ...(prev?.secrets?.length ? { secrets: prev.secrets } : {}),
+        current: id,
+        releases: [...(prev?.releases ?? []), release],
+        createdAt: prev?.createdAt ?? old?.createdAt ?? now,
+        updatedAt: now,
+      };
+      try {
+        await applySite(server, meta, proxy, {
+          env,
+          // Built here: the server runs the images it was sent.
+          build: !o["build-local"],
+          pull: true,
+          keep,
+          prev,
+          takeover: old,
+          existed: !prev && !old && exists,
+          what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${siteDomains(meta).join(", ")})`}`,
+        });
+      } catch (e) {
+        // A failed build or pull, or a start that went back to the previous release: its folder and images go.
+        await discardRelease(server, name, id, builtImages(name, release)).catch(() => {});
+        throw e;
+      }
+      // Domains leave their old site only once this one runs: a failed deploy takes nobody's away.
+      await move().catch((e) => warn(`${name} is live, but moving its domains failed: ${e?.message ?? e}`));
+
+      const all = siteDomains(meta);
+      if (o.save) {
+        const saved: ProjectConfig = { name, server: serverName, domains };
+        if (kind === "image") Object.assign(saved, { image, port });
+        else {
+          const rel = relative(cwd, dir) || ".";
+          if (kind !== "static") {
+            if (rel !== ".") saved.dir = rel;
+            if (kind === "compose" && (o.file || project.compose)) saved.compose = compose;
+          } else if (rel !== detectStaticDir(cwd, detected)) saved.dir = rel;
+          if (kind === "dockerfile") saved.port = port;
+          if (app && (o.start || project.start)) saved.start = app.start;
+          if (spa) saved.spa = true;
+          if (forceStatic && kind === "static") saved.static = true;
+        }
+        // Saved even when empty: --volume '' turns off the volumes an app would get by default.
+        if (o.volume?.length || project.volumes) saved.volumes = volumes;
+        if (worker) saved.worker = true;
+        if (gitignore) saved.gitignore = true;
+        if (buildCmd !== undefined) saved.build = buildCmd;
+        saveProject(cwd, saved);
+        rememberProject({ path: cwd, name, server: serverName, domains: all, kind, ...(environment ? { environment } : {}) });
+      }
+
+      ok(`release ${c.bold(id)} live`);
+      for (const d of all) console.log(`  ${c.cyan(`https://${d}`)}`);
+      if (all[0]) report({ url: `https://${all[0]}` });
+      if (all[0]) await checkLive(all[0]);
+    } finally {
+      await lock.unlock().catch((e) => warn(`could not unlock ${name}: ${e?.message ?? e}`));
+    }
   },
 });
 
-/** Turn dotenv text into KEY=VALUE pairs, dropping comments and blanks. */
-
+/** What deploy's options and the project folder say is deployed from here, and how; the local build command runs. */
+export function planDeploy(
+  cwd: string,
+  dirArg: string | undefined,
+  o: { start?: string; static?: boolean; build?: string; image?: string; file?: string; volume?: string[]; worker?: boolean; port?: string; spa?: boolean },
+  project: Partial<ProjectConfig>,
+  environment?: string,
+) {
+  if (o.start && o.static) fail("--start and --static exclude each other");
+  let buildCmd: string | undefined = o.build ?? project.build;
+  // --start turns a site saved as static into an app.
+  const forceStatic = o.static ?? (o.start ? false : project.static);
+  const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
+  const image = imageArg && checkImage(imageArg);
+  const root = resolve(cwd, dirArg ?? project.dir ?? ".");
+  const named = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
+  const compose = named && normalize(named);
+  // The file becomes the release's compose.yaml, at the root of the upload: from a subfolder its relative
+  // paths (build: ., ./data:/data) would point elsewhere.
+  if (compose?.includes("/")) fail(`${named} is not in the folder deployed; deploy its folder instead: lf deploy ${dirname(join(relative(cwd, root) || ".", compose))} -f ${basename(compose)}`);
+  if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
+  // compose.staging.yaml next to compose.yaml: what -E staging changes, merged in on the server.
+  const layer = compose && environment ? envComposeFile(compose, environment) : undefined;
+  const layered = layer && fs.existsSync(join(root, layer)) ? layer : undefined;
+  if (layered) info(c.dim(`layering ${layered} over ${compose}`));
+  const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
+  if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
+  // Without a Dockerfile of its own: an app landfall writes one for.
+  const app = compose || image || forceStatic || ownDockerfile ? undefined : detectApp(root, o.start ?? project.start);
+  if (app?.fix) fail(`${app.fix}; or say how it starts: --start <command>`);
+  const detected = detectBuild(cwd);
+  const dir = compose || image || ownDockerfile || app ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
+  const kind: SiteKind = compose ? "compose" : image ? "image" : ownDockerfile || app ? "dockerfile" : "static";
+  const tool = kind === "static" && !dirArg && !project.dir ? detected.tool : undefined;
+  // Publishing where the tool builds to: build first, or a redeploy would send the last build again (--build '' skips it).
+  if (tool && buildCmd === undefined && detected.build) buildCmd = detected.build;
+  if (buildCmd && !app) {
+    step(`building locally: ${buildCmd}`);
+    const r = spawnSync(buildCmd, { cwd, shell: true, stdio: "inherit" });
+    if (r.status !== 0) fail(`build failed (exit ${r.status})`);
+  }
+  showStack(detectStack(root, app?.name, app?.tool ?? tool));
+  if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
+  if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
+    warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
+  }
+  if ((o.volume?.some(Boolean) || o.worker) && !KINDS[kind].port) fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
+  const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
+  const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
+  const notPath = volumes.filter((v) => !/^\/[\w.\/-]*\w/.test(v));
+  if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
+  const guessed = o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port);
+  // Traefik would send visitors to a port nothing listens on, and the deploy still say live: say the guess.
+  if (KINDS[kind].port && guessed === undefined && !worker) warn(`${ownDockerfile ? "the Dockerfile has no EXPOSE with a number" : "no port known"}: routing to 3000; pass --port if the app listens elsewhere`);
+  const port = KINDS[kind].port ? checkInt(guessed ?? 3000, "--port", 1, 65535) : undefined;
+  const appBuild = app && (buildCmd ?? app.build);
+  if (app) info(c.dim(`${app.name} ${worker ? "worker" : "app"}${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start}${worker ? "" : ` on port ${port}`}`));
+  if (volumes.length) info(c.dim(`kept across deploys: ${volumes.join(", ")}`));
+  const spa = kind === "static" && !!(o.spa ?? project.spa);
+  return { buildCmd, forceStatic, image, root, compose, layered, ownDockerfile, app, detected, dir, kind, tool, worker, volumes, port, appBuild, spa };
+}
 
 /** What goes where, port by port; a route the live release did not have is marked new. */
 function showRoutes(services: Release["services"], domains: string[], live?: Release) {

@@ -22,7 +22,7 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - [Install](#install)
 - [Concepts](#concepts)
 - [Prepare a server](#prepare-a-server)
-- [Deploy a site](#deploy-a-site) ([What gets uploaded](#what-gets-uploaded), [Environments](#environments))
+- [Deploy a site](#deploy-a-site) ([Deploy from CI](#deploy-from-ci), [What gets uploaded](#what-gets-uploaded), [Environments](#environments))
 - [Day-to-day](#day-to-day) ([Volumes and backups](#volumes-and-backups))
 - [Updates](#updates)
 - [Traefik](#traefik)
@@ -143,15 +143,15 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 | kind | when | how |
 |---|---|---|
 | **compose** | the folder has a `compose.yaml` | Uploads the folder and runs it as one Compose project. See [Compose sites](#compose-sites). |
-| **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is where the site generator builds to, even before the first build (Vite/Astro `dist/` or its `outDir`, SvelteKit/CRA/Docusaurus `build/`, Next `out/`, Gatsby/Hugo `public/`, Eleventy/Jekyll `_site/`, Nuxt `.output/public/`, Angular, MkDocs `site/`), else `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/` with one. `lf deploy <dir>` picks another. `--spa` sends unknown paths to `index.html`. |
+| **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is where the site generator builds to, even before the first build (Vite/Astro `dist/` or its `outDir`, SvelteKit/CRA/Docusaurus `build/`, Next `out/`, Gatsby/Hugo `public/`, Eleventy/Jekyll `_site/`, Nuxt `.output/public/`, Angular, MkDocs `site/`), else `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/` with one. Publishing a detected generator's folder, deploy runs the project's `build` script here first (saved in `.landfall.json`, so every redeploy builds again; `-b` sets another command, `--build ''` none). `lf deploy <dir>` picks another folder. `--spa` sends unknown paths to `index.html`. |
 | **app** | a server, no `Dockerfile` | landfall writes a Dockerfile, builds it on the server (so native modules match Linux) and passes `PORT`. **Node.js**: Next.js (a `start` script like `node server.ts` runs as its custom server), Nuxt (`nuxt build`), TanStack Start, SolidStart, SvelteKit with `adapter-node`, Astro with `@astrojs/node`, React Router / Remix, Angular SSR, any `start` script that isn't a dev server, or a server dependency (Express, Fastify, Hono, NestJS, `ws`, Socket.IO…) with `server.js`/`index.js`/`main`; Node from `.nvmrc` / `.node-version`, else the newest maintained major `engines.node` allows (24 when it does), the lockfile's package manager (else `packageManager`) at the version `packageManager` pins, via corepack, `HOST=0.0.0.0`, port 3000. **Bun**: the same, on Bun's image, for a `bun.lock`, `bunfig.toml`, `@types/bun` or a start command with `bun`; it also runs `index.ts`/`server.ts` with a server dependency or `Bun.serve`. **Python** (Django, FastAPI, Flask, Starlette, Quart, Sanic, Streamlit; pip, uv, Poetry, Pipenv; 8000), **Go** (8080), **Rust** (8080), **Java/Kotlin** (Spring Boot, Quarkus, Micronaut, Ktor…; Maven or Gradle, the JDK the build asks for; 8080), **.NET** (8080), **Ruby** (Rails, Rack; 3000), **PHP** (Laravel, Symfony, plain `index.php`; Apache; 80), **Elixir/Phoenix** (4000). A `Procfile` `web:` line names the start command. Websockets pass through Traefik as is. `--start 'cmd'` makes any folder one, `--build` changes the build (`''` for none), `--port` the port, `--static` publishes static files instead, `--volume /app/data` keeps a folder across deploys (a named volume; Rails on SQLite gets `/app/storage`; `--volume ''` for none), `--worker` runs it without a port or domain (a bot, a queue consumer); all saved to `.landfall.json`. `lf init` writes the Dockerfile into the project to change it. |
-| **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from `EXPOSE`, else `--port` (default 3000). `--static` forces static. |
+| **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from the last `EXPOSE` with a number, else `--port` (default 3000, with a warning: nothing may listen there). `--static` forces static. |
 | **image** | `--image ghcr.io/me/app:1.2` | Pulls the image and runs it. Needs `--port`. For private registries: `lf ssh vps -- docker login ghcr.io`. |
 
 ```sh
 cd my-site
 lf deploy -d example.com -d www.example.com -s vps      # static, name = folder name (-n to override)
-lf deploy -b "npm run build"                            # build locally first
+lf deploy -b "npm run build"                            # build locally first (a detected Vite/Astro/… build runs anyway)
 lf deploy --start "node server.js" --port 8080          # an app: landfall writes its Dockerfile (Node.js, Python, Go, Java…)
 lf deploy --start "python bot.py" --worker --volume /app/data   # a worker, no domain; /app/data outlives deploys
 lf deploy -d app.example.com -e DATABASE_URL=postgres://… --env-file .env.production   # Dockerfile app
@@ -191,6 +191,50 @@ only the files that changed and copies the rest from the live release on the ser
 removed); otherwise it uploads the whole folder. Either way it becomes a new release, so `lf rollback` still goes back.
 `--keep 10` keeps more releases. A deploy is refused when another Compose project on the server already uses the
 site's project name, since `docker compose` would otherwise take over its containers.
+
+A deploy changes nothing live until the new release is built and pulled. If its containers then do not start,
+the previous release runs again with its old `.env` (new `-e` values are staged in `.env.new` until then), the
+failed release folder and its images are removed, and the deploy fails with the error; its journal line is
+marked undone. Only one deploy of a site runs at a time: a second one stops with `another deploy of <site> is
+running (<who>)`; a lock left by a cut-off deploy expires after an hour. Release ids come from the server's
+clock, so deploys from machines with skewed clocks still sort. `lf sites info` shows each release's git commit
+and branch (`, uncommitted changes` when the tree was dirty) and who deployed it.
+
+`.landfall.json` from a cloned repository may name a server you do not have (`lf server ls`): deploy asks
+before sending the project there. A server landfall has not set up is offered `lf setup` first. When ssh
+cannot connect at all, deploy says why (`cannot connect to <host>: <ssh's last line>`).
+
+`--build-local` builds the images on this machine instead of the server, for the server's platform
+(`uname -m`, via `docker build --platform`), and loads them there with `docker save | gzip | ssh docker load`.
+Useful when the server is small or has no network for the build. It needs Docker running locally (cross-platform
+builds need QEMU/binfmt, which Docker Desktop has), and builds that use `ssh`, `secrets`, `additional_contexts`,
+`platforms` or a remote context still build on the server. The images get the same `<site>-<service>:<release>`
+tags, so rollbacks and cleanup work as usual.
+
+### Deploy from CI
+
+`lf deploy` runs unattended with `-y`: it needs an ssh key that logs in to the server landfall set up, and the
+server named so ssh reaches it without your `~/.ssh/config`:
+
+```yaml
+# .github/workflows/deploy.yml
+on: { push: { branches: [main] } }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: webfactory/ssh-agent@v0.9.0
+        with: { ssh-private-key: "${{ secrets.DEPLOY_KEY }}" }
+      - run: ssh-keyscan -H 203.0.113.10 >> ~/.ssh/known_hosts
+      - run: npx landfall deploy -s deploy@203.0.113.10 -y
+```
+
+- Add the key's public half to `~/.ssh/authorized_keys` of the user landfall logs in as (the one in `lf server ls`).
+- `-s <that user>@<host>` overrides `server` in `.landfall.json`; domains, name and the rest still come from it.
+- Secrets go in with `--env-file -` from a CI secret (`echo "$PROD_ENV" | lf deploy --env-file - -y`), never as `-e` on the command line.
+- The release records the commit CI checked out, and the journal names the runner as who deployed it.
+- A failed start puts the previous release back and exits non-zero, so the job fails without taking the site down.
 
 ### What gets uploaded
 
@@ -264,6 +308,8 @@ volumes:
 - **A compose.yaml without `x-landfall` deploys as it is.** landfall routes the HTTP ports its services
   publish (`ports:`) or `expose:`: the first service with `build:` (else one on a usual web port) gets the
   site's domains with its first port, every other port a subdomain (`<service>` or `<service>-<port>`).
+  Side tools (Adminer, phpMyAdmin, pgAdmin, Mailpit, MailHog, Portainer, Dozzle, Swagger UI…) never get the
+  main domains, even when they come first.
   Databases, mail and other non-HTTP ports stay internal. `lf deploy` prints this route plan and marks new
   routes; every routed port is public, so check it. `lf init` writes the plan down as `x-landfall` in your
   compose.yaml (shows the diff), and any `x-landfall` turns this off for the whole file.
@@ -422,8 +468,14 @@ lf volume restore content          # replace it with its newest backup (or name 
 - `backup` and `pull` read the volume while the site runs. For a database, its own dump tool
   (`docker compose exec db pg_dump …` in the release folder) gives a consistent copy; a copy of a busy
   database's volume may not be.
-- Backups are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with the volumes;
-  `lf sites rm --volumes` deletes both.
+- `lf volume backup --schedule daily` (or `hourly`, `weekly`) backs up every volume of the site from cron and
+  keeps the newest 7 per volume (`--keep 14`); `--schedule off` stops it, `lf volumes` shows the schedule and
+  `lf undo` restores the previous one. It writes `/opt/landfall/sites/<site>/backup.sh` and one line in the login
+  user's crontab, both plain: they keep working without landfall. The server needs a running cron daemon
+  (`--schedule` warns otherwise; on Alpine, `crontab` for a non-root user needs `busybox-suid`, which
+  `lf setup` installs).
+- Backups made by hand are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with
+  the volumes and removes the schedule; `lf sites rm --volumes` deletes both.
 - In `lf ui`, an opened site lists its volumes with **Back up** and **Restore…** (the same commands).
 - Nothing here is landfall-specific. Each command prints the `docker` line it runs; by hand it is
   `docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz` and back
@@ -938,6 +990,7 @@ pnpm test              # unit tests (vitest)
 pnpm typecheck
 pnpm build             # tsdown → dist/cli.mjs, copies the web page next to it
 pnpm e2e               # full run against a throwaway sshd+dockerd container (needs Docker)
+E2E_ONLY="volumes ui" pnpm e2e   # setup, then only these sections and the ones they build on
 ```
 
 ## License

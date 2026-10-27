@@ -28,7 +28,7 @@ import {
   type SiteMeta,
 } from "./compose";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
+import { JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./ui";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
@@ -78,7 +78,7 @@ export const newestFirst = (meta: SiteMeta) => [...meta.releases].sort((a, b) =>
 
 /** Logs of one container (the proxy). */
 export const dockerLogs = (s: Server, ctr: string, o: { tail?: string; follow?: boolean }) =>
-  sshExec(s, [`docker logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${ctr}`]);
+  sshExec(s, [`docker logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${shq(ctr)}`]);
 
 export interface ServiceStatus {
   service: string;
@@ -282,6 +282,29 @@ ids=$(docker ps -aq 2>/dev/null || true)
 }
 
 /**
+ * Hold a site for one deploy: a second one at the same time would build into the same folder and switch
+ * `current` under the first. A lock older than an hour is from a deploy that was cut off. Returns the
+ * server's clock as a release id, so ids follow each other even when this machine's clock is off.
+ */
+export async function lockSite(s: Server, name: string): Promise<{ now: string; unlock: () => Promise<void> }> {
+  const lock = `${SITES}/.${name}.deploying`;
+  const { stdout } = await runScript(
+    s,
+    [
+      `mkdir -p ${SITES}`,
+      `if ! mkdir ${shq(lock)} 2>/dev/null; then`,
+      `  [ -n "$(find ${shq(lock)} -maxdepth 0 -mmin +60 2>/dev/null)" ] && rm -rf ${shq(lock)} && mkdir ${shq(lock)} ||`,
+      `  { echo "another deploy of ${name} is running ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown)): wait for it, or remove ${lock} if it was cut off" >&2; exit 1; }`,
+      `fi`,
+      `printf '%s\\n' "$LANDFALL_ACTOR" >${shq(lock + "/by")}`,
+      `date -u +%Y%m%d%H%M%S`,
+    ].join("\n"),
+    { capture: true },
+  );
+  return { now: stdout.trim(), unlock: () => runScript(s, `rm -rf ${shq(lock)}`).then(() => {}) };
+}
+
+/**
  * Round trip after the upload: give the release its .env link and one compose.yaml (renamed
  * from `file`, or `generated`), drop override files (landfall writes its own), and return
  * the release's real path and its `docker compose config`. On failure the caller discards
@@ -358,12 +381,22 @@ export async function adoptSite(s: Server, meta: SiteMeta) {
   );
 }
 
-/** Remove a prepared release that never went live (and the site's folder if nothing else is in it). */
-export async function discardRelease(s: Server, name: string, id: string) {
-  const site = siteDir(name);
+/**
+ * Remove a release that is not live (never was, or a failed start went back from it) with the images
+ * it built, and the site's folder if nothing else is in it. One `current` points at stays: lf undo has it.
+ */
+export async function discardRelease(s: Server, name: string, id: string, images: string[] = []) {
+  const rel = `releases/${id}`;
   await runScript(
     s,
-    `cd / && rm -rf ${shq(`${site}/releases/${id}`)}; [ -f ${shq(site + "/site.json")} ] || { rmdir ${shq(site + "/releases")} 2>/dev/null; { [ -s ${shq(site + "/.env")} ] || rm -f ${shq(site + "/.env")}; }; rmdir ${shq(site)} 2>/dev/null; } || true`,
+    [
+      PRELUDE,
+      `cd ${shq(siteDir(name))} 2>/dev/null || exit 0`,
+      `[ "$(readlink current 2>/dev/null)" != ${shq(rel)} ] || exit 0`,
+      `rm -f .env.new; rmf ${shq(rel)}`,
+      ...images.map(rmImage),
+      `[ -f site.json ] || { rmdir releases ${SECRETS_DIR} 2>/dev/null; { [ -s .env ] || rm -f .env; }; cd / && rmdir ${shq(siteDir(name))} 2>/dev/null; } || true`,
+    ].join("\n"),
   );
 }
 
@@ -390,17 +423,34 @@ export interface ApplyOpts {
 
 const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans --quiet-pull";
 
-/** Shell that starts the Compose project in `current`, printing its state and logs if it does not come up. */
-const upLines = (name: string) => [
+/**
+ * Shell that starts the Compose project in `current`, printing its state and logs if it does not come up;
+ * then `failed` runs (outside the `||`, where set -e would be ignored) and the script exits 1.
+ */
+const upLines = (name: string, failed: string[] = []) => [
   `log "starting ${name}"`,
-  `(cd -P current && ${UP}) || { log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; exit 1; }`,
+  `up=1; (cd -P current && ${UP}) || { up=0; log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; }`,
+  `if [ "$up" = 0 ]; then`,
+  ...failed,
+  `exit 1`,
+  `fi`,
 ];
 
 /** Shell: remove a built image, quietly; one still in use stays. */
 const rmImage = (i: string) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`;
 
-/** Shell that writes a site's files for meta.current, points `current` at it and starts it. */
-function siteLines(meta: SiteMeta, proxy: Proxy, o: Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate"> = {}): string[] {
+interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate"> {
+  /** Shell after the build and pull, before anything that changes the running site (journal it, take over). */
+  before?: string[];
+  /** Shell when it does not start (put the previous release back). */
+  failed?: string[];
+}
+
+/**
+ * Shell that writes a site's files for meta.current, points `current` at it and starts it.
+ * Until the build and pull are done nothing the running site reads changes: the new .env waits in .env.new.
+ */
+function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[] {
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
   const rel = shq("releases/" + meta.current);
@@ -412,32 +462,40 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: Pick<ApplyOpts, "env" | "bui
     `here=$(pwd -P)/`,
     `other=$(docker ps -a --filter ${shq(`label=com.docker.compose.project=${project}`)} --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null | while read -r d; do case "$d/" in ("$here"*) ;; (*) echo "\${d:-a container without a folder}"; break ;; esac; done || true)`,
     `[ -z "$other" ] || { echo ${shq(`a Compose project named ${project} already runs from`)} "$other:" ${shq(`deploying would replace its containers. Pick another site name, or make it a site with lf adopt ${project}`)} >&2; exit 1; }`,
-    o.env !== undefined ? writeFileCmd(".env", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
-    // Secrets are 644 so a container's non-root user reads them; the folder (700) keeps others on the host out.
-    ...Object.entries(o.files ?? {}).map(([f, text]) =>
-      text === null ? `rm -f ${shq(f)}` : writeFileCmd(f, text, f.startsWith(`${SECRETS_DIR}/`) ? "644" : "600"),
-    ),
+    o.env !== undefined ? writeFileCmd(".env.new", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
     // Releases from before .secrets get the link too, so a rollback still finds them.
     ...(meta.adopted ? [] : [`[ -d ${SECRETS_DIR} ] || install -d -m 700 ${SECRETS_DIR}`, `(cd -P ${rel} && ln -sfn ../../${SECRETS_DIR} ${SECRETS_DIR}) || exit 1`]),
     `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
   ];
+  // Interpolated with the new .env (the release's .env links the live one).
+  const dc = o.env !== undefined ? "dc --env-file ../../.env.new" : "dc";
+  const bail = o.env !== undefined ? "{ rm -f .env.new; exit 1; }" : "exit 1";
   if (o.build && release.services.some((s) => s.build)) {
-    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && dc build -q) || exit 1`);
+    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build -q) || ${bail}`);
   }
-  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && dc pull -q --ignore-buildable) || exit 1`);
+  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && ${dc} pull -q --ignore-buildable) || ${bail}`);
+  lines.push(
+    ...(o.before ?? []),
+    ...(o.env !== undefined ? ["mv -f .env.new .env"] : []),
+    // Secrets are 644 so a container's non-root user reads them; the folder (700) keeps others on the host out.
+    ...Object.entries(o.files ?? {}).map(([f, text]) =>
+      text === null ? `rm -f ${shq(f)}` : writeFileCmd(f, text, f.startsWith(`${SECRETS_DIR}/`) ? "644" : "600"),
+    ),
+  );
   // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
   lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
-  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name));
+  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name, o.failed));
   if (o.recreate?.length) lines.push(`log "recreating ${o.recreate.join(", ")}"`, `(cd -P current && ${UP} --force-recreate --no-deps ${o.recreate.map(shq).join(" ")}) || exit 1`);
   return lines;
 }
 
-const builtImages = (meta: SiteMeta, r: Release) => (r.services ?? []).filter((s) => s.build).map((s) => builtImage(meta.name, s.name, r.id));
+/** Images the services of release `r` built. */
+export const builtImages = (name: string, r: Release) => (r.services ?? []).filter((s) => s.build).map((s) => builtImage(name, s.name, r.id));
 
 const dropRelease = (meta: SiteMeta, r: Release) => [
   `rmf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
-  ...builtImages(meta, r).map(rmImage),
+  ...builtImages(meta.name, r).map(rmImage),
 ];
 
 /** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
@@ -479,12 +537,9 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   const lines = [PRELUDE];
   if (o.takeover) {
     // The old layout's releases are not Compose projects: nothing to go back to.
-    // Old container first: once site.json says v2, a failed start would never get to remove it.
-    lines.push(
-      `record ${shq(`${o.what} (moved from landfall's old site layout, cannot be undone)`)}`,
-      ...takeoverLines(o.takeover, meta.current),
-      ...siteLines(meta, proxy, o),
-    );
+    // Old container down once the new one is built, but before site.json says v2: a failed start would never get to remove it.
+    const before = [`record ${shq(`${o.what} (moved from landfall's old site layout, cannot be undone)`)}`, ...takeoverLines(o.takeover, meta.current)];
+    lines.push(...siteLines(meta, proxy, { ...o, before }));
     await runScript(s, lines.join("\n"));
     return;
   }
@@ -509,9 +564,19 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
     head = `[ -d ${shq(dir)} ] || { log ${shq(`${meta.name} was removed since, nothing to put back`)}; exit 0; }\n`;
     tail = "\n" + [...siteLines(back, proxy, { recreate: o.recreate }), ...added.flatMap((r) => dropRelease(meta, r))].join("\n");
   }
-  // Journaled before starting: a site that fails to start is still put back by undo.
-  lines.push(`record ${shq(o.what)} ${shq(head)}${restore}${shq(tail)}`);
-  lines.push(...siteLines(meta, proxy, o));
+  // Journaled once built, before the switch: a site that fails to start is still put back by undo.
+  // Its journal line is known only if no one else wrote one in between; then the rollback marks it undone.
+  const count = `$(wc -l < ${JOURNAL} 2>/dev/null || echo 0)`;
+  const before = [`undo=${shq(head)}${restore}${shq(tail)}`, `jn=${count}`, `record ${shq(o.what)} "$undo"`, `jl=${count}; [ "$((jl))" -eq "$((jn + 1))" ] || jl=""`];
+  // A start that fails puts the site back as it was right away; a new site stays for lf undo to remove.
+  const failed = o.prev
+    ? [
+        `set +e; ( set -e; eval "$undo" ); rc=$?; set -e`,
+        `if [ "$rc" = 0 ]; then [ -z "$jl" ] || _journal undo "$jl" ""; log ${shq(`${meta.name} is back as it was`)}`,
+        `else log ${shq(`could not put ${meta.name} back as it was: lf undo`)}; fi`,
+      ]
+    : [`log ${shq(`lf undo removes ${meta.name}`)}`];
+  lines.push(...siteLines(meta, proxy, { ...o, before, failed }));
   for (const r of pruned) lines.push(...dropRelease(meta, r));
   await runScript(s, lines.join("\n"));
 }
@@ -527,16 +592,21 @@ export const siteLogs = (s: Server, name: string, o: { service?: string; tail?: 
     `cd -P ${shq(siteDir(name) + "/current")} && docker compose logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${o.service ? shq(o.service) : ""}`,
   ]);
 
+/** Ends a site's line in the crontab (lf volume backup --schedule): what finds it again. */
+export const cronMark = (site: string) => `# landfall backup ${site}:`;
+
 export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: boolean } = {}): string[] {
   const dir = siteDir(meta.name);
   const v = o.volumes ? " -v" : "";
-  const images = meta.adopted ? [] : meta.releases.flatMap((r) => builtImages(meta, r));
+  const images = meta.adopted ? [] : meta.releases.flatMap((r) => builtImages(meta.name, r));
   // keepDir: the dir was there before landfall used it, so take out only landfall's files (.env is the caller's).
   const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`)].map(shq).join(" ");
   return [
     `cd ${shq(dir)}`,
     `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(siteProject(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
     ...images.map(rmImage),
+    // Scheduled backups stop with the site; those already made stay with the volumes.
+    `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${shq(cronMark(meta.name))} || crontab -l | grep -vF ${shq(cronMark(meta.name))} | crontab - || true`,
     ...(o.keepDir
       ? [`rmf ${files}`, "rmdir releases 2>/dev/null || true"]
       : o.volumes
@@ -615,12 +685,16 @@ export const maskedEnv = (text: string) => envEntries(text).map(({ key, value })
 export const readEnvFile = async (path: string) =>
   parseEnvPairs(dotenvLines(path === "-" ? await readStdin() : fs.readFileSync(path, "utf8")));
 
-export function parseEnvPairs(pairs: string[]): Record<string, string> {
+/** KEY=VALUE pairs; a .env holds one variable per line, so its values (`oneLine`) cannot span lines. */
+export function parseEnvPairs(pairs: string[], oneLine = false): Record<string, string> {
   const out: Record<string, string> = {};
   for (const p of pairs) {
     const i = p.indexOf("=");
-    if (i < 1) fail(`invalid env "${p}", expected KEY=VALUE`);
-    out[p.slice(0, i)] = p.slice(i + 1);
+    if (i < 1) fail(`invalid env "${p.split("\n")[0]}", expected KEY=VALUE`);
+    const key = p.slice(0, i);
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) fail(`not a variable name: ${JSON.stringify(key)} (letters, digits, _ . -)`);
+    if (oneLine && /[\r\n]/.test(p.slice(i + 1))) fail(`${key}: a .env value is one line; put multi-line text (keys, certificates) in a secret: lf secret`);
+    out[key] = p.slice(i + 1);
   }
   return out;
 }

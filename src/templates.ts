@@ -126,11 +126,12 @@ pkg_install() {
     *) log "no apt, dnf, yum, apk or zypper to install $*"; return 1 ;;
   esac
 }
-# What setup installs (rsync: redeploys send only what changed). RHEL-likes and SUSE have no ufw/fail2ban in their base repos.
+# What setup installs (rsync: redeploys send only what changed; busybox-suid: crontab for the deploy user).
+# RHEL-likes and SUSE have no ufw/fail2ban in their base repos.
 base_pkgs() {
   case "$(pkg_mgr)" in
     apt-get) echo "ca-certificates curl rsync ufw fail2ban unattended-upgrades" ;;
-    apk) echo "ca-certificates curl rsync ufw" ;;
+    apk) echo "ca-certificates curl rsync ufw busybox-suid" ;;
     none) ;;
     *) echo "ca-certificates curl rsync" ;;
   esac

@@ -73,9 +73,10 @@ export function detectStaticDir(cwd: string, b = detectBuild(cwd)): string {
   return OUTPUT_DIRS.find((d) => fs.existsSync(join(cwd, d, "index.html"))) ?? ".";
 }
 
+/** The port the image says it listens on: the last numeric EXPOSE, so a multi-stage file's final stage wins over a dev stage's. */
 export function exposedPort(dockerfile: string): number | undefined {
-  const m = fs.readFileSync(dockerfile, "utf8").match(/^\s*EXPOSE\s+(\d+)/im);
-  return m ? Number(m[1]) : undefined;
+  const all = [...fs.readFileSync(dockerfile, "utf8").matchAll(/^\s*EXPOSE\s+(\d+)/gim)];
+  return all.length ? Number(all[all.length - 1][1]) : undefined;
 }
 
 export const slug = (s: string) =>
