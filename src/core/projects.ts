@@ -355,7 +355,11 @@ export function updateProjectDomains(server: string, name: string, domains: stri
   for (const p of list.filter((p) => p.server === server && p.name === name)) {
     p.domains = domains;
     const env = environmentOf(p.path, name);
-    const cfg = env === undefined ? undefined : loadProject(p.path, env);
+    // The server already changed: a project file that is gone or broken only misses the update.
+    let cfg;
+    try {
+      cfg = env === undefined ? undefined : loadProject(p.path, env);
+    } catch {}
     if (cfg?.name === name) saveProject(p.path, { ...cfg, domains }, env);
   }
   if (list.length) fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
