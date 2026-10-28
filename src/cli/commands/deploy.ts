@@ -3,12 +3,12 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
-import { analyze, currentRelease, envComposeFile, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { analyze, currentRelease, envComposeFile, missingVars, requiredVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { IGNORE_FILE, uploadList, uploadSize } from "../../core/ignore";
 import { journal, setUpState, upload } from "../../core/ssh";
-import { ask, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
+import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
 import { bytes, pickIp, serverIps, sslipDomain } from "../../core/facts";
 import { detectBuild } from "../../core/frameworks";
 import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
@@ -169,6 +169,21 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         env = prevEnv;
         if (o["env-file"]) env = mergeEnv(env, await readEnvFile(o["env-file"]));
         if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env, true));
+      }
+      // What the compose file requires (${NAME:?}): asked for here, or said before the upload rather than by compose after it.
+      if (compose) {
+        const vars = [compose, layered].flatMap((f) => (f ? requiredVars(fs.readFileSync(join(root, f), "utf8")) : []));
+        const missing = missingVars(vars.filter((v, i) => vars.findIndex((u) => u.name === v.name) === i), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
+        if (missing.length && !interactive()) {
+          const names = missing.map((v) => v.name).join(", ");
+          fail(`${compose} needs ${names} in ${name}'s .env on ${serverName}: deploy with ${missing.map((v) => `-e ${v.name}=…`).join(" ")} (or --env-file)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${missing[0].name}=…` : ""}`);
+        }
+        const set: Record<string, string> = {};
+        for (const v of missing) {
+          set[v.name] = await askSecret(`${v.name} for ${name}'s .env${v.message ? ` (${v.message})` : ""}:`);
+          if (v.strict && !set[v.name]) fail(`${compose} needs a value for ${v.name}`);
+        }
+        if (missing.length) env = mergeEnv(env ?? prevEnv ?? "", set);
       }
       // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
       if (app?.note && (app.secret ? !parseEnvPairs(dotenvLines(env ?? prevEnv ?? ""))[app.secret] : !prev)) warn(app.note);
@@ -374,7 +389,9 @@ export function planDeploy(
     const r = spawnSync(buildCmd, { cwd, shell: true, stdio: "inherit" });
     if (r.status !== 0) fail(`build failed (exit ${r.status})`);
   }
-  showStack(detectStack(root, app?.name, app?.tool ?? tool));
+  // A compose file or Dockerfile runs it, but the app inside still names the framework.
+  const shown = app ?? (compose || ownDockerfile ? detectApp(root, o.start ?? project.start) : undefined);
+  showStack(detectStack(root, shown?.name, shown?.tool ?? tool));
   if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
   if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
     warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);

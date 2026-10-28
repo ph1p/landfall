@@ -15,7 +15,7 @@ export const ENV_PAIR = /^[A-Za-z0-9_][A-Za-z0-9_.-]*=/;
 
 /**
  * Move passwords and .env values off the job's command line, where `ps` would show them:
- * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs as a dotenv on stdin.
+ * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs and deploy's `-e` as a dotenv on stdin.
  */
 export function secretsOut(argv: string[]) {
   const args: string[] = [];
@@ -28,6 +28,8 @@ export function secretsOut(argv: string[]) {
       env[secretEnv(flag[1])] = flag[2] ?? argv[++i];
     } else if (isEnvCmd(argv) && ENV_PAIR.test(a) && !a.includes("\n") && !argv.includes("--env-file")) {
       pairs.push(a);
+    } else if (argv[0] === "deploy" && (a === "-e" || a === "--env") && ENV_PAIR.test(argv[i + 1] ?? "") && !argv[i + 1].includes("\n") && !argv.includes("--env-file")) {
+      pairs.push(argv[++i]);
     } else args.push(a);
   }
   if (pairs.length) args.push("--env-file", "-");
