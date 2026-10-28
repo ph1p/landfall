@@ -15,6 +15,7 @@ import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } fro
 import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
 import { USER_NAME } from "../../core/users";
+import { trivyState } from "../../core/scan";
 import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
@@ -203,7 +204,11 @@ async function api(req: Request, path: string[]): Promise<Response> {
     if (method === "GET" && sub === "system") return json(await systemView(name, server));
     if (method === "GET" && sub === "users") return json(await usersView(server));
     if (method === "GET" && sub === "updates") return json(await updatesView(server, new URL(req.url).searchParams.get("refresh") === "1"));
-    if (method === "GET" && sub === "scan") return json(await scanView(server, new URL(req.url).searchParams.get("others") === "1"));
+    if (method === "GET" && sub === "scan") {
+      const q = new URL(req.url).searchParams;
+      return json(await scanView(server, q.get("others") === "1", q.get("install") === "1"));
+    }
+    if (method === "GET" && sub === "trivy") return json(await trivyState(server));
     if (method === "GET" && sub === "traffic") return json(await trafficView(server, parseSince(new URL(req.url).searchParams.get("since") ?? "24h")));
     if (method === "GET" && sub === "certs") return json(await certsView(server));
     if (method === "GET" && sub === "env") {

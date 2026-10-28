@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../../core/config";
-import { scanImages, SEVERITIES, TRIVY, TRIVY_CACHE, type ImageScan, type Severity } from "../../core/scan";
-import { c, info, ok, step, table, warn } from "../../core/term";
+import { removeTrivy, scanImages, SEVERITIES, TRIVY, TRIVY_ASK, TRIVY_CACHE, trivyState, trivyThere, type ImageScan, type Severity } from "../../core/scan";
+import { c, confirm, info, ok, step, table, warn } from "../../core/term";
 
 const COLOR: Record<Severity, (s: string) => string> = { CRITICAL: c.red, HIGH: c.yellow, MEDIUM: (s) => s, LOW: c.dim, UNKNOWN: c.dim };
 const SHORT: Record<Severity, string> = { CRITICAL: "crit", HIGH: "high", MEDIUM: "med", LOW: "low", UNKNOWN: "?" };
@@ -40,17 +40,25 @@ export const scanCmd = defineCommand({
   summary:
     "Scan the images traefik and the sites run for known vulnerabilities (Trivy), and say what fixes them. Changes nothing.\n" +
     `Runs ${TRIVY} on the server; the image goes in on stdin, the scanner gets no docker socket. ` +
-    `The first scan downloads its database (~80 MB) into the volume ${TRIVY_CACHE}.`,
+    `The first scan asks, then downloads its databases (several GB) into the volume ${TRIVY_CACHE}; --remove deletes image and volume again.`,
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "list every vulnerability, not just critical and high" },
     fixable: { type: "boolean", desc: "only those a newer package fixes" },
     others: { type: "boolean", desc: "also the containers landfall did not deploy (named by compose project or container)" },
     json: { type: "boolean", desc: "machine-readable output" },
+    remove: { type: "boolean", desc: "remove Trivy's image and databases from the server instead of scanning" },
   },
   async run(args, o) {
     const { name, server } = resolveServer(o.server);
-    if (!o.json) step(`scanning the images on ${name} (the first scan downloads Trivy's database)`);
+    if (o.remove) {
+      step(`removing Trivy from ${name}`);
+      const gone = await removeTrivy(server);
+      return gone.length ? ok(`removed Trivy's ${gone.join(" and ")}`) : info("Trivy is not on the server");
+    }
+    if (!trivyThere(await trivyState(server)) && !(await confirm(`${TRIVY_ASK} Download it to ${name}? (lf scan --remove deletes it again)`, false)))
+      return info("not scanned");
+    if (!o.json) step(`scanning the images on ${name}`);
     const scans = await scanImages(server, args, !!o.others);
     if (o.json) return void console.log(JSON.stringify(scans, null, 2));
     if (!scans.length) return info(args.length ? `no running images of ${args.join(", ")}` : "no images to scan");

@@ -548,8 +548,9 @@ lf scan --others                   # also every container landfall did not deplo
 ```
 
 `lf scan` runs [Trivy](https://trivy.dev) (`aquasec/trivy`, pinned) on the server and changes nothing. Each image goes
-in as a `docker save` stream: the scanner gets no Docker socket. The first scan downloads Trivy's database (~80 MB) into
-the volume `landfall-trivy`; `docker volume rm landfall-trivy` frees it. Per image it says what fixes the findings:
+in as a `docker save` stream: the scanner gets no Docker socket. The first scan asks before it downloads Trivy: its image
+(~190 MB) and its vulnerability databases (several GB, in the volume `landfall-trivy`). `lf scan --remove` (or Remove
+Trivy in the web UI) deletes both again. Per image it says what fixes the findings:
 redeploy for images built on the server (builds pull the newest base image), `lf update --images` for a newer pull,
 a newer tag, or a newer base when the OS is past its end of life. `--others` adds the images of every other running
 container, named by compose project (or container) and marked "not landfall's": landfall cannot update those, so
@@ -965,7 +966,7 @@ lf undo -s box -y                           # revert the last run
 | `lf firewall rm <n>` / `enable` / `disable` | Removes a rule, or turns ufw on or off. |
 | `lf updates [--no-refresh] [--all] [--json]` | Shows pending OS packages, newer images, and Docker/compose versions. Changes nothing. |
 | `lf update [site...] [--packages] [--security] [--reboot] [--images] [--compose]` | Applies updates. Image and compose updates can be undone. |
-| `lf scan [site...] [--all] [--fixable] [--others] [--json]` | Scans the running images for known vulnerabilities (Trivy) and says what fixes them. Changes nothing. |
+| `lf scan [site...] [--all] [--fixable] [--others] [--json] [--remove]` | Scans the running images for known vulnerabilities (Trivy) and says what fixes them. Changes nothing. |
 | `lf history [-n 20] [--json]` | Lists what landfall changed on the server, run by run. Alias: `log`. |
 | `lf undo [n \| n.m] [--all] [--force]` | Reverts the latest run, run `n`, step `n.m`, or everything. Refuses a run when a later one changed the same site or file, unless `--force`. Alias: `revert`. |
 
