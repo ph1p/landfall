@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { envVar, expandHome, type Server } from "./config";
 import type { Entry } from "./ignore";
 import { ROOT } from "./templates";
-import { fail, REPORT } from "./term";
+import { CliError, fail, REPORT } from "./term";
 
 let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
@@ -279,7 +279,7 @@ export async function upload(s: Server, localDir: string, remoteDir: string, lis
   rsync.stdin.on("error", () => {});
   rsync.stdin.end(fileList(list));
   const code = await new Promise<number>((done, reject) => (rsync.on("error", reject), rsync.on("close", (c) => done(c ?? 1))));
-  if (code !== 0) throw new Error(`rsync failed (exit ${code})`);
+  if (code !== 0) fail(`rsync failed (exit ${code})`);
   return "rsync";
 }
 
@@ -303,8 +303,8 @@ async function tarUpload(s: Server, localDir: string, remoteDir: string, list: E
     // Wait for both: ssh may exit 0 before tar reports that it failed halfway.
     const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
     Promise.all([exit(tar), exit(ssh)]).then(([tarCode, code]) => {
-      if (tarCode !== 0) reject(new Error(`tar failed (exit ${tarCode})`));
-      else if (code !== 0) reject(new Error(`upload failed (exit ${code})`));
+      if (tarCode !== 0) reject(new CliError(`tar failed (exit ${tarCode})`));
+      else if (code !== 0) reject(new CliError(`upload failed (exit ${code})`));
       else resolve();
     });
   });
@@ -349,8 +349,8 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
     }
     // Wait for both ends: one may exit 0 before the other reports that it failed halfway.
     Promise.all(done).then(([code, other]) => {
-      if (code !== 0) reject(new Error(`${dir === "up" ? "upload" : "download"} failed (exit ${code})`));
-      else if (other !== 0) reject(new Error(`${local instanceof Array ? local[0] : local.file} failed (exit ${other})`));
+      if (code !== 0) reject(new CliError(`${dir === "up" ? "upload" : "download"} failed (exit ${code})`));
+      else if (other !== 0) reject(new CliError(`${local instanceof Array ? local[0] : local.file} failed (exit ${other})`));
       else resolve();
     });
   });
