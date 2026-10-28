@@ -4,6 +4,7 @@ import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDo
 import { analyze, COMPOSE_FILES, localCompose, routePlan, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
+import { localEnv } from "./remote";
 
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
@@ -163,8 +164,9 @@ export interface Detected {
     /** Each service's image or build context and volumes, as the file says: shown before a deploy. */
     about?: Record<string, { image?: string; build?: string; volumes?: string[] }>;
   };
-  /** What the site's .env on the server should set: its compose file's `${NAME:?…}`, an example .env's keys (none for static). */
-  required?: RequiredVar[];
+  /** What the site's .env on the server should set: its compose file's `${NAME:?…}`, an example .env's keys (none for static).
+   * local: the project's own .env has a value for it, which `deploy --local-env` takes. */
+  required?: (RequiredVar & { local?: boolean })[];
   /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
   /** Its languages, framework and tools, for the chips that show what landfall found. */
@@ -219,7 +221,8 @@ export function detectProject(path: string): Detected {
   };
   const wanted = (files?: string[]) => {
     try {
-      return wantedVars(path, files);
+      const local = localEnv(path);
+      return wantedVars(path, files).map((v) => (local[v.name] ? { ...v, local: true } : v));
     } catch {
       return [];
     }

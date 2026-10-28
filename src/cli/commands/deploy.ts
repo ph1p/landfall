@@ -4,7 +4,7 @@ import { basename, dirname, join, normalize, relative, resolve } from "node:path
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
 import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
-import { applySite, builtImages, discardRelease, lockSite, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
+import { applySite, builtImages, discardRelease, lockSite, dotenvLines, localEnv, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { IGNORE_FILE, uploadList, uploadSize } from "../../core/ignore";
 import { journal, setUpState, upload } from "../../core/ssh";
@@ -105,6 +105,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     dotenv: { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin; also --env-file, not on node 26)" },
+    "local-env": { type: "boolean", desc: "what the project asks for and the site's .env lacks: take it from the project's local .env" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
     "build-local": { type: "boolean", desc: "build the images on this machine (with Docker) and send them, not on the server" },
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
@@ -176,8 +177,18 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       // What the project wants in its .env (compose's ${NAME:?}, an example .env's keys): asked for here,
       // or said before the upload rather than by compose or the app after it. A static site has no .env.
       if (kind !== "static") {
-        const missing = missingVars(wantedVars(root, [compose, layered].filter((f): f is string => !!f)), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
-        const fix = (vars: typeof missing) => `deploy with ${vars.map((v) => `-e ${v.name}=…`).join(" ")} (or --dotenv)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${vars[0].name}=…` : ""}`;
+        let missing = missingVars(wantedVars(root, [compose, layered].filter((f): f is string => !!f)), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
+        // The local .env is never sent as a whole: only what the project asks for and the server lacks, and only when told.
+        const local = localEnv(root);
+        if (o["local-env"]) {
+          const from = missing.filter((v) => local[v.name]);
+          if (from.length) {
+            env = mergeEnv(env ?? prevEnv ?? "", Object.fromEntries(from.map((v) => [v.name, local[v.name]])));
+            info(c.dim(`from your local .env: ${from.map((v) => v.name).join(", ")}`));
+            missing = missing.filter((v) => !from.includes(v));
+          }
+        }
+        const fix = (vars: typeof missing) => `deploy with ${vars.map((v) => `-e ${v.name}=…`).join(" ")} (or --dotenv${vars.some((v) => local[v.name]) ? ", --local-env" : ""})${exists ? `, or set it first: lf env -s ${serverName} ${name} ${vars[0].name}=…` : ""}`;
         const named = (vars: typeof missing) => [...Map.groupBy(vars, (v) => v.from)].map(([f, vs]) => `${vs.map((v) => v.name).join(", ")} (${f})`).join(", ");
         const needed = missing.filter((v) => !v.optional);
         if (needed.length && !interactive()) fail(`${name}'s .env on ${serverName} needs ${named(needed)}: ${fix(needed)}`);
@@ -185,7 +196,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         const asked = missing.filter((v) => askable(v) && (!v.optional || interactive()));
         const set: Record<string, string> = {};
         for (const v of asked) {
-          set[v.name] = await askSecret(`${v.name} for ${name}'s .env${v.message ? ` (${v.message})` : ""}${v.optional ? c.dim(" (empty: none)") : ""}:`);
+          const hint = local[v.name] ? " (empty: your local .env's)" : v.optional ? " (empty: none)" : "";
+          set[v.name] = (await askSecret(`${v.name} for ${name}'s .env${v.message ? ` (${v.message})` : ""}${hint && c.dim(hint)}:`)) || local[v.name] || "";
           if (v.strict && !set[v.name]) fail(`${v.from} needs a value for ${v.name}`);
         }
         if (asked.length) env = mergeEnv(env ?? prevEnv ?? "", set);

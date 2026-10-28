@@ -49,6 +49,12 @@ describe("folders and access", () => {
     expect(labels(n)).toContain("framework:Next.js");
     fs.writeFileSync(join(n, "compose.yaml"), "services:\n  web:\n    build: .\n    environment: { PW: ${PW:?set PW} }\n");
     expect(detectProject(n).required).toEqual([{ name: "PW", from: "compose.yaml", message: "set PW", strict: true }]);
+    // the project's own .env has it: deploy --local-env may take it, an empty value counts as none
+    fs.writeFileSync(join(n, ".env"), 'PW=""\n');
+    expect(detectProject(n).required?.[0].local).toBeUndefined();
+    fs.writeFileSync(join(n, ".env"), "# local\nexport PW=secret\n");
+    expect(detectProject(n).required?.[0]).toMatchObject({ name: "PW", local: true });
+    fs.rmSync(join(n, ".env"));
     fs.writeFileSync(join(n, "compose.yaml"), "services:\n  web:\n    build: .\n    volumes: [data:/data]\n  db: { image: postgres }\n");
     expect(detectProject(n).analysis?.about).toEqual({ web: { build: ".", volumes: ["data:/data"] }, db: { image: "postgres", volumes: [] } });
   });
