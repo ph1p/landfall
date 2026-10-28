@@ -48,6 +48,7 @@ import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./comm
 import { ui } from "./commands/ui";
 import { volumeAdd, volumeBackup, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
 import { update, updatesList } from "./commands/updates";
+import { scanCmd } from "./commands/scan";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 import { exitWithParent } from "../core/job";
 import { journal } from "../core/ssh";
@@ -82,6 +83,7 @@ const commands: Command[] = [
   auth,
   open,
   updatesList,
+  scanCmd,
   update,
   serverAdd,
   serverList,
@@ -226,7 +228,7 @@ function help() {
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm"]],
     ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
-    ["Updates", ["updates", "update"]],
+    ["Updates", ["updates", "update", "scan"]],
     ["History", ["history", "undo"]],
     ["landfall", ["config", "ui"]],
   ];

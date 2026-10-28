@@ -3,12 +3,89 @@ import { S, plural, render, sv } from "../lib/store";
 import { fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { confirmDlg } from "../ui/dialog";
-import { Actions, Badge, Body, Btn, Card, CardHead, Kv, Sub, pending, cx, ACTS, HIDE, Table } from "../ui/kit";
+import { Actions, Badge, Body, Btn, Card, CardHead, Kv, Note, Sub, pending, cx, ACTS, HIDE, MONO, NUM, Table } from "../ui/kit";
+import type { ImageScan, Severity } from "../lib/types";
 import { can } from "./shared";
 
 // ---- updates ---------------------------------------------------------------
 
 const IMG: Record<string, [string, string]> = { current: ["ok", "up to date"], update: ["warn", "newer image"], unknown: ["", "unknown"], pinned: ["", "pinned"], rebuild: ["", "rebuild"], foreign: ["", "not landfall's"], missing: ["bad", "missing"] };
+
+const SEV: [Severity, string, string][] = [["CRITICAL", "bad", "critical"], ["HIGH", "warn", "high"], ["MEDIUM", "", "medium"], ["LOW", "", "low"]];
+// Images whose vulnerabilities are listed.
+const shownScans = new Set<string>();
+const scan = (n: string) => fetchInto("scan", n, "/scan");
+
+/** lf scan: what Trivy found in each image the server runs, and what fixes it. */
+function ScanCard({ n }: { n: string }) {
+  const st = S.scan[n];
+  if (!st) return null;
+  const wait = pending(st, "scanning every image… the first scan downloads Trivy's database (~80 MB)", () => scan(n));
+  const toggle = (id: string) => (shownScans.has(id) ? shownScans.delete(id) : shownScans.add(id), render());
+  const used = (i: ImageScan) => i.used.map((u) => (u.service && u.service !== u.name ? `${u.name}/${u.service}` : u.name)).join(", ");
+  return (
+    <Card>
+      <CardHead>
+        Vulnerabilities <Sub className={HIDE}>Trivy, in the images the server runs</Sub>
+        <Actions>{st.data && <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>}</Actions>
+      </CardHead>
+      {wait ?? (
+        <Table head={<><th>Image</th><th className={HIDE}>Used by</th><th>Found</th><th className={cx(NUM, HIDE)}>Fixable</th><th></th></>}>
+          {st.data!.length ? (
+            st.data!.map((i) => {
+              const open = shownScans.has(i.id);
+              return [
+                <tr key={i.id}>
+                  <td className={MONO}>{i.ref} {i.eol && <Badge kind="bad" title="Its OS no longer gets security fixes">OS end of life</Badge>}</td>
+                  <td className={cx("dim", HIDE)}>{used(i)}</td>
+                  <td>
+                    {i.error ? (
+                      <Badge kind="bad" title={i.error}>failed</Badge>
+                    ) : i.vulns.length ? (
+                      SEV.filter(([k]) => i.counts[k]).map(([k, kind, label]) => <Badge key={k} kind={kind} className="mr-1">{i.counts[k]} {label}</Badge>)
+                    ) : (
+                      <Badge kind="ok">none known</Badge>
+                    )}
+                  </td>
+                  <td className={cx(NUM, HIDE)}>{i.error ? "" : i.fixable}</td>
+                  <td className={ACTS}>{i.vulns.length > 0 && <Btn cls="sm ghost" on={() => toggle(i.id)}>{open ? "Hide" : "Show"}</Btn>}</td>
+                </tr>,
+                (i.hint || i.error) && (
+                  <tr key={`${i.id}-hint`}>
+                    <td colSpan={5} className="pt-0"><Note kind={i.error ? "bad" : "warn"} className="m-0">{i.error ?? i.hint}</Note></td>
+                  </tr>
+                ),
+                open && (
+                  <tr key={`${i.id}-list`}>
+                    <td colSpan={5} className="pt-0">
+                      <Table head={<><th>Severity</th><th>CVE</th><th>Package</th><th className={HIDE}>Installed</th><th>Fixed in</th></>}>
+                        {i.vulns.slice(0, 300).map((v) => (
+                          <tr key={`${v.id} ${v.pkg} ${v.installed}`}>
+                            <td><Badge kind={SEV.find(([k]) => k === v.severity)?.[1] ?? ""}>{v.severity.toLowerCase()}</Badge></td>
+                            <td className={cx(MONO, "whitespace-nowrap")}><a href={`https://avd.aquasec.com/nvd/${v.id.toLowerCase()}`} target="_blank" rel="noreferrer">{v.id}</a></td>
+                            <td>
+                              <div className={MONO}>{v.pkg}</div>
+                              {v.title && <div className={cx("dim text-xs max-w-[48ch] truncate", HIDE)} title={v.title}>{v.title}</div>}
+                            </td>
+                            <td className={cx(MONO, "dim", HIDE)}>{v.installed}</td>
+                            <td className={MONO}>{v.fixed?.replaceAll(", ", " ") ?? <span className="faint">no fix yet</span>}</td>
+                          </tr>
+                        ))}
+                        {i.vulns.length > 300 && <tr><td colSpan={5} className="dim">… {i.vulns.length - 300} more: lf scan --all</td></tr>}
+                      </Table>
+                    </td>
+                  </tr>
+                ),
+              ];
+            })
+          ) : (
+            <tr><td colSpan={5} className="dim">no images to scan</td></tr>
+          )}
+        </Table>
+      )}
+    </Card>
+  );
+}
 
 /** The count of waiting updates for the section button, with its leading space; null when there are none. */
 export function updatesBadge(n: string): ReactNode | null {
@@ -133,7 +210,8 @@ export function UpdatesView({ n }: { n: string }) {
           <Card>
             <CardHead>
               Images <Sub>Traefik and sites</Sub>
-              <Actions>{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
+              <Actions>
+                {!S.scan[n] && images.some((i) => i.id) && <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => scan(n)}>Scan for vulnerabilities</Btn>}{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
             </CardHead>
             <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
               {images.length ? (
@@ -155,6 +233,7 @@ export function UpdatesView({ n }: { n: string }) {
               )}
             </Table>
           </Card>
+          <ScanCard n={n} />
         </>
       )}
     </>

@@ -27,9 +27,10 @@ import {
   type Release,
   type SiteMeta,
   ENV_NAME,
+  volumeDir,
 } from "./compose";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
+import { HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
@@ -464,7 +465,8 @@ export interface ApplyOpts {
   existed?: boolean;
 }
 
-const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans --quiet-pull";
+// Not the script on stdin: Compose asks there, e.g. to recreate a volume whose configuration changed.
+const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans --quiet-pull </dev/null";
 
 /**
  * Shell that starts the Compose project in `current`, printing its state and logs if it does not come up;
@@ -493,6 +495,29 @@ interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "file
  * Shell that writes a site's files for meta.current, points `current` at it and starts it.
  * Until the build and pull are done nothing the running site reads changes: the new .env waits in .env.new.
  */
+/**
+ * A volume Docker keeps elsewhere (deployed before the site's folder held them) moves into the folder:
+ * its containers go (up recreates them), its files are copied over, the volume is removed for up to create it bound.
+ */
+function moveVolumes(meta: SiteMeta, failed: string[] = []): string[] {
+  if (meta.adopted) return [];
+  return (meta.volumes ?? []).flatMap((k) => {
+    const v = shq(`${projectName(meta)}_${k}`);
+    const d = shq(volumeDir(meta.name, k));
+    return [
+      `if docker volume inspect ${v} >/dev/null 2>&1 && [ "$(docker volume inspect -f '{{index .Options "device"}}' ${v})" != ${d} ]; then`,
+      `  log ${shq(`moving volume ${k} into ${volumeDir(meta.name, k)}`)}`,
+      `  ids=$(docker ps -aq --filter volume=${v}); [ -z "$ids" ] || docker rm -f $ids >/dev/null`,
+      `  if ! { docker run --rm -q -v ${v}:/from -v ${d}:/to ${HELPER} cp -a /from/. /to/ && docker volume rm ${v} >/dev/null; }; then`,
+      `    log ${shq(`could not move volume ${k}: it is unchanged`)}`,
+      ...failed.map((l) => `    ${l}`),
+      "    exit 1",
+      "  fi",
+      "fi",
+    ];
+  });
+}
+
 function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[] {
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
@@ -509,12 +534,14 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
     // Releases from before .secrets get the link too, so a rollback still finds them.
     ...(meta.adopted ? [] : [`[ -d ${SECRETS_DIR} ] || install -d -m 700 ${SECRETS_DIR}`, `(cd -P ${rel} && ln -sfn ../../${SECRETS_DIR} ${SECRETS_DIR}) || exit 1`]),
     `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
+    // The override binds them there: Docker cannot create a volume on a folder that is not.
+    ...(meta.adopted ? [] : (meta.volumes ?? []).map((k) => `mkdir -p ${shq(volumeDir(meta.name, k))}`)),
   ];
   // Interpolated with the new .env (the release's .env links the live one).
   const dc = o.env !== undefined ? "dc --env-file ../../.env.new" : "dc";
   const bail = o.env !== undefined ? "{ rm -f .env.new; exit 1; }" : "exit 1";
   if (o.build && release.services.some((s) => s.build)) {
-    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build -q) || ${bail}`);
+    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build -q --pull) || ${bail}`);
   }
   if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && ${dc} pull -q --ignore-buildable) || ${bail}`);
   lines.push(
@@ -528,7 +555,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
   // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
   lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
-  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name, o.failed));
+  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...moveVolumes(meta, o.failed), ...upLines(meta.name, o.failed));
   if (o.recreate?.length) lines.push(`log "recreating ${o.recreate.join(", ")}"`, `(cd -P current && ${UP} --force-recreate --no-deps ${o.recreate.map(shq).join(" ")}) || exit 1`);
   return lines;
 }
@@ -627,7 +654,8 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
     tail = "\n}";
   } else {
     const old = o.prev;
-    const back = { ...old, releases: old.releases.filter((r) => kept.some((k) => k.id === r.id)) };
+    // Volumes stay in the folder: back in Docker's, Compose would ask to recreate them, empty.
+    const back = { ...old, releases: old.releases.filter((r) => kept.some((k) => k.id === r.id)), ...(meta.volumes && { volumes: meta.volumes }) };
     const added = kept.filter((r) => !old.releases.some((p) => p.id === r.id));
     // `lf sites rm` took its releases since: putting site.json back would revive a broken site.
     head = `[ -d ${shq(dir)} ] || { log ${shq(`${meta.name} was removed since, nothing to put back`)}; exit 0; }\n`;
@@ -678,19 +706,21 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
   const v = o.volumes ? " -v" : "";
   const images = meta.adopted ? [] : meta.releases.flatMap((r) => builtImages(meta.name, r));
   // keepDir: the dir was there before landfall used it, so take out only landfall's files (.env is the caller's).
-  const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`)].map(shq).join(" ");
+  const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`), ...(o.volumes ? ["volumes"] : [])].map(shq).join(" ");
   return [
     `cd ${shq(dir)}`,
     `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(siteProject(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
     ...images.map(rmImage),
     // Scheduled backups stop with the site; those already made stay with the volumes.
     `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${shq(cronMark(meta.name))} || crontab -l | grep -vF ${shq(cronMark(meta.name))} | crontab - || true`,
+    // The containers' users own the volumes' files (postgres is 999): a container deletes them, no sudo needed.
+    ...(o.volumes ? [`[ ! -d volumes ] || docker run --rm -q -v "$PWD/volumes:/v" ${HELPER} find /v -mindepth 1 -delete`] : []),
     ...(o.keepDir
       ? [`rmf ${files}`, "rmdir releases 2>/dev/null || true"]
       : o.volumes
         ? ["cd /", `rmf ${shq(dir)}`]
         : // The volumes stay, and so do their backups (lf volume backup): only those are left in the folder.
-          [`for f in * .[!.]* ..?*; do { [ -e "$f" ] || [ -L "$f" ]; } && [ "$f" != backups ] && rmf "$f" || true; done`, "cd /", `rmdir ${shq(dir)} 2>/dev/null || true`]),
+          [`for f in * .[!.]* ..?*; do { [ -e "$f" ] || [ -L "$f" ]; } && [ "$f" != backups ] && [ "$f" != volumes ] && rmf "$f" || true; done`, "cd /", `rmdir ${shq(dir)} 2>/dev/null || true`]),
   ];
 }
 

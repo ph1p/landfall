@@ -3,10 +3,10 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
-import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, folderVolumes, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, localEnv, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
-import { IGNORE_FILE, uploadList, uploadSize } from "../../core/ignore";
+import { uploadList, uploadSize } from "../../core/ignore";
 import { journal, setUpState, upload } from "../../core/ssh";
 import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
 import { bytes, pickIp, serverIps, sslipDomain } from "../../core/facts";
@@ -108,11 +108,11 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     "fill-volumes": { type: "boolean", desc: "fill each empty volume from the project's folder named like it that the upload leaves out" },
     "local-env": { type: "boolean", desc: "what the project asks for and the site's .env lacks: take it from the project's local .env" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
-    "build-local": { type: "boolean", desc: "build the images on this machine (with Docker) and send them, not on the server" },
+    "build-local": { type: "boolean", desc: "build the images on this machine (with Docker) and send them, not on the server (saved; --no-build-local builds there again)" },
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
     volume: { type: "string", multiple: true, desc: "app/dockerfile/image: a folder in the container that outlives deploys, e.g. /app/data (a named volume; '' for none)" },
     worker: { type: "boolean", desc: "app/dockerfile/image: run without a port or a domain (a bot, a queue consumer; --no-worker serves one again)" },
-    gitignore: { type: "boolean", desc: "also leave out what .gitignore ignores (saved; --no-gitignore uploads it again). .landfallignore always applies" },
+    gitignore: { type: "boolean", desc: "also leave out what .gitignore ignores (saved; --no-gitignore uploads it again). exclude and include in .landfall.json always apply" },
     keep: { type: "string", desc: `releases to keep for rollback (default: ${DEFAULT_KEEP}, lf config --keep)` },
     save: { type: "boolean", desc: "write .landfall.json (--no-save to skip)", default: true },
     host: { type: "string", desc: "IP or hostname of a new server: set it up as --server first" },
@@ -220,12 +220,13 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
 
       const files = KINDS[kind].files;
       const gitignore = !!(o.gitignore ?? project.gitignore);
-      const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: cwd, gitignore });
+      const buildLocal = !!(o["build-local"] ?? project.buildLocal);
+      const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: cwd, gitignore, rules: project });
       // The first upload of a site says what it sends: a folder of data or a build cache is easy to miss.
       if (files !== undefined && !prev) {
         const { total, files: n, largest } = uploadSize(list);
         info(c.dim(`upload: ${n} files, ${bytes(total)}${largest.length ? ` (largest: ${largest.map(([p, b]) => `${p} ${bytes(b)}`).join(", ")})` : ""}`));
-        const hint = `${IGNORE_FILE} leaves files out${gitignore ? "" : ", --gitignore what .gitignore ignores"}`;
+        const hint = `exclude in .landfall.json leaves files out${gitignore ? "" : ", --gitignore what .gitignore ignores"}`;
         if (total > BIG_UPLOAD && !(await confirm(`That is a big upload: ${hint}. Upload it?`, false))) fail("not deployed");
       }
 
@@ -233,6 +234,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       let release: Release, domains: string[], move: () => Promise<void>;
       // Images built here and (maybe partly) sent: a failed deploy takes them off the server again.
       let sent: string[] = [];
+      let vols: string[] = [];
       try {
         if (files !== undefined) {
           step(`uploading ${relative(cwd, dir) || "."}`);
@@ -244,6 +246,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
           else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
         }
         const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
+        vols = folderVolumes(prepared.config, prev?.volumes);
         const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server), { auto: kind === "compose" });
         for (const w of a.warnings) warn(w);
         if (a.auto && a.services.some(routed)) info(c.dim(`no x-landfall in ${compose ?? "compose.yaml"}: routing the HTTP ports it publishes or exposes (\`lf init\` writes them down)`));
@@ -286,7 +289,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
 
         showRoutes(a.services, domains, prev && currentRelease(prev));
         move = await claimDomains(server, serverName, name, [...domains, ...fixed, ...subDomains(a.services, domains)], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
-        if (o["build-local"]) {
+        if (buildLocal) {
           const tmp = buildTmp();
           try {
             const builds = localBuilds(prepared.config, { site: name, id, serverDir: prepared.dir + files, localDir: dir, generated, tmp });
@@ -309,6 +312,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         domains,
         auth: withLogin(prev?.auth ?? old?.auth, login),
         ...(prev?.secrets?.length ? { secrets: prev.secrets } : {}),
+        ...(vols.length ? { volumes: vols } : {}),
         current: id,
         releases: [...(prev?.releases ?? []), release],
         createdAt: prev?.createdAt ?? old?.createdAt ?? now,
@@ -318,7 +322,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         await applySite(server, meta, proxy, {
           env,
           // Built here: the server runs the images it was sent.
-          build: !o["build-local"],
+          build: !buildLocal,
           pull: true,
           keep,
           prev,
@@ -353,6 +357,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (o.volume?.length || project.volumes) saved.volumes = volumes;
         if (worker) saved.worker = true;
         if (gitignore) saved.gitignore = true;
+        // Written by hand: kept as they are.
+        if (project.exclude) saved.exclude = project.exclude;
+        if (project.include) saved.include = project.include;
+        if (buildLocal) saved.buildLocal = true;
         if (buildCmd !== undefined) saved.build = buildCmd;
         saveProject(cwd, saved);
         rememberProject({ path: cwd, name, server: serverName, domains: all, kind, ...(environment ? { environment } : {}) });

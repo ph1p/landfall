@@ -481,6 +481,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
                 <span className="faint text-sm">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
               </div>
               {v.mounts.length > 0 && <div className="faint text-sm mono truncate">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" · ")}</div>}
+              {v.dir && <div className="faint text-sm mono truncate" title="Its files on the server, in the site's folder">{v.dir}</div>}
             </div>
             {/* An empty volume wants filling; a full one backing up. The rest is under More. */}
             <span className={SIDE}>

@@ -2,10 +2,11 @@ import { type Server } from "./config";
 import { projectName } from "./compose";
 import { cronMark, requireSite, siteDir } from "./remote";
 import { runScript, shq } from "./ssh";
+import { HELPER } from "./templates";
 import { fail } from "./term";
 
-/** Any image with sh, tar, find and chown does; landfall needs nothing of its own on the server. */
-export const HELPER = "alpine:3";
+export { HELPER };
+
 
 export interface Volume {
   /** Docker's name: <project>_<key>. */
@@ -16,6 +17,8 @@ export interface Volume {
   /** Holds no files: new, or never filled (read with sizes or empty). */
   empty?: boolean;
   mounts: { service: string; path: string }[];
+  /** The folder on the server that holds its files, when it lives in the site's folder (volumes/<key>). */
+  dir?: string;
 }
 
 export interface Backup {
@@ -32,7 +35,10 @@ export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[
   let schedule: string | undefined;
   for (const line of out.split("\n")) {
     const [kind, a, b, d] = line.split("\t");
-    if (kind === "vol" && a) vol(a).key = b || a;
+    if (kind === "vol" && a) {
+      vol(a).key = b || a;
+      if (d) vol(a).dir = d;
+    }
     else if (kind === "mnt" && a) {
       const v = vol(a);
       if (!v.mounts.some((m) => m.service === b && m.path === d)) v.mounts.push({ service: b, path: d });
@@ -53,7 +59,7 @@ export const listScript = (project: string, dir: string, site: string) => String
 cd ${shq(dir)}
 vols=""
 for v in $(docker volume ls -q --filter label=com.docker.compose.project=${shq(project)}); do
-  printf 'vol\t%s\t%s\n' "$v" "$(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}' "$v")"
+  printf 'vol\t%s\t%s\n' "$v" "$(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}{{"\t"}}{{if .Options}}{{index .Options "device"}}{{end}}' "$v")"
   vols="$vols $v"
 done
 for ctr in $(docker ps -aq --filter label=com.docker.compose.project=${shq(project)}); do
