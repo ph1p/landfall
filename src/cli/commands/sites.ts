@@ -365,9 +365,14 @@ The tunnel stays open until Ctrl-C.`,
     if (!name) fail(`which service of ${site}? lf tunnel ${site} <service>`);
     const ctr = await findContainer(server, [`label=com.docker.compose.project=${projectName(meta)}`, `label=com.docker.compose.service=${name}`]);
     if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
-    // A service that is only reached privately (x-landfall: { private: { admin: 3000 } }) opens its first private port.
-    const port = hidden ? hidden.private![svc!] : (service?.port ?? Object.values(service?.private ?? {})[0]);
-    await tunnelTo(server, ctr!, proxy.network, o.port ?? port, { local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
+    // A service that is only reached privately (x-landfall: { private: { admin: 3000 } }) opens the private port
+    // named like it, else its first one; with its path, if it names one.
+    const key = hidden ? svc! : service && !service.port ? (service.private?.[service.name] !== undefined ? service.name : Object.keys(service.private ?? {})[0]) : undefined;
+    const owner = hidden ?? service;
+    const port = key ? owner!.private![key] : service?.port;
+    const path = key && !o.port ? owner!.paths?.[key] : undefined;
+    await tunnelTo(server, ctr!, proxy.network, o.port ?? port, {
+      path, local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
   },
 });
 
@@ -386,7 +391,7 @@ async function foreignTunnel(server: Server, name: string, svc: string | undefin
 }
 
 /** Tunnel to the container's port: the given one, else the one Traefik routes to. */
-async function tunnelTo(server: Server, ctr: Ctr, network: string, port: string | number | undefined, o: { local?: string; lan?: boolean; what: string }) {
+async function tunnelTo(server: Server, ctr: Ctr, network: string, port: string | number | undefined, o: { local?: string; lan?: boolean; path?: string; what: string }) {
   // Else the port Traefik routes to, else the one its image exposes (a database's, say).
   const routedTo = Object.entries(ctr.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
   const found = port ?? routedTo ?? ctr.ports[0];

@@ -148,6 +148,16 @@ describe("templates", () => {
     const bad = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, routes: [{ port: 3000, subdomain: "a" }], private: { x: 3000 } } } } }, dir);
     expect(bad.errors.join("\n")).toMatch(/routed twice/);
     expect(bad.errors.join("\n")).toMatch(/both routed and private/);
+    // a private port may name the path its tunnel opens
+    const paths = analyze({ services: { admin: { image: "a", "x-landfall": { private: { admin: { port: 3000, path: "/admin" }, ops: 9100 } } } } }, dir);
+    expect(paths.errors).toEqual([]);
+    expect(paths.services[0]).toMatchObject({ private: { admin: 3000, ops: 9100 }, paths: { admin: "/admin" } });
+    expect(analyze({ services: { a: { image: "a", "x-landfall": { private: { admin: 3000 } } } } }, dir).services[0].paths).toBeUndefined();
+    const badPath = (v: unknown) => analyze({ services: { a: { image: "a", "x-landfall": { private: { admin: v } } } } }, dir).errors.join("\n");
+    expect(badPath({ port: 3000, path: "admin" })).toMatch(/x-landfall.private.admin.path must start with \//);
+    expect(badPath({ port: 3000, path: "/a b" })).toMatch(/must start with \//);
+    expect(badPath({ path: "/admin" })).toMatch(/must be a port number in port:/);
+    expect(badPath({ port: 3000, url: "/admin" })).toMatch(/knows port and path, not url/);
     // subdomains hang off the main service's domains
     expect(analyze({ services: { w: { image: "w", "x-landfall": { routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join()).toMatch(/no service serves them/);
   });

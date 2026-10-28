@@ -397,8 +397,8 @@ cat > compose.yaml <<'EOF'
 services:
   web:
     image: busybox:1.37
-    command: sh -c 'mkdir -p /a /b && echo site > /a/index.html && echo admin > /b/index.html && httpd -p 80 -h /a && httpd -f -p 9000 -h /b'
-    x-landfall: { port: 80, private: { admin: 9000 } }
+    command: sh -c 'mkdir -p /a /b && echo site > /a/index.html && mkdir -p /b/admin && echo admin > /b/admin/index.html && httpd -p 80 -h /a && httpd -f -p 9000 -h /b'
+    x-landfall: { port: 80, private: { admin: { port: 9000, path: /admin/ } } }
   ops:
     image: busybox:1.37
     command: sh -c 'mkdir -p /c && echo ops > /c/index.html && httpd -f -p 9100 -h /c'
@@ -409,10 +409,11 @@ has "lf tunnel <site> admin" <<<"$out" || { echo "$out"; die "deploy lists the p
 expect priv.test / site
 node "$ROOT/dist/cli.mjs" tunnel priv admin -l 18099 >"$WORK/tunnel.log" 2>&1 &
 TUNNEL_PID=$!
-for _ in $(seq 1 30); do curl -s http://127.0.0.1:18099/ | has admin && break; sleep 0.5; done
-got=$(curl -s http://127.0.0.1:18099/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
+for _ in $(seq 1 30); do curl -s http://127.0.0.1:18099/admin/ | has admin && break; sleep 0.5; done
+got=$(curl -s http://127.0.0.1:18099/admin/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
 [ "$got" = admin ] || { cat "$WORK/tunnel.log"; die "lf tunnel <site> <private name>"; }
-pass "a private port is not routed, lf tunnel priv admin opens it"
+has "localhost:18099/admin/" "$WORK/tunnel.log" || { cat "$WORK/tunnel.log"; die "lf tunnel prints the private port's path"; }
+pass "a private port is not routed, lf tunnel priv admin opens it at its path"
 # A service reached only privately: its name opens its private port, though its image exposes none.
 node "$ROOT/dist/cli.mjs" tunnel priv ops -l 18098 >"$WORK/tunnel.log" 2>&1 &
 TUNNEL_PID=$!
@@ -420,13 +421,13 @@ for _ in $(seq 1 30); do curl -s http://127.0.0.1:18098/ | has ops && break; sle
 got=$(curl -s http://127.0.0.1:18098/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
 [ "$got" = ops ] || { cat "$WORK/tunnel.log"; die "lf tunnel <site> <private service>"; }
 pass "lf tunnel priv ops opens the private port of a service with no routed one"
-lf sites rm priv -y >/dev/null 2>&1
 # A site the server does not have: a landfall error naming its sites, never a raw cd error.
 out=$(lf logs prvi -n 5 2>&1) && die "logs of a missing site fails"
 { has "no site prvi" <<<"$out" && has "did you mean priv? lf logs priv -n 5" <<<"$out" && ! has "No such file" <<<"$out"; } || { echo "$out"; die "logs of a missing site"; }
 out=$(lf tunnel prvi admin 2>&1) && die "tunnel to a missing site fails"
 has "no site prvi" <<<"$out" || { echo "$out"; die "tunnel to a missing site"; }
 pass "a missing site names the server's sites and the close one"
+lf sites rm priv -y >/dev/null 2>&1
 cd "$WORK"
 fi
 

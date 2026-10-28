@@ -32,7 +32,7 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
     // One row per service when a site has several (each is its own container), and per named private port.
     const ways = tunnelWays(n, x);
     if (x.services.length <= 1 && ways.length <= 1) targets.push({ name: x.meta.name, status: x.status, serves: x.domains, argv: ["tunnel", x.meta.name, ...sv(n)], ports: ways[0]?.ports });
-    else for (const w of ways) targets.push({ name: `${x.meta.name} · ${w.label}`, status: w.status, serves: w.priv ? [`:${w.priv} private`] : w.domains, argv: w.argv, ports: w.ports });
+    else for (const w of ways) targets.push({ name: `${x.meta.name} · ${w.label}`, status: w.status, serves: w.priv ? [`:${w.priv}${w.path ?? ""} private`] : w.domains, argv: w.argv, ports: w.ports });
   }
   for (const e of o.others) targets.push({ name: e.name, status: e.status, serves: e.domains, argv: ["tunnel", e.name, ...sv(n)], other: true });
   // Databases, workers: by Compose project and service, else by container name.

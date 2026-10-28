@@ -15,8 +15,8 @@ export function errorHint(error: string) {
 
 export const isUp = (status: string) => /^up/i.test(status);
 
-/** Something of a site an SSH tunnel reaches: lf <argv> opens it. priv: its private port, if that is what it opens. */
-export interface Way { svc: string; label: string; argv: string[]; ports: number[]; domains: string[]; status: string; priv?: number }
+/** Something of a site an SSH tunnel reaches: lf <argv> opens it. priv: its private port, if that is what it opens; path: where. */
+export interface Way { svc: string; label: string; argv: string[]; ports: number[]; domains: string[]; status: string; priv?: number; path?: string }
 
 /**
  * What tunnels reach on a site: each service, and each private port under its own name (lf tunnel blog admin).
@@ -34,8 +34,9 @@ export function tunnelWays(n: string, site: SiteStatus): Way[] {
     const domains = [...(x.service === main ? m.domains : (rel?.domains ?? [])), ...routes.flatMap((r) => r.domains ?? m.domains.map((d) => `${r.subdomain}.${d}`))];
     const ports = [...new Set([rel?.port, ...routes.map((r) => r.port), ...priv.map(([, p]) => p)].filter((p): p is number => !!p))];
     // Its tunnel opens its routed port, else a private one named like it, else its first private one.
-    const own: Way = { svc: x.service, label: x.service, argv: ["tunnel", m.name, ...(many ? [x.service] : []), ...sv(n)], ports, domains, status: x.status, priv: rel?.port ? undefined : (rel?.private?.[x.service] ?? priv[0]?.[1]) };
-    const named = priv.filter(([k]) => k !== x.service).map(([k, p]): Way => ({ svc: x.service, label: k, argv: ["tunnel", m.name, k, ...sv(n)], ports: [p], domains: [], status: x.status, priv: p }));
+    const key = rel?.port ? undefined : rel?.private?.[x.service] !== undefined ? x.service : priv[0]?.[0];
+    const own: Way = { svc: x.service, label: x.service, argv: ["tunnel", m.name, ...(many ? [x.service] : []), ...sv(n)], ports, domains, status: x.status, priv: key ? rel?.private?.[key] : undefined, path: key ? rel?.paths?.[key] : undefined };
+    const named = priv.filter(([k]) => k !== x.service).map(([k, p]): Way => ({ svc: x.service, label: k, argv: ["tunnel", m.name, k, ...sv(n)], ports: [p], domains: [], status: x.status, priv: p, path: rel?.paths?.[k] }));
     return [own, ...named];
   });
 }

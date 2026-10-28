@@ -165,12 +165,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               <StatusDot status={x.status} />
               <b>{x.service}</b>
               {own?.domains.map((d) => <Badge key={d}>{d}</Badge>)}
-              {own?.priv ? <span className="faint mono">:{own.priv} private</span> : null}
+              {own?.priv ? <span className="faint mono">:{own.priv}{own.path ?? ""} private</span> : null}
               <span className="faint">{x.status.toLowerCase()}</span>
               {own && isUp(x.status) && <TunnelBtn n={n} argv={own.argv} ports={own.ports} label="Tunnel" compact />}
               {named.map((w) => isUp(x.status) && (
                 <span key={w.label} className="inline-flex items-center gap-1.5">
-                  <span className="faint mono">{w.label} :{w.priv} private</span>
+                  <span className="faint mono">{w.label} :{w.priv}{w.path ?? ""} private</span>
                   <TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact />
                 </span>
               ))}
