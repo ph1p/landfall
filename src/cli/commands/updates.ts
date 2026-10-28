@@ -51,11 +51,9 @@ export const updatesList = defineCommand({
   },
   async run(_, o) {
     const { server } = resolveServer(o.server);
-    if (o.json) return void console.log(JSON.stringify(await updatesView(server, o.refresh), null, 2));
-    // One after the other: parallel first connections race for the ssh control socket.
-    const packages = await pkgStatus(server, o.refresh);
-    const images = await imageStatus(server);
-    const engine = await engineStatus(server);
+    const view = await updatesView(server, o.refresh);
+    if (o.json) return void console.log(JSON.stringify(view, null, 2));
+    const { packages, images, engine } = view;
     printPkgs(packages, o.all);
     printEngine(engine);
     printImages(images);

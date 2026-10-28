@@ -153,7 +153,7 @@ export function otherHint(s: Pick<ImageScan, "eol" | "fixable">, ref: string): s
  * Changes nothing but Trivy's cache volume.
  */
 export async function scanImages(s: Server, names: string[] = [], others = false): Promise<ImageScan[]> {
-  const all = await imageStatus(s);
+  const [all, ctrs] = await Promise.all([imageStatus(s), others ? runScript(s, CONTAINERS, { capture: true }) : undefined]);
   const imgs = all.filter((i) => i.id && (!names.length || names.includes(i.name)));
   type Entry = { ref: string; used: ImageScan["used"]; hint: (r: Pick<ImageScan, "eol" | "fixable">) => string | undefined; other?: boolean };
   const byId = new Map<string, Entry>();
@@ -162,10 +162,9 @@ export async function scanImages(s: Server, names: string[] = [], others = false
     e.used.push({ name: i.name, ...(i.service && { service: i.service }) });
     byId.set(i.id!, e);
   }
-  if (others) {
+  if (ctrs) {
     const known = new Set(all.map((i) => i.container));
-    const { stdout } = await runScript(s, CONTAINERS, { capture: true });
-    for (const c of parseContainers(stdout)) {
+    for (const c of parseContainers(ctrs.stdout)) {
       const name = c.project ?? c.name;
       if (known.has(c.name) || (names.length && !names.includes(name) && !names.includes(c.name))) continue;
       const e = byId.get(c.id) ?? { ref: c.ref, used: [], hint: (r) => otherHint(r, c.ref), other: true };
