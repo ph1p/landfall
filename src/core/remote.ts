@@ -30,6 +30,7 @@ import {
   ENV_NAME,
   volumeDir,
 } from "./compose";
+import { onStop } from "./job";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
@@ -338,14 +339,16 @@ export async function lockSite(s: Server, name: string): Promise<{ now: string; 
       `mkdir -p ${SITES}`,
       `if ! mkdir ${shq(lock)} 2>/dev/null; then`,
       `  [ -n "$(find ${shq(lock)} -maxdepth 0 -mmin +60 2>/dev/null)" ] && rm -rf ${shq(lock)} && mkdir ${shq(lock)} ||`,
-      `  { echo "another deploy of ${name} is running ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown)): wait for it, or remove ${lock} if it was cut off" >&2; exit 1; }`,
+      `  { echo "another deploy or change of ${name} is running ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown)): wait for it, or remove ${lock} if it was cut off" >&2; exit 1; }`,
       `fi`,
       `printf '%s\\n' "$LANDFALL_ACTOR" >${shq(lock + "/by")}`,
       `date -u +%Y%m%d%H%M%S`,
     ].join("\n"),
     { capture: true },
   );
-  return { now: stdout.trim(), unlock: () => runScript(s, `rm -rf ${shq(lock)}`).then(() => {}) };
+  const unlock = () => runScript(s, `rm -rf ${shq(lock)}`).then(() => {});
+  const off = onStop(unlock);
+  return { now: stdout.trim(), unlock: () => (off(), unlock()) };
 }
 
 /**
@@ -609,11 +612,19 @@ function takeoverLines(old: SiteMeta, keep?: string): string[] {
 }
 
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
-export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}) {
-  const prev = structuredClone(meta);
-  change(meta);
-  meta.updatedAt = new Date().toISOString();
-  await applySite(s, meta, proxy, { ...o, keep: meta.releases.length, prev, what });
+export async function changeSite(s: Server, site: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}): Promise<SiteMeta> {
+  // Under the deploy lock, on site.json as it is now: a deploy or change in between would be lost on write.
+  const lock = await lockSite(s, site.name);
+  try {
+    const { meta } = await requireSite(s, site.name);
+    const prev = structuredClone(meta);
+    change(meta);
+    meta.updatedAt = new Date().toISOString();
+    await applySite(s, meta, proxy, { ...o, keep: meta.releases.length, prev, what });
+    return meta;
+  } finally {
+    await lock.unlock();
+  }
 }
 
 /**
