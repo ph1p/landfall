@@ -236,16 +236,29 @@ export function Describe({ d, before = true }: { d: Detected; before?: boolean }
   return <>{what}{before && d.project?.server ? <> <span className="dim">· deployed before to {d.project.server}{d.project.domains?.length ? ` as ${d.project.domains.join(", ")}` : ""}</span></> : null}</>;
 }
 
-/** A compose project's route plan as a deploy would make it: service:port to domains, private ports, problems. */
+/** A compose project's services as a deploy would run them: what each is built from, port to domains, private ports, volumes, problems. */
 function ComposePlan({ a }: { a?: Detected["analysis"] }) {
   if (!a) return null;
-  const priv = (a.services ?? []).flatMap((s) => Object.entries(s.private ?? {}).map(([k, p]) => `${k} (${s.name}:${p})`));
   return (
     <span className="block mt-1.5">
-      {a.routes?.map((r) => (
-        <span key={`${r.service}:${r.port}`} className="block"><code>{r.service}:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span></span>
-      ))}
-      {priv.length > 0 && <span className="block dim">private (lf tunnel): {priv.join(", ")}</span>}
+      {(a.services ?? []).map((s) => {
+        const about = a.about?.[s.name];
+        const routes = (a.routes ?? []).filter((r) => r.service === s.name);
+        const priv = Object.entries(s.private ?? {});
+        return (
+          <span key={s.name} className="block">
+            <code>{s.name}</code> <span className="dim">{about?.build !== undefined ? `built from ${about.build}` : about?.image ?? ""}</span>
+            {routes.map((r) => (
+              <span key={`${r.port}:${r.domains[0]}`} className="block pl-4"><code>:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span></span>
+            ))}
+            {priv.map(([k, p]) => (
+              <span key={k} className="block pl-4"><code>:{p}</code> <span className="dim">private, lf tunnel … {k}</span></span>
+            ))}
+            {!routes.length && !priv.length && <span className="block pl-4 dim">{s.own ? "routed by its own traefik labels" : "no port reached from outside"}</span>}
+            {about?.volumes?.length ? <span className="block pl-4 dim">volumes: {about.volumes.join(", ")}</span> : null}
+          </span>
+        );
+      })}
       {[...(a.errors ?? []), ...(a.warnings ?? [])].map((e: string) => <span key={e} className="block text-warn">{e}</span>)}
       {a.notes?.map((n: string) => <span key={n} className="block dim">{n}</span>)}
     </span>
