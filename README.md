@@ -166,8 +166,9 @@ The first deploy writes `.landfall.json`. Commit it:
 { "name": "my-site", "server": "vps", "domains": ["example.com", "www.example.com"] }
 ```
 
-Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
-`-e`/`--dotenv`, or later with `lf env`. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`. Its old name `--env-file` still works, but not on Node 26, which takes that flag for itself.
+Local `.env*` files are never uploaded: each site has its own `.env` on the server. Pass variables with
+`-e`/`--dotenv`, or later with `lf env`. `--local-env` takes what the project asks for (below) and the site's `.env`
+lacks from the project's own `.env`, nothing else; an empty answer to the question takes it too. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`. Its old name `--env-file` still works, but not on Node 26, which takes that flag for itself.
 A variable `compose.yaml` requires (`${ADMIN_PASSWORD:?…}`) that the site's `.env` lacks is asked for before the
 upload (with `-y` the deploy stops there), and `lf ui` shows a field for each in its deploy dialog. The keys of a
 `.env.example` (or `.env.sample`, `.env.template`, `.env.dist`) count too, for every kind but static and for a Compose
@@ -893,7 +894,7 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
