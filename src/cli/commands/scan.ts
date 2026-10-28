@@ -1,0 +1,60 @@
+import { defineCommand, serverOpt } from "../cmd";
+import { resolveServer } from "../../core/config";
+import { scanImages, SEVERITIES, TRIVY, TRIVY_CACHE, type ImageScan, type Severity } from "../../core/scan";
+import { c, info, ok, step, table, warn } from "../../core/term";
+
+const COLOR: Record<Severity, (s: string) => string> = { CRITICAL: c.red, HIGH: c.yellow, MEDIUM: (s) => s, LOW: c.dim, UNKNOWN: c.dim };
+const SHORT: Record<Severity, string> = { CRITICAL: "crit", HIGH: "high", MEDIUM: "med", LOW: "low", UNKNOWN: "?" };
+
+const usedBy = (i: ImageScan) => i.used.map((u) => (u.service ? `${u.name}/${u.service}` : u.name)).join(", ");
+
+function printScan(scans: ImageScan[], all: boolean, fixable: boolean) {
+  table([
+    ["image", "used by", ...SEVERITIES.slice(0, 4).map((s) => SHORT[s]), "fixable"].map(c.dim),
+    ...scans.map((i) => [
+      i.ref + (i.eol ? c.red(" (OS end of life)") : ""),
+      c.dim(usedBy(i)),
+      ...(i.error ? [c.red("failed"), "", "", ""] : SEVERITIES.slice(0, 4).map((s) => (i.counts[s] ? COLOR[s](String(i.counts[s])) : c.dim("0")))),
+      i.error ? "" : String(i.fixable),
+    ]),
+  ]);
+  for (const i of scans) {
+    if (i.error) {
+      warn(`${i.ref}: ${i.error}`);
+      continue;
+    }
+    // Critical and high by default: the ones worth acting on.
+    const shown = i.vulns.filter((v) => (all || v.severity === "CRITICAL" || v.severity === "HIGH") && (!fixable || v.fixed));
+    if (!shown.length && !i.hint) continue;
+    console.log(`\n${c.bold(i.ref)} ${c.dim(i.os ?? "")}`);
+    const top = all ? shown : shown.slice(0, 15);
+    table(top.map((v) => ["  " + COLOR[v.severity](SHORT[v.severity]), v.id, v.pkg, c.dim(v.installed), v.fixed ? `→ ${v.fixed}` : c.dim("no fix yet"), c.dim((v.title ?? "").slice(0, 60))]));
+    if (top.length < shown.length) console.log(c.dim(`  … ${shown.length - top.length} more (--all)`));
+    if (i.hint) console.log(`  ${c.cyan(i.hint)}`);
+  }
+}
+
+export const scanCmd = defineCommand({
+  name: "scan",
+  args: "[site...]",
+  summary:
+    "Scan the images traefik and the sites run for known vulnerabilities (Trivy), and say what fixes them. Changes nothing.\n" +
+    `Runs ${TRIVY} on the server; the image goes in on stdin, the scanner gets no docker socket. ` +
+    `The first scan downloads its database (~80 MB) into the volume ${TRIVY_CACHE}.`,
+  options: {
+    server: serverOpt,
+    all: { type: "boolean", desc: "list every vulnerability, not just critical and high" },
+    fixable: { type: "boolean", desc: "only those a newer package fixes" },
+    json: { type: "boolean", desc: "machine-readable output" },
+  },
+  async run(args, o) {
+    const { name, server } = resolveServer(o.server);
+    if (!o.json) step(`scanning the images on ${name} (the first scan downloads Trivy's database)`);
+    const scans = await scanImages(server, args);
+    if (o.json) return void console.log(JSON.stringify(scans, null, 2));
+    if (!scans.length) return info(args.length ? `no running images of ${args.join(", ")}` : "no images to scan");
+    printScan(scans, !!o.all, !!o.fixable);
+    const bad = scans.filter((i) => i.counts.CRITICAL || i.counts.HIGH).length;
+    if (!bad) ok("no critical or high vulnerabilities");
+  },
+});

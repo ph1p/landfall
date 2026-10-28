@@ -538,6 +538,20 @@ Package upgrades (apt-get, dnf/yum, apk, zypper) cannot be undone. `--security` 
 so `lf undo` restores it. landfall never touches images pinned by digest, Dockerfile sites or foreign containers.
 Version-pinned tags show the newest tag of the same shape (`traefik:v3.6` → `traefik:v3.7`).
 
+### Vulnerabilities
+
+```sh
+lf scan                            # known vulnerabilities in every image traefik and the sites run
+lf scan blog                       # one site
+lf scan --all --fixable            # every severity, only what a newer package fixes
+```
+
+`lf scan` runs [Trivy](https://trivy.dev) (`aquasec/trivy`, pinned) on the server and changes nothing. Each image goes
+in as a `docker save` stream: the scanner gets no Docker socket. The first scan downloads Trivy's database (~80 MB) into
+the volume `landfall-trivy`; `docker volume rm landfall-trivy` frees it. Per image it says what fixes the findings:
+redeploy for images built on the server (builds pull the newest base image), `lf update --images` for a newer pull,
+a newer tag, or a newer base when the OS is past its end of life. The UI's Updates tab has the same scan.
+
 ## Traefik
 
 ```sh
@@ -948,6 +962,7 @@ lf undo -s box -y                           # revert the last run
 | `lf firewall rm <n>` / `enable` / `disable` | Removes a rule, or turns ufw on or off. |
 | `lf updates [--no-refresh] [--all] [--json]` | Shows pending OS packages, newer images, and Docker/compose versions. Changes nothing. |
 | `lf update [site...] [--packages] [--security] [--reboot] [--images] [--compose]` | Applies updates. Image and compose updates can be undone. |
+| `lf scan [site...] [--all] [--fixable] [--json]` | Scans the running images for known vulnerabilities (Trivy) and says what fixes them. Changes nothing. |
 | `lf history [-n 20] [--json]` | Lists what landfall changed on the server, run by run. Alias: `log`. |
 | `lf undo [n \| n.m] [--all] [--force]` | Reverts the latest run, run `n`, step `n.m`, or everything. Refuses a run when a later one changed the same site or file, unless `--force`. Alias: `revert`. |
 

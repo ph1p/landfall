@@ -10,6 +10,7 @@ import { describeTraefik, traefikSettings } from "./traefik";
 import { checkDns, domainDns, facts, suggestDomains, pickIp, serverCaps, serverIps, sslipDomain } from "./facts";
 import { pending, readJournal } from "./journal";
 import { prunePlan } from "./manage";
+import { scanImages } from "./scan";
 import { diskUsage, stats } from "./stats";
 import { securityOf } from "./security";
 import { certs, checkUrl, traffic } from "./traffic";
@@ -62,6 +63,9 @@ export async function historyView(server: Server, n?: number) {
 }
 
 /** `lf update --json` (list only). */
+/** lf scan --json: known vulnerabilities in the images it runs. */
+export const scanView = (server: Server) => scanImages(server);
+
 export async function updatesView(server: Server, refresh = false) {
   const packages = await pkgStatus(server, refresh);
   const engine = await engineStatus(server);
