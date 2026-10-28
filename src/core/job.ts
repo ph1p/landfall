@@ -59,6 +59,31 @@ export interface Job {
   stop(): void;
 }
 
+const SIGNALS = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 } as const;
+const cleanups = new Set<() => Promise<unknown>>();
+let stopping = false;
+const stopped = (sig: keyof typeof SIGNALS) => {
+  if (stopping) return;
+  stopping = true;
+  // Bounded: an unreachable server must not keep a stopped lf alive.
+  setTimeout(() => process.exit(SIGNALS[sig]), 10_000).unref();
+  void Promise.allSettled([...cleanups].map((f) => f())).then(() => process.exit(SIGNALS[sig]));
+};
+
+/**
+ * Runs f when lf is stopped (Ctrl-C, the web UI's Stop, a closed terminal) before it is called off:
+ * a signal skips finally blocks, so a deploy lock would stay for an hour. Returns the call-off.
+ */
+export function onStop(f: () => Promise<unknown>): () => void {
+  // Only while there is something to clean up: lf ui and tunnels handle these signals their own way.
+  if (!cleanups.size) for (const sig of Object.keys(SIGNALS)) process.on(sig, stopped);
+  cleanups.add(f);
+  return () => {
+    cleanups.delete(f);
+    if (!cleanups.size) for (const sig of Object.keys(SIGNALS)) process.off(sig, stopped);
+  };
+}
+
 /**
  * In a job: stop it, and the ssh it started, once the lf ui that started it is gone. A job runs
  * detached (own session), so a killed UI or a closed terminal would otherwise leave it running,

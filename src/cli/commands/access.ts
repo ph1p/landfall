@@ -37,9 +37,9 @@ export async function claimDomains(server: Server, serverName: string, site: str
   return async () => {
     for (const m of others) {
       const moved = m.domains.filter((d) => domains.includes(d));
-      await changeSite(server, m, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))));
-      updateProjectDomains(serverName, m.name, m.domains);
-      info(c.dim(m.domains.length ? `${m.name} keeps ${m.domains.join(", ")}` : `${m.name} serves no domain now`));
+      const left = (await changeSite(server, m, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))))).domains;
+      updateProjectDomains(serverName, m.name, left);
+      info(c.dim(left.length ? `${m.name} keeps ${left.join(", ")}` : `${m.name} serves no domain now`));
     }
   };
 }
