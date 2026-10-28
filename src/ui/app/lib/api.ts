@@ -40,12 +40,18 @@ export const SECTIONS: [Tab, string, string][] = [
 // The overview and facts drive the header, so every tab needs them.
 export const needs = (tab: string): Tab[] => (STORE[tab as Tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab as Tab]);
 /** Fetches server n's url into S[store][n]: loading, then { data } or { error }, and renders. */
+const latest = new Map<string, object>();
 export function fetchInto(store: StoreName, n: string, url: string, then?: (data: unknown) => void) {
   // Keep what is shown while it reloads; views show a spinner only when they have nothing yet.
   S[store][n] = { ...S[store][n], loading: true, error: undefined };
+  // Only the last request for a slot fills it: a slow older answer must not overwrite a newer one.
+  const key = `${store}\0${n}`;
+  const me = {};
+  latest.set(key, me);
+  const mine = () => latest.get(key) === me;
   return http(`/api/servers/${encodeURIComponent(n)}${url}`).then(
-    (data) => (then?.(data), ((S[store] as Record<string, Slot>)[n] = { data }), render()),
-    (e) => ((S[store][n] = { error: errorMessage(e) }), render()),
+    (data) => void (mine() && (then?.(data), ((S[store] as Record<string, Slot>)[n] = { data }), render())),
+    (e) => void (mine() && ((S[store][n] = { error: errorMessage(e) }), render())),
   );
 }
 /** Fetches store's slot for n once, for views outside the tab stores: the sites' error card and certificates. */

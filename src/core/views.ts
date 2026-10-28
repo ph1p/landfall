@@ -67,9 +67,8 @@ export async function historyView(server: Server, n?: number) {
 export const scanView = (server: Server, others = false) => scanImages(server, [], others);
 
 export async function updatesView(server: Server, refresh = false) {
-  const packages = await pkgStatus(server, refresh);
-  const engine = await engineStatus(server);
-  return { packages, images: await imageStatus(server), engine: { ...engine, ...engineNotes(engine) } };
+  const [packages, engine, images] = await Promise.all([pkgStatus(server, refresh), engineStatus(server), imageStatus(server)]);
+  return { packages, images, engine: { ...engine, ...engineNotes(engine) } };
 }
 
 /** `lf domains --json`: where each domain points and whether it answers on https. */

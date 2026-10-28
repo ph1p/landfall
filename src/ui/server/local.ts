@@ -48,10 +48,21 @@ export async function receiveUpload(form: FormData) {
     const p = join(UPLOADS, old);
     if (Date.now() - fs.statSync(p).mtimeMs > KEEP_MS) fs.rmSync(p, { recursive: true, force: true });
   }
-  const root = fs.mkdtempSync(join(UPLOADS, "u-"));
   const files = form.getAll("file").filter((f): f is File => f instanceof File);
   if (!files.length) throw new Error("no files in the upload");
+  // One path per file, in order: any other count would put files under each other's names.
   const paths = form.getAll("path").map(String);
+  if (paths.length && paths.length !== files.length) throw new Error("the upload's paths do not match its files");
+  const root = fs.mkdtempSync(join(UPLOADS, "u-"));
+  try {
+    return await unpack(root, files, paths);
+  } catch (e) {
+    fs.rmSync(root, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+async function unpack(root: string, files: File[], paths: string[]) {
   const archive = files.length === 1 && /\.(zip|tar|tgz|tar\.gz)$/i.test(files[0].name);
   if (archive) {
     const file = join(root, ".upload-" + safeParts(files[0].name).pop());
@@ -73,12 +84,13 @@ export async function receiveUpload(form: FormData) {
     return { path: topFolder(out), files: countFiles(out) };
   }
   const out = join(root, "files");
+  fs.mkdirSync(out);
   for (const [i, f] of files.entries()) {
     const parts = safeParts(paths[i] || f.name);
     if (!parts.length) continue;
     await save(join(out, ...parts), f);
   }
-  return { path: topFolder(out), files: files.length };
+  return { path: topFolder(out), files: countFiles(out) };
 }
 
 /** Whether an archive holds links, from its verbose listing (mode column starts with l or h). */

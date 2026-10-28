@@ -6,6 +6,7 @@ import { seedFolders, uploadList } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 import { localEnv } from "./remote";
+import { slug } from "./slug";
 
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
@@ -81,8 +82,7 @@ export function exposedPort(dockerfile: string): number | undefined {
   return all.length ? Number(all[all.length - 1][1]) : undefined;
 }
 
-export const slug = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63) || "site";
+export { slug };
 
 /** One thing found in a project, shown as a chip: its language, its framework or site generator, a tool that installs or builds it. */
 export interface Tag {
