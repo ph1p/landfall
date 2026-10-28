@@ -96,6 +96,10 @@ export const backupsOf = (backups: Backup[], key: string) =>
 /** `docker run` that writes the volume's contents as tar.gz to stdout. Read-only: it never changes the volume. */
 export const tarOut = (vol: string) => `docker run --rm -v ${shq(`${vol}:/v:ro`)} ${HELPER} tar czf - -C /v .`;
 
+/** Shell that writes the volume's contents to `file` (shell-quoted), whole or not at all. */
+export const backupTo = (vol: string, file: string) =>
+  `${tarOut(vol)} > ${file}.part || { rm -f ${file}.part; exit 1; }\nmv ${file}.part ${file}`;
+
 /**
  * `docker run` that replaces the volume's contents with the tar.gz on stdin. own: give the files to the
  * owner of the volume's root (an upload from this machine carries your uid; a backup keeps its owners).
@@ -120,6 +124,7 @@ export function whileStopped(vol: string, steps: string[]) {
 /** sizes: measure each volume, and mark the empty ones; empty: only mark those (no du over a database). */
 export async function volumes(server: Server, site: string, sizes = false, empty = false) {
   const { meta } = await requireSite(server, site);
-  const { stdout } = await runScript(server, listScript(projectName(meta), siteDir(site), site), { capture: true, env: { SIZES: sizes, EMPTY: empty } });
-  return parseVolumes(stdout);
+  const project = projectName(meta);
+  const { stdout } = await runScript(server, listScript(project, siteDir(site), site), { capture: true, env: { SIZES: sizes, EMPTY: empty } });
+  return { ...parseVolumes(stdout), project };
 }
