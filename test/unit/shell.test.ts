@@ -42,8 +42,10 @@ describe("secrets stay off the command line", () => {
       env: {},
       stdin: "A=1\nB=two=2\n",
     });
-    // Not an env command: KEY=VALUE stays an argument.
-    expect(secretsOut(["deploy", "-e", "A=1"]).args).toEqual(["deploy", "-e", "A=1"]);
+    // deploy's -e values travel on stdin; its other arguments stay.
+    expect(secretsOut(["deploy", "-y", "-e", "A=1", "--env", "B=2", "-n", "C=x"])).toEqual({ args: ["deploy", "-y", "-n", "C=x", "--env-file", "-"], env: {}, stdin: "A=1\nB=2\n" });
+    // Its own --env-file wins: -e stays an argument.
+    expect(secretsOut(["deploy", "--env-file", ".env", "-e", "A=1"]).args).toEqual(["deploy", "--env-file", ".env", "-e", "A=1"]);
     expect(secretsOut(["secret", "blog", "tls.key=abc"])).toEqual({ args: ["secret", "blog", "--env-file", "-"], env: {}, stdin: "tls.key=abc\n" });
   });
 

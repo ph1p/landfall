@@ -355,6 +355,9 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
   const keeps: string[] | null = re && !p?.domains ? re.domains : null;
   const keeping = (v: Values) => keeps && v.name.trim() === re?.name && v.server === re?.server;
   const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
+  const required = det.kind === "compose" ? (det.required ?? []) : [];
+  // Never deployed from here: the site's .env on the server starts empty.
+  const fresh = !re && !p?.server;
   /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
   const addresses = (v: Values): [string[], string?] => {
     const main = mainDomain(v.server);
@@ -400,6 +403,19 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
         ],
       },
       ...buildFields,
+      ...(required.length
+        ? [{
+            legend: "Environment",
+            note: `Required by ${det.compose}, set in the site's .env on the server (your local .env is not sent).`,
+            fields: required.map((r) => ({
+              name: `env_${r.name}`, label: r.name, type: "password" as const, mono: true,
+              // A new site has no .env yet: compose would refuse to start without it.
+              required: fresh && r.strict ? r.message || `${det.compose} needs ${r.name}` : undefined,
+              hint: [r.message, fresh ? "" : "Empty: keeps the value the server's .env has."].filter(Boolean).join(". "),
+              check: (x: string) => /[\r\n]/.test(x) && "One line: put multi-line text in a secret",
+            })),
+          }]
+        : []),
       {
         legend: "Visitor login", note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.", when: served,
         fields: [
@@ -423,6 +439,7 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
         argv.push(...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d])));
       }
       argv.push(...buildArgv(v));
+      for (const r of required) if (v[`env_${r.name}`]) argv.push("-e", `${r.name}=${v[`env_${r.name}`]}`);
       // The login counts once there is a password; the user defaults to admin.
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");

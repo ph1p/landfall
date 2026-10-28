@@ -168,6 +168,8 @@ The first deploy writes `.landfall.json`. Commit it:
 
 Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
 `-e`/`--env-file`, or later with `lf env`. `--env-file -` reads the lines from stdin, so secrets stay out of `ps`.
+A variable `compose.yaml` requires (`${ADMIN_PASSWORD:?…}`) that the site's `.env` lacks is asked for before the
+upload (with `-y` the deploy stops there), and `lf ui` shows a field for each in its deploy dialog.
 `lf env` hides the values unless you pass `--reveal`, and so does the **Edit** dialog in `lf ui` until you click
 **Show values**. The `.env` itself stays a plain file next to `compose.yaml`, so `docker compose` reads it without landfall.
 
@@ -973,7 +975,7 @@ On the server:
 | site container keeps restarting | `lf logs`; for apps check `--port` / `x-landfall.port` and env |
 | `… publishes 5432 on the server, past Traefik and the firewall` | `lf init` moves `ports:` to `compose.override.yaml`; or allow it with `x-landfall: { publish: true }` |
 | `sites need docker compose 2.24 or newer` | `lf update --compose` |
-| `required variable … is missing` | set it on the server: `lf env KEY=…` or `lf deploy -e KEY=…` |
+| `required variable … is missing` / `compose.yaml needs …` | set it on the server: `lf env KEY=…` or `lf deploy -e KEY=…` |
 | `… was edited by hand` (traefik setup) | move your change to `dynamic/` or flags, or `lf traefik setup --force` |
 | `skipping firewall/ssh hardening: …` | setup protected something running there. Fix it, or re-run with `--force` |
 | `skipping traefik: port 80 is in use by …` | free the port, then `lf traefik setup`. If it's a Traefik, `lf traefik use` |

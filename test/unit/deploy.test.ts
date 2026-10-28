@@ -10,7 +10,7 @@ import { parse } from "../../src/cli/cmd";
 import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
 import { envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
 import { changes } from "../../src/core/dashboard";
-import { envComposeFile } from "../../src/core/compose";
+import { envComposeFile, missingVars, requiredVars } from "../../src/core/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -227,4 +227,25 @@ describe("upload filtering", () => {
     expect(size.largest[0]).toEqual(["data", 1000]);
     expect(size.files).toBe(5);
   });
+});
+
+test("the variables a compose file requires", () => {
+  const vars = requiredVars(`# \${IN_COMMENT:?no}
+services:
+  a:
+    environment:
+      PW: \${PW:?set PW}
+      OPT: \${OPT?}
+      KEEP: $\${ESCAPED:?no}
+      DEF: \${DEF:-x}
+    image: x:\${PW:?again}
+`);
+  expect(vars).toEqual([
+    { name: "PW", message: "set PW", strict: true },
+    { name: "OPT", message: undefined, strict: false },
+  ]);
+  expect(missingVars(vars, {}).map((v) => v.name)).toEqual(["PW", "OPT"]);
+  // Empty counts only for ${NAME?}.
+  expect(missingVars(vars, { PW: "", OPT: "" }).map((v) => v.name)).toEqual(["PW"]);
+  expect(missingVars(vars, { PW: "s3cret", OPT: "" })).toEqual([]);
 });

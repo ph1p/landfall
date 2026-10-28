@@ -398,6 +398,29 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
   return { services, errors, warnings, notes, ...(auto && { auto: true }) };
 }
 
+/** A variable a compose file cannot do without: docker compose refuses `${NAME:?message}` unset or empty (strict), `${NAME?message}` unset. */
+export interface RequiredVar {
+  name: string;
+  message?: string;
+  strict: boolean;
+}
+
+/** The variables a compose file requires, in order, from its text (comment lines left out). */
+export function requiredVars(text: string): RequiredVar[] {
+  const out = new Map<string, RequiredVar>();
+  const body = text.replace(/^\s*#.*$/gm, "");
+  // `$$` first, so an escaped `$${NAME:?}` is not one.
+  for (const [, name, op, message] of body.matchAll(/\$(?:\$|\{(\w+)(:?)\?([^}]*)\})/g)) {
+    if (!name) continue;
+    const had = out.get(name);
+    out.set(name, { name, message: had?.message ?? (message.trim() || undefined), strict: !!had?.strict || op === ":" });
+  }
+  return [...out.values()];
+}
+
+/** The required variables vars leaves without a value in env (a .env's pairs). */
+export const missingVars = (vars: RequiredVar[], env: Record<string, string>) => vars.filter((v) => (v.strict ? !env[v.name] : env[v.name] === undefined));
+
 /** `${VAR}`, `${VAR:-default}`, `${VAR-default}`, `${VAR:+alt}`, `$VAR` and `$$`, as docker compose fills them in. */
 function interpolate(text: string, env: Record<string, string | undefined>): string {
   return text.replace(/\$(?:\$|\{(\w+)(?:(:?[-+?])([^}]*))?\}|(\w+))/g, (m, name, op, arg, bare) => {
