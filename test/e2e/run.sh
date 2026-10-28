@@ -131,6 +131,11 @@ pass "--gitignore leaves out what .gitignore ignores, also with rsync, and is sa
 lf rollback -y
 expect site.test / v1
 [ "$(code site.test /old.txt)" = 200 ] || die "the older release keeps its files"; pass "the older release keeps its files"
+lf release rm -y >/dev/null || die "release rm"
+expect site.test / v1
+[ "$(docker exec "$NAME" ls /opt/landfall/sites/site/releases | wc -l)" -eq 1 ] || die "release rm keeps only the live release"
+{ ! lf rollback -y >/dev/null 2>&1; } || die "rollback to a removed release"
+pass "release rm deletes all but the live release"
 # A host no site serves has no certificate: the handshake fails, no 404 and no wrong certificate.
 [ "$(code nope.invalid)" = 000 ] || die "unknown host answered"; pass "unknown host fails the handshake"
 { lf ls | has site; } || die "sites list shows site"; pass "sites list shows site"
@@ -671,7 +676,7 @@ ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes box true || die "ssh after firewa
 fi
 
 if want undo; then echo "== history and undo"
-out=$(lf history -s box -n 100 2>&1)
+out=$(lf history -s box -n 200 2>&1)
 for want in "created user deploy" "installed traefik" "deploy site release" "ufw allow from 10.0.0.0/8"; do
   { grep -q "$want" <<<"$out"; } || { echo "$out"; die "history shows: $want"; }
 done; pass "history shows setup, traefik, deploys and firewall"

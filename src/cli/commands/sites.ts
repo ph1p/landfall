@@ -3,7 +3,7 @@ import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/config";
 import { COMPOSE_FILES, currentRelease, gitLabel, isOld, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../../core/compose";
 import { bytes } from "../../core/facts";
-import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSecrets, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
+import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, oldReleases, parseEnvPairs, readEnvFile, readSecrets, readSite, removeReleases, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, table } from "../../core/term";
 import { slug } from "../../core/projects";
@@ -139,6 +139,37 @@ export const sitesRollback = defineCommand({
     if (!to) fail(o.to ? `no release ${o.to}` : `no release older than ${meta.current}`);
     await changeSite(server, meta, proxy, `rollback ${site} from ${meta.current} to ${to!.id}`, (m) => void (m.current = to!.id));
     ok(`${site} rolled back to ${c.bold(to!.id)}`);
+  },
+});
+
+/** A release id, not a site name: 14 digits, as deploy makes them. */
+const RELEASE_ID = /^\d{14}$/;
+
+export const releaseRemove = defineCommand({
+  name: "release rm",
+  args: "[name] [release...]",
+  summary: `Delete old releases of a site: their folders and the images built for them.
+
+Without releases, all but the live one go (--keep <n> keeps the n newest). The live release always
+stays. Removed releases are gone for rollback: this cannot be undone. Volumes are not touched.`,
+  options: { server: serverOpt, keep: { type: "string", desc: "keep the n newest releases (the live one stays anyway)" } },
+  async run(pos, o) {
+    const named = pos.length && !RELEASE_ID.test(pos[0]) ? pos[0] : undefined;
+    const ids = named ? pos.slice(1) : pos;
+    if (ids.length && o.keep !== undefined) fail("pass releases or --keep, not both");
+    const keep = o.keep === undefined ? 0 : checkInt(o.keep, "--keep", 0);
+    const { site, server, name } = target(named, o.server);
+    const { meta } = await requireSite(server, site, { deployed: "remove releases of" });
+    for (const id of ids) {
+      if (id === meta.current) fail(`${id} is the live release of ${site}: roll back or deploy first`);
+      if (!meta.releases.some((r) => r.id === id)) fail(`no release ${id} (see \`lf sites info\`)`);
+    }
+    const gone = oldReleases(meta, { ids, keep });
+    if (!gone.length) return info(`${site} has no releases to remove (${meta.current} is live)`);
+    const list = gone.map((r) => `${r.id} (${ago(r.at)})`).join(", ");
+    await confirmRemoval(`Delete ${gone.length === 1 ? "release" : `${gone.length} releases`} of ${site} on ${name}: ${list}? Rollback can no longer go to them.`);
+    const done = await removeReleases(server, site, gone.map((r) => r.id));
+    ok(`removed ${done.length} release${done.length === 1 ? "" : "s"} of ${site}`);
   },
 });
 
