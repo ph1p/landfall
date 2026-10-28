@@ -101,7 +101,7 @@ describe("scheduled backups", () => {
     fs.mkdirSync(bin, { recursive: true });
     fs.writeFileSync(path.join(bin, "docker"), "#!/bin/sh\n", { mode: 0o755 });
     // No crontab yet: crontab -l fails, which must not fail the listing.
-    const list = () => runHere(`SIZES=0\n${listScript("blog", dir, "blog")}`);
+    const list = () => runHere(`SIZES=0 EMPTY=0\n${listScript("blog", dir, "blog")}`);
     expect(list()).toBe("");
     fs.writeFileSync(path.join(dir, "tab"), "17 3 * * * sh backup.sh # landfall backup blog: daily, keep 7\n");
     expect(list()).toBe("sched\tdaily, keep 7\n");
