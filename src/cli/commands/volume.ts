@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Server } from "../../core/config";
-import { addVolumeMount, composeMounts, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/compose";
+import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/compose";
 import { bytes } from "../../core/facts";
 import { cronMark, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
@@ -10,7 +10,7 @@ import { PRELUDE } from "../../core/templates";
 import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
 import type { Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
-import { HELPER, backupName, backupsOf, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
+import { HELPER, backupName, backupsOf, backupTo, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
 /**
@@ -95,8 +95,7 @@ script that also runs by hand (sh backup.sh).`,
       const file = `backups/${backupName(v.key)}`;
       step(`backup ${v.key} of ${site}`);
       runs(`${tarOut(v.name)} > ${file}`);
-      const f = shq(file);
-      await runScript(server, `cd ${shq(siteDir(site))} && mkdir -p backups\n${tarOut(v.name)} > ${f}.part || { rm -f ${f}.part; exit 1; }\nmv ${f}.part ${f}`);
+      await runScript(server, `cd ${shq(siteDir(site))} && mkdir -p backups\n${backupTo(v.name, shq(file))}`);
       ok(`${siteDir(site)}/${file}`);
     }
   },
@@ -315,10 +314,10 @@ Backs the current contents up first and journals it (lf undo reverts the restore
   },
 });
 
-/** The project in this folder, which `lf volume add/rm` edit: it must deploy `site`, if one is named. */
+/** The project in this folder, which `lf volume add/rm` edit (none without a .landfall.json): it must deploy `site`, if one is named. */
 function here(site: string | undefined) {
   const cwd = process.cwd();
-  if (!loadProject(cwd)) fail(`no ${PROJECT_FILE} here: run it in the folder that deploys ${site ?? "the site"} (deploy it once first)`);
+  if (!loadProject(cwd)) return undefined;
   const d = detectProject(cwd);
   if (site && site !== d.name) fail(`this folder deploys ${d.name}, not ${site}: run it in the folder that deploys ${site}`);
   return d;
@@ -338,7 +337,7 @@ an app, Dockerfile or image keeps the path in .landfall.json. Redeploy to apply.
   options: { as: { type: "string", desc: "compose.yaml: the volume's name (default: from the path, /app/data: app-data)" } },
   async run(pos, o) {
     if (!pos.length || pos.length > 2) fail("lf volume add [name] [service:]<path>");
-    const d = here(pos.length > 1 ? pos[0] : undefined);
+    const d = here(pos.length > 1 ? pos[0] : undefined) ?? fail(`no ${PROJECT_FILE} here: run it in the folder that deploys the site (deploy it once first)`);
     const spec = pos.at(-1)!;
     const m = /^([\w.-]+):(.*)$/.exec(spec);
     const path = m ? m[2] : spec;
@@ -356,8 +355,8 @@ an app, Dockerfile or image keeps the path in .landfall.json. Redeploy to apply.
     if (m && m[1] !== "app") fail(`an app has one service, app: lf volume add ${path}`);
     if (o.as && o.as !== volumeName(path)) fail(`an app's volume is named after its path (${volumeName(path)}): --as is for compose.yaml`);
     const have = d.volumes ?? [];
-    if (have.some((v) => v.replace(/\/+$/, "") === path.replace(/\/+$/, ""))) fail(`the app already keeps ${path} (volume ${volumeName(path)})`);
-    saveProject(d.path, { ...loadProject(d.path)!, volumes: [...have, path] });
+    if (have.some((v) => volumeName(v) === volumeName(path))) fail(`the app already keeps ${path} (volume ${volumeName(path)})`);
+    saveProject(d.path, { ...d.project!, volumes: [...have, path] });
     ok(`${PROJECT_FILE}: the app keeps ${path} in volume ${volumeName(path)}`);
     redeployHint();
   },
@@ -378,9 +377,10 @@ brings it back.
     if (!pos.length || pos.length > 2) fail("lf volume rm [name] <volume>");
     const key = pos.at(-1)!;
     const site = pos.length > 1 ? pos[0] : undefined;
-    const local = loadProject(process.cwd());
-    const edited = local && (!site || site === detectProject(process.cwd()).name) ? unmount(here(site), key, o.service) : false;
-    if (!edited && !o.data) fail(local ? `this folder's project does not mount ${key}` : `no ${PROJECT_FILE} here: run it in the folder that deploys the site, or pass --data to delete an unused volume's data`);
+    // --data alone works anywhere: a folder that deploys another site only skips the unmount.
+    const d = o.data ? here(undefined) : here(site);
+    const edited = !!d && (!site || site === d.name) && unmount(d, key, o.service);
+    if (!edited && !o.data) fail(d ? `this folder's project does not mount ${key}` : `no ${PROJECT_FILE} here: run it in the folder that deploys the site, or pass --data to delete an unused volume's data`);
     if (!o.data) return redeployHint(c.dim(`; the data stays on the server (lf volume rm ${key} --data deletes it)`));
     if (o.service) fail("--data deletes the whole volume: leave out --service");
     const t = target(site, o.server);
@@ -393,7 +393,7 @@ brings it back.
       fail(`${why}: remove it from the compose file and redeploy first`);
     }
     if (!(await confirm(`Delete volume ${v.key} of ${t.site} and its data? A backup is kept, lf undo brings it back.`, false))) fail("cancelled");
-    await deleteVolume(t.server, t.site, v);
+    await deleteVolume(t.server, t.site, v, found.project);
   },
 });
 
@@ -401,28 +401,26 @@ brings it back.
 function unmount(d: ReturnType<typeof detectProject>, key: string, service?: string): boolean {
   if (d.kind === "compose") {
     const file = join(d.path, d.compose!);
-    const text = fs.readFileSync(file, "utf8");
-    if (!composeMounts(text).some((x) => x.key === key && (!service || x.service === service))) return false;
-    const { compose, from } = removeVolumeMount(text, key, service);
+    const { compose, from } = removeVolumeMount(fs.readFileSync(file, "utf8"), key, service);
+    if (!from.length) return false;
     fs.writeFileSync(file, compose);
     ok(`${d.compose}: ${from.join(", ")} no longer mount${from.length === 1 ? "s" : ""} ${key}`);
     return true;
   }
   const have = d.volumes ?? [];
-  const keep = have.filter((p) => volumeName(p) !== key);
-  if (keep.length === have.length) return false;
+  const gone = have.filter((p) => volumeName(p) === key);
+  if (!gone.length) return false;
   if (service && service !== "app") fail(`an app has one service, app: leave out --service`);
-  saveProject(d.path, { ...loadProject(d.path)!, volumes: keep });
-  ok(`${PROJECT_FILE}: the app no longer keeps ${have.filter((p) => !keep.includes(p)).join(", ")}`);
+  saveProject(d.path, { ...d.project!, volumes: have.filter((p) => !gone.includes(p)) });
+  ok(`${PROJECT_FILE}: the app no longer keeps ${gone.join(", ")}`);
   return true;
 }
 
 /** Back a volume up, journal how to bring it back (with its Compose labels, so compose up adopts it), then delete it. */
-async function deleteVolume(server: Server, site: string, v: Volume) {
-  const { meta } = await requireSite(server, site);
+async function deleteVolume(server: Server, site: string, v: Volume, project: string) {
   const dir = siteDir(site);
   const file = `${dir}/backups/${backupName(v.key, new Date(), "before-rm")}`;
-  const labels = [`com.docker.compose.project=${projectName(meta)}`, `com.docker.compose.volume=${v.key}`].map((l) => `--label ${shq(l)}`).join(" ");
+  const labels = [`com.docker.compose.project=${project}`, `com.docker.compose.volume=${v.key}`].map((l) => `--label ${shq(l)}`).join(" ");
   const undo = `if [ -f ${shq(file)} ]; then docker volume create ${labels} ${shq(v.name)} >/dev/null && ${tarIn(v.name)} < ${shq(file)}; else log ${shq(`${file} is gone, nothing to put back`)}; fi`;
   step(`delete ${v.key} of ${site}`);
   runs(`${tarOut(v.name)} > ${file}; docker volume rm ${v.name}`);
@@ -430,8 +428,7 @@ async function deleteVolume(server: Server, site: string, v: Volume) {
     server,
     `${PRELUDE}
 cd ${shq(dir)} && mkdir -p backups
-${tarOut(v.name)} > ${shq(`${file}.part`)} || { rm -f ${shq(`${file}.part`)}; exit 1; }
-mv ${shq(`${file}.part`)} ${shq(file)}
+${backupTo(v.name, shq(file))}
 docker volume rm ${shq(v.name)} >/dev/null
 record ${shq(`delete volume ${v.key} of ${site} (backup ${basename(file)})`)} ${shq(undo)}`,
   );
