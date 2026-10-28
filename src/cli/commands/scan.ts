@@ -38,14 +38,14 @@ export const scanCmd = defineCommand({
   name: "scan",
   args: "[site...]",
   summary:
-    "Scan the images traefik and the sites run for known vulnerabilities (Trivy), and say what fixes them. Changes nothing.\n" +
+    "Scan the images every running container uses (traefik, the sites, and what landfall did not deploy) for known vulnerabilities (Trivy), and say what fixes them. Changes nothing.\n" +
     `Runs ${TRIVY} on the server; the image goes in on stdin, the scanner gets no docker socket. ` +
     `The first scan asks, then downloads its databases (several GB) into the volume ${TRIVY_CACHE}; --remove deletes image and volume again.`,
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "list every vulnerability, not just critical and high" },
     fixable: { type: "boolean", desc: "only those a newer package fixes" },
-    others: { type: "boolean", desc: "also the containers landfall did not deploy (named by compose project or container)" },
+    others: { type: "boolean", desc: "also the containers landfall did not deploy, named by compose project or container (--no-others: only traefik and the sites)", default: true },
     json: { type: "boolean", desc: "machine-readable output" },
     remove: { type: "boolean", desc: "remove Trivy's image and databases from the server instead of scanning" },
   },

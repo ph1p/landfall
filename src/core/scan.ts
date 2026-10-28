@@ -81,7 +81,7 @@ export interface ImageScan {
   vulns: Vuln[];
   /** What to do about them. */
   hint?: string;
-  /** Run by containers landfall did not deploy (lf scan --others). */
+  /** Run by containers landfall did not deploy (left out by lf scan --no-others). */
   other?: boolean;
   error?: string;
 }
