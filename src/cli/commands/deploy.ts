@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
-import { analyze, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { analyze, askable, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { IGNORE_FILE, uploadList, uploadSize } from "../../core/ignore";
@@ -175,11 +175,11 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       if (kind !== "static") {
         const missing = missingVars(wantedVars(root, [compose, layered].filter((f): f is string => !!f)), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
         const fix = (vars: typeof missing) => `deploy with ${vars.map((v) => `-e ${v.name}=…`).join(" ")} (or --dotenv)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${vars[0].name}=…` : ""}`;
-        const named = (vars: typeof missing) => [...new Set(vars.map((v) => v.from))].map((f) => `${vars.filter((v) => v.from === f).map((v) => v.name).join(", ")} (${f})`).join(", ");
+        const named = (vars: typeof missing) => [...Map.groupBy(vars, (v) => v.from)].map(([f, vs]) => `${vs.map((v) => v.name).join(", ")} (${f})`).join(", ");
         const needed = missing.filter((v) => !v.optional);
         if (needed.length && !interactive()) fail(`${name}'s .env on ${serverName} needs ${named(needed)}: ${fix(needed)}`);
         // An example's empty keys are asked for once (an empty answer keeps them asked no more); with -y only said.
-        const asked = missing.filter((v) => !v.optional || (v.example === undefined && interactive()));
+        const asked = missing.filter((v) => askable(v) && (!v.optional || interactive()));
         const set: Record<string, string> = {};
         for (const v of asked) {
           set[v.name] = await askSecret(`${v.name} for ${name}'s .env${v.message ? ` (${v.message})` : ""}${v.optional ? c.dim(" (empty: none)") : ""}:`);

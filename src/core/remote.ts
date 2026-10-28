@@ -26,6 +26,7 @@ import {
   readSiteLine,
   type Release,
   type SiteMeta,
+  ENV_NAME,
 } from "./compose";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
@@ -692,7 +693,7 @@ export function parseEnvPairs(pairs: string[], oneLine = false): Record<string, 
     const i = p.indexOf("=");
     if (i < 1) fail(`invalid env "${p.split("\n")[0]}", expected KEY=VALUE`);
     const key = p.slice(0, i);
-    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) fail(`not a variable name: ${JSON.stringify(key)} (letters, digits, _ . -)`);
+    if (!ENV_NAME.test(key)) fail(`not a variable name: ${JSON.stringify(key)} (letters, digits, _ . -)`);
     if (oneLine && /[\r\n]/.test(p.slice(i + 1))) fail(`${key}: a .env value is one line; put multi-line text (keys, certificates) in a secret: lf secret`);
     out[key] = p.slice(i + 1);
   }
