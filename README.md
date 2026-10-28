@@ -429,6 +429,7 @@ lf sites info                      # services, domains, releases
 lf logs -f                         # follow logs (-n 500 for more lines)
 lf logs blog db                    # one service
 lf rollback                        # previous release (--to <id> for a specific one)
+lf release rm                      # delete all releases but the live one (--keep n, or name ids)
 lf env API_KEY=abc                 # set env (container is recreated); -u KEY removes one
 lf env --dotenv -  < .env.prod      # the same from a file or stdin, values never in ps
 lf env                             # names with values hidden; --reveal shows them, --keys only names, --json
@@ -781,7 +782,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | page | commands |
 |---|---|
 | Overview | `lf server list --check`, recent deploys, `lf config` (defaults, and where landfall puts things) |
-| Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm` |
+| Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm` |
 | Stats | `lf stats` (a new sample every 5s while the tab is open), `lf disk` on request, Clean up… (`lf prune`) |
 | Traffic | `lf traffic --since 1h/24h/7d`, `lf certs`; the Sites tab shows failing requests of the last 24h and `lf check` on each domain |
 | Updates | `lf updates`, `lf update` |
@@ -902,6 +903,7 @@ lf undo -s box -y                           # revert the last run
 | `lf env [name] [K=V...] [--dotenv f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows the site's `.env` (values hidden unless `--reveal`), copies it to a local file, or changes it. A change recreates the services. |
 | `lf secret [name] [K=V...] [--file K=path] [--dotenv f\|-] [-u K] [--json] [--force]` | Lists the site's secret files (names and sizes) or changes them; services read them at `/run/secrets/<K>`. Changing one restarts the services that use it. |
 | `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
+| `lf release rm [name] [id…] [--keep n]` | Deletes old releases and the images built for them: the given ones, else all but the live one (`--keep n` keeps the n newest). The live release always stays. Journaled, not reversible. |
 | `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |
 | `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes and their backups stay unless `--volumes`. |
