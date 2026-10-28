@@ -10,12 +10,13 @@ import { describeTraefik, traefikSettings } from "./traefik";
 import { checkDns, domainDns, facts, suggestDomains, pickIp, serverCaps, serverIps, sslipDomain } from "./facts";
 import { pending, readJournal } from "./journal";
 import { prunePlan } from "./manage";
-import { scanImages } from "./scan";
+import { scanImages, TRIVY_ASK, trivyState, trivyThere } from "./scan";
 import { diskUsage, stats } from "./stats";
 import { securityOf } from "./security";
 import { certs, checkUrl, traffic } from "./traffic";
 import { effectiveSsh, findHostBlock, SSH_CONFIG } from "./sshconfig";
 import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
+import { fail } from "./term";
 import { listUsers } from "./users";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
 
@@ -68,8 +69,11 @@ export async function historyBrief(server: Server, n = 200) {
 }
 
 /** `lf update --json` (list only). */
-/** lf scan --json [--others]: known vulnerabilities in the images it runs. */
-export const scanView = (server: Server, others = false) => scanImages(server, [], others);
+/** lf scan --json [--others]: known vulnerabilities in the images it runs. Only downloads Trivy when asked to install it. */
+export async function scanView(server: Server, others = false, install = false) {
+  if (!install && !trivyThere(await trivyState(server))) fail(`${TRIVY_ASK} Install it first.`);
+  return scanImages(server, [], others);
+}
 
 export async function updatesView(server: Server, refresh = false) {
   const [packages, engine, images] = await Promise.all([pkgStatus(server, refresh), engineStatus(server), imageStatus(server)]);
