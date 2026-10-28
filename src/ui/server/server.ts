@@ -15,7 +15,7 @@ import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } fro
 import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
 import { USER_NAME } from "../../core/users";
-import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyView, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
+import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
 import { c, CliError, openUrl } from "../../core/term";
@@ -197,7 +197,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
     // The same views `--json` prints.
     if (method === "GET" && sub === "firewall") return json(await firewallView(server));
     if (method === "GET" && sub === "config") return json(await configView(name, server));
-    if (method === "GET" && sub === "history") return json(await historyView(server));
+    if (method === "GET" && sub === "history") return json(await historyBrief(server));
     if (method === "GET" && sub === "facts") return json(await factsView(name, server));
     if (method === "GET" && sub === "stats") return json(await statsView(server));
     if (method === "GET" && sub === "disk") return json(await diskView(server));
