@@ -355,7 +355,8 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
   const keeps: string[] | null = re && !p?.domains ? re.domains : null;
   const keeping = (v: Values) => keeps && v.name.trim() === re?.name && v.server === re?.server;
   const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
-  const required = det.kind === "compose" ? (det.required ?? []) : [];
+  // An example's key with a value is only suggested: the CLI says it, the form leaves it out.
+  const required = (det.required ?? []).filter((r) => r.example === undefined);
   // Never deployed from here: the site's .env on the server starts empty.
   const fresh = !re && !p?.server;
   /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
@@ -406,12 +407,12 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
       ...(required.length
         ? [{
             legend: "Environment",
-            note: `Required by ${det.compose}, set in the site's .env on the server (your local .env is not sent).`,
+            note: `What ${[...new Set(required.map((r) => r.from))].join(" and ")} asks for, set in the site's .env on the server (your local .env is not sent).`,
             fields: required.map((r) => ({
               name: `env_${r.name}`, label: r.name, type: "password" as const, mono: true,
               // A new site has no .env yet: compose would refuse to start without it.
-              required: fresh && r.strict ? r.message || `${det.compose} needs ${r.name}` : undefined,
-              hint: [r.message, fresh ? "" : "Empty: keeps the value the server's .env has."].filter(Boolean).join(". "),
+              required: fresh && r.strict ? r.message || `${r.from} needs ${r.name}` : undefined,
+              hint: [r.message, fresh ? (r.optional ? "Optional." : "") : "Empty: keeps the value the server's .env has."].filter(Boolean).join(". "),
               check: (x: string) => /[\r\n]/.test(x) && "One line: put multi-line text in a secret",
             })),
           }]

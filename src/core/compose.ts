@@ -398,22 +398,70 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
   return { services, errors, warnings, notes, ...(auto && { auto: true }) };
 }
 
-/** A variable a compose file cannot do without: docker compose refuses `${NAME:?message}` unset or empty (strict), `${NAME?message}` unset. */
+/**
+ * A variable a project wants in its .env. Compose refuses `${NAME:?message}` unset or empty (strict),
+ * `${NAME?message}` unset; an example .env's keys are wanted too, but the app may do without them (optional).
+ */
 export interface RequiredVar {
   name: string;
+  /** The file that wants it: a compose file or an example .env. */
+  from: string;
   message?: string;
   strict: boolean;
+  optional?: boolean;
+  /** The value an example .env shows: only suggested, never sent as it is. */
+  example?: string;
 }
 
 /** The variables a compose file requires, in order, from its text (comment lines left out). */
-export function requiredVars(text: string): RequiredVar[] {
+export function requiredVars(text: string, from: string): RequiredVar[] {
   const out = new Map<string, RequiredVar>();
   const body = text.replace(/^\s*#.*$/gm, "");
   // `$$` first, so an escaped `$${NAME:?}` is not one.
   for (const [, name, op, message] of body.matchAll(/\$(?:\$|\{(\w+)(:?)\?([^}]*)\})/g)) {
     if (!name) continue;
     const had = out.get(name);
-    out.set(name, { name, message: had?.message ?? (message.trim() || undefined), strict: !!had?.strict || op === ":" });
+    out.set(name, { name, from, message: had?.message ?? (message.trim() || undefined), strict: !!had?.strict || op === ":" });
+  }
+  return [...out.values()];
+}
+
+/** Example .env files, in the order looked for: their keys are what the app reads, in any language. */
+export const EXAMPLE_ENV_FILES = [".env.example", ".env.sample", ".env.template", ".env.dist"];
+
+/**
+ * The keys of an example .env, all optional: one left empty is asked for, one with a value only
+ * suggested. The comment line right above a key is its message.
+ */
+export function exampleVars(text: string, from: string): RequiredVar[] {
+  const out = new Map<string, RequiredVar>();
+  let comment: string | undefined;
+  for (const raw of text.split("\n")) {
+    const l = raw.trim().replace(/^export\s+/, "");
+    const m = l.match(/^([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)$/);
+    if (m && !out.has(m[1])) {
+      const quoted = m[2].match(/^(["'])(.*)\1/);
+      const value = quoted ? quoted[2] : m[2].replace(/(^|\s)#.*$/, "").trim();
+      out.set(m[1], { name: m[1], from, message: comment, strict: false, optional: true, ...(value && { example: value }) });
+    }
+    // A commented-out KEY=value is no message.
+    comment = l.startsWith("#") && !/^#\s*[A-Za-z_][A-Za-z0-9_.-]*\s*=/.test(l) ? l.replace(/^#+\s*/, "") || undefined : undefined;
+  }
+  return [...out.values()];
+}
+
+/**
+ * What a deploy of root wants in the site's .env: what its compose files require, and an example
+ * .env's keys where the .env reaches the app: always for an app, Dockerfile or image (the compose
+ * landfall writes reads it as env_file), for a compose project only if it names an env_file.
+ */
+export function wantedVars(root: string, composeFiles: string[] = []): RequiredVar[] {
+  const out = new Map<string, RequiredVar>();
+  const texts = composeFiles.map((f) => [f, fs.readFileSync(join(root, f), "utf8")]);
+  for (const [f, text] of texts) for (const v of requiredVars(text, f)) if (!out.has(v.name)) out.set(v.name, v);
+  const example = EXAMPLE_ENV_FILES.find((f) => fs.existsSync(join(root, f)));
+  if (example && (!texts.length || texts.some(([, text]) => /^\s*env_file\s*:/m.test(text)))) {
+    for (const v of exampleVars(fs.readFileSync(join(root, example), "utf8"), example)) if (!out.has(v.name)) out.set(v.name, v);
   }
   return [...out.values()];
 }

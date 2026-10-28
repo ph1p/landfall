@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, type ProjectConfig } from "./config";
-import { analyze, COMPOSE_FILES, localCompose, requiredVars, routePlan, type Analysis, type RequiredVar, type SiteKind } from "./compose";
+import { analyze, COMPOSE_FILES, localCompose, routePlan, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 
@@ -159,7 +159,7 @@ export interface Detected {
   node?: boolean;
   /** Compose: its services as a deploy reads them (auto mode without x-landfall), or why the file cannot be read. */
   analysis?: Analysis & { routes: { service: string; port: number; domains: string[]; main?: boolean }[] };
-  /** Compose: the variables its file requires (`${NAME:?…}`), which the site's .env on the server must set. */
+  /** What the site's .env on the server should set: its compose file's `${NAME:?…}`, an example .env's keys (none for static). */
   required?: RequiredVar[];
   /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
@@ -202,14 +202,17 @@ export function detectProject(path: string): Detected {
     const app = detectApp(path, project?.start);
     return detectStack(path, app?.name, app?.tool);
   };
-  if (compose) {
-    let required: RequiredVar[] = [];
+  const wanted = (files?: string[]) => {
     try {
-      required = requiredVars(fs.readFileSync(join(path, compose), "utf8"));
-    } catch {}
-    return { path, name, kind: "compose", compose, analysis: analyzeLocal(path, compose, project), required, project, stack: appStack() };
+      return wantedVars(path, files);
+    } catch {
+      return [];
+    }
+  };
+  if (compose) {
+    return { path, name, kind: "compose", compose, analysis: analyzeLocal(path, compose, project), required: wanted([compose]), project, stack: appStack() };
   }
-  const runs = { volumes: project?.volumes, worker: project?.worker };
+  const runs = { volumes: project?.volumes, worker: project?.worker, required: wanted() };
   if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path) };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {

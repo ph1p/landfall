@@ -10,7 +10,7 @@ import { parse } from "../../src/cli/cmd";
 import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
 import { envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
 import { changes } from "../../src/core/dashboard";
-import { envComposeFile, missingVars, requiredVars } from "../../src/core/compose";
+import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -239,13 +239,45 @@ services:
       KEEP: $\${ESCAPED:?no}
       DEF: \${DEF:-x}
     image: x:\${PW:?again}
-`);
+`, "compose.yaml");
   expect(vars).toEqual([
-    { name: "PW", message: "set PW", strict: true },
-    { name: "OPT", message: undefined, strict: false },
+    { name: "PW", from: "compose.yaml", message: "set PW", strict: true },
+    { name: "OPT", from: "compose.yaml", message: undefined, strict: false },
   ]);
   expect(missingVars(vars, {}).map((v) => v.name)).toEqual(["PW", "OPT"]);
   // Empty counts only for ${NAME?}.
   expect(missingVars(vars, { PW: "", OPT: "" }).map((v) => v.name)).toEqual(["PW"]);
   expect(missingVars(vars, { PW: "s3cret", OPT: "" })).toEqual([]);
+});
+
+test("the variables an example .env lists", () => {
+  const vars = exampleVars(`# Stripe's secret key
+STRIPE_KEY=
+export PORT=3000
+# DEBUG=1
+QUOTED="a # b"
+EMPTY= # left for you
+
+STRIPE_KEY=again
+`, ".env.example");
+  expect(vars).toEqual([
+    { name: "STRIPE_KEY", from: ".env.example", message: "Stripe's secret key", strict: false, optional: true },
+    { name: "PORT", from: ".env.example", message: undefined, strict: false, optional: true, example: "3000" },
+    { name: "QUOTED", from: ".env.example", message: undefined, strict: false, optional: true, example: "a # b" },
+    { name: "EMPTY", from: ".env.example", message: undefined, strict: false, optional: true },
+  ]);
+  // Set once, even empty, it is asked for no more.
+  expect(missingVars(vars, { STRIPE_KEY: "", PORT: "80" }).map((v) => v.name)).toEqual(["QUOTED", "EMPTY"]);
+});
+
+test("what a deploy wants in the .env", () => {
+  const dir = tmp();
+  fs.writeFileSync(join(dir, ".env.sample"), "API_KEY=\nPW=\n");
+  // An app, Dockerfile or image reads the .env: the example counts.
+  expect(wantedVars(dir).map((v) => v.name)).toEqual(["API_KEY", "PW"]);
+  // A compose project only with an env_file; its own requirement wins.
+  fs.writeFileSync(join(dir, "compose.yaml"), "services:\n  a:\n    image: x\n    environment: { PW: ${PW:?set PW} }\n");
+  expect(wantedVars(dir, ["compose.yaml"])).toEqual([{ name: "PW", from: "compose.yaml", message: "set PW", strict: true }]);
+  fs.appendFileSync(join(dir, "compose.yaml"), "    env_file: .env\n");
+  expect(wantedVars(dir, ["compose.yaml"]).map((v) => `${v.name}:${v.from}`)).toEqual(["PW:compose.yaml", "API_KEY:.env.sample"]);
 });
