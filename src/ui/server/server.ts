@@ -142,6 +142,8 @@ function jobEvents(w: WebJob, from: number, signal: AbortSignal): Response {
           ctl.close();
         } catch {}
       };
+      // Gone before the stream started: abort would never fire.
+      if (signal.aborted) return close();
       w.listeners.add(push);
       signal.addEventListener("abort", close);
       push();
