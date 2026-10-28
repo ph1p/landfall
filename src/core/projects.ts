@@ -116,7 +116,8 @@ export function detectStack(path: string, runtime?: string, tool?: string): Tag[
     ...(f.has("tsconfig.json") ? ["TypeScript"] : node && !runtime ? ["JavaScript"] : []),
   ];
   const [, base, detail] = tool?.match(/^(.+?)(?: \((.+)\))?$/) ?? [];
-  const framework = base && (languages.includes(base) ? detail : base);
+  // "Go (Gin)" names Gin; "Java (Maven)" names only a build tool, listed below.
+  const framework = base && (languages.includes(base) ? (TOOLING.some(([t]) => t === detail) ? undefined : detail) : base);
   const tooling = [
     ...(node ? [packageManager(f.has, usesBun(f), f.pkg.packageManager).name] : []),
     ...TOOLING.filter(([, marks]) => marks.some(f.has)).map(([t]) => t),
@@ -194,12 +195,17 @@ export function detectProject(path: string): Detected {
   const project = loadProject(path);
   const name = project?.name ?? slug(basename(path));
   const compose = composeFile(path, project);
-  if (compose) return { path, name, kind: "compose", compose, analysis: analyzeLocal(path, compose, project), project, stack: detectStack(path) };
+  // A compose file or Dockerfile decides how it runs; the app inside still names the framework.
+  const appStack = () => {
+    const app = detectApp(path, project?.start);
+    return detectStack(path, app?.name, app?.tool);
+  };
+  if (compose) return { path, name, kind: "compose", compose, analysis: analyzeLocal(path, compose, project), project, stack: appStack() };
   const runs = { volumes: project?.volumes, worker: project?.worker };
   if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path) };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {
-    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, project, stack: detectStack(path) };
+    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, project, stack: appStack() };
   }
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
