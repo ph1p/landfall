@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import type { Server } from "./config";
+import { loadProject, type Server } from "./config";
 import { parse as parseYaml } from "yaml";
 import {
   builtImage,
@@ -35,6 +35,48 @@ import { fail, readStdin, warn } from "./term";
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
 export const SITE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** Names of the sites on the server (folders with a site.json). */
+export async function siteNames(s: Server): Promise<string[]> {
+  const { stdout } = await runScript(s, `for f in ${SITES}/*/site.json; do [ ! -f "$f" ] || basename "$(dirname "$f")"; done`, { capture: true });
+  return stdout.split("\n").filter(Boolean).sort();
+}
+
+/** Edit distance, for suggesting a site name close to a mistyped one. */
+function distance(a: string, b: string) {
+  let row = [...Array(b.length + 1).keys()];
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+
+/**
+ * The error for a site name the server does not have: its sites, a close name, and the site ./.landfall.json
+ * deploys when that one is there (`here`). argv: the command as typed, to repeat it with the right name.
+ */
+export function noSiteMessage(name: string, host: string, names: string[], here?: string, argv: string[] = []) {
+  const close = names.filter((x) => x !== name && (x.includes(name) || name.includes(x) || distance(x, name) <= (name.length > 3 ? 2 : 1)));
+  // ./.landfall.json counts only for a name typed on the command line, not one from lf ui.
+  const pick = here && here !== name && names.includes(here) && argv.includes(name) ? here : close.length === 1 ? close[0] : undefined;
+  const lines = [`no site ${name} on ${host}. ${names.length ? `Sites: ${names.join(", ")}` : "It has no sites yet (lf deploy)"}`];
+  const again = pick && argv.includes(name) ? `lf ${argv.map((a) => (a === name ? pick : a)).join(" ")}` : "";
+  if (pick && pick === here) lines.push(`this folder deploys as ${pick}${again && `: ${again}`}`);
+  else if (pick) lines.push(`did you mean ${pick}?${again && ` ${again}`}`);
+  return lines.join("\n");
+}
+
+/** Fails with noSiteMessage for `name` on the server. */
+export async function noSite(s: Server, name: string): Promise<never> {
+  const names = await siteNames(s).catch(() => []);
+  let here: string | undefined;
+  try {
+    here = loadProject(process.cwd())?.name;
+  } catch {}
+  return fail(noSiteMessage(name, s.host, names, here, process.argv.slice(2)));
+}
+
 export function validName(name: string) {
   if (!SITE_NAME.test(name)) fail(`invalid site name "${name}" (use lowercase letters, digits, dashes)`);
   return name;
@@ -67,7 +109,7 @@ export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMe
 /** A site that exists and is a Compose project; `deployed` also refuses adopted ones (no releases). */
 export async function requireSite(s: Server, name: string, o: { deployed?: string } = {}): Promise<{ meta: SiteMeta; env: string; proxy: Proxy }> {
   const site = await readSite(s, name);
-  if (!site.meta) fail(`no site "${name}" on ${s.host}. See \`lf sites list\``);
+  if (!site.meta) await noSite(s, name);
   const meta = site.meta!;
   if (isOld(meta)) fail(`${name} was deployed by an older landfall: run \`lf deploy\` in its project once to move it to a Compose project`);
   if (o.deployed && meta.adopted) fail(`${name} is adopted (${meta.adopted}): landfall does not ${o.deployed} it; change its compose files there`);
@@ -588,10 +630,17 @@ export async function composeCmd(s: Server, name: string, args: string, before =
 }
 
 /** Logs of a site's services (or one of them), via its compose project. */
-export const siteLogs = (s: Server, name: string, o: { service?: string; tail?: string; follow?: boolean }) =>
-  sshExec(s, [
-    `cd -P ${shq(siteDir(name) + "/current")} && docker compose logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${o.service ? shq(o.service) : ""}`,
+/** Exit code of a remote command that found no site folder: the caller reports it with noSite. */
+const NO_SITE = 79;
+
+export async function siteLogs(s: Server, name: string, o: { service?: string; tail?: string; follow?: boolean }) {
+  const dir = shq(siteDir(name) + "/current");
+  const code = await sshExec(s, [
+    `{ [ -d ${dir} ] || exit ${NO_SITE}; } && cd -P ${dir} && docker compose logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${o.service ? shq(o.service) : ""}`,
   ]);
+  if (code === NO_SITE) await noSite(s, name);
+  return code;
+}
 
 /** Ends a site's line in the crontab (lf volume backup --schedule): what finds it again. */
 export const cronMark = (site: string) => `# landfall backup ${site}:`;
