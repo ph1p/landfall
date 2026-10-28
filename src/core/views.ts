@@ -63,8 +63,8 @@ export async function historyView(server: Server, n?: number) {
 }
 
 /** `lf update --json` (list only). */
-/** lf scan --json: known vulnerabilities in the images it runs. */
-export const scanView = (server: Server) => scanImages(server);
+/** lf scan --json [--others]: known vulnerabilities in the images it runs. */
+export const scanView = (server: Server, others = false) => scanImages(server, [], others);
 
 export async function updatesView(server: Server, refresh = false) {
   const packages = await pkgStatus(server, refresh);
