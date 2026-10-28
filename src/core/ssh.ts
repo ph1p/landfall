@@ -87,6 +87,11 @@ function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: stri
     });
     let stdout = "";
     let stderr = "";
+    // Decoded as a stream: a UTF-8 character split across two chunks stays whole.
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    // ssh may exit (no login, host down) before it read all its input: that shows in its exit code, not as EPIPE.
+    child.stdin?.on("error", () => {});
     child.stdout?.on("data", (d) => (stdout += d));
     child.stderr?.on("data", (d) => (stderr += d));
     child.on("error", reject);
@@ -131,16 +136,41 @@ export interface ScriptOpts {
  * Run a bash script on the server. The script travels over stdin, variables are
  * prepended as shell-quoted assignments so no value is ever interpolated raw.
  */
+// Parallel first connections race for the ControlMaster socket, and each loser opens a session of its own.
+// So the first call to a server runs alone and the rest wait for it; then they share its connection.
+// ControlPersist=60 closes it after a minute idle, so a server counts as warm a little less than that.
+const warm = new Map<string, { ready: Promise<unknown>; until: number }>();
+const WARM_MS = 50_000;
+
+async function shared<T>(s: Server, run: () => Promise<T>): Promise<T> {
+  const key = `${dest(s)}:${s.port ?? 22}`;
+  const w = warm.get(key);
+  if (w && Date.now() < w.until) {
+    await w.ready;
+    return run().finally(() => (w.until = Math.max(w.until, Date.now() + WARM_MS)));
+  }
+  const ready = run();
+  const entry = { ready: ready.catch(() => {}), until: Infinity };
+  warm.set(key, entry);
+  try {
+    return await ready;
+  } finally {
+    entry.until = Date.now() + WARM_MS;
+  }
+}
+
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
   const env = { LANDFALL_RUN: journal.run, LANDFALL_ACTOR: journal.actor, LANDFALL_CMD: journal.cmd, ...o.env };
   const header = Object.entries(env)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
     .join("\n");
-  const res = await spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-    input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${script}\n`,
-    capture: o.capture,
-  });
+  const res = await shared(s, () =>
+    spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
+      input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${script}\n`,
+      capture: o.capture,
+    }),
+  );
   if (res.code !== 0) {
     const why = res.stderr.trim().split("\n").at(-1);
     fail(`remote command failed on ${s.host} (exit ${res.code})${why ? `: ${why}` : ""}`);
@@ -240,6 +270,7 @@ export async function upload(s: Server, localDir: string, remoteDir: string, lis
   // No -r: the list names every folder and file, and -r would send what it leaves out of a folder.
   const args = ["-lptz", "--from0", "--files-from=-", `--copy-dest=${seed}`, "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
   const rsync = spawn("rsync", args, { stdio: ["pipe", "inherit", "inherit"] });
+  rsync.stdin.on("error", () => {});
   rsync.stdin.end(fileList(list));
   const code = await new Promise<number>((done, reject) => (rsync.on("error", reject), rsync.on("close", (c) => done(c ?? 1))));
   if (code !== 0) throw new Error(`rsync failed (exit ${code})`);
@@ -258,6 +289,7 @@ async function tarUpload(s: Server, localDir: string, remoteDir: string, list: E
     });
     tar.stdin.end(`.\0${fileList(list)}`);
     const ssh = spawn("ssh", [...sshArgs(s), remote], { stdio: ["pipe", "inherit", "inherit"] });
+    ssh.stdin.on("error", () => {});
     tar.stdout.pipe(ssh.stdin);
     tar.on("error", reject);
     ssh.on("error", reject);
@@ -279,6 +311,7 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
   const env = { ...process.env, COPYFILE_DISABLE: "1" };
   const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
   const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], { stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"] });
+  ssh.stdin?.on("error", () => {});
   const done: Promise<number>[] = [exit(ssh)];
   await new Promise<void>((resolve, reject) => {
     ssh.on("error", reject);
@@ -293,6 +326,7 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
     } else {
       const p = spawn(local[0], local.slice(1), { stdio: dir === "up" ? ["ignore", "pipe", "inherit"] : ["pipe", "inherit", "inherit"], env });
       p.on("error", reject);
+      p.stdin?.on("error", () => {});
       if (dir === "up") p.stdout!.pipe(ssh.stdin!);
       else ssh.stdout!.pipe(p.stdin!);
       done.push(exit(p));
