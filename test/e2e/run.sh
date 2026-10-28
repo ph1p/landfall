@@ -30,7 +30,8 @@ needs() {
     environments) echo secrets ;;
     updates | traffic | prune) echo dockerfile ;;
     domains | traefik | remove) echo image ;;
-    undo) echo static dockerfile firewall ;;
+    # main's traefik setup is the later run that keeps undo from reverting setup's traefik.
+    undo) echo static dockerfile main firewall ;;
     ui) echo dockerfile image domains ;;
   esac
 }
@@ -668,7 +669,7 @@ lf undo -y >/dev/null 2>&1 || die "undo redeploy"
 expect site.test / v1
 pass "undo of a redeploy brings the previous release back"
 mkdir -p "$WORK/und/dist" && cd "$WORK/und" && echo '<h1>und</h1>' > dist/index.html
-lf deploy -d und.test -y >/dev/null 2>&1
+lf deploy -d und.test -y >"$WORK/und.log" 2>&1 || { cat "$WORK/und.log"; die "deploy und"; }
 expect und.test / und
 lf undo -y >/dev/null 2>&1 || die "undo new site"
 { ! lf ls | has und && ! docker exec "$NAME" test -e /opt/landfall/sites/und; } || die "undo removes a new site"; pass "undo removes a new site"
