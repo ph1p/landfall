@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { join } from "node:path";
 import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 import { DOMAIN } from "./config";
+import { fail } from "./term";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
 /**
@@ -643,6 +644,93 @@ export function generatedCompose(kind: Exclude<SiteKind, "compose">, o: { port?:
 ${volumes.length ? `    volumes:\n${volumes.map((v) => `      - ${q(`${volumeName(v)}:${v}`)}\n`).join("")}` : ""}${o.port ? `    x-landfall:\n      port: ${o.port}\n` : ""}${
     volumes.length ? `volumes:\n${volumes.map((v) => `  ${q(volumeName(v))}: {}\n`).join("")}` : ""
   }`;
+}
+
+/** A folder in a container: absolute, as `--volume` and `lf volume add` take it. */
+export const CONTAINER_PATH = /^\/[\w.\/-]*\w/;
+
+/** A compose.yaml volume entry ("db:/var/lib/data:ro" or the long syntax): the named volume it mounts (none: a bind mount or anonymous) and where. */
+export function mountOf(item: unknown): { key?: string; path?: string } {
+  if (typeof item === "string") {
+    const [src, dst] = item.split(":");
+    if (dst === undefined) return { path: src };
+    return { key: /^\w[\w.-]*$/.test(src) ? src : undefined, path: dst };
+  }
+  if (!item || typeof item !== "object") return {};
+  const o = item as Record<string, unknown>;
+  return { key: (o.type ?? "volume") === "volume" && typeof o.source === "string" ? o.source : undefined, path: typeof o.target === "string" ? o.target : undefined };
+}
+
+/** The named volumes compose.yaml mounts, per service. */
+export function composeMounts(text: string): { service: string; key: string; path: string }[] {
+  const services = (parseYaml(text)?.services ?? {}) as Record<string, { volumes?: unknown[] } | null>;
+  return Object.entries(services).flatMap(([service, s]) =>
+    (Array.isArray(s?.volumes) ? s.volumes : []).map(mountOf).flatMap((m) => (m.key && m.path ? [{ service, key: m.key, path: m.path }] : [])),
+  );
+}
+
+/**
+ * compose.yaml with a named volume `key` mounted at `path` in `service`, declared under the top-level
+ * volumes too: plain Compose, comments and order kept. The key defaults to the path's last folders (/app/data: app-data).
+ */
+export function addVolumeMount(text: string, service: string, path: string, key = volumeName(path)): { compose: string; key: string } {
+  if (!CONTAINER_PATH.test(path)) fail(`a volume goes on a folder in the container, like /app/data: not ${path}`);
+  if (!/^\w[\w.-]*$/.test(key)) fail(`a volume name takes letters, digits, ., _ and -: not ${key}`);
+  const doc = parseDocument(text);
+  const svc = doc.getIn(["services", service], true);
+  if (!isMap(svc)) {
+    const names = Object.keys((doc.toJS()?.services ?? {}) as object);
+    fail(`no service ${service} in the compose file${names.length ? `: ${names.join(", ")}` : ""}`);
+  }
+  const s = svc as YAMLMap;
+  const at = (p: string) => p.replace(/\/+$/, "");
+  const list = s.get("volumes", true);
+  const taken = isSeq(list) ? list.items.map((i) => mountOf((i as any)?.toJSON?.() ?? i)).find((m) => m.path && at(m.path) === at(path)) : undefined;
+  if (taken) fail(`${service} already has ${taken.key ? `volume ${taken.key}` : "a folder"} at ${path}`);
+  const entry = doc.createNode(`${key}:${path}`);
+  if (isSeq(list)) list.items.push(entry);
+  else {
+    const seq = new YAMLSeq();
+    seq.items.push(entry);
+    s.set("volumes", seq);
+  }
+  const top = doc.get("volumes", true);
+  if (!isMap(top) || !top.has(key)) doc.setIn(["volumes", key], doc.createNode({}, { flow: true }));
+  return { compose: doc.toString(), key };
+}
+
+/**
+ * compose.yaml without the named volume `key`: its mounts (in `service` only, if given) and, once nothing mounts it,
+ * its top-level declaration. Lists and maps left empty go too. The data stays on the server.
+ */
+export function removeVolumeMount(text: string, key: string, service?: string): { compose: string; from: string[] } {
+  const doc = parseDocument(text);
+  const services = doc.get("services", true);
+  const from: string[] = [];
+  let left = false;
+  if (isMap(services))
+    for (const pair of services.items) {
+      const name = String((pair.key as any)?.value ?? pair.key);
+      const list = isMap(pair.value) ? pair.value.get("volumes", true) : undefined;
+      if (!isSeq(list)) continue;
+      const mine = (i: unknown) => mountOf((i as any)?.toJSON?.() ?? i).key === key;
+      if (service && name !== service) {
+        left ||= list.items.some(mine);
+        continue;
+      }
+      const keep = list.items.filter((i) => !mine(i));
+      if (keep.length === list.items.length) continue;
+      from.push(name);
+      if (keep.length) list.items = keep;
+      else (pair.value as YAMLMap).delete("volumes");
+    }
+  if (!from.length) fail(`${service ? `${service} in ` : ""}the compose file mounts no volume ${key}`);
+  const top = doc.get("volumes", true);
+  if (!left && isMap(top)) {
+    top.delete(key);
+    if (!top.items.length) doc.delete("volumes");
+  }
+  return { compose: doc.toString(), from };
 }
 
 export function nginxConf(spa: boolean): string {

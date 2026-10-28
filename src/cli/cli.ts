@@ -45,7 +45,7 @@ import {
 import { hardenCmd, securityCmd } from "./commands/security";
 import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./commands/users";
 import { ui } from "./commands/ui";
-import { volumeBackup, volumeList, volumePull, volumePush, volumeRestore } from "./commands/volume";
+import { volumeAdd, volumeBackup, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
 import { update, updatesList } from "./commands/updates";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 import { exitWithParent } from "../core/job";
@@ -74,6 +74,8 @@ const commands: Command[] = [
   volumePull,
   volumePush,
   volumeRestore,
+  volumeAdd,
+  volumeRemove,
   domains,
   auth,
   open,
@@ -178,6 +180,8 @@ const aliases: Record<string, string> = {
   "volume ls": "volumes",
   "volume list": "volumes",
   "volumes ls": "volumes",
+  "volume remove": "volume rm",
+  "volume delete": "volume rm",
   "server prune": "prune",
   "server reboot": "reboot",
   "server system": "system",
@@ -215,7 +219,7 @@ function help() {
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "secret", "rollback", "restart", "stop", "start", "sites rm"]],
-    ["Volumes", ["volumes", "volume backup", "volume pull", "volume push", "volume restore"]],
+    ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update"]],
     ["History", ["history", "undo"]],

@@ -247,7 +247,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           <Panel title="Services" count={services.length}>
             {services.length ? <ul className={LIST}>{svcRows}</ul> : <p className="m-0 px-3 py-2.5 dim">none running</p>}
           </Panel>
-          {!old && <SiteVolumes n={n} name={name} dir={proj?.path} />}
+          {!old && <SiteVolumes n={n} name={name} dir={proj?.path} edit={deploys && proj.kind !== "static" ? { path: proj.path, kind: proj.kind, environment: proj.environment, services: services.map((x) => x.service) } : undefined} />}
           {m.releases.length > 0 && (
             <Panel title="Releases" count={m.releases.length}>
               <ul className={LIST}>
@@ -333,17 +333,43 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   );
 }
 
+/** The project folder this machine deploys the site from: where lf volume add/rm edit its compose.yaml or .landfall.json. */
+interface VolumeEdit { path: string; kind: string; environment?: string; services: string[] }
+
 /** The site's Docker volumes and their backups (lf volumes), read when the row opens. */
-function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }) {
+function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: string; edit?: VolumeEdit }) {
   const [d, setD] = useState<Volumes | null>(null);
   const [err, setErr] = useState("");
   const load = () =>
     http<Volumes>(`/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}`).then((x) => (setD(x), setErr("")), (e) => setErr(errorMessage(e)));
   useEffect(() => void load(), [n, name]);
   const box = (body: ReactNode, aside?: ReactNode) => <Panel title="Volumes" count={d?.volumes.length || undefined} aside={aside}>{body}</Panel>;
-  if (err) return box(<p className="m-0 px-3 py-2.5 text-bad">{err}</p>);
-  if (!d) return box(<p className="m-0 px-3 py-2.5 faint">reading its volumes…</p>);
-  if (!d.volumes.length) return box(<p className="m-0 px-3 py-2.5 dim">none</p>);
+  const compose = edit?.kind === "compose";
+  const env = edit?.environment ? ["-E", edit.environment] : [];
+  const where = compose ? "compose.yaml" : ".landfall.json";
+  // Edits the project folder, then (if asked) redeploys from it so the server follows; then reads the volumes again.
+  const then = (deploy: boolean, next?: () => void) =>
+    ifOk(() => (deploy && edit ? run(["deploy", "-y", ...sv(n), ...env], { server: n, cwd: edit.path, after: ifOk(next ?? load) }) : (next ?? load)()));
+  const add = edit && (() =>
+    dialog({
+      title: `Keep a folder of ${name}`,
+      text: `A named volume keeps a folder of the container across deploys and rollbacks. It goes into ${where} in ${tilde(edit.path)}, plain ${compose ? "Compose" : "landfall settings"}; a redeploy applies it.`,
+      fields: [
+        ...(compose && edit.services.length > 1 ? [{ name: "service", type: "select" as const, label: "Service", value: edit.services[0], options: edit.services.map((x) => ({ value: x, label: x })) }] : []),
+        { name: "path", label: "Folder in the container", placeholder: "/app/data", mono: true, required: true, check: (x) => (/^\/[\w.\/-]*\w/.test(String(x)) ? undefined : "An absolute folder, like /app/data") },
+        ...(compose ? [{ name: "as", label: "Volume name", placeholder: "from the folder: /app/data is app-data", mono: true, check: (x: unknown) => (!x || /^\w[\w.-]*$/.test(String(x)) ? undefined : "Letters, digits, ., _ and -") }] : []),
+        { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
+      ],
+      ok: "Add volume",
+      onOk: (v) => {
+        const spec = compose && v.service ? `${v.service}:${v.path}` : String(v.path);
+        run(["volume", "add", spec, ...(v.as ? ["--as", String(v.as)] : []), ...env], { server: n, cwd: edit.path, after: then(!!v.deploy) });
+      },
+    }));
+  const addBtn = add && <Btn cls="sm ghost" title={`Keep a folder of the container across deploys (lf volume add, in ${tilde(edit!.path)})`} on={add}>Add…</Btn>;
+  if (err) return box(<p className="m-0 px-3 py-2.5 text-bad">{err}</p>, addBtn);
+  if (!d) return box(<p className="m-0 px-3 py-2.5 faint">reading its volumes…</p>, addBtn);
+  if (!d.volumes.length) return box(<p className="m-0 px-3 py-2.5 dim">none{add && ": Add… keeps a folder, like uploads or a database, across deploys"}</p>, addBtn);
   // A backup belongs to the volume its name starts with: content-20261027-181500.tar.gz.
   const own = (key: string) => d.backups.filter((b) => b.file.startsWith(`${key}-`) && /^\d{8}-\d{6}/.test(b.file.slice(key.length + 1)));
   const restore = (key: string, list: Volumes["backups"]) =>
@@ -385,11 +411,39 @@ function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }
       ok: "Save",
       onOk: (v) => run(["volume", "backup", name, "--schedule", v.every, ...(v.every === "off" ? [] : ["--keep", v.keep]), ...sv(n)], { after: ifOk(load) }),
     });
+  // Unmount from the project; the data stays unless asked, and goes only once the redeploy freed it.
+  const remove = (v: Volumes["volumes"][number]) =>
+    dialog({
+      title: `Remove ${v.key} from ${name}?`,
+      text: `Takes its mounts out of ${where} in ${tilde(edit!.path)}; a redeploy applies it. Its data stays on the server, listed as unused, unless you delete it too.`,
+      fields: [
+        { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
+        { name: "data", type: "check", label: "Then delete its data on the server", value: false, off: (x) => !x.deploy, hint: "Backed up to the site's backups folder first: lf undo brings it back." },
+      ],
+      ok: "Remove",
+      danger: true,
+      onOk: (x) =>
+        run(["volume", "rm", v.key, ...env], {
+          server: n,
+          cwd: edit!.path,
+          after: then(!!x.deploy, x.deploy && x.data ? () => run(["volume", "rm", name, v.key, "--data", ...sv(n), "-y", ...env], { server: n, cwd: edit!.path, after: ifOk(load) }) : undefined),
+        }),
+    });
+  // No container mounts it: left over from a removed mount or an old release.
+  const drop = (v: Volumes["volumes"][number]) =>
+    confirmDlg({
+      title: `Delete volume ${v.key} of ${name}?`,
+      text: "No container uses it. Its contents are saved to the site's backups folder first; lf undo brings the volume back.",
+      ok: "Delete",
+      danger: true,
+      onOk: () => run(["volume", "rm", name, v.key, "--data", ...sv(n), "-y"], { after: ifOk(load) }),
+    });
   // Scheduled backups cover every volume: they sit in the box's title.
   const timer = (
     <>
       <span className="faint text-sm">{d.schedule ? `backups ${d.schedule}` : "no scheduled backups"}</span>
       <Btn cls="sm ghost" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
+      {addBtn}
     </>
   );
   return box(
@@ -402,6 +456,7 @@ function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <b>{v.key}</b>
                 {v.empty ? <span className="text-warn text-sm" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>empty</span> : v.size !== undefined && <span className="dim text-sm">{size(v.size)}</span>}
+                {!v.mounts.length && <span className="text-warn text-sm" title={`No container mounts it: Delete… removes it (lf volume rm ${name} ${v.key} --data)`}>unused</span>}
                 <span className="faint text-sm">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
               </div>
               {v.mounts.length > 0 && <div className="faint text-sm mono truncate">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" · ")}</div>}
@@ -418,6 +473,9 @@ function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }
                   baks.length > 0 && { label: "Restore…", hint: "lf volume restore", title: "Replace its contents with a backup", run: () => restore(v.key, baks) },
                   !v.empty && { label: "Push…", hint: "lf volume push", title: "Replace its contents with a folder from this machine", run: () => push(v) },
                   !v.empty && { label: "Pull…", hint: "lf volume pull", title: "Unpack it into a folder on this machine", run: () => pull(v) },
+                  "-",
+                  edit && v.mounts.length > 0 && { label: "Remove…", hint: "lf volume rm", title: `Unmount it in ${where}, optionally delete its data`, cls: "danger", run: () => remove(v) },
+                  !v.mounts.length && { label: "Delete…", hint: "lf volume rm --data", title: "Delete the unused volume (backed up first)", cls: "danger", run: () => drop(v) },
                 ]}
               />
             </span>
