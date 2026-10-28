@@ -23,7 +23,10 @@ export function effectiveSsh(s: Server): EffectiveSsh {
   const args = [...targetArgs(s), "-G", dest(s)];
   // Forgotten when ~/.ssh/config changes: a long-running lf ui sees the edit.
   const stamp = fs.statSync(SSH_CONFIG, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-  if (stamp !== resolvedAt) resolved.clear(), (resolvedAt = stamp);
+  if (stamp !== resolvedAt) {
+    resolved.clear();
+    resolvedAt = stamp;
+  }
   const key = args.join("\0");
   const cached = resolved.get(key);
   if (cached) return cached;
@@ -51,7 +54,7 @@ export function sshAliases(file = SSH_CONFIG, seen = new Set<string>()): string[
   if (seen.has(file) || !fs.existsSync(file)) return [];
   seen.add(file);
   const out: string[] = [];
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+  for (const line of readConfig(file).split("\n")) {
     const m = line.trim().match(/^(\w+)\s*=?\s*(.+)$/);
     if (!m) continue;
     const [, key, value] = m;
@@ -77,7 +80,10 @@ function glob(pattern: string): string[] {
 
 const markers = (alias: string) => [`# >>> landfall:${alias}`, `# <<< landfall:${alias}`] as const;
 /** A managed block. */
-const blockRe = (alias: string, trail: string) => new RegExp(`# >>> landfall:${escapeRe(alias)}\\r?\\n[\\s\\S]*?# <<< landfall:${escapeRe(alias)}${trail}`);
+// A config saved with Windows line endings reads, and is written back, as \n lines: ssh takes both.
+const readConfig = (file: string) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+
+const blockRe = (alias: string, trail: string) => new RegExp(`# >>> landfall:${escapeRe(alias)}\\n[\\s\\S]*?# <<< landfall:${escapeRe(alias)}${trail}`);
 const isStart = (line: string | undefined, alias: string) => line === `# >>> landfall:${alias}`;
 
 export interface HostBlock {
@@ -109,10 +115,10 @@ export function renderHostBlock(b: HostBlock): string {
  */
 export function upsertHostBlock(b: HostBlock, file = SSH_CONFIG): { created: boolean; block: string } {
   const created = !fs.existsSync(file);
-  const current = created ? "" : fs.readFileSync(file, "utf8");
+  const current = created ? "" : readConfig(file);
   checkAlias(b.alias);
   const block = renderHostBlock(b);
-  const re = blockRe(b.alias, "\\r?\\n?");
+  const re = blockRe(b.alias, "\\n?");
   const next = re.test(current) ? current.replace(re, () => block + "\n") : `${block}\n\n${current}`;
   fs.mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
   writeAtomic(file, next, 0o600);
@@ -133,7 +139,7 @@ export interface FoundBlock {
 export function findHostBlock(alias: string, file = SSH_CONFIG, seen = new Set<string>()): FoundBlock | undefined {
   if (seen.has(file) || !fs.existsSync(file)) return undefined;
   seen.add(file);
-  const lines = fs.readFileSync(file, "utf8").split("\n");
+  const lines = readConfig(file).split("\n");
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].trim().match(/^(\w+)\s*=?\s*(.+)$/);
     if (!m) continue;
@@ -173,7 +179,7 @@ export interface KeyEdit {
 export function setIdentityFile(alias: string, key: string): KeyEdit | undefined {
   const b = findHostBlock(alias);
   if (!b) return undefined;
-  const lines = fs.readFileSync(b.file, "utf8").split("\n");
+  const lines = readConfig(b.file).split("\n");
   const block = lines.slice(b.start + 1, b.end);
   const ident = (l: string) => l.trim().match(/^identityfile\s*=?\s*(.+)$/i)?.[1].replace(/^"(.*)"$/, "$1");
   const removed = block.filter((l) => {
@@ -194,14 +200,14 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
 
 export function removeHostBlock(alias: string, file = SSH_CONFIG): boolean {
   if (!fs.existsSync(file)) return false;
-  const current = fs.readFileSync(file, "utf8");
-  const re = blockRe(alias, "[\\r\\n]*");
+  const current = readConfig(file);
+  const re = blockRe(alias, "\\n*");
   if (!re.test(current)) return false;
   writeAtomic(file, current.replace(re, ""));
   return true;
 }
 
 export const hasManagedBlock = (alias: string, file = SSH_CONFIG) =>
-  fs.existsSync(file) && fs.readFileSync(file, "utf8").split("\n").some((l) => isStart(l, alias));
+  fs.existsSync(file) && readConfig(file).split("\n").some((l) => isStart(l, alias));
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
