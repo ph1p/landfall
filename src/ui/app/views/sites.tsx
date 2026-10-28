@@ -182,7 +182,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
     ) : <span className="dim">none running</span>,
   ]);
   pairs.push([`On ${n}`, <SiteFiles m={m} state={state} />]);
-  if (!old) pairs.push(["Volumes", <SiteVolumes n={n} name={name} />]);
+  if (!old) pairs.push(["Volumes", <SiteVolumes n={n} name={name} dir={proj?.path} />]);
   if (!m.adopted)
     pairs.push([
       "Source",
@@ -283,7 +283,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
 }
 
 /** The site's Docker volumes and their backups (lf volumes), read when the row opens. */
-function SiteVolumes({ n, name }: { n: string; name: string }) {
+function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }) {
   const [d, setD] = useState<Volumes | null>(null);
   const [err, setErr] = useState("");
   const load = () =>
@@ -302,6 +302,25 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
       ok: "Restore",
       danger: true,
       onOk: (v) => run(["volume", "restore", name, key, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
+    });
+  // The UI runs lf from its own folder: suggest absolute paths, next to the project when this machine deploys it.
+  const near = (x: string) => (dir ? `${dir.replace(/\/$/, "")}/${x}` : `~/${x}`);
+  const push = (v: Volumes["volumes"][number]) =>
+    dialog({
+      title: `Push into ${v.key} of ${name}?`,
+      text: "Replaces its contents with a folder or .tar.gz from this machine; the services using it stop meanwhile. The current contents are backed up first: lf undo puts them back.",
+      fields: [{ name: "path", label: "Folder or .tar.gz", value: near(v.key), mono: true, hint: `lf volume push ${name} ${v.key} <path>` }],
+      ok: "Push",
+      danger: true,
+      onOk: (x) => run(["volume", "push", name, v.key, x.path, ...sv(n), "-y"], { after: ifOk(load) }),
+    });
+  const pull = (v: Volumes["volumes"][number]) =>
+    dialog({
+      title: `Pull ${v.key} of ${name}`,
+      text: "Unpacks its contents into a folder on this machine; the services keep running. Files already there with the same names are overwritten.",
+      fields: [{ name: "into", label: "Into folder", value: near(v.key), mono: true, hint: `lf volume pull ${name} ${v.key} --into <folder>` }],
+      ok: "Pull",
+      onOk: (x) => run(["volume", "pull", name, v.key, "--into", x.into, ...sv(n)]),
     });
   const schedule = () =>
     dialog({
@@ -322,11 +341,13 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
           return (
             <li key={v.name} className="flex flex-wrap items-center gap-2 py-[3px]">
               <b>{v.key}</b>
-              {v.size !== undefined && <span className="dim">{size(v.size)}</span>}
+              {v.empty ? <span className="text-warn" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>empty</span> : v.size !== undefined && <span className="dim">{size(v.size)}</span>}
               {v.mounts.length > 0 && <span className="faint mono">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" ")}</span>}
               <span className="faint">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
               <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>
               {baks.length > 0 && <Btn cls="sm" title={`Replace its contents with a backup (lf volume restore ${name} ${v.key})`} on={() => restore(v.key, baks)}>Restore…</Btn>}
+              <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>Push…</Btn>
+              {!v.empty && <Btn cls="sm" title={`Unpack it into a folder on this machine (lf volume pull ${name} ${v.key} --into)`} on={() => pull(v)}>Pull…</Btn>}
             </li>
           );
         })}
@@ -335,7 +356,6 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
         <span className={d.schedule ? "" : "faint"}>scheduled backups: {d.schedule ?? "none"}</span>
         <Btn cls="sm" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
       </div>
-      <div className="faint">to or from this machine: <span className="mono">lf volume pull {name}</span> · <span className="mono">lf volume push {name} &lt;folder&gt;</span></div>
     </>
   );
 }

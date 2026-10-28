@@ -480,7 +480,11 @@ lf volume restore content          # replace it with its newest backup (or name 
   `lf setup` installs).
 - Backups made by hand are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with
   the volumes and removes the schedule; `lf sites rm --volumes` deletes both.
-- In `lf ui`, an opened site lists its volumes with **Back up** and **Restore…** (the same commands).
+- After a deploy, an empty volume whose name matches a local folder the upload left out (`.landfallignore`,
+  e.g. `./content` for the volume `content`) gets an offer to push that folder into it; without a terminal,
+  `lf deploy` prints the `lf volume push` command instead. Paths may start with `~`.
+- In `lf ui`, an opened site lists its volumes (marking empty ones) with **Back up**, **Restore…**, **Push…** and
+  **Pull…** (the same commands; push and pull take a path on the machine running `lf ui`).
 - Nothing here is landfall-specific. Each command prints the `docker` line it runs; by hand it is
   `docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz` and back
   `docker run --rm -i -v blog_content:/v alpine:3 sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v' < content.tar.gz`.

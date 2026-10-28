@@ -1,13 +1,14 @@
 import fs from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, loadProject, type Server } from "../../core/config";
+import { checkInt, expandHome, loadProject, type Server } from "../../core/config";
 import { projectName } from "../../core/compose";
 import { bytes } from "../../core/facts";
 import { cronMark, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
 import { PRELUDE } from "../../core/templates";
-import { ago, c, confirm, fail, info, ok, step, table, warn } from "../../core/term";
+import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
+import type { Entry } from "../../core/ignore";
 import { HELPER, backupName, backupsOf, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
@@ -186,11 +187,12 @@ Reads the live volume (read-only, the services keep running), or one of its back
     }
     runs(remote);
     if (o.into) {
-      fs.mkdirSync(o.into, { recursive: true });
-      await sshPipe(server, remote, ["tar", "-xzf", "-", "-C", resolve(o.into)], "down");
+      const into = expandHome(o.into);
+      fs.mkdirSync(into, { recursive: true });
+      await sshPipe(server, remote, ["tar", "-xzf", "-", "-C", resolve(into)], "down");
       return ok(`${v.key} of ${site} unpacked into ${o.into}`);
     }
-    const file = o.output ?? `${site}-${backupName(v.key)}`;
+    const file = expandHome(o.output ?? `${site}-${backupName(v.key)}`);
     if (fs.existsSync(file) && !(await confirm(`${file} exists. Overwrite it?`, false))) fail(`${file} exists: pick another file with -o`);
     await sshPipe(server, remote, { file }, "down");
     ok(`${v.key} of ${site} saved to ${file} (${bytes(fs.statSync(file).size)})`);
@@ -233,7 +235,8 @@ Files get the owner of the volume's root folder.`,
   options: { server: serverOpt },
   async run(pos, o) {
     if (pos.length < 2) fail("lf volume push [name] <volume> <folder|file.tar.gz>");
-    const src = pos.at(-1)!;
+    // ~ too: the UI passes the path as typed, with no shell to expand it.
+    const src = expandHome(pos.at(-1)!);
     const { site, server, rest, found } = await locate(pos.slice(0, -1), 1, o.server);
     if (!rest[0]) fail("which volume? lf volume push [name] <volume> <folder|file.tar.gz>");
     const v = pickVolume(found.volumes, rest[0], site);
@@ -241,20 +244,51 @@ Files get the owner of the volume's root folder.`,
     const folder = fs.statSync(src).isDirectory();
     if (!folder && !/\.(tar\.gz|tgz)$/.test(src)) fail(`${src}: pass a folder or a .tar.gz`);
     if (!(await confirm(`Replace the contents of ${v.key} of ${site} with ${src}?${stops(v)}`, false))) fail("cancelled");
-    const upload = `${siteDir(site)}/backups/.upload-${journal.run}.tar.gz`;
-    step(`upload ${src}`);
-    await runScript(server, `mkdir -p ${shq(`${siteDir(site)}/backups`)}`);
-    const local = folder ? ["tar", ...(await bsdtarFlags()), "-czf", "-", "-C", src, "."] : { file: src };
-    try {
-      await sshPipe(server, `cat > ${shq(upload)}`, local, "up");
-      step(`replace ${v.key} of ${site}`);
-      await replace(server, site, v, upload, { own: true, verb: "push", what: `push ${v.key} of ${site}` });
-    } finally {
-      await runScript(server, `rm -f ${shq(upload)}`).catch(() => {});
-    }
-    ok(`${v.key} of ${site} replaced with ${src}`);
+    await pushVolume(server, site, v, src, folder);
   },
 });
+
+/** Upload a folder or .tar.gz and replace the volume's contents with it (backed up first, lf undo). */
+async function pushVolume(server: Server, site: string, v: Volume, src: string, folder: boolean) {
+  const upload = `${siteDir(site)}/backups/.upload-${journal.run}.tar.gz`;
+  step(`upload ${src}`);
+  await runScript(server, `mkdir -p ${shq(`${siteDir(site)}/backups`)}`);
+  const local = folder ? ["tar", ...(await bsdtarFlags()), "-czf", "-", "-C", src, "."] : { file: src };
+  try {
+    await sshPipe(server, `cat > ${shq(upload)}`, local, "up");
+    step(`replace ${v.key} of ${site}`);
+    await replace(server, site, v, upload, { own: true, verb: "push", what: `push ${v.key} of ${site}` });
+  } finally {
+    await runScript(server, `rm -f ${shq(upload)}`).catch(() => {});
+  }
+  ok(`${v.key} of ${site} replaced with ${src}`);
+}
+
+/**
+ * Folders of dir named like a volume that the upload left out (.landfallignore): likely what the volume
+ * should hold, as deploys never touch volume data. Data folders only: not dot folders or node_modules.
+ */
+export function seedFolders(dir: string, uploaded: Entry[]): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith(".") && d.name !== "node_modules")
+    .map((d) => d.name)
+    .filter((f) => !uploaded.some((e) => !e.dir && e.path.startsWith(`${f}/`)) && fs.readdirSync(join(dir, f)).length > 0)
+    .sort();
+}
+
+/** After a deploy: offer to fill each empty volume from its local folder, else say how. */
+export async function offerSeed(server: Server, site: string, dir: string, uploaded: Entry[]) {
+  const folders = seedFolders(dir, uploaded);
+  if (!folders.length) return;
+  const found = await volumes(server, site, false, true);
+  for (const v of found.volumes.filter((x) => x.empty && folders.includes(x.key))) {
+    const src = `./${relative(process.cwd(), join(dir, v.key)).split(sep).join("/")}`;
+    const cmd = `lf volume push ${site} ${v.key} ${src}`;
+    if (interactive() && (await confirm(`Volume ${v.key} is empty, and ${src} is left out of the upload. Fill the volume with it?${stops(v)}`, true))) await pushVolume(server, site, v, src, true);
+    else info(`volume ${v.key} is empty; ${src} was not uploaded: fill it with ${c.cyan(cmd)}`);
+  }
+}
 
 export const volumeRestore = defineCommand({
   name: "volume restore",

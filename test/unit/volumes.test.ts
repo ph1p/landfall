@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/core/volumes";
 import { shq } from "../../src/core/ssh";
+import { seedFolders } from "../../src/cli/commands/volume";
 
 describe("volumes", () => {
   test("parseVolumes joins volumes, mounts, sizes and backups", () => {
@@ -27,6 +28,22 @@ describe("volumes", () => {
     expect(backups[0].file).toBe("content-20261028-090000-before-push.tar.gz");
     expect(backupsOf(backups, "content")).toHaveLength(2);
     expect(backupsOf(backups, "cont")).toHaveLength(0);
+  });
+
+  test("parseVolumes marks the empty volumes", () => {
+    const { volumes } = parseVolumes(["vol\tblog_content\tcontent", "vol\tblog_db\tdb", "empty\tblog_content", "empty\tnope"].join("\n"));
+    expect(volumes.map((v) => [v.key, !!v.empty])).toEqual([["content", true], ["db", false]]);
+  });
+
+  test("seedFolders: data folders the upload left out, not dot folders, node_modules or empty ones", () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), "lf-seed-"));
+    for (const f of ["content/a.md", "uploads/x.png", "src/index.ts", ".cache/x", "node_modules/m/i.js"]) {
+      fs.mkdirSync(join(dir, f, ".."), { recursive: true });
+      fs.writeFileSync(join(dir, f), "x");
+    }
+    fs.mkdirSync(join(dir, "empty"));
+    const uploaded = [{ path: "src", dir: true, size: 0 }, { path: "src/index.ts", dir: false, size: 1 }, { path: "uploads", dir: true, size: 0 }, { path: "uploads/x.png", dir: false, size: 1 }];
+    expect(seedFolders(dir, uploaded)).toEqual(["content"]);
   });
 
   test("pickVolume by compose name or docker name; asks when there are several", () => {
