@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from "../lib/store";
+import { slug } from "../../../core/slug";
 import type { Browse, Detected, Redeploy, Remembered, SavedServer } from "../lib/types";
 import { go, load, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
@@ -202,7 +203,7 @@ export function autoDomain(n: string, name: string) {
   const suffix = S.facts[n]?.data?.sslipSuffix;
   return suffix ? `${name}.${suffix}` : "";
 }
-const slugify = (s: string) => s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
+const slugify = (s: string) => slug(s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, ""));
 
 /** What landfall found in a folder and how it deploys it. */
 const ROLE: Record<string, string> = { language: "Language", framework: "Framework", tooling: "Package manager or build tool" };

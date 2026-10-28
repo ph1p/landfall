@@ -102,6 +102,12 @@ export interface SiteMeta {
 
 /** site.json written by landfall before sites were Compose projects. */
 export const isOld = (meta: { v?: number }) => meta.v !== 2;
+/** Parsed site.json that has what landfall reads from it; an older layout only needs to be an object. */
+export function isSiteMeta(x: unknown): x is SiteMeta {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+  const m = x as Record<string, unknown>;
+  return isOld(m) || (typeof m.name === "string" && Array.isArray(m.releases) && (m.domains === undefined || Array.isArray(m.domains)));
+}
 
 export const projectName = (meta: SiteMeta) => meta.project ?? meta.name;
 
@@ -149,7 +155,8 @@ export const SITE_LINES = `for f in ${SITES}/*/site.json; do [ -f "$f" ] || cont
 export function readSiteLine(line: string): SiteMeta | undefined {
   if (!line.startsWith("SITE\t")) return undefined;
   try {
-    return JSON.parse(line.slice("SITE\t".length));
+    const meta = JSON.parse(line.slice("SITE\t".length));
+    return isSiteMeta(meta) ? meta : undefined;
   } catch {
     return undefined;
   }
