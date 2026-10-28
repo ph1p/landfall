@@ -176,7 +176,22 @@ export async function requireCap(s: Server, cap: Cap, what: string): Promise<Fac
 
 /** capabilities(), trying root's key login (as adminLogin does) only when the login itself has no sudo. */
 export async function serverCaps(s: Server, f: Facts): Promise<Caps> {
-  return capabilities(f, !f.admin && !!(await rootLogin(s)));
+  return capabilities(f, !f.admin && (await canRoot(s)));
+}
+
+// Each try is an unmultiplexed ssh handshake, and the web UI asks on every facts load: remembered a while.
+const ROOT_TTL = 10 * 60_000;
+const rootSeen = new Map<string, { at: number; ok: Promise<boolean> }>();
+function canRoot(s: Server): Promise<boolean> {
+  const key = JSON.stringify([s.host, s.port, s.user, s.admin, s.key]);
+  const hit = rootSeen.get(key);
+  if (hit && Date.now() - hit.at < ROOT_TTL) return hit.ok;
+  const ok = rootLogin(s).then(
+    (r) => !!r,
+    (e) => (rootSeen.delete(key), Promise.reject(e)),
+  );
+  rootSeen.set(key, { at: Date.now(), ok });
+  return ok;
 }
 
 /**

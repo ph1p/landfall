@@ -16,11 +16,16 @@ export interface EffectiveSsh {
 }
 
 const resolved = new Map<string, EffectiveSsh>();
+let resolvedAt = 0;
 
 /** Effective ssh settings for a server, as `ssh -G` resolves them (aliases, Include, Match...). */
 export function effectiveSsh(s: Server): EffectiveSsh {
   const args = [...targetArgs(s), "-G", dest(s)];
-  const cached = resolved.get(args.join("\0"));
+  // Forgotten when ~/.ssh/config changes: a long-running lf ui sees the edit.
+  const stamp = fs.statSync(SSH_CONFIG, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  if (stamp !== resolvedAt) resolved.clear(), (resolvedAt = stamp);
+  const key = args.join("\0");
+  const cached = resolved.get(key);
   if (cached) return cached;
   let out: string;
   try {
@@ -31,7 +36,7 @@ export function effectiveSsh(s: Server): EffectiveSsh {
   const get = (k: string) => out.match(new RegExp(`^${k} (.+)$`, "m"))?.[1] ?? "";
   const identityFiles = [...out.matchAll(/^identityfile (.+)$/gm)].map((m) => expandHome(m[1]));
   const r = { hostname: get("hostname"), user: get("user"), port: Number(get("port") || 22), identityFiles };
-  resolved.set(args.join("\0"), r);
+  resolved.set(key, r);
   return r;
 }
 
