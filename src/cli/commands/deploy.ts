@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
-import { analyze, currentRelease, envComposeFile, missingVars, requiredVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { analyze, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { IGNORE_FILE, uploadList, uploadSize } from "../../core/ignore";
@@ -170,20 +170,24 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         if (o.dotenv) env = mergeEnv(env, await readEnvFile(o.dotenv));
         if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env, true));
       }
-      // What the compose file requires (${NAME:?}): asked for here, or said before the upload rather than by compose after it.
-      if (compose) {
-        const vars = [compose, layered].flatMap((f) => (f ? requiredVars(fs.readFileSync(join(root, f), "utf8")) : []));
-        const missing = missingVars(vars.filter((v, i) => vars.findIndex((u) => u.name === v.name) === i), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
-        if (missing.length && !interactive()) {
-          const names = missing.map((v) => v.name).join(", ");
-          fail(`${compose} needs ${names} in ${name}'s .env on ${serverName}: deploy with ${missing.map((v) => `-e ${v.name}=…`).join(" ")} (or --dotenv)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${missing[0].name}=…` : ""}`);
-        }
+      // What the project wants in its .env (compose's ${NAME:?}, an example .env's keys): asked for here,
+      // or said before the upload rather than by compose or the app after it. A static site has no .env.
+      if (kind !== "static") {
+        const missing = missingVars(wantedVars(root, [compose, layered].filter((f): f is string => !!f)), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
+        const fix = (vars: typeof missing) => `deploy with ${vars.map((v) => `-e ${v.name}=…`).join(" ")} (or --dotenv)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${vars[0].name}=…` : ""}`;
+        const named = (vars: typeof missing) => [...new Set(vars.map((v) => v.from))].map((f) => `${vars.filter((v) => v.from === f).map((v) => v.name).join(", ")} (${f})`).join(", ");
+        const needed = missing.filter((v) => !v.optional);
+        if (needed.length && !interactive()) fail(`${name}'s .env on ${serverName} needs ${named(needed)}: ${fix(needed)}`);
+        // An example's empty keys are asked for once (an empty answer keeps them asked no more); with -y only said.
+        const asked = missing.filter((v) => !v.optional || (v.example === undefined && interactive()));
         const set: Record<string, string> = {};
-        for (const v of missing) {
-          set[v.name] = await askSecret(`${v.name} for ${name}'s .env${v.message ? ` (${v.message})` : ""}:`);
-          if (v.strict && !set[v.name]) fail(`${compose} needs a value for ${v.name}`);
+        for (const v of asked) {
+          set[v.name] = await askSecret(`${v.name} for ${name}'s .env${v.message ? ` (${v.message})` : ""}${v.optional ? c.dim(" (empty: none)") : ""}:`);
+          if (v.strict && !set[v.name]) fail(`${v.from} needs a value for ${v.name}`);
         }
-        if (missing.length) env = mergeEnv(env ?? prevEnv ?? "", set);
+        if (asked.length) env = mergeEnv(env ?? prevEnv ?? "", set);
+        const unset = missing.filter((v) => !asked.includes(v));
+        if (unset.length) info(c.dim(`not in ${name}'s .env: ${named(unset)}; ${fix(unset)}`));
       }
       // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
       if (app?.note && (app.secret ? !parseEnvPairs(dotenvLines(env ?? prevEnv ?? ""))[app.secret] : !prev)) warn(app.note);

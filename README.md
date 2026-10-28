@@ -169,7 +169,9 @@ The first deploy writes `.landfall.json`. Commit it:
 Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
 `-e`/`--dotenv`, or later with `lf env`. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`. Its old name `--env-file` still works, but not on Node 26, which takes that flag for itself.
 A variable `compose.yaml` requires (`${ADMIN_PASSWORD:?…}`) that the site's `.env` lacks is asked for before the
-upload (with `-y` the deploy stops there), and `lf ui` shows a field for each in its deploy dialog.
+upload (with `-y` the deploy stops there), and `lf ui` shows a field for each in its deploy dialog. The keys of a
+`.env.example` (or `.env.sample`, `.env.template`, `.env.dist`) count too, for every kind but static and for a Compose
+project with an `env_file`: an empty one is asked for (Enter leaves it empty), one with a value is only listed, never sent.
 `lf env` hides the values unless you pass `--reveal`, and so does the **Edit** dialog in `lf ui` until you click
 **Show values**. The `.env` itself stays a plain file next to `compose.yaml`, so `docker compose` reads it without landfall.
 
