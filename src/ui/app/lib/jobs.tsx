@@ -9,7 +9,7 @@ import { Check, Loader, SlidersHorizontal, Square, X } from "lucide-react";
 
 // ---- jobs ----------------------------------------------------------------
 
-export interface JobInfo { id: string; argv: string[]; server?: string; code?: number | null; undoable?: boolean; report?: Report }
+export interface JobInfo { id: string; argv: string[]; server?: string; code?: number | null; report?: Report }
 export interface JobAction { label: string; run: () => void; cls?: string }
 export interface Job {
   info: JobInfo;
@@ -94,7 +94,7 @@ function finished(j: Job) {
       run: () => confirmDlg({ title: "Override the safety check?", text: why, ok: "Run with --force", danger: true, onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }) }),
     });
   }
-  if (info.undoable && info.server && info.code !== null) {
+  if (rep(j).undoable && info.server && info.code !== null) {
     const server = info.server;
     j.actions.push({
       label: "Undo this",
