@@ -25,7 +25,6 @@ interface WebJob {
   argv: string[];
   server?: string;
   startedAt: string;
-  /** Leaves something in the journal worth offering to undo. */
   job: Job;
   listeners: Set<() => void>;
   /** As started, for a retry with --force: the page only sees the argv with passwords masked. */
