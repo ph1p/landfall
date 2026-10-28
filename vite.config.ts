@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 
 // The lf ui page: built next to the CLI bundle (dist/ui), which serves it.
 export default defineConfig({
-  root: fileURLToPath(new URL("src/web/app", import.meta.url)),
+  root: fileURLToPath(new URL("src/ui/app", import.meta.url)),
   base: "/",
   plugins: [react(), tailwindcss()],
   build: {

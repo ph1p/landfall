@@ -3,12 +3,12 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { portScheme, routerPort } from "../../src/tunnel";
-import { htpasswd, traefikSettings } from "../../src/traefik";
-import { parse } from "../../src/cmd";
-import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/remote";
-import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/templates";
-import { adoptCompose, analyze, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/compose";
+import { portScheme, routerPort } from "../../src/core/tunnel";
+import { htpasswd, traefikSettings } from "../../src/core/traefik";
+import { parse } from "../../src/cli/cmd";
+import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/remote";
+import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/templates";
+import { adoptCompose, analyze, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));

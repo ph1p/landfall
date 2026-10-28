@@ -3,14 +3,14 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { nextReleaseId, releaseId } from "../../src/commands/deploy";
-import { detectStaticDir, slug } from "../../src/projects";
-import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/ignore";
-import { parse } from "../../src/cmd";
-import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/config";
-import { envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/remote";
-import { changes } from "../../src/dashboard";
-import { envComposeFile } from "../../src/compose";
+import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
+import { detectStaticDir, slug } from "../../src/core/projects";
+import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
+import { parse } from "../../src/cli/cmd";
+import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
+import { envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
+import { changes } from "../../src/core/dashboard";
+import { envComposeFile } from "../../src/core/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -146,8 +146,8 @@ describe("externals", () => {
 
 describe("release source", () => {
   test("the commit, branch and uncommitted changes of a git checkout", async () => {
-    const { gitSource } = await import("../../src/commands/deploy");
-    const { gitLabel } = await import("../../src/compose");
+    const { gitSource } = await import("../../src/cli/commands/deploy");
+    const { gitLabel } = await import("../../src/core/compose");
     const dir = fs.mkdtempSync(join(tmpdir(), "lf-git-"));
     expect(gitSource(dir)).toBeUndefined();
     const git = (...a: string[]) => spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", ...a]);
@@ -166,7 +166,7 @@ describe("release source", () => {
 
 describe("ago", () => {
   test("says how long ago, then the date", async () => {
-    const { ago } = await import("../../src/ago");
+    const { ago } = await import("../../src/core/ago");
     const now = Date.parse("2026-03-01T12:00:00Z");
     expect(ago("2026-03-01T11:59:30Z", now)).toBe("just now");
     expect(ago("2026-03-01T11:15:00Z", now)).toBe("45m ago");

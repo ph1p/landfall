@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { planDeploy } from "../../src/commands/deploy";
+import { planDeploy } from "../../src/cli/commands/deploy";
 
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
