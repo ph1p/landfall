@@ -8,6 +8,9 @@ const self = (): string[] => [process.execPath, ...process.execArgv, process.arg
 /** `--dashboard-password` → `LANDFALL_SECRET_DASHBOARD_PASSWORD`. */
 export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase().replace(/-/g, "_")}`;
 
+/** Set in a job whose .env lines come on stdin: as `--env-file -` node 26 would read the flag itself and exit. */
+export const ENV_STDIN = "LANDFALL_ENV_STDIN";
+
 /** Commands whose KEY=value arguments are .env values. */
 export const isEnvCmd = (argv: string[]) => argv[0] === "env" || argv[0] === "secret" || (argv[0] === "sites" && argv[1] === "env");
 // Secret names may hold dots and dashes too.
@@ -15,7 +18,7 @@ export const ENV_PAIR = /^[A-Za-z0-9_][A-Za-z0-9_.-]*=/;
 
 /**
  * Move passwords and .env values off the job's command line, where `ps` would show them:
- * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs and deploy's `-e` as a dotenv on stdin.
+ * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs and deploy's `-e` as a dotenv on stdin (ENV_STDIN).
  */
 export function secretsOut(argv: string[]) {
   const args: string[] = [];
@@ -32,7 +35,7 @@ export function secretsOut(argv: string[]) {
       pairs.push(argv[++i]);
     } else args.push(a);
   }
-  if (pairs.length) args.push("--env-file", "-");
+  if (pairs.length) env[ENV_STDIN] = "1";
   return { args, env, stdin: pairs.length ? pairs.join("\n") + "\n" : undefined };
 }
 

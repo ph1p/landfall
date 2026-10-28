@@ -87,12 +87,12 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   return w;
 }
 
-/** The command as the page shows it: passwords given as flags, and `lf env` values, are masked. */
+/** The command as the page shows it: passwords given as flags, `lf env` and deploy `-e` values, are masked. */
 const shown = (argv: string[]) =>
   argv.map((a, i) =>
     /^(-p|--([\w-]+-)?password)$/.test(argv[i - 1])
       ? "***"
-      : isEnvCmd(argv) && ENV_PAIR.test(a)
+      : (isEnvCmd(argv) || (argv[0] === "deploy" && /^(-e|--env)$/.test(argv[i - 1]))) && ENV_PAIR.test(a)
         ? a.replace(/=.*/s, "=***")
         : a.replace(/^(--([\w-]+-)?password=).*/, "$1***"),
   );
