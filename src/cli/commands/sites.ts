@@ -3,7 +3,7 @@ import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/config";
 import { COMPOSE_FILES, currentRelease, gitLabel, isOld, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../../core/compose";
 import { bytes } from "../../core/facts";
-import { adoptSite, changeSite, composeCmd, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSecrets, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
+import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, parseEnvPairs, readEnvFile, readSecrets, readSite, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, table } from "../../core/term";
 import { slug } from "../../core/projects";
@@ -64,7 +64,7 @@ export const sitesInfo = defineCommand({
     const { site, server } = target(n, o.server);
     // One round trip: the overview has the site's meta and its containers.
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
-    if (!st) fail(`no site "${site}" on ${server.host}. See \`lf sites list\``);
+    if (!st) await noSite(server, site);
     const meta = st!.meta;
     console.log(`${c.bold(meta.name)}  ${st!.kind}  ${paintStatus(st!.status)}`);
     for (const d of st!.domains) console.log(`  ${c.cyan("https://" + d)}`);
@@ -188,7 +188,7 @@ data; --volumes deletes them too. An adopted site is stopped and forgotten; its 
     const { site, server, name } = target(n, o.server);
     // Not requireSite: sites of an older landfall can go too.
     const { meta } = await readSite(server, site);
-    if (!meta) fail(`no site "${site}" on ${name}. See \`lf sites list\``);
+    if (!meta) await noSite(server, site);
     const m = meta!;
     const domains = siteDomains(m).join(", ") || "no domains";
     const data = o.volumes ? " and its volumes (all its data)" : "";
@@ -378,7 +378,9 @@ async function foreignTunnel(server: Server, name: string, svc: string | undefin
     (await findContainer(server, [...project, "label=traefik.enable=true"])) ??
     (await findContainer(server, project)) ??
     (svc ? undefined : await findContainer(server, [`name=^/?${name}$`]));
-  if (!ctr) fail(`no site, Compose project or container "${name}"${svc ? ` with a service ${svc}` : ""} running on ${server.host}. See \`lf sites list\``);
+  // Not a Compose project or container either: most likely a mistyped site.
+  if (!ctr && !(await findContainer(server, [`label=com.docker.compose.project=${name}`]))) await noSite(server, name);
+  if (!ctr) fail(`${name} on ${server.host} has no running container${svc ? ` for ${svc}` : ""}`);
   const service = ctr!.labels["com.docker.compose.service"];
   await tunnelTo(server, ctr!, network, o.port, { local: o.local, lan: o.lan, what: `${name}${service && service !== name ? ` (${service})` : ""}` });
 }

@@ -421,6 +421,12 @@ got=$(curl -s http://127.0.0.1:18098/ || true); kill $TUNNEL_PID 2>/dev/null || 
 [ "$got" = ops ] || { cat "$WORK/tunnel.log"; die "lf tunnel <site> <private service>"; }
 pass "lf tunnel priv ops opens the private port of a service with no routed one"
 lf sites rm priv -y >/dev/null 2>&1
+# A site the server does not have: a landfall error naming its sites, never a raw cd error.
+out=$(lf logs prvi -n 5 2>&1) && die "logs of a missing site fails"
+{ has "no site prvi" <<<"$out" && has "did you mean priv? lf logs priv -n 5" <<<"$out" && ! has "No such file" <<<"$out"; } || { echo "$out"; die "logs of a missing site"; }
+out=$(lf tunnel prvi admin 2>&1) && die "tunnel to a missing site fails"
+has "no site prvi" <<<"$out" || { echo "$out"; die "tunnel to a missing site"; }
+pass "a missing site names the server's sites and the close one"
 cd "$WORK"
 fi
 
