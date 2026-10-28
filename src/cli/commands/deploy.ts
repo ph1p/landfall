@@ -105,6 +105,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
     dotenv: { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin; also --env-file, not on node 26)" },
+    "fill-volumes": { type: "boolean", desc: "fill each empty volume from the project's folder named like it that the upload leaves out" },
     "local-env": { type: "boolean", desc: "what the project asks for and the site's .env lacks: take it from the project's local .env" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
     "build-local": { type: "boolean", desc: "build the images on this machine (with Docker) and send them, not on the server" },
@@ -361,7 +362,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       for (const d of all) console.log(`  ${c.cyan(`https://${d}`)}`);
       if (all[0]) report({ url: `https://${all[0]}` });
       if (all[0]) await checkLive(all[0]);
-      if (files !== undefined) await offerSeed(server, name, dir, list).catch((e) => warn(`volumes of ${name}: ${e?.message ?? e}`));
+      if (files !== undefined) await offerSeed(server, name, dir, list, !!o["fill-volumes"]).catch((e) => warn(`volumes of ${name}: ${e?.message ?? e}`));
     } finally {
       await lock.unlock().catch((e) => warn(`could not unlock ${name}: ${e?.message ?? e}`));
     }

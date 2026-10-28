@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, type ProjectConfig } from "./config";
-import { analyze, COMPOSE_FILES, localCompose, routePlan, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
+import { analyze, COMPOSE_FILES, localCompose, routePlan, volumeName, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
+import { seedFolders, uploadList } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 import { localEnv } from "./remote";
@@ -167,6 +168,8 @@ export interface Detected {
   /** What the site's .env on the server should set: its compose file's `${NAME:?…}`, an example .env's keys (none for static).
    * local: the project's own .env has a value for it, which `deploy --local-env` takes. */
   required?: (RequiredVar & { local?: boolean })[];
+  /** Named volumes a folder of the project named like them could fill: it has files, and the upload leaves it out. */
+  seeds?: string[];
   /** Its .landfall.json, when it was deployed before. */
   project?: ProjectConfig;
   /** Its languages, framework and tools, for the chips that show what landfall found. */
@@ -210,6 +213,22 @@ function analyzeLocal(path: string, file: string, project?: ProjectConfig): Dete
   }
 }
 
+/** Of the volumes names, those a non-empty folder of path named alike fills (seedFolders); it walks the upload only for such a folder. */
+function seedsOf(path: string, names: string[], exclude?: string[], gitignore?: boolean): string[] | undefined {
+  const near = names.filter((n) => fs.statSync(join(path, n), { throwIfNoEntry: false })?.isDirectory());
+  if (!near.length) return;
+  try {
+    const found = seedFolders(path, uploadList(path, { exclude, gitignore })).filter((f) => near.includes(f));
+    return found.length ? found : undefined;
+  } catch {
+    return;
+  }
+}
+
+/** A compose file's named volumes, from the services' short syntax as analyzeLocal keeps it (name:/path). */
+const namedVolumes = (a: Detected["analysis"]) =>
+  [...new Set(Object.values(a?.about ?? {}).flatMap((s) => (s.volumes ?? []).filter((v) => v.includes(":")).map((v) => v.split(":")[0])))].filter((v) => /^\w[\w.-]*$/.test(v));
+
 export function detectProject(path: string): Detected {
   const project = loadProject(path);
   const name = project?.name ?? slug(basename(path));
@@ -228,13 +247,15 @@ export function detectProject(path: string): Detected {
     }
   };
   if (compose) {
-    return { path, name, kind: "compose", compose, analysis: analyzeLocal(path, compose, project), required: wanted([compose]), project, stack: appStack() };
+    const analysis = analyzeLocal(path, compose, project);
+    return { path, name, kind: "compose", compose, analysis, required: wanted([compose]), seeds: seedsOf(path, namedVolumes(analysis), undefined, project?.gitignore), project, stack: appStack() };
   }
   const runs = { volumes: project?.volumes, worker: project?.worker, required: wanted() };
   if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path) };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {
-    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, project, stack: appStack() };
+    const seeds = seedsOf(path, (project?.volumes ?? []).map(volumeName), undefined, project?.gitignore);
+    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, seeds, project, stack: appStack() };
   }
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
@@ -244,7 +265,9 @@ export function detectProject(path: string): Detected {
   if (app) {
     const { name: runtime, tool, start, fix, note: hint } = app;
     const note = fix ?? hint;
-    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, ...runs, volumes: project?.volumes ?? app.volumes, project, stack: detectStack(path, runtime, tool) };
+    const volumes = project?.volumes ?? app.volumes;
+    const seeds = seedsOf(path, (volumes ?? []).map(volumeName), app.ignore, project?.gitignore);
+    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, ...runs, volumes, seeds, project, stack: detectStack(path, runtime, tool) };
   }
   const tool = !project?.dir || project.dir === b.dir ? b.tool : undefined;
   return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool, project, stack: detectStack(path, undefined, tool) };
