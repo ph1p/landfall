@@ -57,6 +57,12 @@ describe("folders and access", () => {
     fs.rmSync(join(n, ".env"));
     fs.writeFileSync(join(n, "compose.yaml"), "services:\n  web:\n    build: .\n    volumes: [data:/data]\n  db: { image: postgres }\n");
     expect(detectProject(n).analysis?.about).toEqual({ web: { build: ".", volumes: ["data:/data"] }, db: { image: "postgres", volumes: [] } });
+    // a folder named like the volume fills it only when the upload leaves it out, and it has files
+    fs.mkdirSync(join(n, "data"));
+    fs.writeFileSync(join(n, "data", "a.txt"), "x");
+    expect(detectProject(n).seeds).toBeUndefined();
+    fs.writeFileSync(join(n, ".landfallignore"), "/data/\n");
+    expect(detectProject(n).seeds).toEqual(["data"]);
   });
   test("the publish folder comes from the site generator, before its first build", () => {
     const d = tmp();

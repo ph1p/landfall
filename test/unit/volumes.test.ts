@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/core/volumes";
 import { shq } from "../../src/core/ssh";
-import { seedFolders } from "../../src/cli/commands/volume";
+import { seedFolders } from "../../src/core/ignore";
 
 describe("volumes", () => {
   test("parseVolumes joins volumes, mounts, sizes and backups", () => {

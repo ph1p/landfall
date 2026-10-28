@@ -127,3 +127,16 @@ export function uploadSize(list: Entry[], top = 3) {
   const largest = [...by].sort((a, b) => b[1] - a[1]).slice(0, top).filter(([, n]) => n > 0);
   return { total, files, largest };
 }
+
+/**
+ * Folders of dir named like a volume that the upload left out (.landfallignore): likely what the volume
+ * should hold, as deploys never touch volume data. Data folders only: not dot folders or node_modules.
+ */
+export function seedFolders(dir: string, uploaded: Entry[]): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith(".") && d.name !== "node_modules")
+    .map((d) => d.name)
+    .filter((f) => !uploaded.some((e) => !e.dir && e.path.startsWith(`${f}/`)) && fs.readdirSync(join(dir, f)).length > 0)
+    .sort();
+}

@@ -345,6 +345,17 @@ srv sh -c 'ls /opt/landfall/sites/vols/backups/data-*.tar.gz' >/dev/null && ! sr
 lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'newest'; } || die "a site deployed again finds its backups"
 lf sites rm vols --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vols || die "rm --volumes deletes the backups"
 pass "sites rm keeps backups with the volumes, --volumes deletes both"
+# A folder left out of the upload, named like an empty volume, fills it with --fill-volumes; one with data stays.
+mkdir -p "$WORK/fill/data" && cd "$WORK/fill" && echo one > data/hi && echo /data/ > .landfallignore
+printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
+lf deploy -n fill --no-domain -y >"$WORK/fill.log" 2>&1 && has -- "--fill-volumes" "$WORK/fill.log" || { cat "$WORK/fill.log"; die "deploy says how to fill"; }
+fill() { srv docker run --rm -v fill_data:/v busybox:1.37 cat /v/hi 2>/dev/null || true; }
+[ -z "$(fill)" ] || die "no fill without --fill-volumes"
+lf deploy -n fill --no-domain --fill-volumes -y >"$WORK/fill.log" 2>&1 && [ "$(fill)" = one ] || { cat "$WORK/fill.log"; die "deploy --fill-volumes"; }
+echo two > data/hi
+lf deploy -n fill --no-domain --fill-volumes -y >/dev/null 2>&1 && [ "$(fill)" = one ] || die "--fill-volumes leaves a volume with data alone"
+lf sites rm fill --volumes -y >/dev/null 2>&1
+pass "deploy --fill-volumes fills an empty volume from its left-out folder, only while empty"
 # A port published on the server is refused before anything changes.
 mkdir -p "$WORK/leaky" && cd "$WORK/leaky"
 printf 'services:\n  db:\n    image: busybox:1.37\n    command: sleep 3600\n    ports: ["5433:5432"]\n  web:\n    image: traefik/whoami:v1.11\n    x-landfall: { port: 80 }\n' > compose.yaml
