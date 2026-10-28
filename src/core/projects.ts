@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, type ProjectConfig } from "./config";
+import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, tildify, writeAtomic, type ProjectConfig } from "./config";
 import { analyze, COMPOSE_FILES, localCompose, routePlan, STATIC_IMAGE, volumeName, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
 import { seedFolders, uploadList } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 import { localEnv } from "./remote";
 import { slug } from "./slug";
+import { warn } from "./term";
 
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
@@ -332,26 +333,39 @@ export interface Remembered {
 
 const PROJECTS = join(configDir, "projects.json");
 
-export function loadProjects(): Remembered[] {
+export const loadProjects = (): Remembered[] => readProjects() ?? [];
+
+/** Undefined when the file is there but not readable: writing over it would lose the list. */
+function readProjects(): Remembered[] | undefined {
+  if (!fs.existsSync(PROJECTS)) return [];
   try {
-    return (JSON.parse(fs.readFileSync(PROJECTS, "utf8")) as Remembered[]).filter((p) => fs.existsSync(p.path));
+    const list = JSON.parse(fs.readFileSync(PROJECTS, "utf8"));
+    return Array.isArray(list) ? (list as Remembered[]).filter((p) => fs.existsSync(p.path)) : undefined;
   } catch {
-    return [];
+    return undefined;
   }
 }
+
+function saveProjects(list: Remembered[]) {
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  writeAtomic(PROJECTS, JSON.stringify(list, null, 2) + "\n", 0o600);
+}
+
+const unreadable = () => warn(`${tildify(PROJECTS)} is not readable JSON: left as it is (fix or delete it)`);
 
 /** Most recent first; one entry per folder. */
 export function rememberProject(p: Omit<Remembered, "at">) {
   const path = resolve(p.path);
   // One entry per folder and environment: staging and production deploy from the same folder.
-  const list = [{ ...p, path, at: new Date().toISOString() }, ...loadProjects().filter((x) => x.path !== path || (x.environment ?? "") !== (p.environment ?? ""))].slice(0, 50);
-  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
+  const known = readProjects();
+  if (!known) return unreadable();
+  saveProjects([{ ...p, path, at: new Date().toISOString() }, ...known.filter((x) => x.path !== path || (x.environment ?? "") !== (p.environment ?? ""))].slice(0, 50));
 }
 
 /** Keep remembered projects and their .landfall.json in step after a site's domains changed on the server. */
 export function updateProjectDomains(server: string, name: string, domains: string[]) {
-  const list = loadProjects();
+  const list = readProjects();
+  if (!list) return unreadable();
   for (const p of list.filter((p) => p.server === server && p.name === name)) {
     p.domains = domains;
     const env = environmentOf(p.path, name);
@@ -362,5 +376,5 @@ export function updateProjectDomains(server: string, name: string, domains: stri
     } catch {}
     if (cfg?.name === name) saveProject(p.path, { ...cfg, domains }, env);
   }
-  if (list.length) fs.writeFileSync(PROJECTS, JSON.stringify(list, null, 2) + "\n", { mode: 0o600 });
+  if (list.length) saveProjects(list);
 }

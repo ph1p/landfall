@@ -45,6 +45,16 @@ describe("ssh config", () => {
     expect(fs.readFileSync(f, "utf8").match(/landfall:vps/g)?.length).toBe(2);
   });
 
+  test("a symlinked config stays a link", () => {
+    const d = tmp();
+    const f = join(d, "config");
+    fs.writeFileSync(join(d, "real"), "Host mine\n");
+    fs.symlinkSync(join(d, "real"), f);
+    upsertHostBlock({ alias: "vps", hostname: "5.6.7.8", user: "deploy", port: 22, key: "/k" }, f);
+    expect(fs.lstatSync(f).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(join(d, "real"), "utf8")).toContain("Host vps");
+  });
+
   test("non-default port rendered", () => {
     expect(renderHostBlock({ alias: "x", hostname: "h", user: "u", port: 2222, key: "/k" })).toContain("Port 2222");
   });
