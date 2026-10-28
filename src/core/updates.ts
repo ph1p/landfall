@@ -304,6 +304,8 @@ export interface ImageStatus {
   /** Where its compose file is (`cd -P` it); empty for a foreign proxy. */
   dir: string;
   ref: string;
+  /** The image the container runs (sha256:…); empty without a container. */
+  id?: string;
   /** update: the registry has a newer image for the tag. */
   state: "current" | "update" | "unknown" | "pinned" | "rebuild" | "foreign" | "missing";
   note?: string;
@@ -321,7 +323,7 @@ img() { # img <kind> <name> <container> <dir> [service]
   read -r ref id <<EOF
 $x
 EOF
-  printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$svc" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)"
+  printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$svc" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)" "$id"
 }
 if [ "$P" = traefik ] && grep -q "managed by landfall" ${TRAEFIK_DIR}/docker-compose.yml 2>/dev/null; then img traefik traefik traefik ${TRAEFIK_DIR}
 else img proxy "$P" "$P" ""; fi
@@ -354,8 +356,8 @@ export async function imageStatus(s: Server): Promise<ImageStatus[]> {
     return t && withTag(ref, t);
   };
   return Promise.all(
-    rows.map(async ([, kind, name, ctr, dir, service = "", ref = "", local = ""]): Promise<ImageStatus> => {
-      const base = { name, container: ctr, dir, ref, service: service || undefined };
+    rows.map(async ([, kind, name, ctr, dir, service = "", ref = "", local = "", id = ""]): Promise<ImageStatus> => {
+      const base = { name, container: ctr, dir, ref, service: service || undefined, ...(id && { id }) };
       // Built on the server: landfall's override tags it per release (builtImage).
       if (kind === "site" && service && ref.startsWith(builtImage(name, service, ""))) return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
       if (!ref) return { ...base, kind: kind as ImageStatus["kind"], state: "missing", note: "no container" };

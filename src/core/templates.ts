@@ -96,6 +96,9 @@ apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/cr
 `;
 
 /** Shared shell helpers prepended to every remote script. */
+/** Any image with sh, tar, find and chown does; landfall needs nothing of its own on the server. */
+export const HELPER = "alpine:3";
+
 export const PRELUDE = String.raw`
 # useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.
 PATH="$PATH:/usr/sbin:/sbin"

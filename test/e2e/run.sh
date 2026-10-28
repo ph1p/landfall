@@ -301,7 +301,7 @@ lf deploy --local-env -y >"$WORK/local.log" 2>&1 || { cat "$WORK/local.log"; die
 rm .env; pass "deploy --local-env takes what the project asks for from the local .env, nothing else"
 for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
 [ "$(psql "select x from t")" = 42 ] || die "a site deployed again finds its data"
-lf sites rm stack --volumes -y >/dev/null 2>&1
+lf sites rm stack --volumes -y >"$WORK/rmv.log" 2>&1 || { cat "$WORK/rmv.log"; die "sites rm --volumes"; }
 { ! srv docker volume ls -q | has -x stack_db; } || die "rm --volumes deletes it"
 pass "sites rm keeps volumes, --volumes deletes them"
 fi
@@ -356,6 +356,21 @@ echo two > data/hi
 lf deploy -n fill --no-domain --fill-volumes -y >/dev/null 2>&1 && [ "$(fill)" = one ] || die "--fill-volumes leaves a volume with data alone"
 lf sites rm fill --volumes -y >/dev/null 2>&1
 pass "deploy --fill-volumes fills an empty volume from its left-out folder, only while empty"
+# Volumes live in the site's folder; one Docker keeps elsewhere (deployed before that) moves in, data and all.
+mkdir -p "$WORK/vdir" && cd "$WORK/vdir"
+printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
+vd=/opt/landfall/sites/vdir/volumes/data
+srv sh -c 'docker volume create vdir_data >/dev/null && docker run --rm -v vdir_data:/v busybox:1.37 sh -c "echo old > /v/hi"' || die "an old volume"
+lf deploy -n vdir --no-domain -y >"$WORK/vdir.log" 2>&1 && has "moving volume data" "$WORK/vdir.log" || { cat "$WORK/vdir.log"; die "deploy moves the volume into the folder"; }
+[ "$(srv cat $vd/hi)" = old ] && [ "$(srv docker volume inspect -f '{{index .Options "device"}}' vdir_data)" = $vd ] || die "the volume lives in the site's folder"
+srv docker exec vdir-app-1 sh -c 'echo new > /data/hi' && [ "$(srv cat $vd/hi)" = new ] || die "the container writes into the folder"
+lf deploy -n vdir --no-domain -y >"$WORK/vdir.log" 2>&1 && ! has "moving volume" "$WORK/vdir.log" && [ "$(srv cat $vd/hi)" = new ] || { cat "$WORK/vdir.log"; die "a redeploy keeps it"; }
+lf volumes vdir | has "/opt/landfall/sites/vdir/volumes" || die "lf volumes names the folder"
+lf rollback vdir -y >/dev/null 2>&1 && lf undo -s box -y >/dev/null 2>&1 && [ "$(srv docker exec vdir-app-1 cat /data/hi)" = new ] || die "rollback and undo keep the folder's volume"
+lf sites rm vdir -y >/dev/null 2>&1 && [ "$(srv cat $vd/hi)" = new ] && ! srv test -e /opt/landfall/sites/vdir/site.json || die "sites rm keeps the folder's volume"
+lf deploy -n vdir --no-domain -y >/dev/null 2>&1 && [ "$(srv docker exec vdir-app-1 cat /data/hi)" = new ] || die "a site deployed again finds its volume"
+lf sites rm vdir --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vdir && ! { srv docker volume ls -q | has -x vdir_data; } || die "sites rm --volumes deletes the folder"
+pass "volumes live in the site's folder: an older one moves in, rollback, undo and rm keep it"
 # A port published on the server is refused before anything changes.
 mkdir -p "$WORK/leaky" && cd "$WORK/leaky"
 printf 'services:\n  db:\n    image: busybox:1.37\n    command: sleep 3600\n    ports: ["5433:5432"]\n  web:\n    image: traefik/whoami:v1.11\n    x-landfall: { port: 80 }\n' > compose.yaml
