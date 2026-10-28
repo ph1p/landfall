@@ -15,15 +15,15 @@ const IMG: Record<string, [string, string]> = { current: ["ok", "up to date"], u
 const SEV: [Severity, string, string][] = [["CRITICAL", "bad", "critical"], ["HIGH", "warn", "high"], ["MEDIUM", "", "medium"], ["LOW", "", "low"]];
 // Images whose vulnerabilities are listed.
 const shownScans = new Set<string>();
-// Servers whose scan includes the containers landfall did not deploy.
-const scanOthers = new Set<string>();
+// Servers whose scan leaves out the containers landfall did not deploy.
+const onlyOurs = new Set<string>();
 // What Trivy keeps on each server, once asked; servers being asked.
 const trivy = new Map<string, TrivyState>();
 const asking = new Set<string>();
 const loadTrivy = (n: string) => http<TrivyState>(`/api/servers/${encodeURIComponent(n)}/trivy`).then((t) => (trivy.set(n, t), render(), t));
 // Shown as scanning at once: a scan takes a minute or more, and the click must answer now.
 const scan = (n: string, install = false) => {
-  const q = [scanOthers.has(n) && "others=1", install && "install=1"].filter(Boolean).join("&");
+  const q = [onlyOurs.has(n) && "others=0", install && "install=1"].filter(Boolean).join("&");
   void fetchInto("scan", n, "/scan" + (q && "?" + q)).then(() => void (install && loadTrivy(n).catch(() => {})));
   render();
 };
@@ -71,11 +71,11 @@ function ScanCard({ n }: { n: string }) {
   return (
     <Card>
       <CardHead>
-        Vulnerabilities <Sub className={HIDE}>Trivy, in the images {scanOthers.has(n) ? "every container runs" : "traefik and the sites run"}</Sub>
+        Vulnerabilities <Sub className={HIDE}>Trivy, in the images {onlyOurs.has(n) ? "traefik and the sites run" : "every container runs"}</Sub>
         <Actions>
           {st.data && (
-            <label className="dim text-sm flex items-center gap-1.5" title="lf scan --others: also the images of containers landfall did not deploy">
-              <input type="checkbox" checked={scanOthers.has(n)} disabled={st.loading} onChange={(e) => (e.target.checked ? scanOthers.add(n) : scanOthers.delete(n), void scan(n), render())} />
+            <label className="dim text-sm flex items-center gap-1.5" title="lf scan --no-others leaves them out: only the images of traefik and the sites">
+              <input type="checkbox" checked={!onlyOurs.has(n)} disabled={st.loading} onChange={(e) => (e.target.checked ? onlyOurs.delete(n) : onlyOurs.add(n), void scan(n), render())} />
               Other containers too
             </label>
           )}
