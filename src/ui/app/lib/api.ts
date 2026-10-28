@@ -22,8 +22,20 @@ export function route() {
 export type Tab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "users" | "system" | "history" | "settings";
 export const STORE: Record<Tab, StoreName> = { sites: "overview", tunnels: "overview", stats: "stats", traffic: "traffic", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", users: "users", system: "system", history: "history", settings: "settings" };
 const URLS: Record<Tab, string> = { sites: "", tunnels: "", stats: "/stats", traffic: "/traffic", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", users: "/users", system: "/system", history: "/history", settings: "/config" };
-// A server's sections, in the list and as tabs on phones; keys 1-9 switch between them.
-export const SECTIONS: [Tab, string][] = [["sites", "Sites"], ["tunnels", "Tunnels"], ["stats", "Stats"], ["traffic", "Traffic"], ["traefik", "Traefik"], ["updates", "Updates"], ["firewall", "Firewall"], ["users", "Users"], ["system", "System"], ["history", "History"], ["settings", "Settings"]];
+// A server's sections and the group each sits in, in the list and as tabs on phones; keys 1-9 switch between them.
+export const SECTIONS: [Tab, string, string][] = [
+  ["sites", "Sites", "Apps"],
+  ["tunnels", "Tunnels", "Apps"],
+  ["stats", "Stats", "Monitoring"],
+  ["traffic", "Traffic", "Monitoring"],
+  ["history", "History", "Monitoring"],
+  ["traefik", "Traefik", "Network"],
+  ["firewall", "Firewall", "Network"],
+  ["updates", "Updates", "Machine"],
+  ["users", "Users", "Machine"],
+  ["system", "System", "Machine"],
+  ["settings", "Settings", "Machine"],
+];
 
 // The overview and facts drive the header, so every tab needs them.
 export const needs = (tab: string): Tab[] => (STORE[tab as Tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab as Tab]);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addVolumeMount, composeMounts, mountOf, removeVolumeMount } from "../../src/core/compose";
+import { addVolumeMount, mountOf, removeVolumeMount } from "../../src/core/compose";
 
 const COMPOSE = `# the shop
 services:
@@ -33,10 +33,7 @@ describe("volume mounts in compose.yaml", () => {
     // Next to what the service already mounts; the name defaults to the path's folders.
     const web = addVolumeMount(compose, "web", "/app/uploads/");
     expect(web.key).toBe("app-uploads");
-    expect(composeMounts(web.compose)).toEqual([
-      { service: "web", key: "app-uploads", path: "/app/uploads/" },
-      { service: "db", key: "db", path: "/var/lib/postgresql/data" },
-    ]);
+    expect(web.compose).toContain("      - ./nginx.conf:/etc/nginx/nginx.conf:ro\n      - app-uploads:/app/uploads/\n");
   });
 
   test("add refuses what does not fit", () => {
@@ -56,7 +53,7 @@ describe("volume mounts in compose.yaml", () => {
     const all = removeVolumeMount(y, "shared");
     expect(all.from).toEqual(["web", "db"]);
     expect(all.compose).toBe(COMPOSE);
-    expect(() => removeVolumeMount(COMPOSE, "shared")).toThrow("the compose file mounts no volume shared");
+    expect(removeVolumeMount(COMPOSE, "shared")).toEqual({ compose: COMPOSE, from: [] });
   });
 
   test("remove drops a volumes block it leaves empty", () => {

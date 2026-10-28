@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
-import { analyze, askable, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { IGNORE_FILE, uploadList, uploadSize } from "../../core/ignore";
@@ -407,7 +407,7 @@ export function planDeploy(
   if ((o.volume?.some(Boolean) || o.worker) && !KINDS[kind].port) fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
   const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
   const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
-  const notPath = volumes.filter((v) => !/^\/[\w.\/-]*\w/.test(v));
+  const notPath = volumes.filter((v) => !CONTAINER_PATH.test(v));
   if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
   const guessed = o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port);
   // Traefik would send visitors to a port nothing listens on, and the deploy still say live: say the guess.

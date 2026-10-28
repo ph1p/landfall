@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { S, render, plural, server, sv, tilde, useStore, type Slot } from "../lib/store";
 import type { Overview, ServerEntry } from "../lib/types";
-import { go, load, loadReach, needs, SECTIONS, STORE } from "../lib/api";
+import { go, load, loadReach, needs, SECTIONS, STORE, type Tab } from "../lib/api";
 import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
 import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
@@ -19,7 +19,7 @@ import { FirewallView } from "./firewall";
 import { HistoryView } from "./history";
 import { HomeView } from "./home";
 import { SitesView } from "./sites";
-import { LayoutGrid, RotateCw } from "lucide-react";
+import { Activity, Cable, Cpu, Download, Gauge, Globe, History, LayoutGrid, RotateCw, Route, Settings, Shield, Users, type LucideIcon } from "lucide-react";
 
 
 export function App() {
@@ -245,12 +245,34 @@ function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
     return Array.from({ length: nav ? 7 : 4 }, (_, i) => (
       <div key={i} aria-hidden="true" className={nav ? "px-2.5 py-[9px]" : "px-3 py-2 flex-none"}><Bone className={nav ? ["w-12", "w-16", "w-10", "w-14"][i % 4] : "w-12"} /></div>
     ));
-  return sections(n).map(([t, label], i) => (
-    <button key={t} type="button" className={look(S.tab === t)} aria-current={S.tab === t ? "page" : undefined} title={`${label} (${i + 1})`} onClick={() => go(n, t)}>
-      <span className={cx(nav && "mr-auto")}>{label}</span>{badge[t]}
-    </button>
-  ));
+  return sections(n).map(([t, label, grp], i, all) => {
+    const Icon = ICON[t];
+    const btn = (
+      <button key={t} type="button" className={look(S.tab === t)} aria-current={S.tab === t ? "page" : undefined} title={`${label} (${i + 1})`} onClick={() => go(n, t)}>
+        {nav && <Icon className="size-3.5 flex-none opacity-75" aria-hidden="true" />}
+        <span className={cx(nav && "mr-auto")}>{label}</span>{badge[t]}
+      </button>
+    );
+    // The list heads each group; tabs on phones run on in one row.
+    if (!nav || all[i - 1]?.[2] === grp) return btn;
+    return [<div key={`${t}/group`} role="presentation" className={cx("px-2.5 pb-0.5 text-[11px] uppercase tracking-[.06em] text-faint font-medium", i ? "pt-2.5" : "pt-1")}>{grp}</div>, btn];
+  });
 }
+
+const ICON: Record<Tab, LucideIcon> = {
+  sites: Globe,
+  tunnels: Cable,
+  stats: Gauge,
+  traffic: Activity,
+  history: History,
+  traefik: Route,
+  firewall: Shield,
+  updates: Download,
+  users: Users,
+  system: Cpu,
+  settings: Settings,
+  facts: Cpu,
+};
 
 // ---- the open server ---------------------------------------------------------
 
