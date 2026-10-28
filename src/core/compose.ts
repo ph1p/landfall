@@ -45,6 +45,8 @@ export interface Service {
   routes?: Route[];
   /** x-landfall.private: ports never routed, reached by name with \`lf tunnel <site> <name>\`. */
   private?: Record<string, number>;
+  /** x-landfall.private: { admin: { port: 3000, path: /admin } }: the path its tunnel opens, by private name. */
+  paths?: Record<string, string>;
   /** A plain compose.yaml's ports: are dropped on the server; Traefik routes them instead. */
   unpublish?: boolean;
 }
@@ -288,19 +290,33 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
   return routes;
 }
 
-/** x-landfall.private: { admin: 3001 }: named ports nothing routes. */
-function readPrivate(name: string, value: unknown, errors: string[]): Record<string, number> | undefined {
+/**
+ * x-landfall.private: { admin: 3001 }: named ports nothing routes. { admin: { port: 3001, path: /admin } } also
+ * names the path `lf tunnel` opens.
+ */
+function readPrivate(name: string, value: unknown, errors: string[]): { ports: Record<string, number>; paths: Record<string, string> } | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) return void errors.push(`${name}: x-landfall.private must be a mapping, like private: { admin: 3001 }`), undefined;
-  const out: Record<string, number> = {};
+  const out = { ports: {} as Record<string, number>, paths: {} as Record<string, string> };
   for (const [k, v] of Object.entries(value)) {
-    const port = toPort(v);
+    const long = !!v && typeof v === "object" && !Array.isArray(v);
+    const port = toPort(long ? (v as any).port : v);
+    const path = long ? (v as any).path : undefined;
+    const extra = long ? Object.keys(v).filter((x) => x !== "port" && x !== "path") : [];
     if (!PRIVATE_NAME.test(k)) errors.push(`${name}: not a name in x-landfall.private: ${k}`);
-    else if (port === undefined) errors.push(`${name}: x-landfall.private.${k} must be a port number, got ${JSON.stringify(v)}`);
-    else out[k] = port;
+    else if (port === undefined)
+      errors.push(`${name}: x-landfall.private.${k} must be a port number${long ? " in port:" : ""}, like ${k}: 3001 or ${k}: { port: 3001, path: /${k} }, got ${JSON.stringify(long ? (v as any).port : v)}`);
+    else if (extra.length) errors.push(`${name}: x-landfall.private.${k} knows port and path, not ${extra.join(", ")}`);
+    else if (path !== undefined && (typeof path !== "string" || !PATH.test(path))) errors.push(`${name}: x-landfall.private.${k}.path must start with /, like /${k}, got ${JSON.stringify(path)}`);
+    else {
+      out.ports[k] = port;
+      if (path) out.paths[k] = path;
+    }
   }
   return out;
 }
+/** A URL path with no spaces: /admin, /admin/?tab=users. */
+const PATH = /^\/[^\s]*$/;
 
 /**
  * Check a release's `docker compose config` (YAML: its JSON drops x-* fields) and read its routing from x-landfall.
@@ -346,11 +362,12 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
         s.domains = ds;
       }
       if (routes.length) s.routes = routes;
-      if (priv && Object.keys(priv).length) s.private = priv;
+      if (priv && Object.keys(priv.ports).length) s.private = priv.ports;
+      if (priv && Object.keys(priv.paths).length) s.paths = priv.paths;
       const ports = [s.port, ...routes.map((r) => r.port)].filter((p) => p !== undefined);
       const twice = ports.filter((p, i) => ports.indexOf(p) !== i);
       if (twice.length) errors.push(`${name}: port ${twice.join(", ")} is routed twice`);
-      const both = Object.entries(priv ?? {}).filter(([, p]) => ports.includes(p));
+      const both = Object.entries(priv?.ports ?? {}).filter(([, p]) => ports.includes(p));
       if (both.length) errors.push(`${name}: ${both.map(([k, p]) => `${p} (${k})`).join(", ")} is both routed and private`);
     }
     if (svc.network_mode) {

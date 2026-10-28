@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
-import { ifOk, run, TunnelBtn } from "../lib/jobs";
+import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
 import { Describe, Stack, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
-import { StatusDot, can, isUp, size } from "./shared";
+import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
@@ -91,6 +91,9 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       typeToConfirm: m.adopted ? "" : name,
       onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : [])]),
     });
+  const many = services.length > 1;
+  const ways = tunnelWays(n, site);
+  const svcWays = (svc: string) => ways.filter((w) => w.svc === svc);
   const svcMenu = (x: SiteStatus["services"][number]) => (
     <MenuBtn
       title={`${x.service} of ${name}`}
@@ -135,7 +138,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
             run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }),
           },
           "-",
-          !old && { label: "Open via tunnel", hint: "lf tunnel", title: "An SSH tunnel straight to the container: test it on localhost, no domain needed", run: () => run(["tunnel", name, ...sv(n)], { server: n }) },
+          ...(ways.length > 1 ? ways : ways.slice(0, 1)).map((w) => ({
+            label: ways.length > 1 ? `Tunnel to ${w.label}` : "Open via tunnel",
+            hint: "lf tunnel",
+            title: "An SSH tunnel straight to the container: test it on localhost, no domain needed",
+            run: () => run(w.argv, { server: n }),
+          })),
           "-",
           { label: m.adopted ? `Forget ${name}` : `Delete ${name}`, cls: "danger", hint: "lf sites rm", run: deleteSite },
         ]}
@@ -143,7 +151,6 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
     </div>
   );
   const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
-  const svcDomains = (svc: string): string[] => (svc === main ? m.domains : (cur?.services?.find((x) => x.name === svc)?.domains ?? []));
   const det = open && deploys ? S.det[proj.path] : undefined;
   const pairs: [string, ReactNode][] = [];
   if (old) pairs.push(["Old site", <span className="dim">Deployed before sites were Compose projects: {proj ? "redeploy it" : <>run <span className="mono">lf deploy</span> for it</>} once to manage it again.</span>]);
@@ -151,20 +158,31 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
     "Services",
     services.length ? (
       <ul className="list-none m-0 p-0">
-        {services.map((x) => (
-          <li key={x.service} className="flex items-center gap-2 py-[3px]">
-            <StatusDot status={x.status} />
-            <b>{x.service}</b>
-            {svcDomains(x.service).length > 0 && <Badge>{svcDomains(x.service).join(" ")}</Badge>}
-            <span className="faint">{x.status.toLowerCase()}</span>
-            {!old && svcMenu(x)}
-          </li>
-        ))}
+        {services.map((x) => {
+          const [own, ...named] = svcWays(x.service);
+          return (
+            <li key={x.service} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-[3px]">
+              <StatusDot status={x.status} />
+              <b>{x.service}</b>
+              {own?.domains.map((d) => <Badge key={d}>{d}</Badge>)}
+              {own?.priv ? <span className="faint mono">:{own.priv}{own.path ?? ""} private</span> : null}
+              <span className="faint">{x.status.toLowerCase()}</span>
+              {own && isUp(x.status) && <TunnelBtn n={n} argv={own.argv} ports={own.ports} label="Tunnel" compact />}
+              {named.map((w) => isUp(x.status) && (
+                <span key={w.label} className="inline-flex items-center gap-1.5">
+                  <span className="faint mono">{w.label} :{w.priv}{w.path ?? ""} private</span>
+                  <TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact />
+                </span>
+              ))}
+              {!old && svcMenu(x)}
+            </li>
+          );
+        })}
       </ul>
     ) : <span className="dim">none running</span>,
   ]);
   pairs.push([`On ${n}`, <SiteFiles m={m} state={state} />]);
-  if (!old) pairs.push(["Volumes", <SiteVolumes n={n} name={name} />]);
+  if (!old) pairs.push(["Volumes", <SiteVolumes n={n} name={name} dir={proj?.path} />]);
   if (!m.adopted)
     pairs.push([
       "Source",
@@ -209,10 +227,21 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         ))}
       </ul>,
     ]);
-  // A site deployed with no domain is reached by its tunnel.
-  const where = domains.length ? domains.map((d: string) => <DomainChip key={d} n={n} d={d} />)
-    : main && !old ? <span className={CHIP}><span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} /></span>
-    : null;
+  // A site deployed with no domain is reached by its tunnel; so are private ports, and any tunnel open now.
+  const reach = ways.length > 1 ? ways.filter((w) => tunnelFor(n, w.argv) || ((w.priv || w.label === main) && !w.domains.length && isUp(w.status))) : [];
+  const where = (
+    <>
+      {domains.length ? domains.map((d: string) => <DomainChip key={d} n={n} d={d} />)
+      : main && !old && !many ? <span className={CHIP}><span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} /></span>
+      : null}
+      {reach.map((w) => (
+        <span key={w.label} className={cx(CHIP, "gap-1.5")}>
+          <span className="faint" title={w.priv ? `private port ${w.priv}: never routed, reached by tunnel only` : undefined}>{w.label}{w.priv ? " · private" : w.domains.length ? "" : " · no domain"}</span>
+          <TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact />
+        </span>
+      ))}
+    </>
+  );
   return (
     <>
       <tr className="cursor-pointer hover:[&>td]:bg-hover" onClick={toggle}>
@@ -234,7 +263,10 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <td className={HIDE}><div className={CHIPS}>{where}</div></td>
         <td className={HIDE}>
           <Badge title={services.map((x) => x.service).join(", ")}>{kind}</Badge>
-          {services.length > 1 && <> <span className="faint">{services.length} services</span></>}
+          {many && (() => {
+            const up = services.filter((x) => isUp(x.status)).length;
+            return <> <span className={up < services.length ? "text-warn" : "faint"} title={services.map((x) => `${x.service}: ${x.status.toLowerCase()}`).join("\n")}>{up < services.length ? `${up} of ${services.length} up` : `${services.length} services`}</span></>;
+          })()}
         </td>
         <td className={cx(HIDE, "dim")}>{cur ? ago(cur.at) : ""}</td>
         <td className={ACTS}>{acts}</td>
@@ -251,7 +283,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
 }
 
 /** The site's Docker volumes and their backups (lf volumes), read when the row opens. */
-function SiteVolumes({ n, name }: { n: string; name: string }) {
+function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }) {
   const [d, setD] = useState<Volumes | null>(null);
   const [err, setErr] = useState("");
   const load = () =>
@@ -270,6 +302,25 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
       ok: "Restore",
       danger: true,
       onOk: (v) => run(["volume", "restore", name, key, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
+    });
+  // The UI runs lf from its own folder: suggest absolute paths, next to the project when this machine deploys it.
+  const near = (x: string) => (dir ? `${dir.replace(/\/$/, "")}/${x}` : `~/${x}`);
+  const push = (v: Volumes["volumes"][number]) =>
+    dialog({
+      title: `Push into ${v.key} of ${name}?`,
+      text: "Replaces its contents with a folder or .tar.gz from this machine; the services using it stop meanwhile. The current contents are backed up first: lf undo puts them back.",
+      fields: [{ name: "path", label: "Folder or .tar.gz", value: near(v.key), mono: true, hint: `lf volume push ${name} ${v.key} <path>` }],
+      ok: "Push",
+      danger: true,
+      onOk: (x) => run(["volume", "push", name, v.key, x.path, ...sv(n), "-y"], { after: ifOk(load) }),
+    });
+  const pull = (v: Volumes["volumes"][number]) =>
+    dialog({
+      title: `Pull ${v.key} of ${name}`,
+      text: "Unpacks its contents into a folder on this machine; the services keep running. Files already there with the same names are overwritten.",
+      fields: [{ name: "into", label: "Into folder", value: near(v.key), mono: true, hint: `lf volume pull ${name} ${v.key} --into <folder>` }],
+      ok: "Pull",
+      onOk: (x) => run(["volume", "pull", name, v.key, "--into", x.into, ...sv(n)]),
     });
   const schedule = () =>
     dialog({
@@ -290,11 +341,13 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
           return (
             <li key={v.name} className="flex flex-wrap items-center gap-2 py-[3px]">
               <b>{v.key}</b>
-              {v.size !== undefined && <span className="dim">{size(v.size)}</span>}
+              {v.empty ? <span className="text-warn" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>empty</span> : v.size !== undefined && <span className="dim">{size(v.size)}</span>}
               {v.mounts.length > 0 && <span className="faint mono">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" ")}</span>}
               <span className="faint">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
               <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>
               {baks.length > 0 && <Btn cls="sm" title={`Replace its contents with a backup (lf volume restore ${name} ${v.key})`} on={() => restore(v.key, baks)}>Restore…</Btn>}
+              <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>Push…</Btn>
+              {!v.empty && <Btn cls="sm" title={`Unpack it into a folder on this machine (lf volume pull ${name} ${v.key} --into)`} on={() => pull(v)}>Pull…</Btn>}
             </li>
           );
         })}
@@ -303,7 +356,6 @@ function SiteVolumes({ n, name }: { n: string; name: string }) {
         <span className={d.schedule ? "" : "faint"}>scheduled backups: {d.schedule ?? "none"}</span>
         <Btn cls="sm" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
       </div>
-      <div className="faint">to or from this machine: <span className="mono">lf volume pull {name}</span> · <span className="mono">lf volume push {name} &lt;folder&gt;</span></div>
     </>
   );
 }

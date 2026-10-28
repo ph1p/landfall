@@ -13,6 +13,8 @@ export interface Volume {
   /** The name in compose.yaml (the Compose label), else Docker's name. */
   key: string;
   size?: number;
+  /** Holds no files: new, or never filled (read with sizes or empty). */
+  empty?: boolean;
   mounts: { service: string; path: string }[];
 }
 
@@ -22,7 +24,7 @@ export interface Backup {
   time: string;
 }
 
-/** Parses listScript's output: `vol`, `mnt`, `size`, `bak` and `sched` lines. */
+/** Parses listScript's output: `vol`, `mnt`, `size`, `empty`, `bak` and `sched` lines. */
 export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[]; schedule?: string } {
   const vols = new Map<string, Volume>();
   const vol = (name: string) => vols.get(name) ?? vols.set(name, { name, key: name, mounts: [] }).get(name)!;
@@ -35,6 +37,7 @@ export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[
       const v = vol(a);
       if (!v.mounts.some((m) => m.service === b && m.path === d)) v.mounts.push({ service: b, path: d });
     } else if (kind === "size" && vols.has(a)) vol(a).size = Number(b);
+    else if (kind === "empty" && vols.has(a)) vol(a).empty = true;
     else if (kind === "bak" && a) backups.push({ file: a, size: Number(b), time: new Date(Number(d) * 1000).toISOString() });
     else if (kind === "sched" && a) schedule = a;
   }
@@ -58,9 +61,10 @@ for ctr in $(docker ps -aq --filter label=com.docker.compose.project=${shq(proje
   [ -z "$m" ] || { printf '%s\n' "$m"; vols="$vols $(printf '%s\n' "$m" | cut -f2)"; }
 done
 vols=$(printf '%s\n' $vols | sort -u | tr '\n' ' ')
-if [ "$SIZES" = 1 ] && [ -n "$(printf %s "$vols" | tr -d ' ')" ]; then
+if { [ "$SIZES" = 1 ] || [ "$EMPTY" = 1 ]; } && [ -n "$(printf %s "$vols" | tr -d ' ')" ]; then
   args=""; for v in $vols; do args="$args -v $v:/v/$v:ro"; done
-  docker run --rm -q $args ${HELPER} sh -c 'cd /v && du -sk *' 2>/dev/null | awk '{ printf "size\t%s\t%d\n", $2, $1 * 1024 }' || true
+  docker run --rm -q -e SIZES="$SIZES" $args ${HELPER} sh -c 'cd /v && { [ "$SIZES" != 1 ] || du -sk *; } && for d in *; do [ -n "$(ls -A "$d")" ] || echo "empty $d"; done' 2>/dev/null |
+    awk '$1 == "empty" { printf "empty\t%s\n", $2; next } { printf "size\t%s\t%d\n", $2, $1 * 1024 }' || true
 fi
 # Not find -printf: busybox (Alpine servers) lacks it.
 for f in backups/*.tar.gz; do
@@ -113,8 +117,9 @@ export function whileStopped(vol: string, steps: string[]) {
   ].join("\n");
 }
 
-export async function volumes(server: Server, site: string, sizes = false) {
+/** sizes: measure each volume, and mark the empty ones; empty: only mark those (no du over a database). */
+export async function volumes(server: Server, site: string, sizes = false, empty = false) {
   const { meta } = await requireSite(server, site);
-  const { stdout } = await runScript(server, listScript(projectName(meta), siteDir(site), site), { capture: true, env: { SIZES: sizes } });
+  const { stdout } = await runScript(server, listScript(projectName(meta), siteDir(site), site), { capture: true, env: { SIZES: sizes, EMPTY: empty } });
   return parseVolumes(stdout);
 }

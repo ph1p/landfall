@@ -14,6 +14,7 @@ import { detectBuild } from "../../core/frameworks";
 import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
+import { offerSeed } from "./volume";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 
 /** The first upload of a site above this size asks first. */
@@ -348,6 +349,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       for (const d of all) console.log(`  ${c.cyan(`https://${d}`)}`);
       if (all[0]) report({ url: `https://${all[0]}` });
       if (all[0]) await checkLive(all[0]);
+      if (files !== undefined) await offerSeed(server, name, dir, list).catch((e) => warn(`volumes of ${name}: ${e?.message ?? e}`));
     } finally {
       await lock.unlock().catch((e) => warn(`could not unlock ${name}: ${e?.message ?? e}`));
     }
@@ -430,7 +432,8 @@ function showRoutes(services: Release["services"], domains: string[], live?: Rel
     const fresh = isNew(r) ? c.yellow(" new") : "";
     console.log(`  ${`${r.service}:${r.port}`.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${fresh}`);
   }
-  for (const s of services) for (const [k, p] of Object.entries(s.private ?? {})) console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}`)}`);
+  for (const s of services)
+    for (const [k, p] of Object.entries(s.private ?? {})) console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}${s.paths?.[k] ? ` opens ${s.paths[k]}` : ""}`)}`);
 }
 
 async function checkLive(domain: string) {
