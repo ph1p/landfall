@@ -69,8 +69,8 @@ export async function historyBrief(server: Server, n = 200) {
 }
 
 /** `lf update --json` (list only). */
-/** lf scan --json [--others]: known vulnerabilities in the images it runs. Only downloads Trivy when asked to install it. */
-export async function scanView(server: Server, others = false, install = false) {
+/** lf scan --json [--no-others]: known vulnerabilities in the images it runs. Only downloads Trivy when asked to install it. */
+export async function scanView(server: Server, others = true, install = false) {
   if (!install && !trivyThere(await trivyState(server))) fail(`${TRIVY_ASK} Install it first.`);
   return scanImages(server, [], others);
 }
