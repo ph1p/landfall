@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
 import pkg from "../../../package.json";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
-import { changes, listServers, reachAll, target } from "../../core/dashboard";
+import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
 import { browse, jobCwd, receiveUpload } from "./local";
 import { ENV_PAIR, isEnvCmd, isPasswordShort, secretsOut, startJob, type Job } from "../../core/job";
@@ -26,7 +26,6 @@ interface WebJob {
   server?: string;
   startedAt: string;
   /** Leaves something in the journal worth offering to undo. */
-  undoable: boolean;
   job: Job;
   listeners: Set<() => void>;
   /** As started, for a retry with --force: the page only sees the argv with passwords masked. */
@@ -78,7 +77,7 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   const listeners = new Set<() => void>();
   const { args, env, stdin } = secretsOut(argv);
   const job = startJob(args, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, stdin, env: { ...env, LANDFALL_RUN: id } });
-  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), undoable: changes(argv), job, listeners, opts: o };
+  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), job, listeners, opts: o };
   jobs.set(id, w);
   for (const [old, j] of jobs) {
     if (jobs.size <= MAX_JOBS) break;
@@ -107,7 +106,7 @@ const jobInfo = (w: WebJob) => ({
   argv: shown(w.argv),
   server: w.server,
   startedAt: w.startedAt,
-  undoable: w.undoable,
+  undoable: !!w.job.report.undoable,
   code: w.job.code,
   stopped: !!w.job.stopped,
   report: w.job.report,

@@ -9,7 +9,6 @@ import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src
 import { parse } from "../../src/cli/cmd";
 import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
 import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
-import { changes } from "../../src/core/dashboard";
 import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));

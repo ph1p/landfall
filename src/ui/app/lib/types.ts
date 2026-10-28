@@ -60,6 +60,8 @@ export type SystemService = SystemInfo["services"][number];
 
 /** What a job told the UI through report(), merged: each command sets its own fields. */
 export interface Report {
+  /** It journaled a change lf undo can take back. */
+  undoable?: boolean;
   refuse?: string;
   needsKey?: boolean;
   checks?: { part: string; label: string; status: string; detail: string }[];

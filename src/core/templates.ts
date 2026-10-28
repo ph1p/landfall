@@ -200,7 +200,11 @@ _journal() { # _journal <do|undo> <what> <undo shell>
   [ -O ${JOURNAL} ] && [ "$(id -u)" -ne 0 ] || $([ -z "$SUDO" ] || echo sudo -n) chown "$(stat -c %u:%g ${ROOT})" ${JOURNAL} 2>/dev/null || true
 }
 # record <what> [undo shell]: journal a change; no undo shell = not reversible.
-record() { _journal do "$1" "$(shift; printf %s "$*")"; }
+# Under the web UI it also says so (a report line): the UI offers lf undo for exactly the runs that can be undone.
+record() {
+  _journal do "$1" "$(shift; printf %s "$*")"
+  [ $# -lt 2 ] || ! ( set +u; [ -n "$LANDFALL_REPORT" ] ) || printf '\036{"undoable":true}\n' >&2
+}
 # Run as $SUDO only when <dir> is not writable: deploy users own ${ROOT} and need no sudo.
 _as() { if [ -w "$1" ]; then shift; "$@"; else shift; $SUDO "$@"; fi; }
 # saved <file>: back the file up, print the shell that puts it back (or removes it if it was new).
