@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { checkAlias, envVar, expandHome, type Server } from "./config";
+import { checkAlias, envVar, expandHome, writeAtomic, type Server } from "./config";
 import { dest, targetArgs } from "./ssh";
 import { fail } from "./term";
 
@@ -110,7 +110,7 @@ export function upsertHostBlock(b: HostBlock, file = SSH_CONFIG): { created: boo
   const re = blockRe(b.alias, "\\r?\\n?");
   const next = re.test(current) ? current.replace(re, () => block + "\n") : `${block}\n\n${current}`;
   fs.mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, next, { mode: 0o600 });
+  writeAtomic(file, next, 0o600);
   resolved.clear();
   return { created, block };
 }
@@ -182,7 +182,7 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
   lines.splice(b.start + 1, block.length, added, ...kept);
   const backup = `${b.file}.landfall-bak`;
   if (!fs.existsSync(backup)) fs.copyFileSync(b.file, backup);
-  fs.writeFileSync(b.file, lines.join("\n"));
+  writeAtomic(b.file, lines.join("\n"));
   resolved.clear();
   return { file: b.file, removed: removed.map((l) => l.trim()), added: added.trim(), backup };
 }
@@ -192,7 +192,7 @@ export function removeHostBlock(alias: string, file = SSH_CONFIG): boolean {
   const current = fs.readFileSync(file, "utf8");
   const re = blockRe(alias, "[\\r\\n]*");
   if (!re.test(current)) return false;
-  fs.writeFileSync(file, current.replace(re, ""));
+  writeAtomic(file, current.replace(re, ""));
   return true;
 }
 
