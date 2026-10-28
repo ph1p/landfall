@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { SiteMeta } from "../../src/core/compose";
+import { readSiteLine, type SiteMeta } from "../../src/core/compose";
 import { oldReleases } from "../../src/core/remote";
 
 const site = (current: string, ids: string[]) =>
@@ -21,5 +21,16 @@ describe("releases lf release rm deletes", () => {
 
   test("named ones, never the live one", () => {
     expect(ids(m, { ids: ["20260101000000", "20260103000000"] })).toEqual(["20260101000000"]);
+  });
+});
+
+describe("site.json read from the server", () => {
+  test("a broken or foreign one is no site; an older layout still is", () => {
+    expect(readSiteLine('SITE\t{"v":2,"name":"blog","releases":[]}')?.name).toBe("blog");
+    expect(readSiteLine('SITE\t{"v":2,"name":"blog","releases":{}}')).toBeUndefined();
+    expect(readSiteLine('SITE\t{"v":2,"releases":[]}')).toBeUndefined();
+    expect(readSiteLine("SITE\t[]")).toBeUndefined();
+    expect(readSiteLine("SITE\tnull")).toBeUndefined();
+    expect(readSiteLine('SITE\t{"name":"old"}')).toEqual({ name: "old" });
   });
 });
