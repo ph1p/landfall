@@ -46,7 +46,9 @@ export async function receiveUpload(form: FormData) {
   fs.mkdirSync(UPLOADS, { recursive: true, mode: 0o700 });
   for (const old of fs.readdirSync(UPLOADS)) {
     const p = join(UPLOADS, old);
-    if (Date.now() - fs.statSync(p).mtimeMs > KEEP_MS) fs.rmSync(p, { recursive: true, force: true });
+    // Another upload may have pruned it a moment ago.
+    const mtime = fs.statSync(p, { throwIfNoEntry: false })?.mtimeMs ?? Date.now();
+    if (Date.now() - mtime > KEEP_MS) fs.rmSync(p, { recursive: true, force: true });
   }
   const files = form.getAll("file").filter((f): f is File => f instanceof File);
   if (!files.length) throw new Error("no files in the upload");

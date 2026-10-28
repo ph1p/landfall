@@ -1,5 +1,4 @@
 import { loadConfig, resolveServer } from "./config";
-import { isDotenvFlag } from "./job";
 import { reach, type Reach } from "./ssh";
 import { effectiveSsh, sshAliases } from "./sshconfig";
 
@@ -83,18 +82,4 @@ export function target(name: string): string {
   } catch {
     return "cannot resolve host";
   }
-}
-
-/** Whether a dashboard command changes the server, so its journal run is worth offering to undo. */
-export function changes(argv: string[]): boolean {
-  const [cmd, sub] = argv;
-  if (argv.includes("--check") || argv.includes("--key-only")) return false;
-  if (cmd === "firewall") return ["enable", "disable", "allow", "deny", "update", "rm", "remove"].includes(sub);
-  if (cmd === "traefik") return sub === "setup" || sub === "use";
-  if (cmd === "env") return argv.some((a) => a.includes("=") || a === "-u" || a === "--unset");
-  if (cmd === "secret") return argv.some((a) => a.includes("=") || ["-u", "--unset", "--file"].includes(a) || isDotenvFlag(a));
-  if (cmd === "domains") return argv.some((a) => ["-a", "--add", "--rm", "--set"].includes(a));
-  if (cmd === "auth") return argv.some((a) => ["-u", "--user", "--rm-user", "--off"].includes(a));
-  if (cmd === "update" || cmd === "upgrade") return true;
-  return ["setup", "deploy", "rollback", "stop", "start", "restart", "adopt"].includes(cmd);
 }

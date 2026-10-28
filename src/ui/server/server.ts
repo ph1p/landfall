@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
 import pkg from "../../../package.json";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
-import { changes, listServers, reachAll, target } from "../../core/dashboard";
+import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
 import { browse, jobCwd, receiveUpload } from "./local";
 import { ENV_PAIR, isEnvCmd, isPasswordShort, secretsOut, startJob, type Job } from "../../core/job";
@@ -15,18 +15,16 @@ import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } fro
 import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
 import { USER_NAME } from "../../core/users";
-import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyView, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
+import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
-import { c, openUrl } from "../../core/term";
+import { c, CliError, openUrl } from "../../core/term";
 
 interface WebJob {
   id: string;
   argv: string[];
   server?: string;
   startedAt: string;
-  /** Leaves something in the journal worth offering to undo. */
-  undoable: boolean;
   job: Job;
   listeners: Set<() => void>;
   /** As started, for a retry with --force: the page only sees the argv with passwords masked. */
@@ -70,7 +68,8 @@ function token(): string {
 }
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "cache-control": "no-store" } });
-const failure = (e: any, status = 500) => json({ error: e?.message ?? String(e) }, status);
+// A CliError is a refusal or a failed step the user can act on, not a crash in the server.
+const failure = (e: any, status = e instanceof CliError ? 400 : 500) => json({ error: e?.message ?? String(e) }, status);
 
 function startWebJob(argv: string[], o: { server?: string; password?: string; cwd?: string }): WebJob {
   // The journal credits what the job changes to this id, so it can be undone as one.
@@ -78,7 +77,7 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   const listeners = new Set<() => void>();
   const { args, env, stdin } = secretsOut(argv);
   const job = startJob(args, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, stdin, env: { ...env, LANDFALL_RUN: id } });
-  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), undoable: changes(argv), job, listeners, opts: o };
+  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), job, listeners, opts: o };
   jobs.set(id, w);
   for (const [old, j] of jobs) {
     if (jobs.size <= MAX_JOBS) break;
@@ -107,7 +106,7 @@ const jobInfo = (w: WebJob) => ({
   argv: shown(w.argv),
   server: w.server,
   startedAt: w.startedAt,
-  undoable: w.undoable,
+  undoable: !!w.job.report.undoable,
   code: w.job.code,
   stopped: !!w.job.stopped,
   report: w.job.report,
@@ -142,6 +141,8 @@ function jobEvents(w: WebJob, from: number, signal: AbortSignal): Response {
           ctl.close();
         } catch {}
       };
+      // Gone before the stream started: abort would never fire.
+      if (signal.aborted) return close();
       w.listeners.add(push);
       signal.addEventListener("abort", close);
       push();
@@ -195,7 +196,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
     // The same views `--json` prints.
     if (method === "GET" && sub === "firewall") return json(await firewallView(server));
     if (method === "GET" && sub === "config") return json(await configView(name, server));
-    if (method === "GET" && sub === "history") return json(await historyView(server));
+    if (method === "GET" && sub === "history") return json(await historyBrief(server));
     if (method === "GET" && sub === "facts") return json(await factsView(name, server));
     if (method === "GET" && sub === "stats") return json(await statsView(server));
     if (method === "GET" && sub === "disk") return json(await diskView(server));

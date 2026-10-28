@@ -5,7 +5,6 @@ import { describe, expect, test } from "vitest";
 import { detectApp, detectStaticDir, nodeDockerfile } from "../../src/core/projects";
 import { detectBuild } from "../../src/core/frameworks";
 import { nodeMajor } from "../../src/core/runtimes";
-import { changes } from "../../src/core/dashboard";
 import { HOSTNAME } from "../../src/core/system";
 import { baseImages, detectProject } from "../../src/core/projects";
 import { safeParts } from "../../src/ui/server/local";
@@ -363,12 +362,5 @@ describe("folders and access", () => {
   test("upload paths stay inside", () => {
     expect(safeParts("../../etc//passwd")).toEqual(["etc", "passwd"]);
     expect(safeParts("site\\a/./b.html")).toEqual(["site", "a", "b.html"]);
-  });
-  test("which dashboard commands change a server", () => {
-    expect(changes(["domains", "blog"])).toBe(false);
-    expect(changes(["domains", "blog", "--add", "x.test"])).toBe(true);
-    expect(changes(["auth", "blog", "--off"])).toBe(true);
-    expect(changes(["updates", "-s", "vps"])).toBe(false);
-    expect(changes(["update", "--packages"])).toBe(true);
   });
 });

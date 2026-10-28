@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { envVar, expandHome, type Server } from "./config";
 import type { Entry } from "./ignore";
 import { ROOT } from "./templates";
-import { fail } from "./term";
+import { CliError, fail, REPORT } from "./term";
 
 let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
@@ -163,7 +163,7 @@ async function shared<T>(s: Server, run: () => Promise<T>): Promise<T> {
 }
 
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
-  const env = { LANDFALL_RUN: journal.run, LANDFALL_ACTOR: journal.actor, LANDFALL_CMD: journal.cmd, ...o.env };
+  const env = { LANDFALL_RUN: journal.run, LANDFALL_ACTOR: journal.actor, LANDFALL_CMD: journal.cmd, LANDFALL_REPORT: process.env.LANDFALL_REPORT, ...o.env };
   const header = Object.entries(env)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
@@ -174,8 +174,11 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
       capture: o.capture,
     }),
   );
+  // Quiet runs capture stderr: pass the script's report lines on all the same.
+  const lines = res.stderr.trim().split("\n");
+  for (const l of lines) if (l.startsWith(REPORT)) process.stderr.write(l + "\n");
   if (res.code !== 0) {
-    const why = res.stderr.trim().split("\n").at(-1);
+    const why = lines.filter((l) => !l.startsWith(REPORT)).at(-1);
     fail(`remote command failed on ${s.host} (exit ${res.code})${why ? `: ${why}` : ""}`);
   }
   return res;
@@ -276,7 +279,7 @@ export async function upload(s: Server, localDir: string, remoteDir: string, lis
   rsync.stdin.on("error", () => {});
   rsync.stdin.end(fileList(list));
   const code = await new Promise<number>((done, reject) => (rsync.on("error", reject), rsync.on("close", (c) => done(c ?? 1))));
-  if (code !== 0) throw new Error(`rsync failed (exit ${code})`);
+  if (code !== 0) fail(`rsync failed (exit ${code})`);
   return "rsync";
 }
 
@@ -300,8 +303,8 @@ async function tarUpload(s: Server, localDir: string, remoteDir: string, list: E
     // Wait for both: ssh may exit 0 before tar reports that it failed halfway.
     const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
     Promise.all([exit(tar), exit(ssh)]).then(([tarCode, code]) => {
-      if (tarCode !== 0) reject(new Error(`tar failed (exit ${tarCode})`));
-      else if (code !== 0) reject(new Error(`upload failed (exit ${code})`));
+      if (tarCode !== 0) reject(new CliError(`tar failed (exit ${tarCode})`));
+      else if (code !== 0) reject(new CliError(`upload failed (exit ${code})`));
       else resolve();
     });
   });
@@ -324,6 +327,8 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
       if (dir === "up") {
         ssh.stdin!.on("error", () => (f as fs.ReadStream).destroy());
         (f as fs.ReadStream).pipe(ssh.stdin!);
+        // A read error rejects above: ssh's exit is the whole result.
+        done.push(Promise.resolve(0));
       }
       else {
         ssh.stdout!.pipe(f as fs.WriteStream);
@@ -344,8 +349,8 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
     }
     // Wait for both ends: one may exit 0 before the other reports that it failed halfway.
     Promise.all(done).then(([code, other]) => {
-      if (code !== 0) reject(new Error(`${dir === "up" ? "upload" : "download"} failed (exit ${code})`));
-      else if (other !== 0) reject(new Error(`${local instanceof Array ? local[0] : local.file} failed (exit ${other})`));
+      if (code !== 0) reject(new CliError(`${dir === "up" ? "upload" : "download"} failed (exit ${code})`));
+      else if (other !== 0) reject(new CliError(`${local instanceof Array ? local[0] : local.file} failed (exit ${other})`));
       else resolve();
     });
   });

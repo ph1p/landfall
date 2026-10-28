@@ -30,6 +30,7 @@ import {
   ENV_NAME,
   volumeDir,
 } from "./compose";
+import { onStop } from "./job";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
@@ -338,14 +339,16 @@ export async function lockSite(s: Server, name: string): Promise<{ now: string; 
       `mkdir -p ${SITES}`,
       `if ! mkdir ${shq(lock)} 2>/dev/null; then`,
       `  [ -n "$(find ${shq(lock)} -maxdepth 0 -mmin +60 2>/dev/null)" ] && rm -rf ${shq(lock)} && mkdir ${shq(lock)} ||`,
-      `  { echo "another deploy of ${name} is running ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown)): wait for it, or remove ${lock} if it was cut off" >&2; exit 1; }`,
+      `  { echo "another deploy or change of ${name} is running ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown)): wait for it, or remove ${lock} if it was cut off" >&2; exit 1; }`,
       `fi`,
       `printf '%s\\n' "$LANDFALL_ACTOR" >${shq(lock + "/by")}`,
       `date -u +%Y%m%d%H%M%S`,
     ].join("\n"),
     { capture: true },
   );
-  return { now: stdout.trim(), unlock: () => runScript(s, `rm -rf ${shq(lock)}`).then(() => {}) };
+  const unlock = () => runScript(s, `rm -rf ${shq(lock)}`).then(() => {});
+  const off = onStop(unlock);
+  return { now: stdout.trim(), unlock: () => (off(), unlock()) };
 }
 
 /**
@@ -415,7 +418,7 @@ export async function adoptSite(s: Server, meta: SiteMeta) {
     s,
     [
       PRELUDE,
-      `[ -r ${shq(meta.adopted!)} ] && [ -x ${shq(meta.adopted!)} ] || { echo "$(id -un) cannot read ${meta.adopted}; adopt it as a user who can (lf server config)" >&2; exit 1; }`,
+      `[ -r ${shq(meta.adopted!)} ] && [ -x ${shq(meta.adopted!)} ] || { echo "$(id -un) cannot read "${shq(meta.adopted!)}"; adopt it as a user who can (lf server config)" >&2; exit 1; }`,
       `[ ! -e ${shq(dir)} ] || { echo "${dir} exists already" >&2; exit 1; }`,
       `mkdir -p ${shq(dir)} && cd ${shq(dir)}`,
       `ln -s ${shq(meta.adopted!)} current`,
@@ -609,11 +612,19 @@ function takeoverLines(old: SiteMeta, keep?: string): string[] {
 }
 
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
-export async function changeSite(s: Server, meta: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}) {
-  const prev = structuredClone(meta);
-  change(meta);
-  meta.updatedAt = new Date().toISOString();
-  await applySite(s, meta, proxy, { ...o, keep: meta.releases.length, prev, what });
+export async function changeSite(s: Server, site: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}): Promise<SiteMeta> {
+  // Under the deploy lock, on site.json as it is now: a deploy or change in between would be lost on write.
+  const lock = await lockSite(s, site.name);
+  try {
+    const { meta } = await requireSite(s, site.name);
+    const prev = structuredClone(meta);
+    change(meta);
+    meta.updatedAt = new Date().toISOString();
+    await applySite(s, meta, proxy, { ...o, keep: meta.releases.length, prev, what });
+    return meta;
+  } finally {
+    await lock.unlock();
+  }
 }
 
 /**
@@ -736,17 +747,18 @@ export async function removeSite(s: Server, meta: SiteMeta, o: { volumes?: boole
 /** Merge KEY=VALUE pairs into dotenv text, preserving order and comments. */
 export function mergeEnv(existing: string, set: Record<string, string>, unset: string[] = []): string {
   const out: string[] = [];
-  const pending = new Map(Object.entries(set));
+  const done = new Set<string>();
   for (const line of existing.split("\n")) {
     const key = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=/)?.[1];
     if (key && unset.includes(key)) continue;
-    if (key && pending.has(key)) {
-      out.push(`${key}=${pending.get(key)}`);
-      pending.delete(key);
+    if (key && Object.hasOwn(set, key)) {
+      // Compose takes the last of duplicate keys: keep one, set.
+      if (!done.has(key)) out.push(`${key}=${set[key]}`);
+      done.add(key);
     } else if (line.trim() || out.length) out.push(line);
   }
   while (out.length && !out[out.length - 1].trim()) out.pop();
-  for (const [k, v] of pending) out.push(`${k}=${v}`);
+  for (const [k, v] of Object.entries(set)) if (!done.has(k)) out.push(`${k}=${v}`);
   return out.length ? out.join("\n") + "\n" : "";
 }
 
@@ -754,7 +766,8 @@ export function mergeEnv(existing: string, set: Record<string, string>, unset: s
 export const dotenvLines = (text: string): string[] =>
   text
     .split("\n")
-    .map((l) => l.trim().replace(/^export\s+/, ""))
+    // `KEY = v` is fine for Compose too.
+    .map((l) => l.trim().replace(/^export\s+/, "").replace(/^([^=\s]+)\s*=\s*/, "$1="))
     .filter((l) => l && !l.startsWith("#") && l.includes("="));
 
 /** The files of a site's .secrets folder with their sizes; never their content. */
