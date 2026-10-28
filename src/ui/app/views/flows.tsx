@@ -9,6 +9,7 @@ import {
   dialog, confirmDlg, promptDlg, invalid, openDialog, closeDialog, D, siteNameError, words, domainOk, portError, userError, passwordError,
   DFORM, DTITLE, DTEXT, DBTNS, type Spec, type Values,
 } from "../ui/dialog";
+import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "./env";
 
 // ---- server flows ----------------------------------------------------------
 
@@ -358,7 +359,7 @@ interface DeployOpts { site?: Redeploy; upload?: boolean; files?: number; name?:
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
  * site: an existing site ({ server, name, domains, old }) this folder redeploys.
  */
-export function deployDialog(det: Detected, o: DeployOpts = {}) {
+export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const p = det.project;
   const re = o.site;
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
@@ -370,8 +371,16 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
   const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
   // An example's key with a value is only suggested (askable in core/compose): the CLI says it, the form leaves it out.
   const required = (det.required ?? []).filter((r) => r.example === undefined);
-  // Never deployed from here: the site's .env on the server starts empty.
-  const fresh = !re && !p?.server;
+  // What the site's .env on the server has (names only): read for the target the dialog opens with.
+  // None there, or the server not answering: nothing is claimed to be kept.
+  const has = new Set<string>();
+  if (required.length && (re || p?.server)) {
+    const d = await http<{ vars: { key: string; length: number }[] }>(envUrl(target, name, false)).catch(() => undefined);
+    for (const x of d?.vars ?? []) if (x.length) has.add(x.key);
+  }
+  const sameTarget = (v: Values) => v.name.trim() === name && v.server === target;
+  // A static site has no .env; the mode field, when there is one, says which it deploys as.
+  const hasEnv = (v: Values) => (v.mode || (det.kind === "static" ? "static" : "node")) === "node";
   /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
   const addresses = (v: Values): [string[], string?] => {
     const main = mainDomain(v.server);
@@ -420,16 +429,30 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
       ...(required.length
         ? [{
             legend: "Environment",
-            note: `What ${[...new Set(required.map((r) => r.from))].join(" and ")} asks for, set in the site's .env on the server (your local .env is not sent).`,
+            note: `What ${[...new Set(required.map((r) => r.from))].join(" and ")} asks for, set in the site's .env on the server. Your local .env is sent only for what is left empty here and the server's lacks.`,
             fields: required.map((r) => ({
               name: `env_${r.name}`, label: r.name, type: "password" as const, mono: true,
-              // A new site has no .env yet: compose would refuse to start without it.
-              required: fresh && r.strict ? r.message || `${r.from} needs ${r.name}` : undefined,
-              hint: [r.message, fresh && r.optional && "Optional.", !fresh && "Empty: keeps the value the server's .env has."].filter(Boolean).join(". "),
-              check: (x: string) => /[\r\n]/.test(x) && "One line: put multi-line text in a secret",
+              hint: [
+                r.message,
+                has.has(r.name) ? "Empty: keeps the value the server's .env has." : r.local ? "Empty: your local .env's value." : r.optional && "Optional.",
+              ].filter(Boolean).join(". "),
+              check: (x: string, v: Values) =>
+                /[\r\n]/.test(x) ? "One line: put multi-line text in a secret"
+                // Compose would refuse to start without it.
+                : !x && r.strict && !r.local && !has.has(r.name) && sameTarget(v) && (r.message || `${r.from} needs ${r.name}`),
             })),
           }]
         : []),
+      {
+        legend: "More variables", collapsed: true, when: hasEnv,
+        note: "Also set in the site's .env, e.g. SPRING_PROFILES_ACTIVE=prod or NODE_ENV=production. Change it later with Edit on the site.",
+        fields: [
+          {
+            name: "env", type: "custom", value: NO_ENV_CHANGE, check: (x: EnvChange) => x.bad,
+            render: (_: EnvChange, set: (v: EnvChange) => void) => <EnvTable n={target} onChange={set} />,
+          },
+        ],
+      },
       {
         legend: "Visitor login", note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.", when: served,
         fields: [
@@ -454,6 +477,9 @@ export function deployDialog(det: Detected, o: DeployOpts = {}) {
       }
       argv.push(...buildArgv(v));
       for (const r of required) if (v[`env_${r.name}`]) argv.push("-e", `${r.name}=${v[`env_${r.name}`]}`);
+      if (hasEnv(v)) for (const [k, x] of Object.entries((v.env as EnvChange).set)) argv.push("-e", `${k}=${x}`);
+      // Only what the server's .env lacks: the CLI never sends the rest of the local .env.
+      if (required.some((r) => r.local && !v[`env_${r.name}`])) argv.push("--local-env");
       // The login counts once there is a password; the user defaults to admin.
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");
