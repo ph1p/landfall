@@ -378,6 +378,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     const d = await http<{ vars: { key: string; length: number }[] }>(envUrl(target, name, false)).catch(() => undefined);
     for (const x of d?.vars ?? []) if (x.length) has.add(x.key);
   }
+  const seeds = det.seeds ?? [];
   const sameTarget = (v: Values) => v.name.trim() === name && v.server === target;
   // A static site has no .env; the mode field, when there is one, says which it deploys as.
   const hasEnv = (v: Values) => (v.mode || (det.kind === "static" ? "static" : "node")) === "node";
@@ -426,6 +427,18 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
         ],
       },
       ...buildFields,
+      // A folder left out of the upload, named like a volume: what the volume should hold (lf deploy --fill-volumes).
+      ...(seeds.length
+        ? [{
+            legend: "Volumes", when: hasEnv,
+            note: "Volumes keep their data across deploys and rollbacks. Back up, push and pull them in the site's Volumes box.",
+            fields: [{
+              name: "fill", type: "check" as const, value: true,
+              label: `Fill ${seeds.join(", ")} with ${seeds.map((f) => `./${f}`).join(", ")} while empty`,
+              hint: `Left out of the upload. Only an empty volume is filled: data already there stays. lf deploy --fill-volumes`,
+            }],
+          }]
+        : []),
       ...(required.length
         ? [{
             legend: "Environment",
@@ -480,6 +493,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       if (hasEnv(v)) for (const [k, x] of Object.entries((v.env as EnvChange).set)) argv.push("-e", `${k}=${x}`);
       // Only what the server's .env lacks: the CLI never sends the rest of the local .env.
       if (required.some((r) => r.local && !v[`env_${r.name}`])) argv.push("--local-env");
+      if (seeds.length && hasEnv(v) && v.fill) argv.push("--fill-volumes");
       // The login counts once there is a password; the user defaults to admin.
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");
