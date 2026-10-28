@@ -365,7 +365,9 @@ The tunnel stays open until Ctrl-C.`,
     if (!name) fail(`which service of ${site}? lf tunnel ${site} <service>`);
     const ctr = await findContainer(server, [`label=com.docker.compose.project=${projectName(meta)}`, `label=com.docker.compose.service=${name}`]);
     if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
-    await tunnelTo(server, ctr!, proxy.network, o.port ?? (hidden ? hidden.private![svc!] : service?.port), { local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
+    // A service that is only reached privately (x-landfall: { private: { admin: 3000 } }) opens its first private port.
+    const port = hidden ? hidden.private![svc!] : (service?.port ?? Object.values(service?.private ?? {})[0]);
+    await tunnelTo(server, ctr!, proxy.network, o.port ?? port, { local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
   },
 });
 

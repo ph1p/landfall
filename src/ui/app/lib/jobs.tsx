@@ -5,7 +5,7 @@ import { invalidate, refreshState } from "./api";
 import { toast, say } from "../ui/toast";
 import { confirmDlg, dialog, portError, type Field } from "../ui/dialog";
 import { Btn, Spin, cx } from "../ui/kit";
-import { Check, Loader, Square, X } from "lucide-react";
+import { Check, Loader, SlidersHorizontal, Square, X } from "lucide-react";
 
 // ---- jobs ----------------------------------------------------------------
 
@@ -117,6 +117,8 @@ export const runningJobs = () => [...S.jobs.values()].filter((j) => j.info.code 
 export const isTunnel = (info: JobInfo) => info.argv[0] === "tunnel" || (info.argv[0] === "traefik" && info.argv[1] === "dashboard");
 /** Tunnels the UI opened to server n that are still open. */
 export const openTunnels = (n: string) => runningJobs().filter((j) => j.info.server === n && isTunnel(j.info));
+/** The open tunnel lf argv started; opened with options, the job's argv goes on after argv. */
+export const tunnelFor = (n: string, argv: string[]) => openTunnels(n).find((t) => t.info.argv.slice(0, argv.length).join(" ") === argv.join(" "));
 /** What the job reported through the CLI's report(): never parsed from its text output. */
 export const rep = (j: Job): Report => j.report ?? j.info.report ?? {};
 export const tunnelUrl = (j: Job): string | undefined => rep(j).url;
@@ -174,15 +176,26 @@ export function tunnelOptions(n: string, argv: string[], ports: (string | number
 // A database's address is for a client, not the browser.
 const TunnelLink = ({ u }: { u: string }) =>
   u.startsWith("http://") ? (
-    <a className="font-mono text-sm" href={u} target="_blank" rel="noopener">{u.replace("http://", "")}</a>
+    <a className="font-mono text-sm" href={u} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{u.replace("http://", "")}</a>
   ) : (
     <code className="font-mono text-sm" title="Connect a client to it">{u}</code>
   );
 
-/** Open a tunnel with argv, or, when it is open, its address and a way to close it. */
-export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [] }: { n: string; argv: string[]; label?: string; ports?: (string | number)[] }) {
-  // Opened with options, the job's argv goes on after argv.
-  const j = openTunnels(n).find((t) => t.info.argv.slice(0, argv.length).join(" ") === argv.join(" "));
+/**
+ * Open a tunnel with argv, or, when it is open, its address and a way to close it.
+ * compact: one button plus the options dialog (which has "on my network" too), for rows that list several.
+ */
+export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact }: { n: string; argv: string[]; label?: string; ports?: (string | number)[]; compact?: boolean }) {
+  const j = tunnelFor(n, argv);
+  if (!j && compact)
+    return (
+      <span className="inline-flex items-center">
+        <Btn cls="sm" title={`lf ${argv.join(" ")}: an SSH tunnel to it on localhost, until you close it`} on={() => run(argv, { server: n })}>{label}</Btn>
+        <Btn cls="sm ghost px-[5px]!" title="Tunnel options: container port, local port, on my network" aria-label="Tunnel options" on={() => tunnelOptions(n, argv, ports)}>
+          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+        </Btn>
+      </span>
+    );
   if (!j)
     return (
       <>
@@ -210,7 +223,7 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [] }: { n: s
           </span>
         </>
       )}{" "}
-      <Btn cls="sm ghost" on={() => showJob(j.info.id)}>Output</Btn>
+      {!compact && <Btn cls="sm ghost" on={() => showJob(j.info.id)}>Output</Btn>}
       <Btn cls="sm danger" title="Ends the tunnel" on={() => stopJob(j.info.id)}>Close</Btn>
     </>
   );

@@ -399,6 +399,10 @@ services:
     image: busybox:1.37
     command: sh -c 'mkdir -p /a /b && echo site > /a/index.html && echo admin > /b/index.html && httpd -p 80 -h /a && httpd -f -p 9000 -h /b'
     x-landfall: { port: 80, private: { admin: 9000 } }
+  ops:
+    image: busybox:1.37
+    command: sh -c 'mkdir -p /c && echo ops > /c/index.html && httpd -f -p 9100 -h /c'
+    x-landfall: { private: { ops: 9100 } }
 EOF
 out=$(lf deploy -d priv.test --no-save -y 2>&1) || { echo "$out"; die "deploy private port"; }
 has "lf tunnel <site> admin" <<<"$out" || { echo "$out"; die "deploy lists the private port"; }
@@ -409,6 +413,13 @@ for _ in $(seq 1 30); do curl -s http://127.0.0.1:18099/ | has admin && break; s
 got=$(curl -s http://127.0.0.1:18099/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
 [ "$got" = admin ] || { cat "$WORK/tunnel.log"; die "lf tunnel <site> <private name>"; }
 pass "a private port is not routed, lf tunnel priv admin opens it"
+# A service reached only privately: its name opens its private port, though its image exposes none.
+node "$ROOT/dist/cli.mjs" tunnel priv ops -l 18098 >"$WORK/tunnel.log" 2>&1 &
+TUNNEL_PID=$!
+for _ in $(seq 1 30); do curl -s http://127.0.0.1:18098/ | has ops && break; sleep 0.5; done
+got=$(curl -s http://127.0.0.1:18098/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
+[ "$got" = ops ] || { cat "$WORK/tunnel.log"; die "lf tunnel <site> <private service>"; }
+pass "lf tunnel priv ops opens the private port of a service with no routed one"
 lf sites rm priv -y >/dev/null 2>&1
 cd "$WORK"
 fi
