@@ -230,6 +230,12 @@ export interface ProjectConfig {
   worker?: boolean;
   /** Upload: also leave out what the folder's .gitignore files ignore. */
   gitignore?: boolean;
+  /** Upload: what else to leave out, in .gitignore's syntax relative to this folder (dist/, *.log, /content). */
+  exclude?: string[];
+  /** Upload: what to send though the defaults, exclude or .gitignore leave it out. A folder left out is not looked into: include it, not a file in it. */
+  include?: string[];
+  /** Images are built on this machine and sent to the server, which then only runs them. */
+  buildLocal?: boolean;
   /** Named targets (staging…): the same project deployed again as its own site, with what differs here. */
   environments?: Record<string, EnvironmentConfig>;
 }

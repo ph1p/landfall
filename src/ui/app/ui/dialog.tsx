@@ -43,7 +43,9 @@ export function DialogHost() {
         "p-0",
         D.cls === "wide" && "w-[min(680px,calc(100vw-32px))]",
         // A fixed height: sections that come and go do not make it jump.
-        D.cls === "sidebar" && "w-[min(860px,calc(100vw-32px))] sm:h-[min(760px,calc(100dvh-32px))]",
+        D.cls.startsWith("sidebar") && "sm:h-[min(760px,calc(100dvh-32px))]",
+        D.cls === "sidebar" && "w-[min(860px,calc(100vw-32px))]",
+        D.cls === "sidebar-aside" && "w-[min(1120px,calc(100vw-32px))]",
       )}
       onClose={() => {
         if (ref.current?.open) return;
@@ -110,12 +112,14 @@ export interface DialogSpec {
   typeToConfirm?: string;
   /** Wide, with the top-level groups as sections a side list jumps to (fields outside a group lead, untitled). */
   sidebar?: boolean;
+  /** With sidebar: what the form is about, in a column on the right (above the form on narrow screens). */
+  aside?: ReactNode;
 }
 
 /** A modal form; see DialogSpec and Field. */
 export function dialog(spec: DialogSpec) {
   let key = 0;
-  key = openDialog(<FormDialog spec={spec} isCurrent={() => D.key === key} />, spec.sidebar ? "sidebar" : "");
+  key = openDialog(<FormDialog spec={spec} isCurrent={() => D.key === key} />, spec.sidebar ? (spec.aside ? "sidebar-aside" : "sidebar") : "");
 }
 export const invalid = (field: string, error: string) => ({ field, error });
 export const confirmDlg = (o: Omit<DialogSpec, "onOk"> & { onOk: () => unknown }) => dialog({ ...o, onOk: () => o.onOk() });
@@ -165,7 +169,7 @@ const HINT = "text-sm font-normal text-faint mt-1";
 const isGroup = (s: Spec): s is Group => "fields" in s;
 
 function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => boolean }) {
-  const { title, text = "", fields = [], ok = "OK", danger = false, onOk, extra, after, typeToConfirm = "", sidebar = false } = spec;
+  const { title, text = "", fields = [], ok = "OK", danger = false, onOk, extra, after, typeToConfirm = "", sidebar = false, aside } = spec;
   const specs = flat(fields);
   const form = useRef<HTMLFormElement>(null);
   const [values, setValues] = useState<Values>(() => Object.fromEntries(specs.map(({ f }) => [f.name, f.type === "check" ? !!f.value : f.type === "custom" ? f.value : String(f.value ?? "")])));
@@ -365,7 +369,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
           {text && <div className={DTEXT}>{text}</div>}
           {extra}
         </header>
-        <div className="sm:flex sm:flex-1 sm:min-h-0">
+        <div className="flex max-sm:flex-col sm:flex-1 sm:min-h-0">
           <nav aria-label="Sections" className="max-sm:hidden w-48 shrink-0 border-r border-line p-3 grid content-start gap-0.5 overflow-y-auto">
             {sections.map((s, i) => (
               <button
@@ -397,6 +401,11 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
             {after}
             {confirmField}
           </div>
+          {aside && (
+            <aside aria-label="About" className="max-sm:px-6 max-sm:pt-5 max-sm:border-b sm:w-80 lg:w-96 shrink-0 sm:border-l border-line sm:overflow-y-auto overscroll-contain sm:p-5 grid content-start gap-5 text-md max-sm:order-first">
+              {aside}
+            </aside>
+          )}
         </div>
         {errLine && <div className="px-6 pt-3">{errLine}</div>}
         <div className="flex justify-end gap-2 sticky bottom-0 z-1 bg-panel px-6 pt-3 pb-[18px] border-t border-line">{buttons}</div>

@@ -200,7 +200,7 @@ describe("upload filtering", () => {
     expect(compile("   ")).toBeUndefined();
   });
 
-  test("uploadList: defaults, .landfallignore, --gitignore", () => {
+  test("uploadList: defaults, .landfallignore, --gitignore, exclude and include", () => {
     const root = fs.mkdtempSync(join(tmpdir(), "lf-ignore-"));
     const put = (p: string, body = "x") => (fs.mkdirSync(join(root, p, ".."), { recursive: true }), fs.writeFileSync(join(root, p), body));
     put("index.html");
@@ -215,7 +215,7 @@ describe("upload filtering", () => {
     put(".gitignore", "dist/\nlogs/\n");
     put(".landfallignore", "data/\n!node_modules\n");
     const paths = (o = {}) => uploadList(root, o).map((e) => e.path);
-    expect(paths()).toEqual([".gitignore", ".landfallignore", "dist", "dist/app.js", "index.html", "logs", "logs/a.log", "node_modules", "node_modules/a", "node_modules/a/index.js", "sub", "sub/.gitignore", "sub/keep.txt", "sub/x.tmp"]);
+    expect(paths()).toEqual([".gitignore", "dist", "dist/app.js", "index.html", "logs", "logs/a.log", "node_modules", "node_modules/a", "node_modules/a/index.js", "sub", "sub/.gitignore", "sub/keep.txt", "sub/x.tmp"]);
     expect(paths({ gitignore: true })).not.toContain("dist");
     expect(paths({ gitignore: true })).not.toContain("sub/x.tmp");
     expect(paths({ gitignore: true })).toContain("sub/keep.txt");
@@ -223,9 +223,15 @@ describe("upload filtering", () => {
     fs.writeFileSync(join(root, ".landfallignore"), "dist/app.js\n");
     expect(uploadList(join(root, "dist"), { project: root, gitignore: true }).map((e) => e.path)).toEqual([]);
     expect(uploadList(join(root, "dist"), { gitignore: true }).map((e) => e.path)).toEqual(["app.js"]);
+    // .landfall.json's exclude adds to .landfallignore's; include beats both, the defaults and .gitignore.
+    const own = (rules: object) => uploadList(root, { gitignore: true, rules }).map((e) => e.path);
+    expect(own({ exclude: ["index.html", "sub/"] })).toEqual([".gitignore", "data", "data/big.bin"]);
+    expect(own({ exclude: ["sub/", "/data"], include: ["dist/", ".env", "node_modules"] })).toEqual([".env", ".gitignore", "dist", "index.html", "node_modules", "node_modules/a", "node_modules/a/index.js"]);
+    // A folder left out is not looked into: a file in it does not come back alone.
+    expect(own({ include: ["logs/a.log"] })).not.toContain("logs/a.log");
     const size = uploadSize(uploadList(root, { exclude: ["sub"] }));
     expect(size.largest[0]).toEqual(["data", 1000]);
-    expect(size.files).toBe(5);
+    expect(size.files).toBe(4);
   });
 });
 

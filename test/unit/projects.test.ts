@@ -7,7 +7,7 @@ import { detectBuild } from "../../src/core/frameworks";
 import { nodeMajor } from "../../src/core/runtimes";
 import { changes } from "../../src/core/dashboard";
 import { HOSTNAME } from "../../src/core/system";
-import { detectProject } from "../../src/core/projects";
+import { baseImages, detectProject } from "../../src/core/projects";
 import { safeParts } from "../../src/ui/server/local";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -22,7 +22,20 @@ describe("folders and access", () => {
     fs.writeFileSync(join(d, "dist/index.html"), "");
     expect(detectProject(d)).toMatchObject({ kind: "static", dir: "dist" });
     fs.writeFileSync(join(d, "Dockerfile"), "FROM x\nEXPOSE 8080\n");
-    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", port: 8080 });
+    expect(detectProject(d)).toMatchObject({ kind: "dockerfile", port: 8080, images: [{ ref: "x", service: "app", base: true }] });
+  });
+
+  test("the images a deploy pulls", () => {
+    // Own stages and scratch are no images; ARG defaults fill the FROM.
+    expect(baseImages("ARG NODE=24\nFROM node:${NODE}-slim AS build\nFROM build AS test\nfrom --platform=linux/amd64 nginx:alpine\nFROM scratch\nFROM node:24-slim")).toEqual(["node:24-slim", "nginx:alpine"]);
+    const d = tmp();
+    fs.mkdirSync(join(d, "web"));
+    fs.writeFileSync(join(d, "web/Web.Dockerfile"), "FROM python:3.13-slim\n");
+    fs.writeFileSync(join(d, "compose.yaml"), "services:\n  web:\n    build: { context: web, dockerfile: Web.Dockerfile }\n  db:\n    image: postgres:17\n");
+    expect(detectProject(d).images).toEqual([{ ref: "python:3.13-slim", service: "web", base: true }, { ref: "postgres:17", service: "db" }]);
+    const s = tmp();
+    fs.writeFileSync(join(s, "index.html"), "");
+    expect(detectProject(s).images).toEqual([{ ref: "nginx:alpine", service: "web" }]);
   });
 
   test("names a folder's languages, framework and tools", () => {

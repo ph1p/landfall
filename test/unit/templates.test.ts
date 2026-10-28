@@ -8,7 +8,7 @@ import { htpasswd, traefikSettings } from "../../src/core/traefik";
 import { parse } from "../../src/cli/cmd";
 import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/templates";
-import { adoptCompose, analyze, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
+import { adoptCompose, analyze, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, folderVolumes, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -58,6 +58,27 @@ describe("templates", () => {
     const y = overrideYaml({ ...meta, auth: ["bob:$2y$05$x"] }, release);
     expect(y).toContain('"traefik.http.middlewares.blog-auth.basicauth.users": "bob:$$2y$$05$$x"');
     expect(y).toContain('"traefik.http.routers.blog_web.middlewares": "blog-auth"');
+  });
+
+  test("volumes: bound to the site's folder, Compose's own only", () => {
+    const y = overrideYaml({ ...meta, volumes: ["content"] }, release);
+    expect(y).toContain('volumes:\n  "content":\n    driver_opts:\n      type: none\n      o: bind\n      device: "/opt/landfall/sites/blog/volumes/content"');
+    expect(overrideYaml({ ...meta, volumes: ["content"], adopted: "/srv/x" }, release)).not.toContain("driver_opts");
+    expect(overrideYaml(meta, release)).not.toMatch(/^volumes:/m);
+    const config = {
+      name: "20260101000000",
+      volumes: {
+        content: { name: "20260101000000_content" },
+        named: { name: "mine" },
+        ext: { name: "ext", external: true },
+        nfs: { name: "20260101000000_nfs", driver_opts: { type: "nfs" } },
+        plug: { name: "20260101000000_plug", driver: "rexray" },
+      },
+    };
+    expect(folderVolumes(config)).toEqual(["content"]);
+    // Kept when compose.yaml drops it (a rollback goes back to it), not when it makes it its own.
+    expect(folderVolumes(config, ["old", "nfs", "content"])).toEqual(["content", "old"]);
+    expect(folderVolumes({ name: "x" })).toEqual([]);
   });
 
   test("secrets: generated sites mount every one, a compose.yaml names its own", () => {

@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import { join, relative, sep } from "node:path";
+import type { ProjectConfig } from "./config";
 
 /** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-export const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".env", ".env.*", ".secrets", "compose.override.*", "docker-compose.override.*"];
+export const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".landfallignore", ".env", ".env.*", ".secrets", "compose.override.*", "docker-compose.override.*"];
+/** The older place for exclude: still read, its lines go before .landfall.json's exclude. */
 export const IGNORE_FILE = ".landfallignore";
 
 /** One line of a .gitignore, compiled. */
@@ -74,6 +76,8 @@ export interface ListOpts {
   exclude?: string[];
   /** The folder with .landfall.json, and so .landfallignore (default: the uploaded folder itself). */
   project?: string;
+  /** .landfall.json's exclude and include, patterns relative to `project`. */
+  rules?: Pick<ProjectConfig, "exclude" | "include">;
   /** Also skip what the .gitignore files in the uploaded folder ignore. */
   gitignore?: boolean;
 }
@@ -82,14 +86,15 @@ const read = (f: string) => (fs.existsSync(f) ? parseIgnore(fs.readFileSync(f, "
 
 /**
  * What an upload of `root` sends: folders before their contents, paths relative to `root` with `/`.
- * The .gitignore files go first, then the defaults, then .landfallignore: a later `!` line re-includes.
+ * The .gitignore files go first, then the defaults, then exclude (.landfallignore, then .landfall.json's), then
+ * include: a later rule wins, so include sends what any of the others leaves out.
  * An ignored folder is not entered, so nothing inside it can come back (as in git).
  */
 export function uploadList(root: string, o: ListOpts = {}): Entry[] {
   const project = o.project && !relative(o.project, root).startsWith("..") ? o.project : root;
   const own: Layer[] = [
     { base: root, rules: parseIgnore([...EXCLUDE, ...(o.exclude ?? [])].join("\n")) },
-    { base: project, rules: read(join(project, IGNORE_FILE)) },
+    { base: project, rules: [...read(join(project, IGNORE_FILE)), ...parseIgnore([...(o.rules?.exclude ?? []), ...(o.rules?.include ?? []).map((x) => `!${x}`)].join("\n"))] },
   ];
   const out: Entry[] = [];
   const walk = (dir: string, git: Layer[]) => {
