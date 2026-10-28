@@ -158,7 +158,11 @@ export interface Detected {
   /** It has a package.json: it could run as a Node.js app. */
   node?: boolean;
   /** Compose: its services as a deploy reads them (auto mode without x-landfall), or why the file cannot be read. */
-  analysis?: Analysis & { routes: { service: string; port: number; domains: string[]; main?: boolean }[] };
+  analysis?: Analysis & {
+    routes: { service: string; port: number; domains: string[]; main?: boolean }[];
+    /** Each service's image or build context and volumes, as the file says: shown before a deploy. */
+    about?: Record<string, { image?: string; build?: string; volumes?: string[] }>;
+  };
   /** What the site's .env on the server should set: its compose file's `${NAME:?…}`, an example .env's keys (none for static). */
   required?: RequiredVar[];
   /** Its .landfall.json, when it was deployed before. */
@@ -184,10 +188,21 @@ function analyzeLocal(path: string, file: string, project?: ProjectConfig): Dete
   const server = cfg.servers[project?.server ?? cfg.default ?? ""] ?? (Object.keys(cfg.servers).length === 1 ? Object.values(cfg.servers)[0] : undefined);
   const expand = (d: string) => (server && (d === "@" || !d.includes(".")) && mainDomain(server) ? expandDomain(d, server) : d);
   try {
-    const a = analyze(localCompose(path, file), resolve(path), expand, { auto: true });
+    const config = localCompose(path, file);
+    const a = analyze(config, resolve(path), expand, { auto: true });
+    const about = Object.fromEntries(
+      Object.entries<any>(config?.services ?? {}).map(([n, s]) => [
+        n,
+        {
+          image: typeof s?.image === "string" ? s.image : undefined,
+          build: s?.build ? (typeof s.build === "string" ? s.build : (s.build.context ?? ".")) : undefined,
+          volumes: (Array.isArray(s?.volumes) ? s.volumes : []).map((v: any) => (typeof v === "string" ? v : [v?.source, v?.target].filter(Boolean).join(":"))),
+        },
+      ]),
+    );
     const main = server && mainDomain(server);
     const site = project?.domains?.length ? project.domains.map(expand) : main ? [`${project?.name ?? slug(basename(path))}.${main}`] : ["<site domain>"];
-    return { ...a, routes: routePlan(a.services, site) };
+    return { ...a, routes: routePlan(a.services, site), about };
   } catch (e: any) {
     return { services: [], errors: [`cannot read ${file}: ${e?.message ?? e}`], warnings: [], notes: [], routes: [] };
   }

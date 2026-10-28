@@ -49,6 +49,7 @@ describe("folders and access", () => {
     expect(labels(n)).toContain("framework:Next.js");
     fs.writeFileSync(join(n, "compose.yaml"), "services:\n  web:\n    build: .\n    environment: { PW: ${PW:?set PW} }\n");
     expect(detectProject(n).required).toEqual([{ name: "PW", from: "compose.yaml", message: "set PW", strict: true }]);
+    expect(detectProject(n).analysis?.about).toEqual({ web: { build: ".", volumes: [] } });
   });
   test("the publish folder comes from the site generator, before its first build", () => {
     const d = tmp();
