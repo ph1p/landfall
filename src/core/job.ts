@@ -28,6 +28,11 @@ export function secretsOut(argv: string[]) {
   const pairs: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // After --: a remote command's own arguments (lf ssh box -- mkdir -p x), not landfall's.
+    if (a === "--") {
+      args.push(...argv.slice(i));
+      break;
+    }
     const flag = isPasswordShort(argv, a) ? ["-p", "password"] : a.match(/^--((?:[\w-]+-)?password)(?:=(.*))?$/s);
     if (flag && (flag[2] !== undefined || i + 1 < argv.length)) {
       env[secretEnv(flag[1])] = flag[2] ?? argv[++i];

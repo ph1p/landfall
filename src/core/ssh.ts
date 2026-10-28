@@ -139,8 +139,11 @@ export interface ScriptOpts {
 // Parallel first connections race for the ControlMaster socket, and each loser opens a session of its own.
 // So the first call to a server runs alone and the rest wait for it; then they share its connection.
 // ControlPersist=60 closes it after a minute idle, so a server counts as warm a little less than that.
+// The wait ends after a few seconds anyway: the connection is up by then, and a slow or stuck first
+// script (apt update, a hung docker) must not hold every other call to that server.
 const warm = new Map<string, { ready: Promise<unknown>; until: number }>();
 const WARM_MS = 50_000;
+const GATE_MS = 3_000;
 
 async function shared<T>(s: Server, run: () => Promise<T>): Promise<T> {
   const key = `${dest(s)}:${s.port ?? 22}`;
@@ -150,7 +153,7 @@ async function shared<T>(s: Server, run: () => Promise<T>): Promise<T> {
     return run().finally(() => (w.until = Math.max(w.until, Date.now() + WARM_MS)));
   }
   const ready = run();
-  const entry = { ready: ready.catch(() => {}), until: Infinity };
+  const entry = { ready: Promise.race([ready.catch(() => {}), new Promise((r) => setTimeout(r, GATE_MS).unref())]), until: Infinity };
   warm.set(key, entry);
   try {
     return await ready;
@@ -289,7 +292,8 @@ async function tarUpload(s: Server, localDir: string, remoteDir: string, list: E
     });
     tar.stdin.end(`.\0${fileList(list)}`);
     const ssh = spawn("ssh", [...sshArgs(s), remote], { stdio: ["pipe", "inherit", "inherit"] });
-    ssh.stdin.on("error", () => {});
+    // ssh gone: stop tar too, or it blocks on its full pipe and the upload never ends.
+    ssh.stdin.on("error", () => tar.kill());
     tar.stdout.pipe(ssh.stdin);
     tar.on("error", reject);
     ssh.on("error", reject);
@@ -311,14 +315,16 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
   const env = { ...process.env, COPYFILE_DISABLE: "1" };
   const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
   const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], { stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"] });
-  ssh.stdin?.on("error", () => {});
   const done: Promise<number>[] = [exit(ssh)];
   await new Promise<void>((resolve, reject) => {
     ssh.on("error", reject);
     if ("file" in local) {
       const f = dir === "up" ? fs.createReadStream(local.file) : fs.createWriteStream(local.file);
       f.on("error", reject);
-      if (dir === "up") (f as fs.ReadStream).pipe(ssh.stdin!);
+      if (dir === "up") {
+        ssh.stdin!.on("error", () => (f as fs.ReadStream).destroy());
+        (f as fs.ReadStream).pipe(ssh.stdin!);
+      }
       else {
         ssh.stdout!.pipe(f as fs.WriteStream);
         done.push(new Promise((ok) => f.on("close", () => ok(0))));
@@ -326,9 +332,14 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
     } else {
       const p = spawn(local[0], local.slice(1), { stdio: dir === "up" ? ["ignore", "pipe", "inherit"] : ["pipe", "inherit", "inherit"], env });
       p.on("error", reject);
-      p.stdin?.on("error", () => {});
-      if (dir === "up") p.stdout!.pipe(ssh.stdin!);
-      else ssh.stdout!.pipe(p.stdin!);
+      // One end gone: stop the other, or it blocks on its full pipe and never exits.
+      if (dir === "up") {
+        ssh.stdin!.on("error", () => p.kill());
+        p.stdout!.pipe(ssh.stdin!);
+      } else {
+        p.stdin!.on("error", () => ssh.kill());
+        ssh.stdout!.pipe(p.stdin!);
+      }
       done.push(exit(p));
     }
     // Wait for both ends: one may exit 0 before the other reports that it failed halfway.

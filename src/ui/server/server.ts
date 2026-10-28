@@ -88,14 +88,19 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
 }
 
 /** The command as the page shows it: passwords given as flags, `lf env` and deploy `-e` values, are masked. */
-const shown = (argv: string[]) =>
-  argv.map((a, i) =>
-    isPasswordShort(argv, argv[i - 1]) || /^--([\w-]+-)?password$/.test(argv[i - 1])
-      ? "***"
-      : (isEnvCmd(argv) || (argv[0] === "deploy" && /^(-e|--env)$/.test(argv[i - 1]))) && ENV_PAIR.test(a)
-        ? a.replace(/=.*/s, "=***")
-        : a.replace(/^(--([\w-]+-)?password=).*/, "$1***"),
+const shown = (argv: string[]) => {
+  // After --: a remote command's own arguments, as secretsOut leaves them.
+  const end = argv.includes("--") ? argv.indexOf("--") : argv.length;
+  return argv.map((a, i) =>
+    i >= end
+      ? a
+      : isPasswordShort(argv, argv[i - 1]) || /^--([\w-]+-)?password$/.test(argv[i - 1])
+        ? "***"
+        : (isEnvCmd(argv) || (argv[0] === "deploy" && /^(-e|--env)$/.test(argv[i - 1]))) && ENV_PAIR.test(a)
+          ? a.replace(/=.*/s, "=***")
+          : a.replace(/^(--([\w-]+-)?password=).*/, "$1***"),
   );
+};
 
 const jobInfo = (w: WebJob) => ({
   id: w.id,
@@ -147,12 +152,21 @@ function jobEvents(w: WebJob, from: number, signal: AbortSignal): Response {
 }
 
 /** What /api/state sends: everything the page needs before it shows a thing. */
+/** The project lf ui started in; a broken .landfall.json there must not keep the page from loading. */
+function projectHere() {
+  try {
+    return loadProject(process.cwd()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function state() {
   const cfg = loadConfig();
   return {
     version: pkg.version,
     cwd: process.cwd(),
-    project: loadProject(process.cwd()) ?? null,
+    project: projectHere(),
     projects: loadProjects(),
     defaultImage: DEFAULT_TRAEFIK_IMAGE,
     // The CLI's own input rules, so forms reject what the command would.

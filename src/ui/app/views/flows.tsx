@@ -109,26 +109,28 @@ export function addServer() {
   const known = (name: string) => !!serverNamed(name);
   dialog({
     title: "Add a server",
-    text: "Use an alias from ~/.ssh/config (like vps), or pick a new name and give the machine's address, fresh or already in use. landfall writes the ssh config entry for it.",
+    text: "An alias from ~/.ssh/config (like vps) needs only its name. A new machine needs a name and its address, fresh or already in use: landfall writes its ssh config entry.",
     fields: [
       {
         row: [
-          { name: "name", label: "Name", placeholder: "vps", required: "Give the server a name", preview: (v) => known(v.name.trim()) && "✓ in your ssh config" },
+          { name: "name", label: "Name", placeholder: "vps", required: "Give the server a name", preview: (v) => known(v.name.trim()) && "✓ in your ssh config: no address needed" },
           {
-            name: "host", label: "IP or hostname", placeholder: "203.0.113.7", mono: true, hint: "Not needed for an ssh alias.",
+            name: "host", label: "Address (IP or hostname)", placeholder: "203.0.113.7", mono: true,
             check: (h, v) => !h && !known(v.name.trim()) && `${v.name.trim()} is not in your ssh config: give its IP or hostname`,
           },
         ],
       },
       {
-        legend: "Login (for a new address)",
+        // Only a new address needs a login; an alias brings its own.
+        legend: "Login",
+        when: (v) => String(v.host ?? "").trim(),
         fields: [
           { row: [{ name: "user", label: "User", placeholder: "root" }, { name: "port", label: "SSH port", type: "number", placeholder: "22", check: portError }] },
-          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", mono: true, hint: "Without one, landfall creates ~/.ssh/landfall_<name> and installs it with the password." },
-          { name: "password", label: "Password (optional)", type: "password", hint: "Used once to install the key, never stored. Leave empty if the key already works." },
+          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", mono: true, hint: "Empty: landfall makes ~/.ssh/landfall_<name> and installs it with the password." },
+          { name: "password", label: "Password (optional)", type: "password", hint: "Used once to install the key, never stored. Empty when the key already works." },
         ],
       },
-      { name: "setup", label: "Set it up now (shows what it would change first)", type: "check", value: true },
+      { name: "setup", label: "Set it up now", hint: "Shows what it would change first.", type: "check", value: true },
     ],
     ok: "Add",
     onOk: (v) => {
