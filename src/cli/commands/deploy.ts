@@ -103,7 +103,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     port: { type: "string", desc: "container port (image/dockerfile; default: EXPOSE or 3000)" },
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
-    "env-file": { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
+    dotenv: { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin; also --env-file, not on node 26)" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
     "build-local": { type: "boolean", desc: "build the images on this machine (with Docker) and send them, not on the server" },
     start: { type: "string", desc: "run as an app with this start command (e.g. 'node server.js'); landfall writes its Dockerfile" },
@@ -165,9 +165,9 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
       let env: string | undefined;
-      if (o.env?.length || o["env-file"]) {
+      if (o.env?.length || o.dotenv) {
         env = prevEnv;
-        if (o["env-file"]) env = mergeEnv(env, await readEnvFile(o["env-file"]));
+        if (o.dotenv) env = mergeEnv(env, await readEnvFile(o.dotenv));
         if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env, true));
       }
       // What the compose file requires (${NAME:?}): asked for here, or said before the upload rather than by compose after it.
@@ -176,7 +176,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         const missing = missingVars(vars.filter((v, i) => vars.findIndex((u) => u.name === v.name) === i), parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")));
         if (missing.length && !interactive()) {
           const names = missing.map((v) => v.name).join(", ");
-          fail(`${compose} needs ${names} in ${name}'s .env on ${serverName}: deploy with ${missing.map((v) => `-e ${v.name}=…`).join(" ")} (or --env-file)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${missing[0].name}=…` : ""}`);
+          fail(`${compose} needs ${names} in ${name}'s .env on ${serverName}: deploy with ${missing.map((v) => `-e ${v.name}=…`).join(" ")} (or --dotenv)${exists ? `, or set it first: lf env -s ${serverName} ${name} ${missing[0].name}=…` : ""}`);
         }
         const set: Record<string, string> = {};
         for (const v of missing) {
