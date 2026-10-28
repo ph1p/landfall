@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { S, plural, render, sv } from "../lib/store";
+import { S, errorMessage, http, plural, render, sv } from "../lib/store";
 import { fetchInto, load } from "../lib/api";
-import { run } from "../lib/jobs";
+import { ifOk, run } from "../lib/jobs";
 import { confirmDlg } from "../ui/dialog";
-import { Actions, Badge, Body, Btn, Card, CardHead, Kv, Note, Sub, pending, cx, ACTS, HIDE, MONO, NUM, Table } from "../ui/kit";
-import type { ImageScan, Severity } from "../lib/types";
-import { can } from "./shared";
+import { Actions, Badge, Body, Btn, Card, CardHead, Kv, Spin, Sub, pending, waiting, cx, ACTS, HIDE, MONO, NUM, Table } from "../ui/kit";
+import type { ImageScan, Severity, TrivyState } from "../lib/types";
+import { toast } from "../ui/toast";
+import { can, size } from "./shared";
 
 // ---- updates ---------------------------------------------------------------
 
@@ -16,13 +17,55 @@ const SEV: [Severity, string, string][] = [["CRITICAL", "bad", "critical"], ["HI
 const shownScans = new Set<string>();
 // Servers whose scan includes the containers landfall did not deploy.
 const scanOthers = new Set<string>();
-const scan = (n: string) => fetchInto("scan", n, scanOthers.has(n) ? "/scan?others=1" : "/scan");
+// What Trivy keeps on each server, once asked; servers being asked.
+const trivy = new Map<string, TrivyState>();
+const asking = new Set<string>();
+const loadTrivy = (n: string) => http<TrivyState>(`/api/servers/${encodeURIComponent(n)}/trivy`).then((t) => (trivy.set(n, t), render(), t));
+// Shown as scanning at once: a scan takes a minute or more, and the click must answer now.
+const scan = (n: string, install = false) => {
+  const q = [scanOthers.has(n) && "others=1", install && "install=1"].filter(Boolean).join("&");
+  void fetchInto("scan", n, "/scan" + (q && "?" + q)).then(() => void (install && loadTrivy(n).catch(() => {})));
+  render();
+};
+const there = (t: TrivyState) => t.image !== undefined || t.cache !== undefined;
+/** The first scan: Trivy is downloaded onto the server only once the user agrees. */
+const firstScan = (n: string) => {
+  asking.add(n);
+  render();
+  loadTrivy(n).then(
+    (t) =>
+      there(t)
+        ? scan(n)
+        : confirmDlg({
+            title: `Install Trivy on ${n}?`,
+            text: "Scanning runs Trivy on the server. It downloads its image (~190 MB) and its vulnerability databases (several GB, in the volume landfall-trivy), and keeps them for the next scans.\nRemove Trivy (or lf scan --remove) deletes them again.",
+            ok: "Install and scan",
+            onOk: () => scan(n, true),
+          }),
+    (e) => toast(errorMessage(e)),
+  ).finally(() => (asking.delete(n), render()));
+};
+const removeTrivy = (n: string) =>
+  confirmDlg({
+    title: `Remove Trivy from ${n}?`,
+    text: `Deletes Trivy's image and its vulnerability databases${trivy.get(n) ? ` (${size((trivy.get(n)!.image ?? 0) + (trivy.get(n)!.cache ?? 0))})` : ""}. The next scan asks to download them again.`,
+    ok: "Remove",
+    danger: true,
+    onOk: () => run(["scan", "--remove", ...sv(n), "-y"], { server: n, after: ifOk(() => (delete S.scan[n], trivy.delete(n), render())) }),
+  });
 
 /** lf scan: what Trivy found in each image the server runs, and what fixes it. */
 function ScanCard({ n }: { n: string }) {
   const st = S.scan[n];
+  const tv = trivy.get(n);
   if (!st) return null;
-  const wait = pending(st, "scanning every image… the first scan downloads Trivy's database (~80 MB)", () => scan(n));
+  const wait = waiting(st) ? (
+    <div role="status" className="px-[18px] py-4 text-dim text-sm flex items-center gap-2">
+      <Spin /> Scanning every image. This takes a minute or more; the first scan also downloads Trivy's databases (several GB).
+    </div>
+  ) : (
+    pending(st, "", () => scan(n))
+  );
   const toggle = (id: string) => (shownScans.has(id) ? shownScans.delete(id) : shownScans.add(id), render());
   const used = (i: ImageScan) => i.used.map((u) => (u.service && u.service !== u.name ? `${u.name}/${u.service}` : u.name)).join(", ");
   return (
@@ -32,11 +75,12 @@ function ScanCard({ n }: { n: string }) {
         <Actions>
           {st.data && (
             <label className="dim text-sm flex items-center gap-1.5" title="lf scan --others: also the images of containers landfall did not deploy">
-              <input type="checkbox" checked={scanOthers.has(n)} onChange={(e) => (e.target.checked ? scanOthers.add(n) : scanOthers.delete(n), void scan(n), render())} />
+              <input type="checkbox" checked={scanOthers.has(n)} disabled={st.loading} onChange={(e) => (e.target.checked ? scanOthers.add(n) : scanOthers.delete(n), void scan(n), render())} />
               Other containers too
             </label>
           )}
-          {st.data && <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>}
+          {st.data && (st.loading ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Scanning…</span> : <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>)}
+          {!st.loading && <Btn cls="sm" title={`lf scan --remove: delete Trivy's image and databases from the server${tv ? ` (${size((tv.image ?? 0) + (tv.cache ?? 0))})` : ""}`} on={() => removeTrivy(n)}>Remove Trivy</Btn>}
         </Actions>
       </CardHead>
       {wait ?? (
@@ -46,7 +90,10 @@ function ScanCard({ n }: { n: string }) {
               const open = shownScans.has(i.id);
               return [
                 <tr key={i.id}>
-                  <td className={MONO}>{i.ref} {i.other && <Badge title="Run by containers landfall did not deploy">not landfall's</Badge>} {i.eol && <Badge kind="bad" title="Its OS no longer gets security fixes">OS end of life</Badge>}</td>
+                  <td>
+                    <span className={MONO}>{i.ref}</span> {i.other && <Badge title="Run by containers landfall did not deploy">not landfall's</Badge>} {i.eol && <Badge kind="bad" title="Its OS no longer gets security fixes">OS end of life</Badge>}
+                    {(i.error || i.hint) && <div className={cx("text-xs mt-1", i.error ? "text-bad" : "text-warn")}>{i.error ?? i.hint}</div>}
+                  </td>
                   <td className={cx("dim", HIDE)}>{used(i)}</td>
                   <td>
                     {i.error ? (
@@ -60,11 +107,6 @@ function ScanCard({ n }: { n: string }) {
                   <td className={cx(NUM, HIDE)}>{i.error ? "" : i.fixable}</td>
                   <td className={ACTS}>{i.vulns.length > 0 && <Btn cls="sm ghost" on={() => toggle(i.id)}>{open ? "Hide" : "Show"}</Btn>}</td>
                 </tr>,
-                (i.hint || i.error) && (
-                  <tr key={`${i.id}-hint`}>
-                    <td colSpan={5} className="pt-0"><Note kind={i.error ? "bad" : "warn"} className="m-0">{i.error ?? i.hint}</Note></td>
-                  </tr>
-                ),
                 open && (
                   <tr key={`${i.id}-list`}>
                     <td colSpan={5} className="pt-0">
@@ -221,7 +263,7 @@ export function UpdatesView({ n }: { n: string }) {
             <CardHead>
               Images <Sub>Traefik and sites</Sub>
               <Actions>
-                {!S.scan[n] && images.some((i) => i.id) && <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => scan(n)}>Scan for vulnerabilities</Btn>}{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
+                {!S.scan[n] && images.some((i) => i.id) && (asking.has(n) ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Checking for Trivy…</span> : <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => firstScan(n)}>Scan for vulnerabilities</Btn>)}{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
             </CardHead>
             <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
               {images.length ? (
