@@ -62,6 +62,11 @@ export async function historyView(server: Server, n?: number) {
   return runs.map((r) => ({ ...r, pending: pending(r).length }));
 }
 
+/** historyView for the browser: the newest runs, and whether a step has an undo, not the shell that does it. */
+export async function historyBrief(server: Server, n = 200) {
+  return (await historyView(server, n)).map((r) => ({ ...r, steps: r.steps.map(({ undo, ...x }) => ({ ...x, undo: !!undo })) }));
+}
+
 /** `lf update --json` (list only). */
 /** lf scan --json [--others]: known vulnerabilities in the images it runs. */
 export const scanView = (server: Server, others = false) => scanImages(server, [], others);

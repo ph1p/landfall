@@ -180,7 +180,7 @@ lf env --reveal | grep -qx 'GREETING=world' || die ".env put back"
 pass "a release that does not start goes back to the one before, with its .env"
 cp "$WORK/Dockerfile.ok" Dockerfile
 docker exec "$NAME" mkdir /opt/landfall/sites/.app.deploying
-{ ! lf deploy -y >"$WORK/locked.log" 2>&1 && has "another deploy of app is running" "$WORK/locked.log"; } || { cat "$WORK/locked.log"; die "deploy lock"; }
+{ ! lf deploy -y >"$WORK/locked.log" 2>&1 && has "another deploy or change of app is running" "$WORK/locked.log"; } || { cat "$WORK/locked.log"; die "deploy lock"; }
 docker exec "$NAME" rmdir /opt/landfall/sites/.app.deploying
 pass "one deploy of a site at a time"
 lf deploy --build-local -y >"$WORK/local.log" 2>&1 || { cat "$WORK/local.log"; die "deploy --build-local"; }

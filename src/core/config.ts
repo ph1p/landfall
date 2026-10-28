@@ -85,9 +85,20 @@ export function loadConfig(): Config {
   }
 }
 
+/**
+ * Write to a temporary file, then rename: a reader (another lf job) never sees half a file.
+ * A symlinked file (a dotfiles repo) stays a link; an existing file keeps its mode.
+ */
+export function writeAtomic(file: string, data: string, mode?: number) {
+  const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
+  const tmp = `${real}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, data, { mode: fs.existsSync(real) ? fs.statSync(real).mode & 0o777 : (mode ?? 0o644) });
+  fs.renameSync(tmp, real);
+}
+
 export function saveConfig(cfg: Config) {
   fs.mkdirSync(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
+  writeAtomic(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", 0o600);
 }
 
 /** Drop a server from the config (and as the default). */
@@ -302,5 +313,5 @@ export function saveProject(cwd: string, p: ProjectConfig, env = activeEnvironme
     if (own.name === envSiteName(base.name, env)) delete own.name;
     out = { ...base, environments: { ...environments, [env]: own } };
   }
-  fs.writeFileSync(join(cwd, PROJECT_FILE), JSON.stringify(out, null, 2) + "\n");
+  writeAtomic(join(cwd, PROJECT_FILE), JSON.stringify(out, null, 2) + "\n");
 }

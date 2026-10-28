@@ -1,7 +1,7 @@
 // What the API returns: the CLI's --json shapes, taken from core. Type-only imports: no node code reaches the page.
 import type { browse } from "../../server/local";
 import type { state } from "../../server/server";
-import type { configView, dnsView, factsView, firewallView, historyView, systemView, updatesView } from "../../../core/views";
+import type { configView, dnsView, factsView, firewallView, historyBrief, systemView, updatesView } from "../../../core/views";
 export type { ProjectConfig } from "../../../core/config";
 import type { Stats } from "../../../core/stats";
 import type { Advice } from "../../../core/security";
@@ -52,7 +52,7 @@ export type Firewall = View<typeof firewallView>;
 export type FirewallRule = Firewall["rules"][number];
 export type Config = View<typeof configView>;
 export type DomainDns = Config["dns"][number];
-export type Run = View<typeof historyView>[number];
+export type Run = View<typeof historyBrief>[number];
 export type Updates = View<typeof updatesView>;
 export type Disk = Stats["disks"][number];
 export type SystemInfo = View<typeof systemView>;
@@ -60,6 +60,8 @@ export type SystemService = SystemInfo["services"][number];
 
 /** What a job told the UI through report(), merged: each command sets its own fields. */
 export interface Report {
+  /** It journaled a change lf undo can take back. */
+  undoable?: boolean;
   refuse?: string;
   needsKey?: boolean;
   checks?: { part: string; label: string; status: string; detail: string }[];

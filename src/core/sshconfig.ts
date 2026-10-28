@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { checkAlias, envVar, expandHome, type Server } from "./config";
+import { checkAlias, envVar, expandHome, writeAtomic, type Server } from "./config";
 import { dest, targetArgs } from "./ssh";
 import { fail } from "./term";
 
@@ -16,11 +16,16 @@ export interface EffectiveSsh {
 }
 
 const resolved = new Map<string, EffectiveSsh>();
+let resolvedAt = 0;
 
 /** Effective ssh settings for a server, as `ssh -G` resolves them (aliases, Include, Match...). */
 export function effectiveSsh(s: Server): EffectiveSsh {
   const args = [...targetArgs(s), "-G", dest(s)];
-  const cached = resolved.get(args.join("\0"));
+  // Forgotten when ~/.ssh/config changes: a long-running lf ui sees the edit.
+  const stamp = fs.statSync(SSH_CONFIG, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  if (stamp !== resolvedAt) resolved.clear(), (resolvedAt = stamp);
+  const key = args.join("\0");
+  const cached = resolved.get(key);
   if (cached) return cached;
   let out: string;
   try {
@@ -31,7 +36,7 @@ export function effectiveSsh(s: Server): EffectiveSsh {
   const get = (k: string) => out.match(new RegExp(`^${k} (.+)$`, "m"))?.[1] ?? "";
   const identityFiles = [...out.matchAll(/^identityfile (.+)$/gm)].map((m) => expandHome(m[1]));
   const r = { hostname: get("hostname"), user: get("user"), port: Number(get("port") || 22), identityFiles };
-  resolved.set(args.join("\0"), r);
+  resolved.set(key, r);
   return r;
 }
 
@@ -72,7 +77,7 @@ function glob(pattern: string): string[] {
 
 const markers = (alias: string) => [`# >>> landfall:${alias}`, `# <<< landfall:${alias}`] as const;
 /** A managed block. */
-const blockRe = (alias: string, trail: string) => new RegExp(`# >>> landfall:${escapeRe(alias)}\\n[\\s\\S]*?# <<< landfall:${escapeRe(alias)}${trail}`);
+const blockRe = (alias: string, trail: string) => new RegExp(`# >>> landfall:${escapeRe(alias)}\\r?\\n[\\s\\S]*?# <<< landfall:${escapeRe(alias)}${trail}`);
 const isStart = (line: string | undefined, alias: string) => line === `# >>> landfall:${alias}`;
 
 export interface HostBlock {
@@ -107,10 +112,10 @@ export function upsertHostBlock(b: HostBlock, file = SSH_CONFIG): { created: boo
   const current = created ? "" : fs.readFileSync(file, "utf8");
   checkAlias(b.alias);
   const block = renderHostBlock(b);
-  const re = blockRe(b.alias, "\\n?");
+  const re = blockRe(b.alias, "\\r?\\n?");
   const next = re.test(current) ? current.replace(re, () => block + "\n") : `${block}\n\n${current}`;
   fs.mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, next, { mode: 0o600 });
+  writeAtomic(file, next, 0o600);
   resolved.clear();
   return { created, block };
 }
@@ -182,7 +187,7 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
   lines.splice(b.start + 1, block.length, added, ...kept);
   const backup = `${b.file}.landfall-bak`;
   if (!fs.existsSync(backup)) fs.copyFileSync(b.file, backup);
-  fs.writeFileSync(b.file, lines.join("\n"));
+  writeAtomic(b.file, lines.join("\n"));
   resolved.clear();
   return { file: b.file, removed: removed.map((l) => l.trim()), added: added.trim(), backup };
 }
@@ -190,9 +195,9 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
 export function removeHostBlock(alias: string, file = SSH_CONFIG): boolean {
   if (!fs.existsSync(file)) return false;
   const current = fs.readFileSync(file, "utf8");
-  const re = blockRe(alias, "\\n*");
+  const re = blockRe(alias, "[\\r\\n]*");
   if (!re.test(current)) return false;
-  fs.writeFileSync(file, current.replace(re, ""));
+  writeAtomic(file, current.replace(re, ""));
   return true;
 }
 

@@ -323,7 +323,7 @@ export function JobPanel() {
   const others = [...S.jobs.values()].reverse();
   const stop = () => {
     const doStop = () => stopJob(info.id);
-    if (!info.undoable) return void doStop();
+    if (!rep(j).undoable) return void doStop();
     confirmDlg({ title: `Stop lf ${info.argv[0]}?`, text: "What it changed so far stays. Undo it from History.", ok: "Stop it", danger: true, onOk: doStop });
   };
   return (
@@ -339,7 +339,7 @@ export function JobPanel() {
       <JobOut key={info.id} j={j} />
       <div className="px-3.5 py-2.5 border-t border-line flex gap-1.5 flex-wrap items-center">
         <span className="mr-auto text-md">{status}</span>
-        {running && <Btn cls="danger" title={info.undoable ? "Changes made so far stay" : undefined} on={stop}>Stop</Btn>}
+        {running && <Btn cls="danger" title={rep(j).undoable ? "Changes made so far stay" : undefined} on={stop}>Stop</Btn>}
         {(running ? [] : j.actions).map((a, i) => (
           <Btn key={a.label} cls={a.cls ?? (i === 0 ? "primary" : "")} on={a.run}>{a.label}</Btn>
         ))}
