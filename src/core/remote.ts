@@ -24,6 +24,7 @@ import {
   STATUS_RANK,
   statusKind,
   readSiteLine,
+  isSiteMeta,
   type Release,
   type SiteMeta,
   ENV_NAME,
@@ -100,9 +101,8 @@ export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMe
   if (json.trim()) {
     try {
       meta = JSON.parse(json);
-    } catch {
-      fail(`corrupt ${dir}/site.json on ${s.host}`);
-    }
+    } catch {}
+    if (!isSiteMeta(meta)) fail(`corrupt ${dir}/site.json on ${s.host}`);
   }
   return { meta, env, proxy: parseProxy(proxy) ?? OWN_PROXY, exists: exists.trim() === "1" };
 }
@@ -738,7 +738,7 @@ export function mergeEnv(existing: string, set: Record<string, string>, unset: s
   const out: string[] = [];
   const pending = new Map(Object.entries(set));
   for (const line of existing.split("\n")) {
-    const key = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1];
+    const key = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=/)?.[1];
     if (key && unset.includes(key)) continue;
     if (key && pending.has(key)) {
       out.push(`${key}=${pending.get(key)}`);

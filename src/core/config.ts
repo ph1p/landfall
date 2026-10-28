@@ -261,8 +261,10 @@ const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 function readProject(cwd: string): ProjectConfig | undefined {
   try {
     return JSON.parse(fs.readFileSync(projectFile(cwd), "utf8"));
-  } catch {
-    return undefined;
+  } catch (e: any) {
+    // A broken file must not look like none: deploy would pick another name and overwrite it.
+    if (e.code === "ENOENT") return undefined;
+    return fail(`cannot read ${projectFile(cwd)}: ${e.message}`);
   }
 }
 
