@@ -15,6 +15,8 @@ import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./template
 export const SECRETS_DIR = ".secrets";
 /** What a Compose secret may be named, and a safe file name. */
 export const SECRET_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+/** A .env variable name. */
+export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 
 /** The services of a `docker compose config` that mount one of these files of .secrets. */
 export function secretUsers(config: any, keys: string[]): string[] {
@@ -413,6 +415,9 @@ export interface RequiredVar {
   example?: string;
 }
 
+/** Whether a missing var is asked for: an example's key with a value is only suggested. */
+export const askable = (v: RequiredVar) => v.example === undefined;
+
 /** The variables a compose file requires, in order, from its text (comment lines left out). */
 export function requiredVars(text: string, from: string): RequiredVar[] {
   const out = new Map<string, RequiredVar>();
@@ -438,14 +443,15 @@ export function exampleVars(text: string, from: string): RequiredVar[] {
   let comment: string | undefined;
   for (const raw of text.split("\n")) {
     const l = raw.trim().replace(/^export\s+/, "");
-    const m = l.match(/^([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)$/);
-    if (m && !out.has(m[1])) {
+    const m = l.match(/^([^=\s]+)\s*=\s*(.*)$/);
+    if (m && ENV_NAME.test(m[1]) && !out.has(m[1])) {
       const quoted = m[2].match(/^(["'])(.*)\1/);
       const value = quoted ? quoted[2] : m[2].replace(/(^|\s)#.*$/, "").trim();
       out.set(m[1], { name: m[1], from, message: comment, strict: false, optional: true, ...(value && { example: value }) });
     }
     // A commented-out KEY=value is no message.
-    comment = l.startsWith("#") && !/^#\s*[A-Za-z_][A-Za-z0-9_.-]*\s*=/.test(l) ? l.replace(/^#+\s*/, "") || undefined : undefined;
+    const text = l.startsWith("#") ? l.replace(/^#+\s*/, "") : undefined;
+    comment = text && !ENV_NAME.test(text.split("=")[0].trim()) ? text : undefined;
   }
   return [...out.values()];
 }
@@ -456,14 +462,19 @@ export function exampleVars(text: string, from: string): RequiredVar[] {
  * landfall writes reads it as env_file), for a compose project only if it names an env_file.
  */
 export function wantedVars(root: string, composeFiles: string[] = []): RequiredVar[] {
-  const out = new Map<string, RequiredVar>();
   const texts = composeFiles.map((f) => [f, fs.readFileSync(join(root, f), "utf8")]);
-  for (const [f, text] of texts) for (const v of requiredVars(text, f)) if (!out.has(v.name)) out.set(v.name, v);
+  const envFile = (text: string) => {
+    try {
+      return Object.values<any>(parseYaml(text)?.services ?? {}).some((s) => s?.env_file);
+    } catch {
+      return false;
+    }
+  };
+  const vars = texts.flatMap(([f, text]) => requiredVars(text, f));
   const example = EXAMPLE_ENV_FILES.find((f) => fs.existsSync(join(root, f)));
-  if (example && (!texts.length || texts.some(([, text]) => /^\s*env_file\s*:/m.test(text)))) {
-    for (const v of exampleVars(fs.readFileSync(join(root, example), "utf8"), example)) if (!out.has(v.name)) out.set(v.name, v);
-  }
-  return [...out.values()];
+  if (example && (!texts.length || texts.some(([, text]) => envFile(text)))) vars.push(...exampleVars(fs.readFileSync(join(root, example), "utf8"), example));
+  // The first file to want a name says it: compose before the example.
+  return vars.filter((v, i) => vars.findIndex((u) => u.name === v.name) === i);
 }
 
 /** The required variables vars leaves without a value in env (a .env's pairs). */

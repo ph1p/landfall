@@ -276,7 +276,7 @@ test("what a deploy wants in the .env", () => {
   // An app, Dockerfile or image reads the .env: the example counts.
   expect(wantedVars(dir).map((v) => v.name)).toEqual(["API_KEY", "PW"]);
   // A compose project only with an env_file; its own requirement wins.
-  fs.writeFileSync(join(dir, "compose.yaml"), "services:\n  a:\n    image: x\n    environment: { PW: ${PW:?set PW} }\n");
+  fs.writeFileSync(join(dir, "compose.yaml"), "services:\n  a:\n    image: x\n    environment: { PW: \"${PW:?set PW}\" }\n");
   expect(wantedVars(dir, ["compose.yaml"])).toEqual([{ name: "PW", from: "compose.yaml", message: "set PW", strict: true }]);
   fs.appendFileSync(join(dir, "compose.yaml"), "    env_file: .env\n");
   expect(wantedVars(dir, ["compose.yaml"]).map((v) => `${v.name}:${v.from}`)).toEqual(["PW:compose.yaml", "API_KEY:.env.sample"]);
