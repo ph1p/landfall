@@ -14,7 +14,9 @@ const IMG: Record<string, [string, string]> = { current: ["ok", "up to date"], u
 const SEV: [Severity, string, string][] = [["CRITICAL", "bad", "critical"], ["HIGH", "warn", "high"], ["MEDIUM", "", "medium"], ["LOW", "", "low"]];
 // Images whose vulnerabilities are listed.
 const shownScans = new Set<string>();
-const scan = (n: string) => fetchInto("scan", n, "/scan");
+// Servers whose scan includes the containers landfall did not deploy.
+const scanOthers = new Set<string>();
+const scan = (n: string) => fetchInto("scan", n, scanOthers.has(n) ? "/scan?others=1" : "/scan");
 
 /** lf scan: what Trivy found in each image the server runs, and what fixes it. */
 function ScanCard({ n }: { n: string }) {
@@ -26,8 +28,16 @@ function ScanCard({ n }: { n: string }) {
   return (
     <Card>
       <CardHead>
-        Vulnerabilities <Sub className={HIDE}>Trivy, in the images the server runs</Sub>
-        <Actions>{st.data && <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>}</Actions>
+        Vulnerabilities <Sub className={HIDE}>Trivy, in the images {scanOthers.has(n) ? "every container runs" : "traefik and the sites run"}</Sub>
+        <Actions>
+          {st.data && (
+            <label className="dim text-sm flex items-center gap-1.5" title="lf scan --others: also the images of containers landfall did not deploy">
+              <input type="checkbox" checked={scanOthers.has(n)} onChange={(e) => (e.target.checked ? scanOthers.add(n) : scanOthers.delete(n), void scan(n), render())} />
+              Other containers too
+            </label>
+          )}
+          {st.data && <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>}
+        </Actions>
       </CardHead>
       {wait ?? (
         <Table head={<><th>Image</th><th className={HIDE}>Used by</th><th>Found</th><th className={cx(NUM, HIDE)}>Fixable</th><th></th></>}>
@@ -36,7 +46,7 @@ function ScanCard({ n }: { n: string }) {
               const open = shownScans.has(i.id);
               return [
                 <tr key={i.id}>
-                  <td className={MONO}>{i.ref} {i.eol && <Badge kind="bad" title="Its OS no longer gets security fixes">OS end of life</Badge>}</td>
+                  <td className={MONO}>{i.ref} {i.other && <Badge title="Run by containers landfall did not deploy">not landfall's</Badge>} {i.eol && <Badge kind="bad" title="Its OS no longer gets security fixes">OS end of life</Badge>}</td>
                   <td className={cx("dim", HIDE)}>{used(i)}</td>
                   <td>
                     {i.error ? (
