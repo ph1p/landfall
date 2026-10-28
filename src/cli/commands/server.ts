@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
+import { TRIVY_CACHE } from "../../core/scan";
 import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { runScript, shq, sshExec } from "../../core/ssh";
@@ -181,6 +182,8 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
       lines.push(`log ${shq(`removing ${meta.name}`)}`, "(", ...rm, ")", `record ${shq(`removed site ${meta.name}`)}`);
     }
     if (st.compose) lines.push(`log "stopping traefik"`, `(cd ${TRAEFIK_DIR} && dc down --remove-orphans)`, `record "removed traefik"`);
+    // lf scan's database: a cache, not data.
+    lines.push(`! command -v docker >/dev/null || docker volume rm ${TRIVY_CACHE} >/dev/null 2>&1 || true`);
     if (lines.length > 1) await runScript(server, lines.join("\n"));
     if (steps.length) {
       step(`reverting setup (${steps.length} change${steps.length > 1 ? "s" : ""})`);

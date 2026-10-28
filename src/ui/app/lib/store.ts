@@ -20,6 +20,7 @@ export const S = {
   facts: {} as Store<T.Facts>,
   stats: {} as Store<T.Stats>,        // name -> {data: lf stats --json}; reloads every few seconds while the tab is open
   statsLog: {} as Record<string, { cpu: number; mem: number }[]>, // the last samples, for the sparklines
+  scan: {} as Store<T.ImageScan[]>,       // name -> {data: lf scan --json}, only on request: a scan takes a while
   disk: {} as Store<T.DiskUsage>,         // name -> {data: lf disk --json}, only on request: du takes a while
   settings: {} as Store<T.Config>,     // name -> {data: lf server config --json + dns of the main domain}
   dns: {} as Store<T.Dns>,          // name -> {data: {ips, domains: [{domain, ips, ok, https: lf check}]}}; checked again each minute
