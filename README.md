@@ -496,8 +496,10 @@ lf volume restore content          # replace it with its newest backup (or name 
 - Backups made by hand are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with
   the volumes and removes the schedule; `lf sites rm --volumes` deletes both.
 - After a deploy, an empty volume whose name matches a local folder the upload left out (`.landfallignore`,
-  e.g. `./content` for the volume `content`) gets an offer to push that folder into it; without a terminal,
-  `lf deploy` prints the `lf volume push` command instead. Paths may start with `~`.
+  e.g. `./content` for the volume `content`) gets an offer to push that folder into it. `lf deploy --fill-volumes`
+  pushes it without asking (the deploy dialog in `lf ui` ticks this when it finds such a folder); a volume that
+  already has data is never touched. Without a terminal or the flag, `lf deploy` prints the `lf volume push`
+  command instead. Paths may start with `~`.
 - In `lf ui`, an opened site lists its volumes (marking empty and unused ones) with **Back up**, **Restore…**, **Push…**
   and **Pull…** (the same commands; push and pull take a path on the machine running `lf ui`). For a site this
   machine deploys, **Add…** and **Remove…** run `lf volume add`/`rm` in its folder and redeploy; an unused volume
@@ -894,7 +896,7 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |

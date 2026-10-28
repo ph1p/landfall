@@ -8,7 +8,7 @@ import { cronMark, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
 import { PRELUDE } from "../../core/templates";
 import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
-import type { Entry } from "../../core/ignore";
+import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
 import { HELPER, backupName, backupsOf, backupTo, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
@@ -264,29 +264,16 @@ async function pushVolume(server: Server, site: string, v: Volume, src: string, 
   ok(`${v.key} of ${site} replaced with ${src}`);
 }
 
-/**
- * Folders of dir named like a volume that the upload left out (.landfallignore): likely what the volume
- * should hold, as deploys never touch volume data. Data folders only: not dot folders or node_modules.
- */
-export function seedFolders(dir: string, uploaded: Entry[]): string[] {
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith(".") && d.name !== "node_modules")
-    .map((d) => d.name)
-    .filter((f) => !uploaded.some((e) => !e.dir && e.path.startsWith(`${f}/`)) && fs.readdirSync(join(dir, f)).length > 0)
-    .sort();
-}
-
-/** After a deploy: offer to fill each empty volume from its local folder, else say how. */
-export async function offerSeed(server: Server, site: string, dir: string, uploaded: Entry[]) {
+/** After a deploy: fill each empty volume from its local folder (fill: without asking), else say how. */
+export async function offerSeed(server: Server, site: string, dir: string, uploaded: Entry[], fill = false) {
   const folders = seedFolders(dir, uploaded);
   if (!folders.length) return;
   const found = await volumes(server, site, false, true);
   for (const v of found.volumes.filter((x) => x.empty && folders.includes(x.key))) {
     const src = `./${relative(process.cwd(), join(dir, v.key)).split(sep).join("/")}`;
     const cmd = `lf volume push ${site} ${v.key} ${src}`;
-    if (interactive() && (await confirm(`Volume ${v.key} is empty, and ${src} is left out of the upload. Fill the volume with it?${stops(v)}`, true))) await pushVolume(server, site, v, src, true);
-    else info(`volume ${v.key} is empty; ${src} was not uploaded: fill it with ${c.cyan(cmd)}`);
+    if (fill || (interactive() && (await confirm(`Volume ${v.key} is empty, and ${src} is left out of the upload. Fill the volume with it?${stops(v)}`, true)))) await pushVolume(server, site, v, src, true);
+    else info(`volume ${v.key} is empty; ${src} was not uploaded: fill it with ${c.cyan(cmd)}, or deploy with --fill-volumes`);
   }
 }
 
