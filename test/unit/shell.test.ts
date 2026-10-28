@@ -40,6 +40,8 @@ describe("secrets stay off the command line", () => {
     // -p is the password too, except where it is a port.
     expect(secretsOut(["users", "add", "bob", "-p", "pw"])).toEqual({ args: ["users", "add", "bob"], env: { LANDFALL_SECRET_PASSWORD: "pw" }, stdin: undefined });
     expect(secretsOut(["server", "add", "web", "-p", "2222"]).args).toEqual(["server", "add", "web", "-p", "2222"]);
+    // After --, the remote command's own: lf ssh box -- mkdir -p x.
+    expect(secretsOut(["ssh", "box", "--", "mkdir", "-p", "/srv/x"])).toEqual({ args: ["ssh", "box", "--", "mkdir", "-p", "/srv/x"], env: {}, stdin: undefined });
     expect(secretsOut(["env", "blog", "-s", "x", "A=1", "B=two=2", "-u", "C"])).toEqual({
       args: ["env", "blog", "-s", "x", "-u", "C", "--dotenv", "-"],
       env: {},

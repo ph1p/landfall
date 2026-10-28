@@ -299,7 +299,8 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
   };
   const group = (s: Spec, i: number): ReactNode => {
     if (s.when && !s.when(values)) return null;
-    if ("row" in s) return <div key={i} className="flex gap-2.5 flex-wrap items-end [&>label]:flex-[1_1_140px]">{s.row.map(field)}</div>;
+    // Tops in line: a hint or error under one field must not push the others' inputs down.
+    if ("row" in s) return <div key={i} className="flex gap-2.5 flex-wrap items-start [&>label]:flex-[1_1_140px]">{s.row.map(field)}</div>;
     if (!("fields" in s)) return field(s);
     const inner = s.fields.map(group);
     if (s.collapsed !== undefined)
