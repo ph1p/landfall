@@ -81,7 +81,7 @@ export async function buildLocally(server: Server, builds: LocalBuild[]) {
   const platform = dockerPlatform(stdout);
   for (const b of builds) {
     step(`building ${b.service} here (${platform})`);
-    const r = spawnSync("docker", ["build", "--platform", platform, "-t", b.tag, "-f", b.dockerfile, ...b.args, b.context], { stdio: "inherit" });
+    const r = spawnSync("docker", ["build", "--pull", "--platform", platform, "-t", b.tag, "-f", b.dockerfile, ...b.args, b.context], { stdio: "inherit" });
     if (r.status !== 0) fail(`building ${b.service} failed`);
   }
   const tags = builds.map((b) => b.tag);

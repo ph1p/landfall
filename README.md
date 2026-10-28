@@ -214,7 +214,8 @@ cannot connect at all, deploy says why (`cannot connect to <host>: <ssh's last l
 Useful when the server is small or has no network for the build. It needs Docker running locally (cross-platform
 builds need QEMU/binfmt, which Docker Desktop has), and builds that use `ssh`, `secrets`, `additional_contexts`,
 `platforms` or a remote context still build on the server. The images get the same `<site>-<service>:<release>`
-tags, so rollbacks and cleanup work as usual.
+tags, so rollbacks and cleanup work as usual. It is saved to `.landfall.json` (`--no-build-local` builds on the
+server again); in `lf ui` it is the deploy dialog's "Build them on this machine" box.
 
 ### Deploy from CI
 
@@ -244,19 +245,25 @@ jobs:
 ### What gets uploaded
 
 The deployed folder, without `.git`, `node_modules`, `.DS_Store`, `.landfall.json`, `.env`, `.env.*`, `.secrets` and
-`compose.override.*` (plus the runtime's build caches for an app, e.g. `.venv` or `target`). To leave out more, put a
-`.landfallignore` next to `.landfall.json`. It uses `.gitignore` syntax, with paths relative to its folder, and its
-`!` lines bring back a default (`!node_modules` uploads it after all):
+`compose.override.*` (plus the runtime's build caches for an app, e.g. `.venv` or `target`). To change that, list
+patterns under `exclude` and `include` in `.landfall.json`. They use `.gitignore` syntax, with paths relative to its
+folder. `include` wins over everything else, so it can bring back a default or what `.gitignore` leaves out:
 
+```json
+{
+  "name": "blog",
+  "exclude": ["data/", "*.sqlite", "/docs/drafts/"],
+  "include": ["node_modules"]
+}
 ```
-data/
-*.sqlite
-/docs/drafts/
-```
+
+A deploy keeps both lists when it saves `.landfall.json`. A `.landfallignore` file (one pattern per line, `!` to bring
+one back) still works, and its lines count before `exclude`.
 
 `.gitignore` does not apply by default: a static site uploads `dist/`, which is usually in it. `lf deploy --gitignore`
 also leaves out what the `.gitignore` files inside the deployed folder ignore, and is saved in `.landfall.json`
-(`--no-gitignore` turns it off). An ignored folder is never entered, so nothing inside it comes back.
+(`--no-gitignore` turns it off). An ignored folder is never entered, so nothing inside it comes back: include the
+folder, not a file inside it.
 
 The first deploy of a site prints the upload's size and its largest entries. Above 100 MB it asks first (`-y` skips that).
 
@@ -476,6 +483,13 @@ lf volume push content ./content   # replace the volume with a local folder (or 
 lf volume restore content          # replace it with its newest backup (or name one)
 ```
 
+The files of a volume compose.yaml declares plainly (no `external`, `driver`, `driver_opts` or `name:` of its own)
+sit in the site's folder, `/opt/landfall/sites/<site>/volumes/<volume>`, next to its releases: the override binds
+the named volume there (`driver_opts: {type: none, o: bind, device: …}`), so `docker volume ls`, `docker compose`
+and `lf volume` work as before. A volume deployed by an older landfall, in Docker's own storage, moves in on the
+next deploy: its containers stop, its files are copied over, and up starts them on the folder. `lf sites rm`
+keeps the folder (and the backups); `--volumes` deletes both. `lf volume rm --data` deletes its folder too.
+
 - `add` and `rm` edit the project in the current folder: compose.yaml gets the mount under the service and the
   volume under the top-level `volumes:` (comments and order kept, plain Compose); an app, Dockerfile or image
   keeps the path in `.landfall.json` (like `lf deploy --volume`). Neither touches the server: `lf deploy` applies
@@ -495,7 +509,7 @@ lf volume restore content          # replace it with its newest backup (or name 
   `lf setup` installs).
 - Backups made by hand are not pruned: delete old ones on the server with `rm`. `lf sites rm` keeps them with
   the volumes and removes the schedule; `lf sites rm --volumes` deletes both.
-- After a deploy, an empty volume whose name matches a local folder the upload left out (`.landfallignore`,
+- After a deploy, an empty volume whose name matches a local folder the upload left out (`exclude`,
   e.g. `./content` for the volume `content`) gets an offer to push that folder into it. `lf deploy --fill-volumes`
   pushes it without asking (the deploy dialog in `lf ui` ticks this when it finds such a folder); a volume that
   already has data is never touched. Without a terminal or the flag, `lf deploy` prints the `lf volume push`
@@ -896,7 +910,7 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
@@ -954,7 +968,7 @@ lf undo -s box -y                           # revert the last run
 | `~/.ssh/landfall_<name>` | generated keys |
 | `~/.ssh/config` | `Host <name>` blocks between `# >>> landfall:<name>` markers |
 | `./.landfall.json` | per-project deploy settings |
-| `./.landfallignore` | what `lf deploy` leaves out, in `.gitignore` syntax ([What gets uploaded](#what-gets-uploaded)) |
+| `./.landfallignore` | older place for `exclude`: what `lf deploy` leaves out, in `.gitignore` syntax ([What gets uploaded](#what-gets-uploaded)) |
 
 | env var | effect |
 |---|---|

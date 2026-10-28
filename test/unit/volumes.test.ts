@@ -10,8 +10,8 @@ import { seedFolders } from "../../src/core/ignore";
 describe("volumes", () => {
   test("parseVolumes joins volumes, mounts, sizes and backups", () => {
     const out = [
-      "vol\tblog_content\tcontent",
-      "vol\tblog_db\tdb",
+      "vol\tblog_content\tcontent\t/opt/landfall/sites/blog/volumes/content",
+      "vol\tblog_db\tdb\t",
       "mnt\tblog_content\tweb\t/app/content",
       "mnt\tblog_content\tweb\t/app/content",
       "mnt\tshared\tweb\t/shared",
@@ -20,10 +20,10 @@ describe("volumes", () => {
       "bak\tcontent-20261028-090000-before-push.tar.gz\t99\t1793170000",
     ].join("\n");
     const { volumes, backups } = parseVolumes(out);
-    expect(volumes.map((v) => [v.key, v.name, v.size, v.mounts.length])).toEqual([
-      ["content", "blog_content", 4096, 1],
-      ["db", "blog_db", undefined, 0],
-      ["shared", "shared", undefined, 1],
+    expect(volumes.map((v) => [v.key, v.name, v.size, v.mounts.length, v.dir])).toEqual([
+      ["content", "blog_content", 4096, 1, "/opt/landfall/sites/blog/volumes/content"],
+      ["db", "blog_db", undefined, 0, undefined],
+      ["shared", "shared", undefined, 1, undefined],
     ]);
     expect(backups[0].file).toBe("content-20261028-090000-before-push.tar.gz");
     expect(backupsOf(backups, "content")).toHaveLength(2);

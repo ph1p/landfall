@@ -6,11 +6,11 @@ import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeN
 import { bytes } from "../../core/facts";
 import { cronMark, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
-import { PRELUDE } from "../../core/templates";
+import { HELPER, PRELUDE } from "../../core/templates";
 import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
-import { HELPER, backupName, backupsOf, backupTo, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
+import { backupName, backupsOf, backupTo, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
 /**
@@ -56,6 +56,10 @@ export const volumeList = defineCommand({
         ];
       }),
     ]);
+    // Deployed before sites kept them in their folder: the next deploy moves them there.
+    const inDocker = vols.filter((v) => !v.dir).map((v) => v.key);
+    if (vols.length > inDocker.length) console.log(c.dim(`\nfiles in ${siteDir(site)}/volumes/<volume>`));
+    if (inDocker.length) console.log(c.dim(`${vols.length > inDocker.length ? "" : "\n"}in Docker's own storage: ${inDocker.join(", ")}`));
     console.log(c.dim(`\nscheduled backups: ${schedule ?? "none (lf volume backup --schedule daily)"}`));
     if (backups.length) {
       console.log(`\n${c.dim(`backups in ${siteDir(site)}/backups:`)}`);
@@ -409,14 +413,19 @@ async function deleteVolume(server: Server, site: string, v: Volume, project: st
   const file = `${dir}/backups/${backupName(v.key, new Date(), "before-rm")}`;
   const labels = [`com.docker.compose.project=${project}`, `com.docker.compose.volume=${v.key}`].map((l) => `--label ${shq(l)}`).join(" ");
   const undo = `if [ -f ${shq(file)} ]; then docker volume create ${labels} ${shq(v.name)} >/dev/null && ${tarIn(v.name)} < ${shq(file)}; else log ${shq(`${file} is gone, nothing to put back`)}; fi`;
+  // In the site's folder: its files go too, and site.json stops binding it (undo puts it back in Docker's; a deploy moves it in again).
+  const { meta } = v.dir ? await requireSite(server, site) : { meta: undefined };
+  const rest = meta?.volumes?.filter((k) => k !== v.key);
   step(`delete ${v.key} of ${site}`);
-  runs(`${tarOut(v.name)} > ${file}; docker volume rm ${v.name}`);
+  runs(`${tarOut(v.name)} > ${file}; docker volume rm ${v.name}${v.dir ? `; rm -rf ${v.dir}` : ""}`);
   await runScript(
     server,
     `${PRELUDE}
 cd ${shq(dir)} && mkdir -p backups
 ${backupTo(v.name, shq(file))}
 docker volume rm ${shq(v.name)} >/dev/null
+${v.dir ? `docker run --rm -v ${shq(`${v.dir}:/v`)} ${HELPER} find /v -mindepth 1 -delete && rmdir ${shq(v.dir)}` : ""}
+${meta && rest ? writeFileCmd("site.json", JSON.stringify({ ...meta, volumes: rest.length ? rest : undefined }, null, 2) + "\n") : ""}
 record ${shq(`delete volume ${v.key} of ${site} (backup ${basename(file)})`)} ${shq(undo)}`,
   );
   ok(`${v.key} of ${site} deleted`);

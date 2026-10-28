@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, type ProjectConfig } from "./config";
-import { analyze, COMPOSE_FILES, localCompose, routePlan, volumeName, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
+import { analyze, COMPOSE_FILES, localCompose, routePlan, STATIC_IMAGE, volumeName, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
 import { seedFolders, uploadList } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
@@ -163,7 +163,7 @@ export interface Detected {
   analysis?: Analysis & {
     routes: { service: string; port: number; domains: string[]; main?: boolean }[];
     /** Each service's image or build context and volumes, as the file says: shown before a deploy. */
-    about?: Record<string, { image?: string; build?: string; volumes?: string[] }>;
+    about?: Record<string, { image?: string; build?: string; dockerfile?: string; volumes?: string[] }>;
   };
   /** What the site's .env on the server should set: its compose file's `${NAME:?…}`, an example .env's keys (none for static).
    * local: the project's own .env has a value for it, which `deploy --local-env` takes. */
@@ -174,7 +174,43 @@ export interface Detected {
   project?: ProjectConfig;
   /** Its languages, framework and tools, for the chips that show what landfall found. */
   stack: Tag[];
+  /** The images it runs or builds on, so a deploy says what it pulls. */
+  images?: UsedImage[];
 }
+
+/** An image a deploy pulls: run as it is, or (base) a Dockerfile's FROM that a build starts from. */
+export interface UsedImage {
+  ref: string;
+  /** The compose service, or the site's one container (app, web). */
+  service: string;
+  base?: boolean;
+}
+
+/** A Dockerfile's FROM images, without its own stages (FROM build) and scratch; ARG defaults filled in. */
+export function baseImages(text: string): string[] {
+  const args = new Map<string, string>();
+  const stages = new Set<string>();
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const arg = line.match(/^\s*ARG\s+(\w+)=["']?([^"'\s]*)/i);
+    if (arg) args.set(arg[1], arg[2]);
+    const m = line.match(/^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?/i);
+    if (!m) continue;
+    const ref = m[1].replace(/\$\{?(\w+)\}?/g, (x, k) => args.get(k) ?? x);
+    if (ref !== "scratch" && !stages.has(ref.toLowerCase()) && !out.includes(ref)) out.push(ref);
+    if (m[2]) stages.add(m[2].toLowerCase());
+  }
+  return out;
+}
+
+const readText = (f: string) => {
+  try {
+    return fs.readFileSync(f, "utf8");
+  } catch {
+    return "";
+  }
+};
+const based = (service: string, dockerfile: string): UsedImage[] => baseImages(dockerfile).map((ref) => ({ ref, service, base: true }));
 
 /** The project's compose file: set in .landfall.json, or the one `docker compose` would pick. */
 export function composeFile(path: string, project?: Partial<ProjectConfig>): string | undefined {
@@ -201,6 +237,7 @@ function analyzeLocal(path: string, file: string, project?: ProjectConfig): Dete
         {
           image: typeof s?.image === "string" ? s.image : undefined,
           build: s?.build ? (typeof s.build === "string" ? s.build : (s.build.context ?? ".")) : undefined,
+          dockerfile: typeof s?.build?.dockerfile === "string" ? s.build.dockerfile : undefined,
           volumes: (Array.isArray(s?.volumes) ? s.volumes : []).map((v: any) => (typeof v === "string" ? v : [v?.source, v?.target].filter(Boolean).join(":"))),
         },
       ]),
@@ -214,11 +251,11 @@ function analyzeLocal(path: string, file: string, project?: ProjectConfig): Dete
 }
 
 /** Of the volumes names, those a non-empty folder of path named alike fills (seedFolders); it walks the upload only for such a folder. */
-function seedsOf(path: string, names: string[], exclude?: string[], gitignore?: boolean): string[] | undefined {
+function seedsOf(path: string, names: string[], exclude?: string[], project?: ProjectConfig): string[] | undefined {
   const near = names.filter((n) => fs.statSync(join(path, n), { throwIfNoEntry: false })?.isDirectory());
   if (!near.length) return;
   try {
-    const found = seedFolders(path, uploadList(path, { exclude, gitignore })).filter((f) => near.includes(f));
+    const found = seedFolders(path, uploadList(path, { exclude, gitignore: project?.gitignore, rules: project })).filter((f) => near.includes(f));
     return found.length ? found : undefined;
   } catch {
     return;
@@ -248,14 +285,17 @@ export function detectProject(path: string): Detected {
   };
   if (compose) {
     const analysis = analyzeLocal(path, compose, project);
-    return { path, name, kind: "compose", compose, analysis, required: wanted([compose]), seeds: seedsOf(path, namedVolumes(analysis), undefined, project?.gitignore), project, stack: appStack() };
+    const images = Object.entries(analysis?.about ?? {}).flatMap(([svc, a]): UsedImage[] =>
+      a.build !== undefined ? based(svc, readText(resolve(path, a.build, a.dockerfile ?? "Dockerfile"))) : a.image ? [{ ref: a.image, service: svc }] : [],
+    );
+    return { path, name, kind: "compose", compose, analysis, required: wanted([compose]), seeds: seedsOf(path, namedVolumes(analysis), undefined, project), project, stack: appStack(), images };
   }
   const runs = { volumes: project?.volumes, worker: project?.worker, required: wanted() };
-  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path) };
+  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path), images: [{ ref: project.image, service: "app" }] };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {
-    const seeds = seedsOf(path, (project?.volumes ?? []).map(volumeName), undefined, project?.gitignore);
-    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, seeds, project, stack: appStack() };
+    const seeds = seedsOf(path, (project?.volumes ?? []).map(volumeName), undefined, project);
+    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, seeds, project, stack: appStack(), images: based("app", readText(join(path, "Dockerfile"))) };
   }
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
@@ -266,11 +306,14 @@ export function detectProject(path: string): Detected {
     const { name: runtime, tool, start, fix, note: hint } = app;
     const note = fix ?? hint;
     const volumes = project?.volumes ?? app.volumes;
-    const seeds = seedsOf(path, (volumes ?? []).map(volumeName), app.ignore, project?.gitignore);
-    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port: project?.port ?? app.port, dir, node, ...runs, volumes, seeds, project, stack: detectStack(path, runtime, tool) };
+    const seeds = seedsOf(path, (volumes ?? []).map(volumeName), app.ignore, project);
+    const port = project?.port ?? app.port;
+    // The Dockerfile landfall writes for it.
+    const images = based("app", app.dockerfile({ build: project?.build ?? app.build, start, port }));
+    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port, dir, node, ...runs, volumes, seeds, project, stack: detectStack(path, runtime, tool), images };
   }
   const tool = !project?.dir || project.dir === b.dir ? b.tool : undefined;
-  return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool, project, stack: detectStack(path, undefined, tool) };
+  return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool, project, stack: detectStack(path, undefined, tool), images: [{ ref: STATIC_IMAGE, service: "web" }] };
 }
 
 // ---------------------------------------------------------------- remembered projects

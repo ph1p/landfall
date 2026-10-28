@@ -219,10 +219,11 @@ export function Stack({ d, className }: { d: Detected; className?: string }) {
   );
 }
 
-export function Describe({ d, before = true }: { d: Detected; before?: boolean }) {
+/** plan: a compose project's services too (DeployAside shows them on their own). */
+export function Describe({ d, before = true, plan = true }: { d: Detected; before?: boolean; plan?: boolean }) {
   const built = d.build ? <> · builds with <code>{d.build}</code> first</> : null;
   const what: ReactNode =
-    d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; {d.analysis?.auto ? "no x-landfall, so its HTTP ports are routed" : "x-landfall picks the routed services"}<ComposePlan a={d.analysis} /></>
+    d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; {d.analysis?.auto ? "no x-landfall, so its HTTP ports are routed" : "x-landfall picks the routed services"}{plan && <ComposePlan a={d.analysis} />}</>
     : d.kind === "image" ? <>Docker image <code>{d.project?.image ?? ""}</code> (from .landfall.json)</>
     : d.kind === "dockerfile" && d.start ? (
       <>
@@ -266,6 +267,35 @@ function ComposePlan({ a }: { a?: Detected["analysis"] }) {
   );
 }
 const DETECTED = "text-md px-3 py-2.5 rounded-md bg-hover";
+const ASIDE_HEAD = "m-0 mb-1.5 text-sm font-semibold text-dim";
+
+/** The images a deploy pulls, so it is plain what runs: as they are, or as the base a build starts from. */
+export function UsedImages({ d }: { d: Detected }) {
+  if (!d.images?.length) return null;
+  return (
+    <ul className="m-0 p-0 list-none grid gap-1">
+      {d.images.map((i) => (
+        <li key={`${i.service} ${i.ref}`} className="min-w-0">
+          <code className="break-all">{i.ref}</code> <span className="dim">{i.base ? `base of ${i.service}` : i.service}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The deploy dialog's right column: what landfall found, the services it runs and the images it pulls. */
+function DeployAside({ d }: { d: Detected }) {
+  return (
+    <>
+      <div>
+        <Stack d={d} className="mb-2" />
+        <Describe d={d} plan={false} />
+      </div>
+      {d.kind === "compose" && d.analysis ? <div><h3 className={ASIDE_HEAD}>Services</h3><ComposePlan a={d.analysis} /></div> : null}
+      {d.images?.length ? <div><h3 className={ASIDE_HEAD}>Images</h3><UsedImages d={d} /></div> : null}
+    </>
+  );
+}
 
 /**
  * The build part of a deploy form for det: what to build and start, static or an app, its port and volumes.
@@ -382,6 +412,8 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const sameTarget = (v: Values) => v.name.trim() === name && v.server === target;
   // A static site has no .env; the mode field, when there is one, says which it deploys as.
   const hasEnv = (v: Values) => (v.mode || (det.kind === "static" ? "static" : "node")) === "node";
+  // Images to build: a compose.yaml's build: services, a Dockerfile, or the one landfall writes for an app.
+  const builds = (v: Values) => hasEnv(v) && (det.kind === "compose" ? Object.values(det.analysis?.about ?? {}).some((x) => x.build) : det.kind !== "image");
   /** What the domains field deploys to, as the CLI expands it: [domains] or an error. */
   const addresses = (v: Values): [string[], string?] => {
     const main = mainDomain(v.server);
@@ -396,7 +428,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
     text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
       + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back returns to the current one."}` : ""),
-    extra: <div className={DETECTED}><Stack d={det} className="mb-2" /><Describe d={det} /></div>,
+    aside: <DeployAside d={det} />,
     sidebar: true,
     fields: [
       {
@@ -427,6 +459,14 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
         ],
       },
       ...buildFields,
+      {
+        legend: "Images", when: builds,
+        fields: [{
+          name: "buildLocal", type: "check" as const, value: !!p?.buildLocal,
+          label: "Build them on this machine, not on the server",
+          hint: "Needs Docker running here. The server only loads and runs them: no CPU, memory or build cache spent there. Remembered. lf deploy --build-local",
+        }],
+      },
       // A folder left out of the upload, named like a volume: what the volume should hold (lf deploy --fill-volumes).
       ...(seeds.length
         ? [{
@@ -494,6 +534,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       // Only what the server's .env lacks: the CLI never sends the rest of the local .env.
       if (required.some((r) => r.local && !v[`env_${r.name}`])) argv.push("--local-env");
       if (seeds.length && hasEnv(v) && v.fill) argv.push("--fill-volumes");
+      if (builds(v) && v.buildLocal !== !!p?.buildLocal) argv.push(v.buildLocal ? "--build-local" : "--no-build-local");
       // The login counts once there is a password; the user defaults to admin.
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       if (o.upload) argv.push("--no-save");
