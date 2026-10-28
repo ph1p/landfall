@@ -208,7 +208,7 @@ export const sitesEnv = defineCommand({
   options: {
     server: serverOpt,
     unset: { type: "string", short: "u", multiple: true, desc: "remove KEY" },
-    "env-file": { type: "string", desc: "also set the KEY=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
+    dotenv: { type: "string", desc: "also set the KEY=VALUE lines of this file; - reads stdin (keeps values out of ps; also --env-file, not on node 26)" },
     reveal: { type: "boolean", desc: "show the values (hidden by default)" },
     keys: { type: "boolean", desc: "list the variable names only" },
     json: { type: "boolean", desc: "machine-readable output (values only with --reveal)" },
@@ -216,7 +216,7 @@ export const sitesEnv = defineCommand({
   },
   async run(pos, o) {
     const [n] = pos.filter((p) => !p.includes("="));
-    const set = { ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("=")), true) };
+    const set = { ...(o.dotenv ? await readEnvFile(o.dotenv) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("=")), true) };
     const { site, server } = target(n, o.server);
     const { env } = await requireSite(server, site, { deployed: "manage the .env of" });
     if (!Object.keys(set).length && !o.unset?.length) {
@@ -256,14 +256,14 @@ export const sitesSecret = defineCommand({
     server: serverOpt,
     unset: { type: "string", short: "u", multiple: true, desc: "remove NAME" },
     file: { type: "string", multiple: true, desc: "NAME=path: the content of a local file (keys, certificates)" },
-    "env-file": { type: "string", desc: "also set the NAME=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
+    dotenv: { type: "string", desc: "also set the NAME=VALUE lines of this file; - reads stdin (keeps values out of ps; also --env-file, not on node 26)" },
     json: { type: "boolean", desc: "machine-readable list (names and sizes, never values)" },
     force: { type: "boolean", desc: "remove a secret its compose.yaml still uses" },
   },
   async run(pos, o) {
     const [n] = pos.filter((p) => !p.includes("="));
     const set = {
-      ...(o["env-file"] ? await readEnvFile(o["env-file"]) : {}),
+      ...(o.dotenv ? await readEnvFile(o.dotenv) : {}),
       ...parseEnvPairs(pos.filter((p) => p.includes("="))),
       ...Object.fromEntries(
         Object.entries(parseEnvPairs(o.file ?? [])).map(([k, f]) => {

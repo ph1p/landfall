@@ -8,8 +8,8 @@ const self = (): string[] => [process.execPath, ...process.execArgv, process.arg
 /** `--dashboard-password` → `LANDFALL_SECRET_DASHBOARD_PASSWORD`. */
 export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase().replace(/-/g, "_")}`;
 
-/** Set in a job whose .env lines come on stdin: as `--env-file -` node 26 would read the flag itself and exit. */
-export const ENV_STDIN = "LANDFALL_ENV_STDIN";
+/** --dotenv, or its old name --env-file, with or without =value. */
+export const isDotenvFlag = (a: string) => /^--(dotenv|env-file)(=|$)/.test(a);
 
 /** Commands whose KEY=value arguments are .env values. */
 export const isEnvCmd = (argv: string[]) => argv[0] === "env" || argv[0] === "secret" || (argv[0] === "sites" && argv[1] === "env");
@@ -18,7 +18,7 @@ export const ENV_PAIR = /^[A-Za-z0-9_][A-Za-z0-9_.-]*=/;
 
 /**
  * Move passwords and .env values off the job's command line, where `ps` would show them:
- * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs and deploy's `-e` as a dotenv on stdin (ENV_STDIN).
+ * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs and deploy's `-e` as a dotenv on stdin (`--dotenv -`).
  */
 export function secretsOut(argv: string[]) {
   const args: string[] = [];
@@ -29,13 +29,13 @@ export function secretsOut(argv: string[]) {
     const flag = a.match(/^--((?:[\w-]+-)?password)(?:=(.*))?$/s);
     if (flag && (flag[2] !== undefined || i + 1 < argv.length)) {
       env[secretEnv(flag[1])] = flag[2] ?? argv[++i];
-    } else if (isEnvCmd(argv) && ENV_PAIR.test(a) && !a.includes("\n") && !argv.includes("--env-file")) {
+    } else if (isEnvCmd(argv) && ENV_PAIR.test(a) && !a.includes("\n") && !argv.some(isDotenvFlag)) {
       pairs.push(a);
-    } else if (argv[0] === "deploy" && (a === "-e" || a === "--env") && ENV_PAIR.test(argv[i + 1] ?? "") && !argv[i + 1].includes("\n") && !argv.includes("--env-file")) {
+    } else if (argv[0] === "deploy" && (a === "-e" || a === "--env") && ENV_PAIR.test(argv[i + 1] ?? "") && !argv[i + 1].includes("\n") && !argv.some(isDotenvFlag)) {
       pairs.push(argv[++i]);
     } else args.push(a);
   }
-  if (pairs.length) env[ENV_STDIN] = "1";
+  if (pairs.length) args.push("--dotenv", "-");
   return { args, env, stdin: pairs.length ? pairs.join("\n") + "\n" : undefined };
 }
 

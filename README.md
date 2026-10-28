@@ -154,7 +154,7 @@ lf deploy -d example.com -d www.example.com -s vps      # static, name = folder 
 lf deploy -b "npm run build"                            # build locally first (a detected Vite/Astro/… build runs anyway)
 lf deploy --start "node server.js" --port 8080          # an app: landfall writes its Dockerfile (Node.js, Python, Go, Java…)
 lf deploy --start "python bot.py" --worker --volume /app/data   # a worker, no domain; /app/data outlives deploys
-lf deploy -d app.example.com -e DATABASE_URL=postgres://… --env-file .env.production   # Dockerfile app
+lf deploy -d app.example.com -e DATABASE_URL=postgres://… --dotenv .env.production   # Dockerfile app
 lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com            # image
 lf deploy --no-domain                                   # no domain yet: reach it with lf tunnel, add one later with lf domains --add
 lf deploy                                               # later: redeploy using ./.landfall.json
@@ -167,7 +167,7 @@ The first deploy writes `.landfall.json`. Commit it:
 ```
 
 Local `.env*` files are never used on the server: each site has its own `.env` there. Pass variables with
-`-e`/`--env-file`, or later with `lf env`. `--env-file -` reads the lines from stdin, so secrets stay out of `ps`.
+`-e`/`--dotenv`, or later with `lf env`. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`. Its old name `--env-file` still works, but not on Node 26, which takes that flag for itself.
 A variable `compose.yaml` requires (`${ADMIN_PASSWORD:?…}`) that the site's `.env` lacks is asked for before the
 upload (with `-y` the deploy stops there), and `lf ui` shows a field for each in its deploy dialog.
 `lf env` hides the values unless you pass `--reveal`, and so does the **Edit** dialog in `lf ui` until you click
@@ -234,7 +234,7 @@ jobs:
 
 - Add the key's public half to `~/.ssh/authorized_keys` of the user landfall logs in as (the one in `lf server ls`).
 - `-s <that user>@<host>` overrides `server` in `.landfall.json`; domains, name and the rest still come from it.
-- Secrets go in with `--env-file -` from a CI secret (`echo "$PROD_ENV" | lf deploy --env-file - -y`), never as `-e` on the command line.
+- Secrets go in with `--dotenv -` from a CI secret (`echo "$PROD_ENV" | lf deploy --dotenv - -y`), never as `-e` on the command line.
 - The release records the commit CI checked out, and the journal names the runner as who deployed it.
 - A failed start puts the previous release back and exits non-zero, so the job fails without taking the site down.
 
@@ -325,7 +325,7 @@ volumes:
   to and from your machine ([Volumes and backups](#volumes-and-backups)). Each deploy gets a new release folder, so
   a writable bind mount like `./data` is refused: write data to a named volume (read-only `./dist:…:ro` is fine).
 - **Images built on the server** are tagged `<site>-<service>:<release>`, so a rollback runs the exact image again.
-- Variables in `compose.yaml` come from the site's `.env` on the server (`-e`, `--env-file`, `lf env`).
+- Variables in `compose.yaml` come from the site's `.env` on the server (`-e`, `--dotenv`, `lf env`).
   `${VAR:?}` makes a missing one fail the deploy before anything changes.
 - Your own `traefik.*` labels win: a service with its own router keeps them and landfall adds only the network.
 - `-f other.yaml` deploys another file from the project folder; it is saved in `.landfall.json`. Sites need Docker Compose 2.24 or newer
@@ -424,7 +424,7 @@ lf logs -f                         # follow logs (-n 500 for more lines)
 lf logs blog db                    # one service
 lf rollback                        # previous release (--to <id> for a specific one)
 lf env API_KEY=abc                 # set env (container is recreated); -u KEY removes one
-lf env --env-file -  < .env.prod   # the same from a file or stdin, values never in ps
+lf env --dotenv -  < .env.prod      # the same from a file or stdin, values never in ps
 lf env                             # names with values hidden; --reveal shows them, --keys only names, --json
 lf env --pull .env.production      # copy the server's .env to a local file (mode 600)
 lf secret DB_PASSWORD=…            # a secret file, at /run/secrets/DB_PASSWORD; --file K=path, -u K, lf secret lists them
@@ -796,7 +796,7 @@ Everything is a plain command; the web UI only runs those and prints each one (`
 - **Passwords:** pass them with `--password-stdin` or `$LANDFALL_PASSWORD` (`setup`, `server add`), and
   `lf auth --password-stdin`. Any `--…password` option also falls back to `$LANDFALL_SECRET_<NAME>`, e.g.
   `LANDFALL_SECRET_DASHBOARD_PASSWORD`.
-  Env values: `lf env --env-file -` / `lf deploy --env-file -` read them from stdin.
+  Env values: `lf env --dotenv -` / `lf deploy --dotenv -` read them from stdin.
 - **JSON output:** `--json` works on `ls`, `info`, `server list`, `server config`, `server domain`, `domains`,
   `firewall`, `updates` and `history`. The web UI reads the very same JSON. `ls --json --others` gives the full
   overview; `domains --json` lists the server's addresses under `ips`.
@@ -871,15 +871,15 @@ lf undo -s box -y                           # revert the last run
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--env-file f] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
 | `lf auth [name] -u user [-p pw \| --password-stdin]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
 | `lf open [name]` | Opens the site in the browser. |
 | `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
-| `lf env [name] [K=V...] [--env-file f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows the site's `.env` (values hidden unless `--reveal`), copies it to a local file, or changes it. A change recreates the services. |
-| `lf secret [name] [K=V...] [--file K=path] [--env-file f\|-] [-u K] [--json] [--force]` | Lists the site's secret files (names and sizes) or changes them; services read them at `/run/secrets/<K>`. Changing one restarts the services that use it. |
+| `lf env [name] [K=V...] [--dotenv f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows the site's `.env` (values hidden unless `--reveal`), copies it to a local file, or changes it. A change recreates the services. |
+| `lf secret [name] [K=V...] [--file K=path] [--dotenv f\|-] [-u K] [--json] [--force]` | Lists the site's secret files (names and sizes) or changes them; services read them at `/run/secrets/<K>`. Changing one restarts the services that use it. |
 | `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
 | `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |

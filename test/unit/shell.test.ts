@@ -38,15 +38,16 @@ describe("secrets stay off the command line", () => {
     expect(secretsOut(["deploy", "--auth-password", "s3cret", "-y"])).toEqual({ args: ["deploy", "-y"], env: { LANDFALL_SECRET_AUTH_PASSWORD: "s3cret" }, stdin: undefined });
     expect(secretsOut(["auth", "blog", "--password=a b"]).env).toEqual({ LANDFALL_SECRET_PASSWORD: "a b" });
     expect(secretsOut(["env", "blog", "-s", "x", "A=1", "B=two=2", "-u", "C"])).toEqual({
-      args: ["env", "blog", "-s", "x", "-u", "C"],
-      env: { LANDFALL_ENV_STDIN: "1" },
+      args: ["env", "blog", "-s", "x", "-u", "C", "--dotenv", "-"],
+      env: {},
       stdin: "A=1\nB=two=2\n",
     });
     // deploy's -e values travel on stdin; its other arguments stay.
-    expect(secretsOut(["deploy", "-y", "-e", "A=1", "--env", "B=2", "-n", "C=x"])).toEqual({ args: ["deploy", "-y", "-n", "C=x"], env: { LANDFALL_ENV_STDIN: "1" }, stdin: "A=1\nB=2\n" });
-    // Its own --env-file wins: -e stays an argument.
+    expect(secretsOut(["deploy", "-y", "-e", "A=1", "--env", "B=2", "-n", "C=x"])).toEqual({ args: ["deploy", "-y", "-n", "C=x", "--dotenv", "-"], env: {}, stdin: "A=1\nB=2\n" });
+    // Its own --dotenv (or --env-file) wins: -e stays an argument.
     expect(secretsOut(["deploy", "--env-file", ".env", "-e", "A=1"]).args).toEqual(["deploy", "--env-file", ".env", "-e", "A=1"]);
-    expect(secretsOut(["secret", "blog", "tls.key=abc"])).toEqual({ args: ["secret", "blog"], env: { LANDFALL_ENV_STDIN: "1" }, stdin: "tls.key=abc\n" });
+    expect(secretsOut(["deploy", "--dotenv=.env", "-e", "A=1"]).args).toEqual(["deploy", "--dotenv=.env", "-e", "A=1"]);
+    expect(secretsOut(["secret", "blog", "tls.key=abc"])).toEqual({ args: ["secret", "blog", "--dotenv", "-"], env: {}, stdin: "tls.key=abc\n" });
   });
 
   test("password options fall back to LANDFALL_SECRET_*", () => {
@@ -61,12 +62,10 @@ describe("secrets stay off the command line", () => {
     }
   });
 
-  test("LANDFALL_ENV_STDIN reads --env-file from stdin, once", () => {
-    const cmd = defineCommand({ name: "t", summary: "", options: { "env-file": { type: "string", desc: "" } }, async run() {} });
-    process.env.LANDFALL_ENV_STDIN = "1";
-    expect(parse(cmd, []).values["env-file"]).toBe("-");
-    expect(process.env.LANDFALL_ENV_STDIN).toBeUndefined();
-    expect(parse(cmd, []).values["env-file"]).toBeUndefined();
+  test("--env-file is --dotenv's old name", () => {
+    const cmd = defineCommand({ name: "t", summary: "", options: { dotenv: { type: "string", desc: "" } }, async run() {} });
+    expect(parse(cmd, ["--env-file", "-"]).values).toEqual({ dotenv: "-" });
+    expect(parse(cmd, ["--env-file=a", "--dotenv", "b"]).values).toEqual({ dotenv: "b" });
   });
 
   test("dotenv lines", () => {
