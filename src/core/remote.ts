@@ -541,6 +541,32 @@ const dropRelease = (meta: SiteMeta, r: Release) => [
   ...builtImages(meta.name, r).map(rmImage),
 ];
 
+/** Releases `lf release rm` takes: the given ids, else all but the `keep` newest (like a deploy's --keep). Never the live one. */
+export function oldReleases(meta: SiteMeta, o: { ids?: string[]; keep?: number } = {}): Release[] {
+  return newestFirst(meta).filter((r, i) => r.id !== meta.current && (o.ids?.length ? o.ids.includes(r.id) : i >= (o.keep ?? 0)));
+}
+
+/**
+ * Delete releases of a site: their folders and the images built for them. Not reversible: they are gone for rollback.
+ * Read again under the deploy lock, so a deploy or rollback in between is not undone by an old site.json.
+ */
+export async function removeReleases(s: Server, name: string, ids: string[]): Promise<Release[]> {
+  const lock = await lockSite(s, name);
+  try {
+    const { meta } = await requireSite(s, name, { deployed: "remove releases of" });
+    const gone = oldReleases(meta, { ids });
+    if (!gone.length) return [];
+    meta.releases = meta.releases.filter((r) => !gone.includes(r));
+    const what = `removed release${gone.length > 1 ? "s" : ""} ${gone.map((r) => r.id).join(", ")} of ${name} (cannot be undone)`;
+    // site.json first: it never names a release whose folder is gone.
+    const lines = [PRELUDE, `cd ${shq(siteDir(name))}`, writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"), ...gone.flatMap((r) => dropRelease(meta, r)), `record ${shq(what)}`];
+    await runScript(s, lines.join("\n"));
+    return gone;
+  } finally {
+    await lock.unlock();
+  }
+}
+
 /** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
 function takeoverLines(old: SiteMeta, keep?: string): string[] {
   const dir = siteDir(old.name);
@@ -605,6 +631,8 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
     const added = kept.filter((r) => !old.releases.some((p) => p.id === r.id));
     // `lf sites rm` took its releases since: putting site.json back would revive a broken site.
     head = `[ -d ${shq(dir)} ] || { log ${shq(`${meta.name} was removed since, nothing to put back`)}; exit 0; }\n`;
+    // `lf release rm` may have deleted the release it went back to.
+    head += `[ -d ${shq(`${dir}/releases/${old.current}`)} ] || { log ${shq(`release ${old.current} of ${meta.name} was removed since, nothing to go back to`)}; exit 0; }\n`;
     tail = "\n" + [...siteLines(back, proxy, { recreate: o.recreate }), ...added.flatMap((r) => dropRelease(meta, r))].join("\n");
   }
   // Journaled once built, before the switch: a site that fails to start is still put back by undo.

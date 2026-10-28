@@ -227,8 +227,18 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           Switch to this
         </Btn>
       )}
+      {r.id !== m.current && managed && (
+        <Btn
+          cls="sm ghost shrink-0"
+          title="lf release rm: delete its folder and images"
+          on={() => confirmDlg({ title: `Delete release ${r.id} of ${name}?`, text: `Its folder and the images built for it go: Roll back can no longer return to it.\nThis cannot be undone.`, ok: "Delete", danger: true, onOk: () => run(["release", "rm", name, r.id, ...sv(n), "-y"]) })}
+        >
+          Delete
+        </Btn>
+      )}
     </li>
   ));
+  const stale = byDate.filter((r) => r.id !== m.current);
   const facts: [string, ReactNode][] = [];
   facts.push(["Kind", <>{kind}{main || !managed ? "" : <> <span className="dim">· domains set in compose.yaml</span></>}</>]);
   if (managed) facts.push(["Login", m.auth?.length ? `${m.auth.map((a: string) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
@@ -249,7 +259,19 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           </Panel>
           {!old && <SiteVolumes n={n} name={name} dir={proj?.path} edit={deploys && proj.kind !== "static" ? { path: proj.path, kind: proj.kind, environment: proj.environment, services: services.map((x) => x.service) } : undefined} />}
           {m.releases.length > 0 && (
-            <Panel title="Releases" count={m.releases.length}>
+            <Panel
+              title="Releases"
+              count={m.releases.length}
+              aside={managed && stale.length > 1 && (
+                <Btn
+                  cls="sm ghost"
+                  title="lf release rm: delete every release but the live one"
+                  on={() => confirmDlg({ title: `Delete ${stale.length} old releases of ${name}?`, text: `All but the live one (${m.current}) go, with the images built for them: Roll back has nothing left to return to.\nThis cannot be undone.`, ok: "Delete", danger: true, onOk: () => run(["release", "rm", name, ...sv(n), "-y"]) })}
+                >
+                  Delete old
+                </Btn>
+              )}
+            >
               <ul className={LIST}>
                 {relRows}
                 {byDate.length > RELEASES + 1 && (
