@@ -3,12 +3,12 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { defineCommand, parse, secretEnv } from "../../src/cmd";
-import { checkEmail, checkLoginName } from "../../src/config";
-import { dotenvLines, parseEnvPairs } from "../../src/remote";
-import { secretsOut } from "../../src/web/server";
-import { shq, writeFileCmd } from "../../src/ssh";
-import { PRELUDE } from "../../src/templates";
+import { defineCommand, parse } from "../../src/cli/cmd";
+import { checkEmail, checkLoginName } from "../../src/core/config";
+import { secretEnv, secretsOut } from "../../src/core/job";
+import { dotenvLines, parseEnvPairs } from "../../src/core/remote";
+import { shq, writeFileCmd } from "../../src/core/ssh";
+import { PRELUDE } from "../../src/core/templates";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 

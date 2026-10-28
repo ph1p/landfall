@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { covers, mergeHosts, parseCertError, parseCerts, parseSince, parseTraffic, readCert, siteTraffic, spanLabel, TRAFFIC } from "../../src/traffic";
+import { covers, mergeHosts, parseCertError, parseCerts, parseSince, parseTraffic, readCert, siteTraffic, spanLabel, TRAFFIC } from "../../src/core/traffic";
 
 const now = new Date("2026-10-25T15:30:00Z");
 

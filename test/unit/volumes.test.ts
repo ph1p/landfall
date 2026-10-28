@@ -3,8 +3,8 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/commands/volume";
-import { shq } from "../../src/ssh";
+import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/core/volumes";
+import { shq } from "../../src/core/ssh";
 
 describe("volumes", () => {
   test("parseVolumes joins volumes, mounts, sizes and backups", () => {

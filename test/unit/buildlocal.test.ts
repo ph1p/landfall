@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { dockerPlatform, localBuilds } from "../../src/buildlocal";
+import { dockerPlatform, localBuilds } from "../../src/core/buildlocal";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "lf-build-"));
 const at = { site: "blog", id: "20260101120000", serverDir: "/opt/landfall/sites/blog/releases/20260101120000", localDir: "/work/blog", generated: {} };

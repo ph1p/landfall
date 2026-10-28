@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { advise, lockedOut } from "../../src/security";
-import { parseSystem } from "../../src/system";
+import { advise, lockedOut } from "../../src/core/security";
+import { parseSystem } from "../../src/core/system";
 
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl me@laptop";
 const out = (...lines: string[]) => ["root=1", "user=root", ...lines].join("\n");

@@ -26,11 +26,11 @@
   },
   "packageManager": "pnpm@12.15.0",
   "scripts": {
-    "dev": "tsx src/cli.ts",
+    "dev": "tsx src/cli/cli.ts",
     "build": "tsdown && vite build",
     "prepublishOnly": "pnpm build",
     "test": "vitest run test/unit",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p src/web/app",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/app",
     "e2e": "pnpm build && bash test/e2e/run.sh",
     "dev:ui": "vite build --watch"
   },
