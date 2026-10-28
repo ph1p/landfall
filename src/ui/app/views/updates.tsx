@@ -20,7 +20,11 @@ const onlyOurs = new Set<string>();
 // What Trivy keeps on each server, once asked; servers being asked.
 const trivy = new Map<string, TrivyState>();
 const asking = new Set<string>();
-const loadTrivy = (n: string) => http<TrivyState>(`/api/servers/${encodeURIComponent(n)}/trivy`).then((t) => (trivy.set(n, t), render(), t));
+const loadTrivy = (n: string, sizes = true) => http<TrivyState>(`/api/servers/${encodeURIComponent(n)}/trivy${sizes ? "" : "?sizes=0"}`).then((t) => (trivy.set(n, t), render(), t));
+// Whether Trivy is there, asked once per server when the page shows: Remove Trivy needs no scan first.
+const peeked = new Set<string>();
+const peekTrivy = (n: string) => !peeked.has(n) && (peeked.add(n), void loadTrivy(n, false).catch(() => peeked.delete(n)));
+const trivySize = (t?: TrivyState) => (t?.cache ? size((t.image ?? 0) + t.cache) : "");
 // Shown as scanning at once: a scan takes a minute or more, and the click must answer now.
 const scan = (n: string, install = false) => {
   const q = [onlyOurs.has(n) && "others=0", install && "install=1"].filter(Boolean).join("&");
@@ -48,7 +52,7 @@ const firstScan = (n: string) => {
 const removeTrivy = (n: string) =>
   confirmDlg({
     title: `Remove Trivy from ${n}?`,
-    text: `Deletes Trivy's image and its vulnerability databases${trivy.get(n) ? ` (${size((trivy.get(n)!.image ?? 0) + (trivy.get(n)!.cache ?? 0))})` : ""}. The next scan asks to download them again.`,
+    text: `Deletes Trivy's image and its vulnerability databases (${trivySize(trivy.get(n)) || "several GB"}). The next scan asks to download them again.`,
     ok: "Remove",
     danger: true,
     onOk: () => run(["scan", "--remove", ...sv(n), "-y"], { server: n, after: ifOk(() => (delete S.scan[n], trivy.delete(n), render())) }),
@@ -80,7 +84,7 @@ function ScanCard({ n }: { n: string }) {
             </label>
           )}
           {st.data && (st.loading ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Scanning…</span> : <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>)}
-          {!st.loading && <Btn cls="sm" title={`lf scan --remove: delete Trivy's image and databases from the server${tv ? ` (${size((tv.image ?? 0) + (tv.cache ?? 0))})` : ""}`} on={() => removeTrivy(n)}>Remove Trivy</Btn>}
+          {!st.loading && <Btn cls="sm" title={`lf scan --remove: delete Trivy's image and databases from the server${trivySize(tv) && ` (${trivySize(tv)})`}`} on={() => removeTrivy(n)}>Remove Trivy</Btn>}
         </Actions>
       </CardHead>
       {wait ?? (
@@ -177,6 +181,7 @@ export function UpdatesView({ n }: { n: string }) {
   if (wait) return wait;
   const { packages: p, images, engine: e } = st!.data!;
   const s = sv(n);
+  peekTrivy(n);
   const sec = p.updates.filter((u) => u.security);
   const upgrade = (flags: string[], what: string, k: number) =>
     confirmDlg({
@@ -263,7 +268,8 @@ export function UpdatesView({ n }: { n: string }) {
             <CardHead>
               Images <Sub>Traefik and sites</Sub>
               <Actions>
-                {!S.scan[n] && images.some((i) => i.id) && (asking.has(n) ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Checking for Trivy…</span> : <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => firstScan(n)}>Scan for vulnerabilities</Btn>)}{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
+                {!S.scan[n] && images.some((i) => i.id) && (asking.has(n) ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Checking for Trivy…</span> : <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => firstScan(n)}>Scan for vulnerabilities</Btn>)}
+                {!S.scan[n] && trivy.get(n) && there(trivy.get(n)!) && <Btn cls="sm" title="lf scan --remove: delete Trivy's image and databases from the server" on={() => removeTrivy(n)}>Remove Trivy</Btn>}{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
             </CardHead>
             <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
               {images.length ? (
