@@ -90,9 +90,11 @@ export function loadConfig(): Config {
  * A symlinked file (a dotfiles repo) stays a link; an existing file keeps its mode.
  */
 export function writeAtomic(file: string, data: string, mode?: number) {
-  const real = fs.existsSync(file) ? fs.realpathSync(file) : file;
+  // stat follows a symlink: the mode is the target's, and the target is what gets replaced.
+  const st = fs.statSync(file, { throwIfNoEntry: false });
+  const real = st ? fs.realpathSync(file) : file;
   const tmp = `${real}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, data, { mode: fs.existsSync(real) ? fs.statSync(real).mode & 0o777 : (mode ?? 0o644) });
+  fs.writeFileSync(tmp, data, { mode: st ? st.mode & 0o777 : (mode ?? 0o644) });
   fs.renameSync(tmp, real);
 }
 

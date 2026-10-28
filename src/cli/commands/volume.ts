@@ -4,7 +4,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Server } from "../../core/config";
 import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/compose";
 import { bytes } from "../../core/facts";
-import { cronMark, requireSite, siteDir } from "../../core/remote";
+import { cronMark, lockSite, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
 import { HELPER, PRELUDE } from "../../core/templates";
 import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
@@ -413,14 +413,17 @@ async function deleteVolume(server: Server, site: string, v: Volume, project: st
   const file = `${dir}/backups/${backupName(v.key, new Date(), "before-rm")}`;
   const labels = [`com.docker.compose.project=${project}`, `com.docker.compose.volume=${v.key}`].map((l) => `--label ${shq(l)}`).join(" ");
   const undo = `if [ -f ${shq(file)} ]; then docker volume create ${labels} ${shq(v.name)} >/dev/null && ${tarIn(v.name)} < ${shq(file)}; else log ${shq(`${file} is gone, nothing to put back`)}; fi`;
-  // In the site's folder: its files go too, and site.json stops binding it (undo puts it back in Docker's; a deploy moves it in again).
-  const { meta } = v.dir ? await requireSite(server, site) : { meta: undefined };
-  const rest = meta?.volumes?.filter((k) => k !== v.key);
   step(`delete ${v.key} of ${site}`);
   runs(`${tarOut(v.name)} > ${file}; docker volume rm ${v.name}${v.dir ? `; rm -rf ${v.dir}` : ""}`);
-  await runScript(
-    server,
-    `${PRELUDE}
+  // Under the deploy lock: site.json is rewritten below, and a deploy in between would be lost.
+  const lock = await lockSite(server, site);
+  try {
+    // In the site's folder: its files go too, and site.json stops binding it (undo puts it back in Docker's; a deploy moves it in again).
+    const { meta } = v.dir ? await requireSite(server, site) : { meta: undefined };
+    const rest = meta?.volumes?.filter((k) => k !== v.key);
+    await runScript(
+      server,
+      `${PRELUDE}
 cd ${shq(dir)} && mkdir -p backups
 ${backupTo(v.name, shq(file))}
 # Journaled once backed up: a step below that fails still leaves lf undo a way back.
@@ -428,7 +431,10 @@ record ${shq(`delete volume ${v.key} of ${site} (backup ${basename(file)})`)} ${
 docker volume rm ${shq(v.name)} >/dev/null
 ${v.dir ? `docker run --rm -v ${shq(`${v.dir}:/v`)} ${HELPER} find /v -mindepth 1 -delete && rmdir ${shq(v.dir)}` : ""}
 ${meta && rest ? writeFileCmd("site.json", JSON.stringify({ ...meta, volumes: rest.length ? rest : undefined }, null, 2) + "\n") : ""}`,
-  );
+    );
+  } finally {
+    await lock.unlock();
+  }
   ok(`${v.key} of ${site} deleted`);
   info(c.dim(`its contents: ${file} (lf undo puts them back)`));
 }

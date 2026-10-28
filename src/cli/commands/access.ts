@@ -37,7 +37,7 @@ export async function claimDomains(server: Server, serverName: string, site: str
   return async () => {
     for (const m of others) {
       const moved = m.domains.filter((d) => domains.includes(d));
-      const left = (await changeSite(server, m, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))))).domains;
+      const left = (await changeSite(server, m.name, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))))).domains;
       updateProjectDomains(serverName, m.name, left);
       info(c.dim(left.length ? `${m.name} keeps ${left.join(", ")}` : `${m.name} serves no domain now`));
     }
@@ -92,7 +92,7 @@ and update .landfall.json of remembered projects.`,
     const services = currentRelease(meta)?.services ?? [];
     const move = await claimDomains(server, serverName, site, [...added, ...subDomains(services, added)], proxy);
     await move();
-    await changeSite(server, meta, proxy, `domains of ${site}: ${next.join(", ")}`, (m) => void (m.domains = next));
+    await changeSite(server, site, proxy, `domains of ${site}: ${next.join(", ")}`, (m) => void (m.domains = next));
     updateProjectDomains(serverName, site, next);
     const here = loadProject(process.cwd());
     if (here?.name === site) saveProject(process.cwd(), { ...here, domains: next });
@@ -144,7 +144,7 @@ export const auth = defineCommand({
     if (!now.length) await confirmRemoval(`Remove every login from ${site}? Anyone can open it then.`);
     else if (gone.length) await confirmRemoval(`Remove the login${gone.length > 1 ? "s" : ""} ${gone.join(", ")} from ${site}?`);
 
-    await changeSite(server, meta, proxy, now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`, (m) => void (m.auth = lines.length ? lines : undefined));
+    await changeSite(server, site, proxy, now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`, (m) => void (m.auth = lines.length ? lines : undefined));
     ok(now.length ? `${site} asks for a login (${now.join(", ")})` : `${site} is public again`);
   },
 });

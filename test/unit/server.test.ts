@@ -8,7 +8,7 @@ import { guardSsh, type FirewallState } from "../../src/core/firewall";
 import { journalCmd } from "../../src/cli/cmd";
 import { findRun, laterConflicts, parseJournal, pending } from "../../src/core/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/core/inventory";
-import { removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
+import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
 import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/core/stats";
 import { parsePrunePlan, removable } from "../../src/core/manage";
@@ -41,6 +41,7 @@ describe("ssh config", () => {
     const b = { alias: "vps", hostname: "5.6.7.8", user: "deploy", port: 22, key: "/k" };
     upsertHostBlock(b, f);
     fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/\n/g, "\r\n"));
+    expect(hasManagedBlock("vps", f)).toBe(true);
     upsertHostBlock({ ...b, hostname: "9.9.9.9" }, f);
     expect(fs.readFileSync(f, "utf8").match(/landfall:vps/g)?.length).toBe(2);
   });
