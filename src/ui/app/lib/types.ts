@@ -19,7 +19,7 @@ export type { Cap, DnsCheck } from "../../../core/facts";
 export type { Step } from "../../../core/journal";
 export type { ImageStatus, PkgUpdate } from "../../../core/updates";
 export type { ContainerStats, DiskUsage } from "../../../core/stats";
-export type { ImageScan, Severity, Vuln } from "../../../core/scan";
+export type { ImageScan, Severity, TrivyState, Vuln } from "../../../core/scan";
 export type { PrunePlan } from "../../../core/manage";
 export type { Cert, CertError, Certs, Detail, HostTraffic, StatusClass, Summary, Traffic } from "../../../core/traffic";
 export type { Account, Users } from "../../../core/users";

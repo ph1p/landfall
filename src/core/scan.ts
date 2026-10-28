@@ -1,11 +1,55 @@
 import { type Server } from "./config";
 import { runScript, shq } from "./ssh";
+import { PRELUDE } from "./templates";
 import { imageStatus, type ImageStatus } from "./updates";
 
 /** Pinned: a scanner reads every image, so it never changes under you. */
 export const TRIVY = "aquasec/trivy:0.76.1";
-/** Trivy's vulnerability database (~80 MB), downloaded on the first scan and kept between scans. */
+/** Trivy's vulnerability databases (several GB), downloaded on the first scan and kept between scans. */
 export const TRIVY_CACHE = "landfall-trivy";
+
+/** What Trivy keeps on a server, in bytes; absent when it is not there. */
+export interface TrivyState {
+  image?: number;
+  /** Its databases: trivy-java.db comes along once an image holds Java, and either grows past 1 GB. */
+  cache?: number;
+}
+
+/** Trivy's image and database volume on s, measured with Trivy's own image (busybox du): nothing new is pulled to ask. */
+export async function trivyState(s: Server): Promise<TrivyState> {
+  const { stdout } = await runScript(
+    s,
+    String.raw`docker image inspect -f 'image {{.Size}}' ${TRIVY} 2>/dev/null || true
+if docker volume inspect ${TRIVY_CACHE} >/dev/null 2>&1; then
+  echo "cache $(docker image inspect ${TRIVY} >/dev/null 2>&1 && docker run --rm --entrypoint du -v ${TRIVY_CACHE}:/c ${TRIVY} -sk /c 2>/dev/null | cut -f1)"
+fi`,
+    { capture: true },
+  );
+  const get = (k: string) => stdout.match(new RegExp(`^${k} ?(\\d*)$`, "m"));
+  const image = get("image");
+  const cache = get("cache");
+  return { ...(image && { image: Number(image[1]) }), ...(cache && { cache: Number(cache[1] || 0) * 1024 }) };
+}
+
+export const trivyThere = (t: TrivyState) => t.image !== undefined || t.cache !== undefined;
+
+/** What the first scan downloads, for asking first. */
+export const TRIVY_ASK = `Scanning runs Trivy on the server: its image ${TRIVY} (~190 MB) and its vulnerability databases (several GB, in the volume ${TRIVY_CACHE}).`;
+
+/** Removes Trivy's image and databases from s; says what went. lf scan downloads them again. */
+export async function removeTrivy(s: Server): Promise<string[]> {
+  const { stdout } = await runScript(
+    s,
+    `${PRELUDE}
+gone=""
+if docker image inspect ${TRIVY} >/dev/null 2>&1; then docker image rm ${TRIVY} >/dev/null; gone="image"; fi
+if docker volume inspect ${TRIVY_CACHE} >/dev/null 2>&1; then docker volume rm ${TRIVY_CACHE} >/dev/null; gone="$gone databases"; fi
+[ -z "$gone" ] || record "removed Trivy's$gone (lf scan downloads it again)"
+echo "$gone"`,
+    { capture: true },
+  );
+  return stdout.trim().split(/\s+/).filter(Boolean);
+}
 
 export const SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"] as const;
 export type Severity = (typeof SEVERITIES)[number];
