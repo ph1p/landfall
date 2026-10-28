@@ -306,8 +306,12 @@ volumes:
     routes:
       - { port: 3001, subdomain: admin }      # admin.<each site domain>
       - { port: 9000, domains: [s3.example.com] }
-    private: { cms: 3002 }                    # lf tunnel blog cms
+    private:
+      cms: 3002                               # lf tunnel blog cms
+      manage: { port: 3003, path: /manage }   # lf tunnel blog manage opens http://localhost:3003/manage
   ```
+
+  A service with only private ports opens the one named like it (else its first) with `lf tunnel <site> <service>`.
 
 - **A compose.yaml without `x-landfall` deploys as it is.** landfall routes the HTTP ports its services
   publish (`ports:`) or `expose:`: the first service with `build:` (else one on a usual web port) gets the

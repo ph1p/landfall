@@ -432,7 +432,8 @@ function showRoutes(services: Release["services"], domains: string[], live?: Rel
     const fresh = isNew(r) ? c.yellow(" new") : "";
     console.log(`  ${`${r.service}:${r.port}`.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${fresh}`);
   }
-  for (const s of services) for (const [k, p] of Object.entries(s.private ?? {})) console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}`)}`);
+  for (const s of services)
+    for (const [k, p] of Object.entries(s.private ?? {})) console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}${s.paths?.[k] ? ` opens ${s.paths[k]}` : ""}`)}`);
 }
 
 async function checkLive(domain: string) {
