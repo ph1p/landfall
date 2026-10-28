@@ -13,7 +13,7 @@ interface Row { key: string; length?: number; value?: string; edit?: string; rem
 const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Compose secret names: file names in .secrets.
 const SECRET = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
-const envUrl = (n: string, site: string, reveal: boolean, secrets = false) =>
+export const envUrl = (n: string, site: string, reveal: boolean, secrets = false) =>
   `/api/servers/${encodeURIComponent(n)}/${secrets ? "secrets" : "env"}?site=${encodeURIComponent(site)}${reveal ? "&reveal=1" : ""}`;
 
 function change(rows: Row[], KEY_OK = KEY): EnvChange {
@@ -32,12 +32,14 @@ function change(rows: Row[], KEY_OK = KEY): EnvChange {
 /**
  * The site's .env as rows: values stay hidden (and off the page) until Show values fetches them.
  * secrets: its .secrets files instead, whose values never reach the page; a value typed replaces one.
+ * No site: only new variables, for one not deployed yet.
  */
-export function EnvTable({ n, site, onChange, secrets }: { n: string; site: string; onChange: (c: EnvChange) => void; secrets?: boolean }) {
+export function EnvTable({ n, site, onChange, secrets }: { n: string; site?: string; onChange: (c: EnvChange) => void; secrets?: boolean }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState("");
   const [shown, setShown] = useState(false);
   useEffect(() => {
+    if (!site) return setRows([]);
     http<{ vars: Row[] }>(envUrl(n, site, false, secrets)).then((d) => setRows(d.vars), (e) => setErr(errorMessage(e)));
   }, []);
   const update = (next: Row[]) => {
@@ -48,7 +50,7 @@ export function EnvTable({ n, site, onChange, secrets }: { n: string; site: stri
   const reveal = () =>
     shown
       ? setShown(false)
-      : http<{ vars: { key: string; value: string }[] }>(envUrl(n, site, true)).then(
+      : http<{ vars: { key: string; value: string }[] }>(envUrl(n, site!, true)).then(
           (d) => {
             const values = new Map(d.vars.map((v) => [v.key, v.value]));
             update(rows!.map((r) => (r.added ? r : { ...r, value: values.get(r.key) })));

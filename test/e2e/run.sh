@@ -293,7 +293,12 @@ expect stack.test / "stack v1"
 lf restart stack db -y >/dev/null 2>&1 || die "restart one service"
 lf sites rm stack -y >/dev/null 2>&1
 { srv docker volume ls -q | has -x stack_db; } || die "rm keeps the volume"
-lf deploy -e POSTGRES_PASSWORD=pw1 -y >/dev/null 2>&1 || die "deploy again"
+# The local .env is not sent unless asked, and then only what the project asks for.
+printf 'POSTGRES_PASSWORD=pw1\nLOCAL_ONLY=x\n' > .env
+{ ! lf deploy -y >"$WORK/local.log" 2>&1 && has -- "--local-env" "$WORK/local.log"; } || { cat "$WORK/local.log"; die "deploy without the local .env"; }
+lf deploy --local-env -y >"$WORK/local.log" 2>&1 || { cat "$WORK/local.log"; die "deploy again with --local-env"; }
+{ lf env stack --keys | has -x POSTGRES_PASSWORD && ! lf env stack --keys | has LOCAL_ONLY; } || die "--local-env takes only what is asked for"
+rm .env; pass "deploy --local-env takes what the project asks for from the local .env, nothing else"
 for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
 [ "$(psql "select x from t")" = 42 ] || die "a site deployed again finds its data"
 lf sites rm stack --volumes -y >/dev/null 2>&1

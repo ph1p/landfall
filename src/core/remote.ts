@@ -727,7 +727,6 @@ export const dotenvLines = (text: string): string[] =>
     .map((l) => l.trim().replace(/^export\s+/, ""))
     .filter((l) => l && !l.startsWith("#") && l.includes("="));
 
-/** A local dotenv file as pairs; `-` reads stdin, which keeps the values out of `ps`. */
 /** The files of a site's .secrets folder with their sizes; never their content. */
 export async function readSecrets(s: Server, name: string): Promise<{ key: string; size: number }[]> {
   const { stdout } = await runScript(
@@ -760,8 +759,19 @@ export function envView(text: string, reveal = false) {
 /** A .env as `lf env` shows it: comments and blank lines dropped, every value hidden. */
 export const maskedEnv = (text: string) => envEntries(text).map(({ key, value }) => `${key}=${"•".repeat(8)} (${value.length})\n`).join("");
 
+/** A local dotenv file as pairs; `-` reads stdin, which keeps the values out of `ps`. */
 export const readEnvFile = async (path: string) =>
   parseEnvPairs(dotenvLines(path === "-" ? await readStdin() : fs.readFileSync(path, "utf8")));
+
+/** The .env in a project folder, without its empty values ("" and '' too); none or an unreadable one: {}. */
+export function localEnv(dir: string): Record<string, string> {
+  try {
+    const all = parseEnvPairs(dotenvLines(fs.readFileSync(`${dir}/.env`, "utf8")));
+    return Object.fromEntries(Object.entries(all).filter(([, v]) => v.replace(/^(["'])\1$/, "")));
+  } catch {
+    return {};
+  }
+}
 
 /** KEY=VALUE pairs; a .env holds one variable per line, so its values (`oneLine`) cannot span lines. */
 export function parseEnvPairs(pairs: string[], oneLine = false): Record<string, string> {
