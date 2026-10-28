@@ -456,9 +456,14 @@ back. Domain and login changes are journaled, so `lf undo` reverts them.
 
 ### Volumes and backups
 
-A site's data lives in its named volumes. `lf volume` copies it in and out as plain `.tar.gz` files:
+A site's data lives in its named volumes. `lf volume add` and `lf volume rm` declare them in your project,
+and `lf volume` copies their data in and out as plain `.tar.gz` files:
 
 ```sh
+lf volume add /app/data            # keep the app's /app/data across deploys (volume app-data); then lf deploy
+lf volume add web:/data/content --as content     # a service of compose.yaml, with the volume's name
+lf volume rm content               # unmount it again; the data stays on the server, listed as unused
+lf volume rm content --data        # delete an unused volume's data (backed up first, lf undo brings it back)
 lf volumes                         # the site's volumes: size, which service mounts them where, backups
 lf volume backup                   # every volume to /opt/landfall/sites/<site>/backups/<volume>-<time>.tar.gz
 lf volume backup content           # one volume (its name in compose.yaml, or Docker's blog_content)
@@ -469,6 +474,10 @@ lf volume push content ./content   # replace the volume with a local folder (or 
 lf volume restore content          # replace it with its newest backup (or name one)
 ```
 
+- `add` and `rm` edit the project in the current folder: compose.yaml gets the mount under the service and the
+  volume under the top-level `volumes:` (comments and order kept, plain Compose); an app, Dockerfile or image
+  keeps the path in `.landfall.json` (like `lf deploy --volume`). Neither touches the server: `lf deploy` applies
+  them. `rm --data` refuses a volume a container still uses, so redeploy first.
 - `push` and `restore` stop the services using the volume, back it up first (`…-before-push.tar.gz`), replace its
   contents and start them again. The step is journaled, so `lf undo` puts the previous contents back. Both ask first.
 - `push` gives the files to the owner of the volume's root folder (your local uid means nothing in the container);
@@ -487,8 +496,10 @@ lf volume restore content          # replace it with its newest backup (or name 
 - After a deploy, an empty volume whose name matches a local folder the upload left out (`.landfallignore`,
   e.g. `./content` for the volume `content`) gets an offer to push that folder into it; without a terminal,
   `lf deploy` prints the `lf volume push` command instead. Paths may start with `~`.
-- In `lf ui`, an opened site lists its volumes (marking empty ones) with **Back up**, **Restore…**, **Push…** and
-  **Pull…** (the same commands; push and pull take a path on the machine running `lf ui`).
+- In `lf ui`, an opened site lists its volumes (marking empty and unused ones) with **Back up**, **Restore…**, **Push…**
+  and **Pull…** (the same commands; push and pull take a path on the machine running `lf ui`). For a site this
+  machine deploys, **Add…** and **Remove…** run `lf volume add`/`rm` in its folder and redeploy; an unused volume
+  has **Delete…**.
 - Nothing here is landfall-specific. Each command prints the `docker` line it runs; by hand it is
   `docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz` and back
   `docker run --rm -i -v blog_content:/v alpine:3 sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v' < content.tar.gz`.
@@ -895,6 +906,8 @@ lf undo -s box -y                           # revert the last run
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |
 | `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes and their backups stay unless `--volumes`. |
 | `lf volumes [name] [--json]` | Lists a site's volumes: size, mounts, backups. Alias: `volume ls`. |
+| `lf volume add [name] [service:]<path> [--as key]` | Keeps a container folder in a named volume: edits compose.yaml or `.landfall.json`; `lf deploy` applies it. |
+| `lf volume rm [name] <volume> [--data]` | Unmounts a volume in the project; `--data` deletes an unused one on the server (backed up first; undoable). |
 | `lf volume backup [name] [volume]` | Saves a volume (default: all) as a `.tar.gz` in the site's `backups/` folder. |
 | `lf volume pull [name] [volume] [--into dir] [-o file] [--backup file\|latest]` | Downloads a volume or one of its backups, as an archive or unpacked. |
 | `lf volume push [name] <volume> <folder\|file.tar.gz>` | Replaces a volume's contents with local files. Backs up first; undoable. |

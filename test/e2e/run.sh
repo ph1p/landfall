@@ -316,6 +316,12 @@ lf volume pull vols data --into "$WORK/vols/out" >/dev/null 2>&1 && [ "$(cat "$W
 vol 'rm old'
 lf volume restore vols data -y >/dev/null 2>&1 && [ "$(vol 'cat old')" = old ] || die "volume restore"
 pass "volume backup, pull and restore"
+lf volume add app:/cache --as cache >/dev/null 2>&1 && has 'cache:/cache' < compose.yaml || die "volume add writes compose.yaml"
+lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'app:/cache'; } || die "volume add mounts it"
+lf volume rm cache --data -y >/dev/null 2>&1 && ! has cache < compose.yaml && srv docker volume ls -q | has -x vols_cache || die "volume rm --data keeps a mounted volume"
+lf deploy -n vols --no-domain -y >/dev/null 2>&1 && lf volume rm vols cache --data -y >/dev/null 2>&1 && ! { srv docker volume ls -q | has -x vols_cache; } || die "volume rm --data deletes an unused one"
+lf undo -s box -y >/dev/null 2>&1 && { lf volumes vols | has unused; } || die "undo brings the deleted volume back"
+pass "volume add and rm edit compose.yaml, --data deletes an unused volume, undo brings it back"
 lf volume backup vols --schedule hourly --keep 2 >"$WORK/sched.log" 2>&1 || { cat "$WORK/sched.log"; die "volume backup --schedule"; }
 { lf volumes vols | has 'hourly, keep 2'; } && srv sh -c 'crontab -u deploy -l | grep -q "backups/backup.sh .*# landfall backup vols: hourly, keep 2"' || die "the schedule is a crontab line"
 srv sh -c 'cd /opt/landfall/sites/vols/backups && for i in 1 2 3; do touch data-20200101-00000$i.tar.gz; done && sh backup.sh' || die "backup.sh runs by hand"
