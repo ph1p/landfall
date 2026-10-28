@@ -27,7 +27,8 @@ export const menuOpen = () => !!open;
 
 /** A "More" button for the less used actions; falsy items are skipped, "-" is a divider. */
 export function MenuBtn({ items, title = "More actions", cls = "sm" }: { items: Item[]; title?: string; cls?: string }) {
-  const list = items.filter(Boolean) as (MenuItem | "-")[];
+  // No divider at either end or twice in a row: items that are left out leave none behind.
+  const list = (items.filter(Boolean) as (MenuItem | "-")[]).filter((it, i, all) => it !== "-" || (i > 0 && i < all.length - 1 && all[i + 1] !== "-"));
   if (!list.length) return null;
   return (
     <Btn cls={cls} title={title} aria-haspopup="menu" aria-expanded="false" aria-label={title} on={(e) => openMenu(e.currentTarget, list)}>
