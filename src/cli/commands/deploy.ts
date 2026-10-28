@@ -121,6 +121,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
   },
   async run([dirArg], o) {
     const cwd = process.cwd();
+    // Read before any ssh: one with the inherited stdin would swallow `--dotenv -`.
+    const dotenv = o.dotenv ? await readEnvFile(o.dotenv) : undefined;
     const project: Partial<ProjectConfig> = loadProject(cwd) ?? {};
     const environment = activeEnvironment();
     if (project.name) info(c.dim(`using ${PROJECT_FILE}${environment ? `, environment ${environment}` : ""}`));
@@ -165,9 +167,9 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
       let env: string | undefined;
-      if (o.env?.length || o.dotenv) {
+      if (o.env?.length || dotenv) {
         env = prevEnv;
-        if (o.dotenv) env = mergeEnv(env, await readEnvFile(o.dotenv));
+        if (dotenv) env = mergeEnv(env, dotenv);
         if (o.env?.length) env = mergeEnv(env, parseEnvPairs(o.env, true));
       }
       // What the project wants in its .env (compose's ${NAME:?}, an example .env's keys): asked for here,
