@@ -18,7 +18,7 @@ import { USER_NAME } from "../../core/users";
 import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyView, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
-import { c, openUrl } from "../../core/term";
+import { c, CliError, openUrl } from "../../core/term";
 
 interface WebJob {
   id: string;
@@ -69,7 +69,8 @@ function token(): string {
 }
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "cache-control": "no-store" } });
-const failure = (e: any, status = 500) => json({ error: e?.message ?? String(e) }, status);
+// A CliError is a refusal or a failed step the user can act on, not a crash in the server.
+const failure = (e: any, status = e instanceof CliError ? 400 : 500) => json({ error: e?.message ?? String(e) }, status);
 
 function startWebJob(argv: string[], o: { server?: string; password?: string; cwd?: string }): WebJob {
   // The journal credits what the job changes to this id, so it can be undone as one.
