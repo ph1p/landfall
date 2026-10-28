@@ -423,10 +423,11 @@ async function deleteVolume(server: Server, site: string, v: Volume, project: st
     `${PRELUDE}
 cd ${shq(dir)} && mkdir -p backups
 ${backupTo(v.name, shq(file))}
+# Journaled once backed up: a step below that fails still leaves lf undo a way back.
+record ${shq(`delete volume ${v.key} of ${site} (backup ${basename(file)})`)} ${shq(undo)}
 docker volume rm ${shq(v.name)} >/dev/null
 ${v.dir ? `docker run --rm -v ${shq(`${v.dir}:/v`)} ${HELPER} find /v -mindepth 1 -delete && rmdir ${shq(v.dir)}` : ""}
-${meta && rest ? writeFileCmd("site.json", JSON.stringify({ ...meta, volumes: rest.length ? rest : undefined }, null, 2) + "\n") : ""}
-record ${shq(`delete volume ${v.key} of ${site} (backup ${basename(file)})`)} ${shq(undo)}`,
+${meta && rest ? writeFileCmd("site.json", JSON.stringify({ ...meta, volumes: rest.length ? rest : undefined }, null, 2) + "\n") : ""}`,
   );
   ok(`${v.key} of ${site} deleted`);
   info(c.dim(`its contents: ${file} (lf undo puts them back)`));

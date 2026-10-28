@@ -72,7 +72,7 @@ function glob(pattern: string): string[] {
 
 const markers = (alias: string) => [`# >>> landfall:${alias}`, `# <<< landfall:${alias}`] as const;
 /** A managed block. */
-const blockRe = (alias: string, trail: string) => new RegExp(`# >>> landfall:${escapeRe(alias)}\\n[\\s\\S]*?# <<< landfall:${escapeRe(alias)}${trail}`);
+const blockRe = (alias: string, trail: string) => new RegExp(`# >>> landfall:${escapeRe(alias)}\\r?\\n[\\s\\S]*?# <<< landfall:${escapeRe(alias)}${trail}`);
 const isStart = (line: string | undefined, alias: string) => line === `# >>> landfall:${alias}`;
 
 export interface HostBlock {
@@ -107,7 +107,7 @@ export function upsertHostBlock(b: HostBlock, file = SSH_CONFIG): { created: boo
   const current = created ? "" : fs.readFileSync(file, "utf8");
   checkAlias(b.alias);
   const block = renderHostBlock(b);
-  const re = blockRe(b.alias, "\\n?");
+  const re = blockRe(b.alias, "\\r?\\n?");
   const next = re.test(current) ? current.replace(re, () => block + "\n") : `${block}\n\n${current}`;
   fs.mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, next, { mode: 0o600 });
@@ -190,7 +190,7 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
 export function removeHostBlock(alias: string, file = SSH_CONFIG): boolean {
   if (!fs.existsSync(file)) return false;
   const current = fs.readFileSync(file, "utf8");
-  const re = blockRe(alias, "\\n*");
+  const re = blockRe(alias, "[\\r\\n]*");
   if (!re.test(current)) return false;
   fs.writeFileSync(file, current.replace(re, ""));
   return true;

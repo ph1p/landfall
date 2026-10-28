@@ -415,7 +415,7 @@ export async function adoptSite(s: Server, meta: SiteMeta) {
     s,
     [
       PRELUDE,
-      `[ -r ${shq(meta.adopted!)} ] && [ -x ${shq(meta.adopted!)} ] || { echo "$(id -un) cannot read ${meta.adopted}; adopt it as a user who can (lf server config)" >&2; exit 1; }`,
+      `[ -r ${shq(meta.adopted!)} ] && [ -x ${shq(meta.adopted!)} ] || { echo "$(id -un) cannot read "${shq(meta.adopted!)}"; adopt it as a user who can (lf server config)" >&2; exit 1; }`,
       `[ ! -e ${shq(dir)} ] || { echo "${dir} exists already" >&2; exit 1; }`,
       `mkdir -p ${shq(dir)} && cd ${shq(dir)}`,
       `ln -s ${shq(meta.adopted!)} current`,
@@ -736,17 +736,18 @@ export async function removeSite(s: Server, meta: SiteMeta, o: { volumes?: boole
 /** Merge KEY=VALUE pairs into dotenv text, preserving order and comments. */
 export function mergeEnv(existing: string, set: Record<string, string>, unset: string[] = []): string {
   const out: string[] = [];
-  const pending = new Map(Object.entries(set));
+  const done = new Set<string>();
   for (const line of existing.split("\n")) {
     const key = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=/)?.[1];
     if (key && unset.includes(key)) continue;
-    if (key && pending.has(key)) {
-      out.push(`${key}=${pending.get(key)}`);
-      pending.delete(key);
+    if (key && Object.hasOwn(set, key)) {
+      // Compose takes the last of duplicate keys: keep one, set.
+      if (!done.has(key)) out.push(`${key}=${set[key]}`);
+      done.add(key);
     } else if (line.trim() || out.length) out.push(line);
   }
   while (out.length && !out[out.length - 1].trim()) out.pop();
-  for (const [k, v] of pending) out.push(`${k}=${v}`);
+  for (const [k, v] of Object.entries(set)) if (!done.has(k)) out.push(`${k}=${v}`);
   return out.length ? out.join("\n") + "\n" : "";
 }
 
@@ -754,7 +755,8 @@ export function mergeEnv(existing: string, set: Record<string, string>, unset: s
 export const dotenvLines = (text: string): string[] =>
   text
     .split("\n")
-    .map((l) => l.trim().replace(/^export\s+/, ""))
+    // `KEY = v` is fine for Compose too.
+    .map((l) => l.trim().replace(/^export\s+/, "").replace(/^([^=\s]+)\s*=\s*/, "$1="))
     .filter((l) => l && !l.startsWith("#") && l.includes("="));
 
 /** The files of a site's .secrets folder with their sizes; never their content. */

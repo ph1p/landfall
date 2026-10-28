@@ -324,6 +324,8 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
       if (dir === "up") {
         ssh.stdin!.on("error", () => (f as fs.ReadStream).destroy());
         (f as fs.ReadStream).pipe(ssh.stdin!);
+        // A read error rejects above: ssh's exit is the whole result.
+        done.push(Promise.resolve(0));
       }
       else {
         ssh.stdout!.pipe(f as fs.WriteStream);

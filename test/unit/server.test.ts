@@ -36,6 +36,14 @@ describe("ssh config", () => {
     expect(fs.readFileSync(f, "utf8")).toBe("Host mine\n  HostName 192.0.2.4\n\nHost *\n  ServerAliveInterval 30\n");
   });
 
+  test("a CRLF config gets its block replaced, not a second one", () => {
+    const f = join(tmp(), "config");
+    const b = { alias: "vps", hostname: "5.6.7.8", user: "deploy", port: 22, key: "/k" };
+    upsertHostBlock(b, f);
+    fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/\n/g, "\r\n"));
+    upsertHostBlock({ ...b, hostname: "9.9.9.9" }, f);
+    expect(fs.readFileSync(f, "utf8").match(/landfall:vps/g)?.length).toBe(2);
+  });
 
   test("non-default port rendered", () => {
     expect(renderHostBlock({ alias: "x", hostname: "h", user: "u", port: 2222, key: "/k" })).toContain("Port 2222");

@@ -8,7 +8,7 @@ import { detectStaticDir, slug } from "../../src/core/projects";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
 import { parse } from "../../src/cli/cmd";
 import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
-import { envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
+import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
 import { changes } from "../../src/core/dashboard";
 import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/compose";
 
@@ -18,6 +18,12 @@ describe("env", () => {
   test("merge keeps order, replaces, appends, unsets", () => {
     const out = mergeEnv("# c\nA=1\nB=2\n", { B: "3", C: "4" }, ["A"]);
     expect(out).toBe("# c\nB=3\nC=4\n");
+  });
+  test("merge sets a duplicated key once", () => {
+    expect(mergeEnv("A=1\nB=2\nA=3\n", { A: "9" })).toBe("A=9\nB=2\n");
+  });
+  test("a .env may space around =", () => {
+    expect(parseEnvPairs(dotenvLines("KEY = v w\n"))).toEqual({ KEY: "v w" });
   });
   test("values may contain =", () => {
     expect(parseEnvPairs(["URL=a=b"])).toEqual({ URL: "a=b" });
