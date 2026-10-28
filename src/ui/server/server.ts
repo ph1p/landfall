@@ -106,7 +106,6 @@ const jobInfo = (w: WebJob) => ({
   argv: shown(w.argv),
   server: w.server,
   startedAt: w.startedAt,
-  undoable: !!w.job.report.undoable,
   code: w.job.code,
   stopped: !!w.job.stopped,
   report: w.job.report,

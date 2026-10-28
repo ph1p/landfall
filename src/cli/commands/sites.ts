@@ -137,7 +137,7 @@ export const sitesRollback = defineCommand({
     if (idx < 0 && !o.to) fail(`current release ${meta.current} is not in the release list; pick one with --to (see \`lf sites info\`)`);
     const to = o.to ? sorted.find((r) => r.id === o.to) : sorted[idx + 1];
     if (!to) fail(o.to ? `no release ${o.to}` : `no release older than ${meta.current}`);
-    await changeSite(server, meta, proxy, `rollback ${site} from ${meta.current} to ${to!.id}`, (m) => void (m.current = to!.id));
+    await changeSite(server, site, proxy, `rollback ${site} from ${meta.current} to ${to!.id}`, (m) => void (m.current = to!.id));
     ok(`${site} rolled back to ${c.bold(to!.id)}`);
   },
 });
@@ -331,7 +331,7 @@ export const sitesSecret = defineCommand({
     const keys = [...Object.keys(set), ...unset.map((k) => `-${k}`)];
     await changeSite(
       server,
-      meta,
+      site,
       proxy,
       `secret ${site} ${keys.join(" ")}`,
       (m) => {

@@ -124,7 +124,7 @@ dashboard unless given as flags.`,
     // deploy user, but bootstrapping needs root, which kept key-only access.
     // Root may be locked: then the sudo user that bootstrapped it the first time.
     if (!o.user && o["deploy-user"] && effectiveSsh(login).user === o["deploy-user"]) {
-      const admin = await rootLogin({ ...login, admin: existing?.admin });
+      const admin = await rootLogin({ ...login, admin: existing?.admin }, { fresh: true });
       if (admin) login.user = admin.user;
       else warn(`${o["deploy-user"]} can't change the system and root's key login does not work; pass -u <a sudo user> if setup fails`);
     }

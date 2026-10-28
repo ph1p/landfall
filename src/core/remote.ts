@@ -612,11 +612,11 @@ function takeoverLines(old: SiteMeta, keep?: string): string[] {
 }
 
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
-export async function changeSite(s: Server, site: SiteMeta, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}): Promise<SiteMeta> {
+export async function changeSite(s: Server, name: string, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}): Promise<SiteMeta> {
   // Under the deploy lock, on site.json as it is now: a deploy or change in between would be lost on write.
-  const lock = await lockSite(s, site.name);
+  const lock = await lockSite(s, name);
   try {
-    const { meta } = await requireSite(s, site.name);
+    const { meta } = await requireSite(s, name);
     const prev = structuredClone(meta);
     change(meta);
     meta.updatedAt = new Date().toISOString();
