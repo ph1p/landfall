@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
-import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
+import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, Note, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
 import { Describe, Stack, detected, folderDialog, redeploy, setupFlow } from "./flows";
@@ -13,6 +13,29 @@ import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
 const CHIP = "inline-flex items-center gap-0.5 max-w-full";
+/** Rows in an open site's boxes: a line between each, actions on the right. */
+const LIST = "list-none m-0 p-0 [&>li+li]:border-t [&>li+li]:border-line/60";
+const ROW = "flex items-center gap-2.5 px-3 py-2 min-w-0";
+const SIDE = "shrink-0 inline-flex items-center gap-1.5";
+const MORE = "w-full border-0 rounded-none bg-transparent shadow-none px-3 py-1.5 text-left text-sm text-dim hover:text-fg hover:bg-hover";
+/** Releases shown before Show older. */
+const RELEASES = 3;
+/** On a phone the container buttons show only their icons: the group cannot wrap, and their words widen every row. */
+const TIGHT = "narrow:sr-only";
+
+/** A part of an open site: a titled box, its actions right of the title. */
+function Panel({ title, count, aside, children }: { title: string; count?: number; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="min-w-0 rounded-md border border-line bg-bg/60">
+      <h4 className="m-0 flex min-h-10 items-center gap-2 border-b border-line px-3 py-1.5 text-sm font-semibold">
+        {title}
+        {count !== undefined && <span className="faint font-normal tabular-nums">{count}</span>}
+        {aside && <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-1.5 font-normal">{aside}</span>}
+      </h4>
+      {children}
+    </section>
+  );
+}
 
 export function SitesView({ n, o }: { n: string; o: Overview }) {
   useEffect(() => ensureDns(n, o));
@@ -120,11 +143,11 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       {(main || managed || deploys) && <Btn cls="sm" title="Domains, login, environment and how it builds (lf domains, lf auth, lf env, lf deploy)" on={edit}><Icon name="edit" />Edit</Btn>}
       {!old && (
         <BtnGroup label={`Containers of ${name}`}>
-          <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}><Icon name="logs" />Logs</Btn>
-          <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}><Icon name="restart" />Restart</Btn>
+          <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}><Icon name="logs" /><span className={TIGHT}>Logs</span></Btn>
+          <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}><Icon name="restart" /><span className={TIGHT}>Restart</span></Btn>
           {up
-            ? <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}><Icon name="stop" />Stop</Btn>
-            : <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}><Icon name="start" />Start</Btn>}
+            ? <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}><Icon name="stop" /><span className={TIGHT}>Stop</span></Btn>
+            : <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}><Icon name="start" /><span className={TIGHT}>Start</span></Btn>}
         </BtnGroup>
       )}
       <MenuBtn
@@ -152,81 +175,109 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   );
   const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
   const det = open && deploys ? S.det[proj.path] : undefined;
-  const pairs: [string, ReactNode][] = [];
-  if (old) pairs.push(["Old site", <span className="dim">Deployed before sites were Compose projects: {proj ? "redeploy it" : <>run <span className="mono">lf deploy</span> for it</>} once to manage it again.</span>]);
-  pairs.push([
-    "Services",
-    services.length ? (
-      <ul className="list-none m-0 p-0">
-        {services.map((x) => {
-          const [own, ...named] = svcWays(x.service);
-          return (
-            <li key={x.service} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-[3px]">
-              <StatusDot status={x.status} />
-              <b>{x.service}</b>
-              {own?.domains.map((d) => <Badge key={d}>{d}</Badge>)}
-              {own?.priv ? <span className="faint mono">:{own.priv}{own.path ?? ""} private</span> : null}
-              <span className="faint">{x.status.toLowerCase()}</span>
-              {own && isUp(x.status) && <TunnelBtn n={n} argv={own.argv} ports={own.ports} label="Tunnel" compact />}
-              {named.map((w) => isUp(x.status) && (
-                <span key={w.label} className="inline-flex items-center gap-1.5">
-                  <span className="faint mono">{w.label} :{w.priv}{w.path ?? ""} private</span>
-                  <TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact />
-                </span>
-              ))}
-              {!old && svcMenu(x)}
-            </li>
-          );
-        })}
-      </ul>
-    ) : <span className="dim">none running</span>,
-  ]);
-  pairs.push([`On ${n}`, <SiteFiles m={m} state={state} />]);
-  if (!old) pairs.push(["Volumes", <SiteVolumes n={n} name={name} dir={proj?.path} />]);
+  // The open row: what runs and what you do with it on the left, how it is built and where it lives on the right.
+  const svcRows = services.map((x) => {
+    const [own, ...named] = svcWays(x.service);
+    const live = isUp(x.status);
+    return (
+      <li key={x.service}>
+        <div className={ROW}>
+          <StatusDot status={x.status} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-2"><b>{x.service}</b><span className="faint text-sm">{x.status.toLowerCase()}</span></div>
+            {own?.domains.length ? <div className="faint text-sm truncate">{own.domains.join(" · ")}</div>
+            : own?.priv ? <div className="faint text-sm mono">:{own.priv}{own.path ?? ""} private</div>
+            : null}
+          </div>
+          <span className={SIDE}>
+            {own && live && <TunnelBtn n={n} argv={own.argv} ports={own.ports} label="Tunnel" compact />}
+            {!old && svcMenu(x)}
+          </span>
+        </div>
+        {/* Private ports it names (lf tunnel blog admin), under it. */}
+        {named.map((w) => (
+          <div key={w.label} className={cx(ROW, "pt-0 pl-9")}>
+            <span className="faint" aria-hidden="true">↳</span>
+            <span className="min-w-0 flex-1 truncate">{w.label} <span className="faint text-sm mono">:{w.priv}{w.path ?? ""} private</span></span>
+            {live && <span className={SIDE}><TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact /></span>}
+          </div>
+        ))}
+      </li>
+    );
+  });
+  // The newest releases; the rest unfold, remembered in S.open.
+  const relKey = `rel:${n}/${name}`;
+  const allRel = S.open.has(relKey) || byDate.length <= RELEASES + 1;
+  const rels = allRel ? byDate : byDate.slice(0, RELEASES);
+  const relRows = rels.map((r) => (
+    <li key={r.id} className={ROW}>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2"><span className="mono">{r.id}</span>{r.id === m.current && <Badge kind="ok">live</Badge>}</div>
+        <div className="faint text-sm truncate">
+          {ago(r.at)}
+          {r.services && ` · ${r.services.map((x) => x.name).join(", ")}`}
+          {r.git && <span className="mono" title={r.by ? `deployed by ${r.by}` : undefined}> · {r.git.commit.slice(0, 7)}{r.git.branch ? ` ${r.git.branch}` : ""}{r.git.dirty ? "*" : ""}</span>}
+        </div>
+      </div>
+      {r.id !== m.current && managed && (
+        <Btn
+          cls="sm shrink-0"
+          on={() => confirmDlg({ title: `Switch ${name} to ${r.id}?`, text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`, ok: "Switch", onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]) })}
+        >
+          Switch to this
+        </Btn>
+      )}
+    </li>
+  ));
+  const facts: [string, ReactNode][] = [];
+  facts.push(["Kind", <>{kind}{main || !managed ? "" : <> <span className="dim">· domains set in compose.yaml</span></>}</>]);
+  if (managed) facts.push(["Login", m.auth?.length ? `${m.auth.map((a: string) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
   if (!m.adopted)
-    pairs.push([
+    facts.push([
       "Source",
       proj ? <><span className="mono">{tilde(proj.path)}</span> <span className="dim">· redeploy runs there</span></>
       : <span className="dim">not deployed from this machine{m.kind === "image" ? "" : " (or the folder moved): Redeploy picks the folder"}</span>,
     ]);
-  if (det !== undefined)
-    pairs.push([
-      "Build",
-      det ? <><Stack d={det} className="mb-1.5" /><Describe d={det} before={false} /> <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>Edit</Btn></>
-      : <span className="faint">{det === false ? "cannot read its folder" : "reading its folder…"}</span>,
-    ]);
-  pairs.push(["Kind", <>{kind}{main || !managed ? "" : <> <span className="dim">· domains set in compose.yaml</span></>}</>]);
-  if (managed) pairs.push(["Login", m.auth?.length ? `${m.auth.map((a: string) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
-  pairs.push(["Created", `${ago(m.createdAt)} · updated ${ago(m.updatedAt)}`]);
-  if (m.releases.length)
-    pairs.push([
-      "Releases",
-      <ul className="list-none m-0 p-0">
-        {byDate.map((r) => (
-          <li key={r.id} className="flex items-center gap-2.5 py-[5px]">
-            <span className="mono">{r.id}</span>
-            <span className="dim">{ago(r.at)}</span>
-            {r.services && <span className="faint">{r.services.map((x) => x.name).join(", ")}</span>}
-            {r.git && (
-              <span className="faint mono" title={r.by ? `deployed by ${r.by}` : undefined}>
-                {r.git.commit.slice(0, 7)}
-                {r.git.branch ? ` ${r.git.branch}` : ""}
-                {r.git.dirty ? "*" : ""}
-              </span>
-            )}
-            {r.id === m.current ? <Badge kind="ok">live</Badge>
-            : managed ? (
-              <Btn
-                cls="sm"
-                on={() => confirmDlg({ title: `Switch ${name} to ${r.id}?`, text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`, ok: "Switch", onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]) })}
-              >
-                Switch to this
-              </Btn>
-            ) : null}
-          </li>
-        ))}
-      </ul>,
-    ]);
+  facts.push(["Created", `${ago(m.createdAt)} · updated ${ago(m.updatedAt)}`]);
+  const detail = (
+    <div className="flex flex-col gap-3 py-1.5">
+      {old && <Note>Deployed before sites were Compose projects: {proj ? "redeploy it" : <>run <span className="mono">lf deploy</span> for it</>} once to manage it again.</Note>}
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <Panel title="Services" count={services.length}>
+            {services.length ? <ul className={LIST}>{svcRows}</ul> : <p className="m-0 px-3 py-2.5 dim">none running</p>}
+          </Panel>
+          {!old && <SiteVolumes n={n} name={name} dir={proj?.path} />}
+          {m.releases.length > 0 && (
+            <Panel title="Releases" count={m.releases.length}>
+              <ul className={LIST}>
+                {relRows}
+                {byDate.length > RELEASES + 1 && (
+                  <li>
+                    <button type="button" className={MORE} aria-expanded={allRel} onClick={() => (allRel ? S.open.delete(relKey) : S.open.add(relKey), render())}>
+                      {allRel ? "Show fewer" : `Show ${byDate.length - rels.length} older`}
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </Panel>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-col gap-3">
+          {det !== undefined && (
+            <Panel title="Build" aside={det && <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>Edit</Btn>}>
+              <div className="px-3 py-2.5 text-sm">
+                {det ? <><Stack d={det} className="mb-2" /><Describe d={det} before={false} /></>
+                : <span className="faint">{det === false ? "cannot read its folder" : "reading its folder…"}</span>}
+              </div>
+            </Panel>
+          )}
+          <Panel title="Details"><Kv className="px-3 py-2.5" pairs={facts} /></Panel>
+          <Panel title={`On ${n}`}><SiteFiles m={m} state={state} /></Panel>
+        </div>
+      </div>
+    </div>
+  );
   // A site deployed with no domain is reached by its tunnel; so are private ports, and any tunnel open now.
   const reach = ways.length > 1 ? ways.filter((w) => tunnelFor(n, w.argv) || ((w.priv || w.label === main) && !w.domains.length && isUp(w.status))) : [];
   const where = (
@@ -274,7 +325,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       {open && (
         <tr>
           <td colSpan={5} className="bg-[color-mix(in_srgb,var(--hover)_60%,transparent)]">
-            <Kv pairs={pairs} />
+            {detail}
           </td>
         </tr>
       )}
@@ -289,9 +340,10 @@ function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }
   const load = () =>
     http<Volumes>(`/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}`).then((x) => (setD(x), setErr("")), (e) => setErr(errorMessage(e)));
   useEffect(() => void load(), [n, name]);
-  if (err) return <span className="text-bad">{err}</span>;
-  if (!d) return <span className="faint">reading its volumes…</span>;
-  if (!d.volumes.length) return <span className="dim">none</span>;
+  const box = (body: ReactNode, aside?: ReactNode) => <Panel title="Volumes" count={d?.volumes.length || undefined} aside={aside}>{body}</Panel>;
+  if (err) return box(<p className="m-0 px-3 py-2.5 text-bad">{err}</p>);
+  if (!d) return box(<p className="m-0 px-3 py-2.5 faint">reading its volumes…</p>);
+  if (!d.volumes.length) return box(<p className="m-0 px-3 py-2.5 dim">none</p>);
   // A backup belongs to the volume its name starts with: content-20261027-181500.tar.gz.
   const own = (key: string) => d.backups.filter((b) => b.file.startsWith(`${key}-`) && /^\d{8}-\d{6}/.test(b.file.slice(key.length + 1)));
   const restore = (key: string, list: Volumes["backups"]) =>
@@ -333,43 +385,64 @@ function SiteVolumes({ n, name, dir }: { n: string; name: string; dir?: string }
       ok: "Save",
       onOk: (v) => run(["volume", "backup", name, "--schedule", v.every, ...(v.every === "off" ? [] : ["--keep", v.keep]), ...sv(n)], { after: ifOk(load) }),
     });
-  return (
+  // Scheduled backups cover every volume: they sit in the box's title.
+  const timer = (
     <>
-      <ul className="list-none m-0 p-0">
-        {d.volumes.map((v) => {
-          const baks = own(v.key);
-          return (
-            <li key={v.name} className="flex flex-wrap items-center gap-2 py-[3px]">
-              <b>{v.key}</b>
-              {v.empty ? <span className="text-warn" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>empty</span> : v.size !== undefined && <span className="dim">{size(v.size)}</span>}
-              {v.mounts.length > 0 && <span className="faint mono">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" ")}</span>}
-              <span className="faint">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
-              <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>
-              {baks.length > 0 && <Btn cls="sm" title={`Replace its contents with a backup (lf volume restore ${name} ${v.key})`} on={() => restore(v.key, baks)}>Restore…</Btn>}
-              <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>Push…</Btn>
-              {!v.empty && <Btn cls="sm" title={`Unpack it into a folder on this machine (lf volume pull ${name} ${v.key} --into)`} on={() => pull(v)}>Pull…</Btn>}
-            </li>
-          );
-        })}
-      </ul>
-      <div className="flex flex-wrap items-center gap-2 py-[3px]">
-        <span className={d.schedule ? "" : "faint"}>scheduled backups: {d.schedule ?? "none"}</span>
-        <Btn cls="sm" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
-      </div>
+      <span className="faint text-sm">{d.schedule ? `backups ${d.schedule}` : "no scheduled backups"}</span>
+      <Btn cls="sm ghost" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
     </>
+  );
+  return box(
+    <ul className={LIST}>
+      {d.volumes.map((v) => {
+        const baks = own(v.key);
+        return (
+          <li key={v.name} className={ROW}>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <b>{v.key}</b>
+                {v.empty ? <span className="text-warn text-sm" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>empty</span> : v.size !== undefined && <span className="dim text-sm">{size(v.size)}</span>}
+                <span className="faint text-sm">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
+              </div>
+              {v.mounts.length > 0 && <div className="faint text-sm mono truncate">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" · ")}</div>}
+            </div>
+            {/* An empty volume wants filling; a full one backing up. The rest is under More. */}
+            <span className={SIDE}>
+              {v.empty
+                ? <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>Push…</Btn>
+                : <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>}
+              <MenuBtn
+                title={`More for volume ${v.key}`}
+                cls="sm ghost"
+                items={[
+                  baks.length > 0 && { label: "Restore…", hint: "lf volume restore", title: "Replace its contents with a backup", run: () => restore(v.key, baks) },
+                  !v.empty && { label: "Push…", hint: "lf volume push", title: "Replace its contents with a folder from this machine", run: () => push(v) },
+                  !v.empty && { label: "Pull…", hint: "lf volume pull", title: "Unpack it into a folder on this machine", run: () => pull(v) },
+                ]}
+              />
+            </span>
+          </li>
+        );
+      })}
+    </ul>,
+    timer,
   );
 }
 
 function SiteFiles({ m, state }: { m: SiteMeta; state: string }) {
   const dir = `${S.state.paths.sites}/${m.name}`;
-  if (m.adopted) return <><span className="mono">{m.adopted}</span><div className="dim">its own folder; project <span className="mono">{m.project ?? m.name}</span></div></>;
-  if (state === "old") return <span className="mono">{dir}</span>;
+  const box = "px-3 py-2.5 text-sm flex flex-col gap-1.5 min-w-0";
+  // Paths and commands break anywhere: inside the table, a line that cannot wrap widens every row on a phone.
+  const line = cx(MONO, "block break-all");
+  if (m.adopted) return <div className={box}><span className={line}>{m.adopted}</span><span className="dim">its own folder; project <span className="mono">{m.project ?? m.name}</span></span></div>;
+  if (state === "old") return <div className={box}><span className={line}>{dir}</span></div>;
   return (
-    <>
-      <span className="mono">{dir}/current</span> <span className="dim">→ releases/{m.current}</span>
-      <div className="faint mono">compose.yaml · compose.override.yaml (landfall's) · .env (mode 600)</div>
-      <div className="faint">run it by hand: <span className="mono">cd {dir}/current &amp;&amp; docker compose ps</span></div>
-    </>
+    <div className={box}>
+      <span className={line} title={`${dir}/current is releases/${m.current}`}>{dir}/current <span className="dim">→ releases/{m.current}</span></span>
+      <span className="faint">compose.yaml · compose.override.yaml (landfall's) · .env (mode 600)</span>
+      <span className="faint">run it by hand:</span>
+      <code className={cx(line, "rounded-sm bg-hover px-2 py-1")}>cd {dir}/current &amp;&amp; docker compose ps</code>
+    </div>
   );
 }
 
