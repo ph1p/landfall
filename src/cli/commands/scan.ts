@@ -12,7 +12,7 @@ function printScan(scans: ImageScan[], all: boolean, fixable: boolean) {
   table([
     ["image", "used by", ...SEVERITIES.slice(0, 4).map((s) => SHORT[s]), "fixable"].map(c.dim),
     ...scans.map((i) => [
-      i.ref + (i.eol ? c.red(" (OS end of life)") : ""),
+      i.ref + (i.eol ? c.red(" (OS end of life)") : "") + (i.other ? c.dim(" (not landfall's)") : ""),
       c.dim(usedBy(i)),
       ...(i.error ? [c.red("failed"), "", "", ""] : SEVERITIES.slice(0, 4).map((s) => (i.counts[s] ? COLOR[s](String(i.counts[s])) : c.dim("0")))),
       i.error ? "" : String(i.fixable),
@@ -45,12 +45,13 @@ export const scanCmd = defineCommand({
     server: serverOpt,
     all: { type: "boolean", desc: "list every vulnerability, not just critical and high" },
     fixable: { type: "boolean", desc: "only those a newer package fixes" },
+    others: { type: "boolean", desc: "also the containers landfall did not deploy (named by compose project or container)" },
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(args, o) {
     const { name, server } = resolveServer(o.server);
     if (!o.json) step(`scanning the images on ${name} (the first scan downloads Trivy's database)`);
-    const scans = await scanImages(server, args);
+    const scans = await scanImages(server, args, !!o.others);
     if (o.json) return void console.log(JSON.stringify(scans, null, 2));
     if (!scans.length) return info(args.length ? `no running images of ${args.join(", ")}` : "no images to scan");
     printScan(scans, !!o.all, !!o.fixable);

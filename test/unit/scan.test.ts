@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReport, parseScan, scanHint, scanScript, TRIVY } from "../../src/core/scan";
+import { otherHint, parseContainers, parseReport, parseScan, scanHint, scanScript, TRIVY } from "../../src/core/scan";
 import type { ImageStatus } from "../../src/core/updates";
 
 const report = JSON.stringify({
@@ -53,5 +53,19 @@ describe("scan", () => {
     expect(scanHint({ fixable: 2, eol: true }, img({}))).toMatch(/^its OS no longer gets security fixes.*a newer tag or another image/);
     expect(scanHint({ fixable: 0 }, img({}))).toBeUndefined();
     expect(scanHint({ fixable: 1 }, img({ kind: "proxy", state: "foreign" }))).toMatch(/where it was set up/);
+  });
+
+  it("reads every running container, named by compose project when it has one", () => {
+    const out = "/mail-1\tsha256:a\tghcr.io/mailcow/sogo:5\tmailcow\tsogo\n/solo\tsha256:b\tnginx:latest\t\t\n\n";
+    expect(parseContainers(out)).toEqual([
+      { name: "mail-1", id: "sha256:a", ref: "ghcr.io/mailcow/sogo:5", project: "mailcow", service: "sogo" },
+      { name: "solo", id: "sha256:b", ref: "nginx:latest" },
+    ]);
+  });
+
+  it("tells where to fix an image landfall did not deploy", () => {
+    expect(otherHint({ fixable: 2 }, "nginx:latest")).toContain("where it was set up");
+    expect(otherHint({ fixable: 0, eol: true }, "x")).toContain("newer base image");
+    expect(otherHint({ fixable: 0 }, "x")).toBeUndefined();
   });
 });

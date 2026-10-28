@@ -37,6 +37,8 @@ export interface ImageScan {
   vulns: Vuln[];
   /** What to do about them. */
   hint?: string;
+  /** Run by containers landfall did not deploy (lf scan --others). */
+  other?: boolean;
   error?: string;
 }
 
@@ -119,26 +121,69 @@ export function scanHint(s: Pick<ImageScan, "eol" | "fixable">, img: ImageStatus
   return tips.join("; ") || undefined;
 }
 
+/** Every running container: name, image id, image ref, compose project and service (empty outside compose). */
+export const CONTAINERS = String.raw`docker ps -q | xargs -r docker inspect -f '{{.Name}}{{"\t"}}{{.Image}}{{"\t"}}{{.Config.Image}}{{"\t"}}{{index .Config.Labels "com.docker.compose.project"}}{{"\t"}}{{index .Config.Labels "com.docker.compose.service"}}'`;
+
+export interface Container {
+  name: string;
+  id: string;
+  ref: string;
+  project?: string;
+  service?: string;
+}
+
+export const parseContainers = (out: string): Container[] =>
+  out
+    .split("\n")
+    .map((l) => l.split("\t"))
+    .filter((f) => f.length >= 3 && f[1].startsWith("sha256:"))
+    .map(([name, id, ref, project = "", service = ""]) => ({ name: name.replace(/^\//, ""), id, ref, ...(project && { project }), ...(service && { service }) }));
+
+/** What fixes the vulnerabilities of an image landfall did not deploy. */
+export function otherHint(s: Pick<ImageScan, "eol" | "fixable">, ref: string): string | undefined {
+  const tips: string[] = [];
+  if (s.eol) tips.push("its OS no longer gets security fixes: move to a newer base image");
+  if (s.fixable) tips.push(`not deployed by landfall: pull a newer ${ref} (or rebuild it) where it was set up`);
+  return tips.join("; ") || undefined;
+}
+
 /**
- * Scans the images landfall's traefik and the sites run (only those named, when given), each image once.
+ * Scans the images landfall's traefik and the sites run (only those named, when given), each image once;
+ * with others, also those of every other running container (named by compose project or container).
  * Changes nothing but Trivy's cache volume.
  */
-export async function scanImages(s: Server, names: string[] = []): Promise<ImageScan[]> {
-  const imgs = (await imageStatus(s)).filter((i) => i.id && (!names.length || names.includes(i.name)));
-  const byId = new Map<string, ImageStatus[]>();
-  for (const i of imgs) byId.set(i.id!, [...(byId.get(i.id!) ?? []), i]);
+export async function scanImages(s: Server, names: string[] = [], others = false): Promise<ImageScan[]> {
+  const all = await imageStatus(s);
+  const imgs = all.filter((i) => i.id && (!names.length || names.includes(i.name)));
+  type Entry = { ref: string; used: ImageScan["used"]; hint: (r: Pick<ImageScan, "eol" | "fixable">) => string | undefined; other?: boolean };
+  const byId = new Map<string, Entry>();
+  for (const i of imgs) {
+    const e = byId.get(i.id!) ?? { ref: i.ref, used: [], hint: (r) => scanHint(r, i) };
+    e.used.push({ name: i.name, ...(i.service && { service: i.service }) });
+    byId.set(i.id!, e);
+  }
+  if (others) {
+    const known = new Set(all.map((i) => i.container));
+    const { stdout } = await runScript(s, CONTAINERS, { capture: true });
+    for (const c of parseContainers(stdout)) {
+      const name = c.project ?? c.name;
+      if (known.has(c.name) || (names.length && !names.includes(name) && !names.includes(c.name))) continue;
+      const e = byId.get(c.id) ?? { ref: c.ref, used: [], hint: (r) => otherHint(r, c.ref), other: true };
+      e.used.push({ name, ...(c.project && c.service && { service: c.service }) });
+      byId.set(c.id, e);
+    }
+  }
   if (!byId.size) return [];
   const { stdout } = await runScript(s, scanScript([...byId.keys()]), { capture: true });
   const out = parseScan(stdout);
-  return [...byId].map(([id, uses]) => {
-    const img = uses[0];
-    const base = { id, ref: img.ref, used: uses.map((u) => ({ name: u.name, ...(u.service && { service: u.service }) })) };
+  return [...byId].map(([id, e]) => {
+    const base = { id, ref: e.ref, used: e.used, ...(e.other && { other: true }) };
     const empty = { counts: Object.fromEntries(SEVERITIES.map((x) => [x, 0])) as Record<Severity, number>, fixable: 0, vulns: [] };
     const r = out.get(id);
     if (!r?.json) return { ...base, ...empty, error: r?.error ?? "no report" };
     try {
       const rep = parseReport(r.json);
-      const hint = scanHint(rep, img);
+      const hint = e.hint(rep);
       return { ...base, ...rep, ...(hint && { hint }) };
     } catch {
       return { ...base, ...empty, error: "Trivy's report was not readable" };
