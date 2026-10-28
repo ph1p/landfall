@@ -10,7 +10,7 @@ import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject,
 import { changes, listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
 import { browse, jobCwd, receiveUpload } from "./local";
-import { ENV_PAIR, isEnvCmd, secretsOut, startJob, type Job } from "../../core/job";
+import { ENV_PAIR, isEnvCmd, isPasswordShort, secretsOut, startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
@@ -90,7 +90,7 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
 /** The command as the page shows it: passwords given as flags, `lf env` and deploy `-e` values, are masked. */
 const shown = (argv: string[]) =>
   argv.map((a, i) =>
-    /^(-p|--([\w-]+-)?password)$/.test(argv[i - 1])
+    isPasswordShort(argv, argv[i - 1]) || /^--([\w-]+-)?password$/.test(argv[i - 1])
       ? "***"
       : (isEnvCmd(argv) || (argv[0] === "deploy" && /^(-e|--env)$/.test(argv[i - 1]))) && ENV_PAIR.test(a)
         ? a.replace(/=.*/s, "=***")
@@ -257,7 +257,12 @@ async function api(req: Request, path: string[]): Promise<Response> {
   return failure("not found", 404);
 }
 
-const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const same = (a: string, b: string) => {
+  // Bytes, not characters: timingSafeEqual throws on buffers of different length.
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
 
 const cookieToken = (req: Request) =>
   (req.headers.get("cookie") ?? "")
@@ -382,7 +387,11 @@ function capped(req: IncomingMessage, limit: number): Readable {
     new Transform({
       transform(chunk: Buffer, _enc, done) {
         seen += chunk.length;
-        done(seen > limit ? new Error("request too large") : null, chunk);
+        if (seen <= limit) return done(null, chunk);
+        // Stop reading: a client that keeps sending must not keep the socket busy.
+        req.unpipe();
+        req.destroy();
+        done(new Error("request too large"));
       },
     }),
   );

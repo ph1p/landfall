@@ -12,6 +12,8 @@ export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase()
 export const isDotenvFlag = (a: string) => /^--(dotenv|env-file)(=|$)/.test(a);
 
 /** Commands whose KEY=value arguments are .env values. */
+/** -p is the password's short flag, except where it is a port (server add, setup, ui). */
+export const isPasswordShort = (argv: string[], a: string | undefined) => a === "-p" && !["server", "setup", "ui"].includes(argv[0]);
 export const isEnvCmd = (argv: string[]) => argv[0] === "env" || argv[0] === "secret" || (argv[0] === "sites" && argv[1] === "env");
 // Secret names may hold dots and dashes too.
 export const ENV_PAIR = /^[A-Za-z0-9_][A-Za-z0-9_.-]*=/;
@@ -26,7 +28,7 @@ export function secretsOut(argv: string[]) {
   const pairs: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const flag = a.match(/^--((?:[\w-]+-)?password)(?:=(.*))?$/s);
+    const flag = isPasswordShort(argv, a) ? ["-p", "password"] : a.match(/^--((?:[\w-]+-)?password)(?:=(.*))?$/s);
     if (flag && (flag[2] !== undefined || i + 1 < argv.length)) {
       env[secretEnv(flag[1])] = flag[2] ?? argv[++i];
     } else if (isEnvCmd(argv) && ENV_PAIR.test(a) && !a.includes("\n") && !argv.some(isDotenvFlag)) {

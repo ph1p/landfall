@@ -37,6 +37,9 @@ describe("secrets stay off the command line", () => {
   test("web jobs pass passwords as env and env pairs on stdin", () => {
     expect(secretsOut(["deploy", "--auth-password", "s3cret", "-y"])).toEqual({ args: ["deploy", "-y"], env: { LANDFALL_SECRET_AUTH_PASSWORD: "s3cret" }, stdin: undefined });
     expect(secretsOut(["auth", "blog", "--password=a b"]).env).toEqual({ LANDFALL_SECRET_PASSWORD: "a b" });
+    // -p is the password too, except where it is a port.
+    expect(secretsOut(["users", "add", "bob", "-p", "pw"])).toEqual({ args: ["users", "add", "bob"], env: { LANDFALL_SECRET_PASSWORD: "pw" }, stdin: undefined });
+    expect(secretsOut(["server", "add", "web", "-p", "2222"]).args).toEqual(["server", "add", "web", "-p", "2222"]);
     expect(secretsOut(["env", "blog", "-s", "x", "A=1", "B=two=2", "-u", "C"])).toEqual({
       args: ["env", "blog", "-s", "x", "-u", "C", "--dotenv", "-"],
       env: {},

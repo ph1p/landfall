@@ -13,7 +13,9 @@ export interface JobInfo { id: string; argv: string[]; server?: string; code?: n
 export interface JobAction { label: string; run: () => void; cls?: string }
 export interface Job {
   info: JobInfo;
+  /** The last MAX_LINES lines: lines[0] is the job's line number `base`, as the server counts them. */
   lines: string[];
+  base: number;
   after?: (j: Job) => JobAction[] | void;
   actions: JobAction[];
   report?: Report;
@@ -38,22 +40,30 @@ export async function run(argv: string[], o: RunOpts = {}) {
   } catch (e) {
     return toast(errorMessage(e));
   }
-  const j: Job = { info, lines: [], after: o.after, actions: [] };
+  const j: Job = { info, lines: [], base: 0, after: o.after, actions: [] };
   S.jobs.set(info.id, j);
   S.job = info.id;
   stream(j);
   render();
-  say(`Running lf ${argv.join(" ")}`);
+  // The server's argv: passwords masked, a screen reader must not read them out.
+  say(`Running lf ${info.argv.join(" ")}`);
 }
 
+/** As many lines as the server keeps of a job: a long one must not grow the page without end. */
+const MAX_LINES = 5000;
+
 export function stream(j: Job) {
-  const es = new EventSource(`/api/jobs/${j.info.id}/events?from=${j.lines.length}`);
+  // `from` counts the job's lines from its start, the ones the server cut included.
+  const es = new EventSource(`/api/jobs/${j.info.id}/events?from=${j.base + j.lines.length}`);
   j.es = es;
   es.onmessage = (e) => {
     const { from, lines, report } = JSON.parse(e.data);
     if (report) j.report = report;
-    j.lines.length = Math.min(j.lines.length, from);
+    const at = from - j.base;
+    if (at < 0 || at > j.lines.length) (j.lines = []), (j.base = from);
+    else j.lines.length = at;
     for (const l of lines) j.lines.push(l);
+    if (j.lines.length > MAX_LINES) j.base += j.lines.splice(0, j.lines.length - MAX_LINES).length;
     j.onLines?.();
     // A tunnel's address shows in the lists once it is up.
     if (isTunnel(j.info) && !j.url && (j.url = tunnelUrl(j))) render();
@@ -130,7 +140,7 @@ export const stopJob = (id: string) => http(`/api/jobs/${id}/stop`, {}).catch((e
 export function resumeJobs(list: JobInfo[]) {
   const old: Job[] = [];
   for (const info of list.slice().reverse()) {
-    const j: Job = { info, lines: [], actions: [] };
+    const j: Job = { info, lines: [], base: 0, actions: [] };
     S.jobs.set(info.id, j);
     if (info.code === undefined) stream(j);
     else old.push(j);
@@ -139,9 +149,10 @@ export function resumeJobs(list: JobInfo[]) {
   return () => {
     // Finished jobs' output only matters once someone opens them: fetch it after the page is up.
     for (const j of old)
-      http<{ lines: string[] }>(`/api/jobs/${j.info.id}`).then(
+      http<{ lines: string[]; from: number }>(`/api/jobs/${j.info.id}`).then(
         (full) => {
           j.lines = full.lines;
+          j.base = full.from;
           if (S.job === j.info.id) render();
         },
         () => {},
@@ -243,11 +254,13 @@ function lineClass(l: string) {
 /** Adds the lines out does not show yet, keeping a reader's scroll position unless they are at the bottom. */
 function appendOutput(out: HTMLElement, j: Job) {
   const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+  // dataset.n: the job's line number after the last one shown, counted like Job.base.
+  const end = j.base + j.lines.length;
   let shown = Number(out.dataset.n || 0);
-  if (shown === j.lines.length) return;
-  if (shown > j.lines.length) (out.textContent = ""), (shown = 0);
+  if (shown === end) return;
+  if (shown > end || shown < j.base) (out.textContent = ""), (shown = j.base);
   const frag = document.createDocumentFragment();
-  for (const l of j.lines.slice(shown)) {
+  for (const l of j.lines.slice(shown - j.base)) {
     const div = document.createElement("div");
     const text = l.replace(ANSI, "") || " ";
     // Addresses (a tunnel's localhost one, a deployed site) open in a new tab.
@@ -260,7 +273,9 @@ function appendOutput(out: HTMLElement, j: Job) {
     frag.append(div);
   }
   out.append(frag);
-  out.dataset.n = String(j.lines.length);
+  // Lines cut from the job's front leave the output too.
+  while (out.childElementCount > j.lines.length) out.firstElementChild!.remove();
+  out.dataset.n = String(end);
   if (atBottom) out.scrollTop = out.scrollHeight;
 }
 

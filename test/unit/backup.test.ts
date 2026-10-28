@@ -29,14 +29,14 @@ beforeEach(() => {
 });
 
 /**
- * Runs a captured script (or an undo line) with crontab, record and pidof as stand-ins writing to `dir`, the site
+ * Runs a captured script (or an undo line) with crontab, record, pidof and pkg_mgr as stand-ins writing to `dir`, the site
  * folder under it. crontab is a file first on PATH, never the machine's own.
  */
 function runHere(script: string) {
   const bin = path.join(dir, "fake");
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, "crontab"), `#!/bin/sh\ncase "$1" in -l) cat "${dir}/tab" 2>/dev/null ;; -) cat > "${dir}/tab" ;; *) exit 1 ;; esac\n`, { mode: 0o755 });
-  const stubs = [`export PATH=${bin}:$PATH`, `record() { printf '%s' "$2" > ${dir}/undo; }`, "pidof() { return 0; }"].join("\n");
+  const stubs = [`export PATH=${bin}:$PATH`, `record() { printf '%s' "$2" > ${dir}/undo; }`, "pidof() { return 0; }", "pkg_mgr() { echo none; }"].join("\n");
   const s = script.replace(PRELUDE, "").replaceAll("/opt/landfall/sites/", `${dir}/`);
   return execFileSync("bash", ["-c", `set -euo pipefail\n${stubs}\n${s}`], { input: "", encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
 }
