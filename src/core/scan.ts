@@ -15,13 +15,16 @@ export interface TrivyState {
   cache?: number;
 }
 
-/** Trivy's image and database volume on s, measured with Trivy's own image (busybox du): nothing new is pulled to ask. */
-export async function trivyState(s: Server): Promise<TrivyState> {
+/**
+ * Trivy's image and database volume on s, measured with Trivy's own image (busybox du): nothing new is pulled to ask.
+ * Without sizes only whether they are there (cache 0): no container is started.
+ */
+export async function trivyState(s: Server, sizes = true): Promise<TrivyState> {
   const { stdout } = await runScript(
     s,
     String.raw`docker image inspect -f 'image {{.Size}}' ${TRIVY} 2>/dev/null || true
 if docker volume inspect ${TRIVY_CACHE} >/dev/null 2>&1; then
-  echo "cache $(docker image inspect ${TRIVY} >/dev/null 2>&1 && docker run --rm --entrypoint du -v ${TRIVY_CACHE}:/c ${TRIVY} -sk /c 2>/dev/null | cut -f1)"
+  echo "cache $(${sizes ? "" : "false && "}docker image inspect ${TRIVY} >/dev/null 2>&1 && docker run --rm --entrypoint du -v ${TRIVY_CACHE}:/c ${TRIVY} -sk /c 2>/dev/null | cut -f1)"
 fi`,
     { capture: true },
   );

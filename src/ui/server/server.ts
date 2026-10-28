@@ -208,7 +208,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
       const q = new URL(req.url).searchParams;
       return json(await scanView(server, q.get("others") !== "0", q.get("install") === "1"));
     }
-    if (method === "GET" && sub === "trivy") return json(await trivyState(server));
+    if (method === "GET" && sub === "trivy") return json(await trivyState(server, new URL(req.url).searchParams.get("sizes") !== "0"));
     if (method === "GET" && sub === "traffic") return json(await trafficView(server, parseSince(new URL(req.url).searchParams.get("since") ?? "24h")));
     if (method === "GET" && sub === "certs") return json(await certsView(server));
     if (method === "GET" && sub === "env") {
