@@ -3,7 +3,7 @@ import type { Overview } from "../lib/types";
 import { go } from "../lib/api";
 import { TunnelBtn, openTunnels } from "../lib/jobs";
 import { ACTS, Badge, Btn, Card, CardHead, Empty, Lede, MONO, NAME, SHOW, HIDE, SR, Scroll, cx } from "../ui/kit";
-import { StatusDot } from "./shared";
+import { StatusDot, tunnelWays } from "./shared";
 
 // ---- tunnels -------------------------------------------------------------------
 
@@ -13,7 +13,7 @@ const Chips = ({ list, className }: { list: string[]; className?: string }) => (
   </div>
 );
 
-interface Target { name: string; status?: string; serves: string[]; argv: string[] | null; why?: string; other?: boolean }
+interface Target { name: string; status?: string; serves: string[]; argv: string[] | null; why?: string; other?: boolean; ports?: number[] }
 
 /** Everything an SSH tunnel reaches on server n, and the tunnels open now. */
 export function TunnelsView({ n, o }: { n: string; o: Overview }) {
@@ -29,10 +29,10 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
   targets.push({ name: "Traefik dashboard", status: o.traefik, serves: o.dashboard.hosts, argv: o.dashboard.tunnel ? dashArgv : null, why: "no tunnel yet: see Traefik" });
   for (const x of o.sites) {
     if (x.state === "old") continue;
-    // One row per service when a site has several: each is its own container.
-    const many = x.services.length > 1;
-    if (!many) targets.push({ name: x.meta.name, status: x.status, serves: x.domains, argv: ["tunnel", x.meta.name, ...sv(n)] });
-    else for (const svc of x.services) targets.push({ name: `${x.meta.name} · ${svc.service}`, status: svc.status, serves: svc.service === x.main ? x.domains : [], argv: ["tunnel", x.meta.name, svc.service, ...sv(n)] });
+    // One row per service when a site has several (each is its own container), and per named private port.
+    const ways = tunnelWays(n, x);
+    if (x.services.length <= 1 && ways.length <= 1) targets.push({ name: x.meta.name, status: x.status, serves: x.domains, argv: ["tunnel", x.meta.name, ...sv(n)], ports: ways[0]?.ports });
+    else for (const w of ways) targets.push({ name: `${x.meta.name} · ${w.label}`, status: w.status, serves: w.priv ? [`:${w.priv} private`] : w.domains, argv: w.argv, ports: w.ports });
   }
   for (const e of o.others) targets.push({ name: e.name, status: e.status, serves: e.domains, argv: ["tunnel", e.name, ...sv(n)], other: true });
   // Databases, workers: by Compose project and service, else by container name.
@@ -71,7 +71,7 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
                   </td>
                   <td className={HIDE}><Chips list={t.serves} /></td>
                   <td className={ACTS}>
-                    {t.argv ? <TunnelBtn n={n} argv={t.argv} /> : <><span className="dim">{t.why}</span> <Btn cls="sm" on={() => go(n, "traefik")}>Traefik</Btn></>}
+                    {t.argv ? <TunnelBtn n={n} argv={t.argv} ports={t.ports} /> : <><span className="dim">{t.why}</span> <Btn cls="sm" on={() => go(n, "traefik")}>Traefik</Btn></>}
                   </td>
                 </tr>
               ))}
