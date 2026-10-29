@@ -2,7 +2,7 @@ import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./app.css";
 import { S, errorMessage, render, useStore } from "./lib/store";
-import { go, load, loadReach, refreshState, route } from "./lib/api";
+import { go, loadReach, refreshState, reload, route } from "./lib/api";
 import { resumeJobs } from "./lib/jobs";
 import { Empty } from "./ui/kit";
 import { closeMenu, menuOpen, MenuHost } from "./ui/menu";
@@ -56,7 +56,7 @@ setInterval(() => {
 setInterval(() => {
   const n = S.sel;
   if (document.hidden || !n || S.tab !== "stats" || S.stats[n]?.loading || S.overview[n]?.error) return;
-  load(n, "stats", true);
+  reload(n, "stats");
 }, 5_000);
 
 createRoot(document.getElementById("root")!).render(
