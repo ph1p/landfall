@@ -4,7 +4,7 @@ import type { DiskUsage, PrunePlan } from "../lib/types";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { dialog, type Values } from "../ui/dialog";
-import { JOURNAL_KEEP, kept, reclaimable, removable } from "../../../core/reclaim";
+import { JOURNAL_KEEP, kept, reclaimable, removable, removableVolumes } from "../../../core/reclaim";
 import { toast } from "../ui/toast";
 import { Badge, Body, Btn, Card, CardHead, Actions, Note, Spin, Sub, Loading, pending, cx, NUM, HIDE, Table } from "../ui/kit";
 import { Zero, pct, StatusDot, isUp, size } from "./shared";
@@ -122,26 +122,36 @@ function pruneFlow(n: string, d: DiskUsage) {
   http<PrunePlan>(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
     const imgs = removable(p);
     const tagged = kept(p, "tagged");
+    const vols = removableVolumes(p);
     const logs = { root: d.root, size: d.logs.reduce((t, l) => t + (l.size ?? 0), 0), journal: d.journald };
     // The plan as the ticked boxes make it: --all frees the tagged images too.
-    const most = (v: Values) => reclaimable({ ...p, images: v.all ? p.images.map((i) => (i.keep === "tagged" ? { ...i, keep: undefined } : i)) : p.images, logs: v.logs ? logs : undefined });
+    const most = (v: Values) => reclaimable({ ...p, images: v.all ? p.images.map((i) => (i.keep === "tagged" ? { ...i, keep: undefined } : i)) : p.images, logs: v.logs ? logs : undefined, volumes: v.volumes ? p.volumes : undefined });
     const keep = ([[kept(p, "release").length, "for rollback"], [kept(p, "undo").length, "for undo"], [kept(p, "used").length, "in use"]] as const).filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ");
     dialog({
       title: `Clean up ${n}?`,
-      text: `${plural(imgs.length, "unused image")} and ${size(p.buildCache)} of build cache.${keep ? ` Kept: ${keep}.` : ""} Volumes and containers stay.`,
+      text: `${plural(imgs.length, "unused image")}, ${size(p.buildCache)} of build cache${p.networks.length ? ` and ${plural(p.networks.length, "unused network")}` : ""}.${keep ? ` Kept: ${keep}.` : ""} Containers stay.`,
       fields: [
         ...(tagged.length ? [{ name: "all", type: "check" as const, label: `Also ${plural(tagged.length, "unused tagged image")}`, hint: "Pulled again when a site needs them" }] : []),
+        ...(vols.length
+          ? [{
+              name: "volumes",
+              type: "check" as const,
+              label: `Also delete ${plural(vols.length, "unused volume")} (${size(vols.reduce((t, x) => t + x.size, 0))})`,
+              hint: `No container mounts them and no site owns them: ${vols.slice(0, 3).map((x) => (x.name.length === 64 ? x.name.slice(0, 12) : x.name)).join(", ")}${vols.length > 3 ? ", …" : ""}. Their data is gone for good. lf prune --volumes`,
+            }]
+          : []),
         {
           name: "logs",
           type: "check",
           label: `Also empty container logs${d.root ? ` (${size(logs.size)})` : ""} and shrink the systemd journal${d.journald ? ` (${size(d.journald)})` : ""}`,
           hint: `Old log lines are gone for good; the journal keeps its newest ${JOURNAL_KEEP}. Needs root. lf prune --logs`,
+          // Last field, so the total sits under all the boxes.
           preview: (v) => `Frees up to ${size(most(v))}${v.logs && !d.root ? " and the logs" : ""}.`,
         },
       ],
       ok: "Clean up",
       danger: true,
-      onOk: (v) => run(["prune", ...sv(n), "-y", ...(v.all ? ["--all"] : []), ...(v.logs ? ["--logs"] : [])], { server: n, after: () => (loadDisk(n), []) }),
+      onOk: (v) => run(["prune", ...sv(n), "-y", ...(v.all ? ["--all"] : []), ...(v.logs ? ["--logs"] : []), ...(v.volumes ? ["--volumes"] : [])], { server: n, after: () => (loadDisk(n), []) }),
     });
   }, (e) => toast(errorMessage(e)));
 }

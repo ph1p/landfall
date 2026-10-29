@@ -609,6 +609,25 @@ lf prune --logs -y >/dev/null 2>&1 || die "prune --logs"
 { ! docker exec "$NAME" test -e "$log.1"; } || die "prune --logs removes rotated logs"
 { lf history 2>&1 | has "emptied container logs"; } || die "prune --logs is journaled"
 pass "prune --logs empties container logs, journals it"
+# As root the plan measures the logs, and emptying them needs no second login.
+lf server add rootbox --host 127.0.0.1 --port "$SSH_PORT" --user root -i "$WORK/key" >/dev/null 2>&1 || die "server add rootbox"
+docker exec "$NAME" sh -c "head -c 200000 /dev/zero >> '$log'"
+out=$(lf prune --logs --dry-run --json -s rootbox) || die "prune --logs --dry-run as root"
+{ echo "$out" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); process.exit(p.logs && p.logs.root && p.logs.size >= 200000 ? 0 : 1)'; } || { echo "$out"; die "prune plan as root: log sizes"; }
+lf prune --logs -y -s rootbox >/dev/null 2>&1 || die "prune --logs as root"
+[ "$(docker exec "$NAME" stat -c %s "$log")" -lt 200000 ] || die "prune --logs as root empties container logs"
+lf server rm rootbox -y >/dev/null 2>&1
+pass "prune --logs as root: sizes in the plan, logs emptied"
+# Unused networks go, landfall's stays; --volumes deletes unowned volumes, keeps a site's.
+docker exec "$NAME" sh -c 'docker network create junknet && docker volume create junkvol && docker volume create --label com.docker.compose.project=app appvol' >/dev/null
+out=$(lf prune --volumes --dry-run --json) || die "prune --volumes --dry-run"
+{ echo "$out" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); const v = (n) => p.volumes.find((x) => x.name === n); process.exit(p.networks.includes("junknet") && !p.networks.includes("web") && v("junkvol") && !v("junkvol").keep && v("appvol")?.keep === "site" ? 0 : 1)'; } \
+  || { echo "$out" | tail -40; die "prune plan: junk network and volume go, the site's volume stays"; }
+lf prune --volumes -y >/dev/null 2>&1 || die "prune --volumes"
+{ ! docker exec "$NAME" docker network inspect junknet >/dev/null 2>&1 && docker exec "$NAME" docker network inspect web >/dev/null 2>&1; } || die "prune removes unused networks, keeps web"
+{ ! docker exec "$NAME" docker volume inspect junkvol >/dev/null 2>&1 && docker exec "$NAME" docker volume inspect appvol >/dev/null 2>&1; } || die "prune --volumes removes junkvol, keeps appvol"
+docker exec "$NAME" docker volume rm appvol >/dev/null
+pass "prune removes unused networks and with --volumes unowned volumes"
 fi
 
 if want system; then echo "== system"
