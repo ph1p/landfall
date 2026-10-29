@@ -16,7 +16,7 @@ import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
 import { USER_NAME } from "../../core/users";
 import { trivyState } from "../../core/scan";
-import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, certsView, updatesView, usersView } from "../../core/views";
+import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, siteTrafficView, certsView, traefikView, updatesView, usersView } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
 import { c, CliError, openUrl } from "../../core/term";
@@ -209,8 +209,14 @@ async function api(req: Request, path: string[]): Promise<Response> {
       return json(await scanView(server, q.get("others") !== "0", q.get("install") === "1"));
     }
     if (method === "GET" && sub === "trivy") return json(await trivyState(server, new URL(req.url).searchParams.get("sizes") !== "0"));
-    if (method === "GET" && sub === "traffic") return json(await trafficView(server, parseSince(new URL(req.url).searchParams.get("since") ?? "24h")));
+    if (method === "GET" && sub === "traffic") {
+      const q = new URL(req.url).searchParams;
+      const t = await trafficView(server, parseSince(q.get("since") ?? "24h"));
+      const site = q.get("site");
+      return json(site ? siteTrafficView(t, site) : t);
+    }
     if (method === "GET" && sub === "certs") return json(await certsView(server));
+    if (method === "GET" && sub === "traefik") return json(await traefikView(server));
     if (method === "GET" && sub === "env") {
       const q = new URL(req.url).searchParams;
       const { env } = await requireSite(server, validName(q.get("site") ?? ""), { deployed: "manage the .env of" });

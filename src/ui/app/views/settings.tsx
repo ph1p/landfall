@@ -1,10 +1,10 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { S, sv } from "../lib/store";
 import type { DnsCheck } from "../lib/types";
-import { load, refreshState } from "../lib/api";
+import { ensure, fetchInto, load, refreshState } from "../lib/api";
 import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";
-import { Actions, Badge, Body, Btn, Card, CardHead, Kv, MONO, Note, Sub, cx, pending } from "../ui/kit";
+import { Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError } from "../ui/dialog";
 
@@ -17,10 +17,12 @@ const P = "my-[1em]";
 /** Traefik on server n: its dashboard (domain and tunnel) and how landfall runs it. */
 export function TraefikView({ n }: { n: string }) {
   const st = S.settings[n];
+  useEffect(() => ensure("proxy", n, "/traefik"));
   const wait = pending(st, "reading the settings…");
   if (wait) return wait;
   const x = st!.data!;
-  const reload = { server: n, after: ifOk(() => load(n, "traefik", true)) };
+  const reloadAll = () => (load(n, "traefik", true), load(n, "sites", true), fetchInto("proxy", n, "/traefik"));
+  const reload = { server: n, after: ifOk(reloadAll) };
   const paths = S.state.paths;
   const dashboard = () =>
     dialog({
@@ -84,6 +86,30 @@ export function TraefikView({ n }: { n: string }) {
   // lf traefik setup refuses to touch a Traefik the server already had.
   const o = S.overview[n]?.data;
   const foreign: string = o?.adopted ? o.proxy : "";
+  const ts = S.proxy[n]?.data;
+  const ctr = ts ? ts.container : o?.traefik ? { name: o.proxy } : null;
+  const sites = o?.sites.length ?? 0;
+  const removeDlg = () =>
+    dialog({
+      title: `Remove Traefik from ${n}?`,
+      text: `Stops it and removes its config.${sites ? ` ${sites === 1 ? "The site" : `All ${sites} sites`} will be unreachable until it is set up again.` : ""} lf undo puts it back.`,
+      fields: [{ name: "certs", type: "check", label: "Also delete the Let's Encrypt certificates", value: false, hint: "They come back from Let's Encrypt on the next install, within its rate limits." }],
+      ok: "Remove it",
+      danger: true,
+      onOk: (v) => run(["traefik", "rm", ...sv(n), "-y", ...(v.certs ? ["--certs"] : [])], reload),
+    });
+  const useDlg = (name: string) =>
+    dialog({
+      title: `Route sites on ${n} through ${name}?`,
+      text: "landfall reads its network, entrypoint and certificate resolver from its flags. Fill them in only when it is configured by a file. That Traefik is never changed.",
+      fields: [
+        { name: "network", label: "Docker network (optional)", value: "", mono: true, placeholder: "read from its flags" },
+        { name: "entrypoint", label: "HTTPS entrypoint (optional)", value: "", mono: true, placeholder: "the one on :443" },
+        { name: "resolver", label: "Certificate resolver (optional)", value: "", mono: true, placeholder: "read from its flags" },
+      ],
+      ok: "Use it",
+      onOk: (v) => run(["traefik", "use", name, ...sv(n), ...(["network", "entrypoint", "resolver"] as const).flatMap((k) => (v[k].trim() ? [`--${k}`, v[k].trim()] : []))], reload),
+    });
   const dash = o?.dashboard ?? { hosts: x.traefik.dashboard ? [x.traefik.dashboard] : [], tunnel: false };
   const dashArgv = ["traefik", "dashboard", ...sv(n)];
   return (
@@ -106,8 +132,15 @@ export function TraefikView({ n }: { n: string }) {
         <CardHead>
           Traefik
           <Actions>
-            <Btn cls="sm" title="lf traefik status" on={() => run(["traefik", "status", ...sv(n)])}>Status</Btn>
+            {ctr && <Btn cls="sm" title="lf traefik logs -f: certificate errors show up here" on={() => run(["traefik", "logs", ...sv(n), "-f"], { server: n })}>Logs</Btn>}
             {!foreign && <Btn cls="sm" on={traefikDialog}>Settings</Btn>}
+            <MenuBtn title="More for Traefik" items={[
+              ctr && !foreign ? { label: "Restart", hint: "lf traefik restart", run: () => confirmDlg({ title: `Restart Traefik on ${n}?`, text: "Every site is unreachable for a few seconds.", ok: "Restart", danger: true, onOk: () => run(["traefik", "restart", ...sv(n)], reload) }) } : null,
+              ctr || foreign ? "-" : null,
+              foreign
+                ? { label: `Stop using ${foreign}`, cls: "danger", hint: "lf traefik rm", run: () => confirmDlg({ title: `Stop routing sites on ${n} through ${foreign}?`, text: "It keeps running and keeps routing the sites until they are redeployed. lf traefik setup installs landfall's own afterwards.", ok: "Stop using it", danger: true, onOk: () => run(["traefik", "rm", ...sv(n), "-y"], reload) }) }
+                : ctr ? { label: "Remove Traefik", cls: "danger", hint: "lf traefik rm", run: removeDlg } : null,
+            ]} />
           </Actions>
         </CardHead>
         <Body>
@@ -122,7 +155,46 @@ export function TraefikView({ n }: { n: string }) {
           <p className={cx("faint", P)}>Used when landfall installs or reconfigures its own Traefik. With a Traefik that was already there, landfall only writes <span className={MONO}>{paths.proxy}</span>.</p>
         </Body>
       </Card>
+      <RoutesCard n={n} useDlg={useDlg} />
     </>
+  );
+}
+
+/** lf traefik status: the container and what it routes; offers a Traefik landfall does not use yet. */
+function RoutesCard({ n, useDlg }: { n: string; useDlg: (name: string) => void }) {
+  const st = S.proxy[n];
+  const wait = pending(st, "reading Traefik's routes…", () => fetchInto("proxy", n, "/traefik"));
+  const t = st?.data;
+  return (
+    <Card>
+      <CardHead>Routes {t?.container && <Badge kind={/^Up/.test(t.container.status) ? "ok" : "bad"}>{t.container.status}</Badge>} <Sub>lf traefik status</Sub></CardHead>
+      {wait ? <Body>{wait}</Body> : (
+        <>
+          {t!.foreign && (
+            <Body>
+              <Note>
+                <b className={MONO}>{t!.foreign}</b> is a Traefik on port 443 that landfall does not use. <Btn cls="sm" on={() => useDlg(t!.foreign!)}>Route sites through it</Btn>
+              </Note>
+            </Body>
+          )}
+          {!t!.container ? (
+            <Body className="dim">Traefik is not installed. <Btn cls="sm" title="lf traefik setup" on={() => run(["traefik", "setup", ...sv(n)], { server: n, after: ifOk(() => (load(n, "traefik", true), load(n, "sites", true), fetchInto("proxy", n, "/traefik"))) })}>Install it</Btn></Body>
+          ) : t!.routes.length ? (
+            <Table cols={[["container"], ["rule"], ["entrypoints", HIDE]]}>
+              {t!.routes.map((r) => (
+                <tr key={`${r.container} ${r.rule}`}>
+                  <td>{r.container}</td>
+                  <td className={MONO}>{r.rule}</td>
+                  <td className={cx(HIDE, "dim")}>{r.entrypoints.join(", ")}</td>
+                </tr>
+              ))}
+            </Table>
+          ) : (
+            <Body className="dim">{t!.container.name} routes nothing yet.</Body>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 

@@ -2,7 +2,7 @@ import { defineCommand, logOpts, serverOpt } from "../cmd";
 import { checkEmail, checkInt, resolveServer } from "../../core/config";
 import { assessTraefik, foreignProxy, probeServer } from "../../core/inventory";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../../core/remote";
-import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikState, useProxy } from "../../core/traefik";
+import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikState, traefikStatus as traefikStatusOf, useProxy } from "../../core/traefik";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/tunnel";
 import { runScript, shq, sshExec } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/templates";
@@ -109,39 +109,17 @@ With a Traefik of your own (lf traefik use), landfall only stops routing sites t
 export const traefikStatus = defineCommand({
   name: "traefik status",
   summary: "Show traefik container state and the routes it serves.",
-  options: { server: serverOpt },
+  options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
     const { server } = resolveServer(o.server);
-    await runScript(
-      server,
-      `P=${PROXY_CTR}
-if ! docker inspect "$P" >/dev/null 2>&1; then echo "traefik is not installed (lf traefik setup)"; exit 0; fi
-[ -f ${PROXY_FILE} ] && echo "your own traefik, landfall only routes sites through it (${PROXY_FILE})"
-docker ps -a --filter "name=^$P$" --format '{{.Names}}  {{.Image}}  {{.Status}}  network {{.Networks}}'
-echo
-echo "routes:"
-# One line per rule: sites often pair an http and an https router with the same rule.
-# Containers without a rule (traefik.enable only) print nothing.
-docker ps --filter label=traefik.enable=true --format '{{.Names}}' | while read -r n; do
-  docker inspect -f '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}' "$n" 2>/dev/null | awk -v n="$n" '
-    /^traefik[.]http[.]routers[.][^.=]+[.](rule|entrypoints)=/ {
-      split($0, k, "."); v = substr($0, index($0, "=") + 1)
-      if ($0 ~ /[.]rule=/) rule[k[4]] = v; else ep[k[4]] = v
-    }
-    END {
-      for (r in rule) {
-        x = rule[r]; m = split((r in ep) ? ep[r] : "all", a, ",")
-        for (i = 1; i <= m; i++) if (!((x, a[i]) in seen)) { seen[x, a[i]] = 1; e[x, ++cnt[x]] = a[i] }
-      }
-      # Sorted, so the same routes always print the same way.
-      for (x in cnt) {
-        for (i = 2; i <= cnt[x]; i++) for (j = i; j > 1 && e[x, j - 1] > e[x, j]; j--) { t = e[x, j]; e[x, j] = e[x, j - 1]; e[x, j - 1] = t }
-        s = e[x, 1]; for (i = 2; i <= cnt[x]; i++) s = s "," e[x, i]
-        printf "  %s  %s  (%s)\\n", n, x, s
-      }
-    }' || true
-done | sort`,
-    );
+    const st = await traefikStatusOf(server);
+    if (o.json) return void console.log(JSON.stringify(st, null, 2));
+    if (st.foreign) console.log(`${st.foreign} is a traefik landfall does not use: lf traefik use ${st.foreign} routes sites through it`);
+    if (!st.container) return void console.log("traefik is not installed (lf traefik setup)");
+    if (st.own) console.log(`your own traefik, landfall only routes sites through it (${PROXY_FILE})`);
+    const x = st.container;
+    console.log(`${x.name}  ${x.image}  ${x.status}  network ${x.networks.join(",")}\n\nroutes:`);
+    for (const r of st.routes) console.log(`  ${r.container}  ${r.rule}  (${r.entrypoints.join(",")})`);
   },
 });
 
