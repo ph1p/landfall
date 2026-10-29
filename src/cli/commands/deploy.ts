@@ -305,15 +305,15 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       }
 
       const now = new Date().toISOString();
+      // What lf auth, lf secret and the rest set on the site stays; the release decides the rest.
       const meta: SiteMeta = {
+        ...prev,
         v: 2,
         name,
         kind,
         domains,
         auth: withLogin(prev?.auth ?? old?.auth, login),
-        ...(prev?.routeAuth && { routeAuth: prev.routeAuth }),
-        ...(prev?.secrets?.length ? { secrets: prev.secrets } : {}),
-        ...(vols.length ? { volumes: vols } : {}),
+        volumes: vols.length ? vols : undefined,
         current: id,
         releases: [...(prev?.releases ?? []), release],
         createdAt: prev?.createdAt ?? old?.createdAt ?? now,

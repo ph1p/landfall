@@ -192,11 +192,24 @@ export function siteDomains(meta: SiteMeta): string[] {
   return [...new Set([...(mainService(r) ? meta.domains : []), ...fixedDomains(r.services), ...subDomains(r.services, meta.domains)])];
 }
 
+/** One Traefik router of a release: a service's own port, or one of its routes. */
+export interface Router {
+  /** service:port, how \`lf auth --route\` names it. */
+  key: string;
+  service: string;
+  port: number;
+  domains: string[];
+  main?: boolean;
+  subdomain?: string;
+  /** The addresses it serves; none: every one. */
+  allow?: string[];
+}
+
+/** How \`lf auth --route\` names a router: the service and the port it routes to. */
+export const routeKey = (service: string, port: number) => `${service}:${port}`;
+
 /** What a release routes, port by port: the main service on the site's domains, each route on its own. */
-export function routePlan(
-  services: Service[],
-  site: string[],
-): { key: string; service: string; port: number; domains: string[]; main?: boolean; subdomain?: string; allow?: string[] }[] {
+export function routePlan(services: Service[], site: string[]): Router[] {
   return services.flatMap((s) => [
     ...(s.port && !s.own
       ? [{ key: routeKey(s.name, s.port), service: s.name, port: s.port, domains: s.domains ?? site, ...(isMain(s) && { main: true }), ...(s.allow && { allow: s.allow }) }]
@@ -620,21 +633,24 @@ const q = yamlStr;
 /** Network key of the proxy network in the override; its `name:` is the real one. */
 const PROXY_KEY = "landfall-proxy";
 
-/** Traefik labels for one routed service. */
-/** Who may use one router: the logins it asks for (own: its own, not the site's) and the addresses it serves. */
-export interface Access {
-  auth?: string[];
-  own?: boolean;
-  allow?: string[];
+/** The login a router asks for: the Traefik middleware that holds it, and its htpasswd lines. */
+export interface Login {
+  middleware: string;
+  users: string[];
 }
 
-/** How \`lf auth --route\` names a router: the service and the port it routes to. */
-export const routeKey = (service: string, port: number) => `${service}:${port}`;
+/** Traefik's name for the router to port `port` of `s`. */
+function routerName(site: string, s: Service, port: number) {
+  // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
+  // A route's router carries its port: blog_web_3001 next to blog_web.
+  return `${site}_${s.name.toLowerCase().replace(/\./g, "-")}${port === s.port ? "" : `_${port}`}`;
+}
 
-/** The access of the router to port `port` of `s`: its own logins, else the site's. */
-export function routeAccess(meta: Pick<SiteMeta, "auth" | "routeAuth">, s: Service, port: number, allow?: string[]): Access {
+/** The login of the router to port `port` of `s`: its own (lf auth --route), else the site's; none: it is public. */
+export function routerLogin(meta: Pick<SiteMeta, "name" | "auth" | "routeAuth">, s: Service, port: number): Login | undefined {
   const own = meta.routeAuth?.[routeKey(s.name, port)];
-  return { auth: own ?? meta.auth, own: !!own, allow };
+  if (own) return own.length ? { middleware: `${routerName(meta.name, s, port)}-auth`, users: own } : undefined;
+  return meta.auth?.length ? { middleware: `${meta.name}-auth`, users: meta.auth } : undefined;
 }
 
 /**
@@ -649,10 +665,9 @@ export function findRoute(meta: SiteMeta, name: string): { key: string; domains:
   return hit ? { key: hit.key, domains: hit.domains } : { routes: all.map((r) => r.key) };
 }
 
-export function routeLabels(site: string, s: Service, domains: string[], proxy: Proxy, access: Access = {}, port = s.port): Record<string, string> {
-  // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
-  // A route's router carries its port: blog_web_3001 next to blog_web.
-  const r = `${site}_${s.name.toLowerCase().replace(/\./g, "-")}${port === s.port ? "" : `_${port}`}`;
+/** Traefik labels for one router of `s`. */
+export function routeLabels(site: string, s: Service, { port, domains, allow }: Pick<Router, "port" | "domains" | "allow">, proxy: Proxy, login?: Login): Record<string, string> {
+  const r = routerName(site, s, port);
   const out: Record<string, string> = {
     "traefik.enable": "true",
     "traefik.docker.network": proxy.network,
@@ -664,17 +679,71 @@ export function routeLabels(site: string, s: Service, domains: string[], proxy: 
   };
   // The address check comes first: a refused address never sees the login prompt.
   const chain: string[] = [];
-  if (access.allow?.length) {
-    out[`traefik.http.middlewares.${r}-allow.ipallowlist.sourcerange`] = access.allow.join(",");
+  if (allow?.length) {
+    out[`traefik.http.middlewares.${r}-allow.ipallowlist.sourcerange`] = allow.join(",");
     chain.push(`${r}-allow`);
   }
-  if (access.auth?.length) {
-    const m = access.own ? `${r}-auth` : `${site}-auth`;
-    out[`traefik.http.middlewares.${m}.basicauth.users`] = access.auth.join(",");
-    chain.push(m);
+  if (login) {
+    out[`traefik.http.middlewares.${login.middleware}.basicauth.users`] = login.users.join(",");
+    chain.push(login.middleware);
   }
   if (chain.length) out[`traefik.http.routers.${r}.middlewares`] = chain.join(",");
   return out;
+}
+
+/** One service in an override: the image it runs, its lines before the labels, and its labels. */
+interface ServicePart {
+  name: string;
+  image?: string;
+  lines: string[];
+  labels: Record<string, string>;
+}
+
+/** Secrets the override hands out: a compose.yaml names the ones it uses itself; the one landfall generates gets every one. */
+const overrideSecrets = (meta: SiteMeta) => (meta.kind === "dockerfile" || meta.kind === "image" ? (meta.secrets ?? []) : []);
+
+/**
+ * What a release adds to its compose.yaml that runs anywhere: the proxy network on routed services next to
+ * the networks they had, Traefik's labels, its secrets. lf eject writes only this; overrideYaml adds the server's part.
+ */
+function traefikLayer(meta: SiteMeta, r: Release, proxy: Proxy): ServicePart[] {
+  const plan = routePlan(r.services, meta.domains);
+  const secrets = overrideSecrets(meta);
+  return r.services.map((s) => {
+    const lines: string[] = [];
+    const labels: Record<string, string> = {};
+    // A plain compose.yaml publishes its ports for local use; Traefik routes them.
+    if (s.unpublish) lines.push("    ports: !reset []");
+    if (secrets.length) lines.push("    secrets:", ...secrets.map((k) => `      - ${q(k)}`));
+    if (routed(s)) {
+      lines.push("    networks:", ...s.networks.map((n) => `      ${q(n)}: {}`), `      ${PROXY_KEY}: {}`);
+      if (s.own) labels["traefik.docker.network"] = proxy.network;
+      // A main service with no domains left stays up, unrouted; so do its subdomain routes.
+      else for (const router of plan) if (router.service === s.name && router.domains.length) Object.assign(labels, routeLabels(meta.name, s, router, proxy, routerLogin(meta, s, router.port)));
+    }
+    return { name: s.name, lines, labels };
+  });
+}
+
+/** An override file: `header`, the project name, the services that add something, and what they use. */
+function overrideText(header: string[], meta: SiteMeta, r: Release, parts: ServicePart[], proxy: Proxy, volumes: string[] = []): string {
+  const services = parts.flatMap((p) => {
+    const labels = Object.entries(p.labels);
+    const body = [
+      ...(p.image ? [`    image: ${q(p.image)}`] : []),
+      ...p.lines,
+      ...(labels.length ? ["    labels:", ...labels.map(([k, v]) => `      ${q(k)}: ${q(composeEscape(v))}`)] : []),
+    ];
+    // Ejected, a service with nothing routed has nothing to add.
+    return body.length ? [`  ${q(p.name)}:`, ...body] : [];
+  });
+  const lines = [...header, `name: ${q(projectName(meta))}`, services.length ? "services:" : "services: {}", ...services];
+  if (r.services.some(routed)) lines.push("networks:", `  ${PROXY_KEY}:`, `    name: ${q(proxy.network)}`, "    external: true");
+  const secrets = overrideSecrets(meta);
+  if (secrets.length) lines.push("secrets:", ...secrets.flatMap((k) => [`  ${q(k)}:`, `    file: ${q(`./${SECRETS_DIR}/${k}`)}`]));
+  if (volumes.length)
+    lines.push("volumes:", ...volumes.flatMap((k) => [`  ${q(k)}:`, "    driver_opts:", "      type: none", "      o: bind", `      device: ${q(volumeDir(meta.name, k))}`]));
+  return lines.join("\n") + "\n";
 }
 
 /**
@@ -682,57 +751,24 @@ export function routeLabels(site: string, s: Service, domains: string[], proxy: 
  * it, so it never changes), per-release tags for built images, the proxy network on routed
  * services next to the networks they had, Traefik's labels, and landfall.* on every service.
  */
-export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROXY, o: { eject?: boolean } = {}): string {
-  const lines = [
-    ...(o.eject
-      ? [
-          `# What landfall added to ${meta.name} on its server (lf eject): the Traefik labels, the proxy network and the`,
-          `# project name, for your own Traefik. docker compose -f compose.yaml -f ${EJECT_FILE} up -d`,
-        ]
-      : ["# generated by landfall: rewritten on every deploy, rollback and domain change. Edit compose.yaml instead."]),
-    `name: ${q(projectName(meta))}`,
-  ];
-  const services: string[] = [];
-  let usesProxy = false;
-  // A compose.yaml names the secrets it uses itself; the one landfall generates gets every one here.
-  const secrets = meta.kind === "dockerfile" || meta.kind === "image" ? (meta.secrets ?? []) : [];
-  for (const s of r.services) {
-    const body: string[] = [];
-    // Ejected, compose.yaml builds it again: the release's image is on the server only.
-    if (s.build && !o.eject) body.push(`    image: ${q(builtImage(meta.name, s.name, r.id))}`);
-    // A plain compose.yaml publishes its ports for local use; on the server Traefik routes them.
-    if (s.unpublish) body.push("    ports: !reset []");
-    if (secrets.length) body.push("    secrets:", ...secrets.map((k) => `      - ${q(k)}`));
-    let labels: Record<string, string> = {};
-    if (routed(s)) {
-      usesProxy = true;
-      body.push("    networks:", ...s.networks.map((n) => `      ${q(n)}: {}`), `      ${PROXY_KEY}: {}`);
-      if (s.own) labels["traefik.docker.network"] = proxy.network;
-      else {
-        // A main service with no domains left stays up, unrouted; so do its subdomain routes.
-        if (s.port && (s.domains ?? meta.domains).length) labels = routeLabels(meta.name, s, s.domains ?? meta.domains, proxy, routeAccess(meta, s, s.port, s.allow));
-        for (const route of s.routes ?? []) {
-          const ds = routeDomains(route, meta.domains);
-          if (ds.length) Object.assign(labels, routeLabels(meta.name, s, ds, proxy, routeAccess(meta, s, route.port, route.allow), route.port));
-        }
-      }
-    }
-    if (!o.eject) {
-      labels["landfall.managed"] = "true";
-      labels["landfall.site"] = meta.name;
-    }
-    if (Object.keys(labels).length) body.push("    labels:", ...Object.entries(labels).map(([k, v]) => `      ${q(k)}: ${q(composeEscape(v))}`));
-    // Ejected, a service with nothing routed has nothing to add.
-    if (body.length) services.push(`  ${q(s.name)}:`, ...body);
-  }
-  lines.push(services.length ? "services:" : "services: {}", ...services);
-  if (usesProxy) lines.push("networks:", `  ${PROXY_KEY}:`, `    name: ${q(proxy.network)}`, "    external: true");
-  if (secrets.length) lines.push("secrets:", ...secrets.flatMap((k) => [`  ${q(k)}:`, `    file: ${q(`./${SECRETS_DIR}/${k}`)}`]));
+export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROXY): string {
+  const parts = traefikLayer(meta, r, proxy).map((p, i) => ({
+    ...p,
+    image: r.services[i].build ? builtImage(meta.name, p.name, r.id) : undefined,
+    labels: { ...p.labels, "landfall.managed": "true", "landfall.site": meta.name },
+  }));
+  const header = ["# generated by landfall: rewritten on every deploy, rollback and domain change. Edit compose.yaml instead."];
   // Bound to the site's folder: the data sits next to its releases, and `docker volume` still lists it.
-  const vols = meta.adopted || o.eject ? [] : (meta.volumes ?? []);
-  if (vols.length)
-    lines.push("volumes:", ...vols.flatMap((k) => [`  ${q(k)}:`, "    driver_opts:", "      type: none", "      o: bind", `      device: ${q(volumeDir(meta.name, k))}`]));
-  return lines.join("\n") + "\n";
+  return overrideText(header, meta, r, parts, proxy, meta.adopted ? [] : (meta.volumes ?? []));
+}
+
+/** lf eject's compose.traefik.yaml: the part of the override that runs anywhere; compose.yaml builds its images, Docker keeps its volumes. */
+export function ejectYaml(meta: SiteMeta, r: Release, proxy: Proxy): string {
+  const header = [
+    `# What landfall added to ${meta.name} on its server (lf eject): the Traefik labels, the proxy network and the`,
+    `# project name, for your own Traefik. docker compose -f compose.yaml -f ${EJECT_FILE} up -d`,
+  ];
+  return overrideText(header, meta, r, traefikLayer(meta, r, proxy), proxy);
 }
 
 /** The named volume for a folder in the container: /app/storage is app-storage. */
