@@ -2,8 +2,8 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, loadProject } from "../../core/config";
-import { adoptCompose, COMPOSE_FILES, currentRelease, EJECT_FILE, localCompose, OVERRIDE_FILES, overrideYaml, routed, volumeName } from "../../core/compose";
-import { detectApp, detectProject } from "../../core/projects";
+import { adoptCompose, currentRelease, EJECT_FILE, localCompose, OVERRIDE_FILES, overrideYaml, routed, volumeName } from "../../core/compose";
+import { composeFile, detectApp, detectProject } from "../../core/projects";
 import { requireSite } from "../../core/remote";
 import { c, confirm, fail, info, ok, showDiff, showStack, warn } from "../../core/term";
 import { target } from "./sites";
@@ -178,13 +178,13 @@ there, and lf deploy goes on as before.`,
   async run([n], o) {
     const { site, server, name: serverName } = target(n, o.server);
     const root = process.cwd();
-    const file = loadProject(root)?.compose ?? COMPOSE_FILES.find((f) => fs.existsSync(join(root, f)));
+    const file = composeFile(root, loadProject(root));
     const { meta, proxy } = await requireSite(server, site, { deployed: "eject" });
     if (!file || !fs.existsSync(join(root, file)))
-      fail(meta.kind === "compose" ? `no compose file here: run lf eject in the project folder of ${site}` : `${site} runs a compose.yaml landfall generated: write it into this project with lf init first`);
+      return fail(meta.kind === "compose" ? `no compose file here: run lf eject in the project folder of ${site}` : `${site} runs a compose.yaml landfall generated: write it into this project with lf init first`);
     const release = currentRelease(meta);
     if (!release) return fail(`${site} has no release to eject`);
-    const local = Object.keys(localCompose(root, file!)?.services ?? {});
+    const local = Object.keys(localCompose(root, file)?.services ?? {});
     const missing = release.services.filter((s) => routed(s) && !local.includes(s.name)).map((s) => s.name);
     if (missing.length) warn(`${file} has no service ${missing.join(", ")}, which ${site} routes on ${serverName}: is this its project?`);
 

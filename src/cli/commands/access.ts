@@ -147,29 +147,25 @@ export const auth = defineCommand({
     const where = key ? `${key} of ${site}` : site;
     let lines: string[] | undefined;
     if (o.public) lines = [];
-    else if (o.off) lines = key ? undefined : [];
-    else {
+    else if (!o.off) {
       const drop = new Set<string>(o["rm-user"] ?? []);
       for (const u of drop) if (!users.includes(u)) warn(`no login ${u} on ${where}`);
       if (user) drop.add(user);
       lines = (own ?? []).filter((l) => !drop.has(loginUser(l)));
       if (user) lines.push(await newLogin(user, password));
-      // A route without logins of its own asks for the site's again; --public makes it open.
-      if (key && !lines.length) lines = undefined;
+      // No logins left: the site is public, a route asks for the site's again; only --public keeps [].
+      if (!lines.length) lines = undefined;
     }
-    if (JSON.stringify(lines ?? null) === JSON.stringify(own ?? (key ? null : []))) return ok("nothing to change");
+    if (lines?.join("\n") === own?.join("\n")) return ok("nothing to change");
     const now = (lines ?? []).map(loginUser);
     const gone = users.filter((u) => !now.includes(u));
     if (!key && !now.length) await confirmRemoval(`Remove every login from ${site}? Anyone can open it then.`);
     else if (key && lines?.length === 0 && meta.auth?.length) await confirmRemoval(`Open ${where} without a login? Anyone can use it then.`);
     else if (gone.length) await confirmRemoval(`Remove the login${gone.length > 1 ? "s" : ""} ${gone.join(", ")} from ${where}?`);
 
-    if (!key) {
-      await changeSite(server, site, proxy, now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`, (m) => void (m.auth = now.length ? lines : undefined));
-      return ok(now.length ? `${site} asks for a login (${now.join(", ")})` : `${site} is public again`);
-    }
-    const said = lines === undefined ? `${where} asks for the site's login again` : lines.length ? `login for ${where}: ${now.join(", ")}` : `${where} is public`;
+    const said = lines?.length ? `login for ${where}: ${now.join(", ")}` : lines ? `${where} is public` : key ? `${where} asks for the site's login again` : `${site} is public again`;
     await changeSite(server, site, proxy, said, (m) => {
+      if (!key) return void (m.auth = lines);
       const all = { ...m.routeAuth };
       if (lines === undefined) delete all[key];
       else all[key] = lines;
