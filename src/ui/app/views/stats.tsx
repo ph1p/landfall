@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { svText, S, http, plural, render, sv, errorMessage } from "../lib/store";
-import type { PrunePlan } from "../lib/types";
+import type { DiskUsage, PrunePlan } from "../lib/types";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { dialog } from "../ui/dialog";
@@ -116,9 +116,11 @@ function loadDisk(n: string) {
   fetchInto("disk", n, "/disk");
   render();
 }
-function pruneFlow(n: string) {
+/** d: the loaded disk usage, which has the log sizes the plan only measures for --logs. */
+function pruneFlow(n: string, d: DiskUsage) {
   http<PrunePlan>(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
     const imgs = p.images.filter((i) => !i.keep);
+    const logs = d.logs.reduce((t, l) => t + (l.size ?? 0), 0);
     const kept = (w: string) => p.images.filter((i) => i.keep === w).length;
     const most = imgs.reduce((t, i) => t + i.size, 0) + p.buildCache;
     const keep = ([[kept("release"), "for rollback"], [kept("undo"), "for undo"], [kept("used"), "in use"]] as const).filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ");
@@ -130,8 +132,8 @@ function pruneFlow(n: string) {
         {
           name: "logs",
           type: "check",
-          label: p.root ? `Also empty container logs (${size(p.logs)}) and shrink the systemd journal${p.journal ? ` (${size(p.journal)})` : ""}` : "Also empty container logs and shrink the systemd journal",
-          hint: "Old log lines are gone for good; the journal keeps its newest 100M. Needs root. lf prune --logs",
+          label: `Also empty container logs${d.root ? ` (${size(logs)})` : ""} and shrink the systemd journal${d.journald ? ` (${size(d.journald)})` : ""}`,
+          hint: "Old log lines are gone for good; the journal keeps its newest entries. Needs root. lf prune --logs",
         },
       ],
       ok: "Clean up",
@@ -174,7 +176,7 @@ function DiskCard({ n }: { n: string }) {
     <Card>
       {head(
         <>
-          {d.docker && <Btn cls="sm" on={() => pruneFlow(n)} title="lf prune: remove unused images, the build cache and optionally logs">Clean up</Btn>}
+          {d.docker && <Btn cls="sm" on={() => pruneFlow(n, d)} title="lf prune: remove unused images, the build cache and optionally logs">Clean up</Btn>}
           <Btn cls="sm" on={() => loadDisk(n)} title="Analyze again" aria-label="Analyze again"><RotateCw className="inline-block size-3.5 -mt-px align-middle" aria-hidden="true" /></Btn>
         </>,
       )}
