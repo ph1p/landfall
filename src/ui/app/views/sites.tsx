@@ -3,7 +3,8 @@ import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
 import { go } from "../lib/api";
-import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, Note, SHOW, SR, cx, Icon, Table } from "../ui/kit";
+import { isOldSite, OldSiteNote } from "../lib/legacy";
+import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
 import { Describe, Stack, detected, folderDialog, redeploy, setupFlow } from "./flows";
@@ -93,7 +94,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const name: string = m.name;
   const open = S.open.has(`${n}/${name}`);
   const up = isUp(status);
-  const old = state === "old";
+  const old = isOldSite(state);
   // Adopted and pre-Compose sites: landfall runs them, it does not deploy them.
   const managed = state === "managed";
   const byDate = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1));
@@ -256,7 +257,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   facts.push(["Created", `${ago(m.createdAt)} · updated ${ago(m.updatedAt)}`]);
   const detail = (
     <div className="flex flex-col gap-3 py-1.5">
-      {old && <Note>Deployed before sites were Compose projects: {proj ? "redeploy it" : <>run <span className="mono">lf deploy</span> for it</>} once to manage it again.</Note>}
+      {old && <OldSiteNote redeploy={!!proj} />}
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           <Panel title="Services" count={services.length}>
@@ -520,7 +521,7 @@ function SiteFiles({ m, state }: { m: SiteMeta; state: string }) {
   // Paths and commands break anywhere: inside the table, a line that cannot wrap widens every row on a phone.
   const line = cx(MONO, "block break-all");
   if (m.adopted) return <div className={box}><span className={line}>{m.adopted}</span><span className="dim">its own folder; project <span className="mono">{m.project ?? m.name}</span></span></div>;
-  if (state === "old") return <div className={box}><span className={line}>{dir}</span></div>;
+  if (isOldSite(state)) return <div className={box}><span className={line}>{dir}</span></div>;
   return (
     <div className={box}>
       <span className={line} title={`${dir}/current is releases/${m.current}`}>{dir}/current <span className="dim">→ releases/{m.current}</span></span>
