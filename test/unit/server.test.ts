@@ -10,8 +10,9 @@ import { findRun, laterConflicts, parseJournal, pending } from "../../src/core/j
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/core/inventory";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
 import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
-import { parseDisk, parseSize, parseStats } from "../../src/core/stats";
-import { parsePrunePlan, removable } from "../../src/core/manage";
+import { journalSize, parseDisk, parseSize, parseStats } from "../../src/core/stats";
+import { JOURNAL_KEEP, parsePrunePlan, reclaimable, removable } from "../../src/core/manage";
+import { JOURNAL_KEEP_BYTES } from "../../src/core/reclaim";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/users";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/updates";
@@ -519,6 +520,14 @@ describe("prune", () => {
     expect(p.logs).toEqual({ root: true, size: 3 * 1024 * 1024, journal: 1.5 * 1024 ** 3 });
     // Without root the sizes are not there.
     expect(parsePrunePlan(`${out}\nROOT\t\nJOURNAL\t`).logs).toEqual({ root: false, size: 0, journal: 0 });
+  });
+
+  test("reclaimable counts logs and the journal above what it keeps", () => {
+    expect(JOURNAL_KEEP_BYTES).toBe(journalSize(JOURNAL_KEEP));
+    const p = parsePrunePlan(out);
+    const base = reclaimable(p);
+    expect(reclaimable({ ...p, logs: { root: true, size: 5, journal: JOURNAL_KEEP_BYTES + 7 } })).toBe(base + 12);
+    expect(reclaimable({ ...p, logs: { root: true, size: 5, journal: 1 } })).toBe(base + 5);
   });
 
   test("no docker", () => {

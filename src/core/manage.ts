@@ -3,6 +3,7 @@ import { builtImage, SITE_LINES, readSiteLine } from "./compose";
 import { JOURNAL_USAGE, journalSize, LOG_SIZES, parseSize, SUDO_PROBE } from "./stats";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
 import { JOURNAL, PRELUDE } from "./templates";
+import { JOURNAL_KEEP, removable, type PruneImage, type PrunePlan } from "./reclaim";
 
 /**
  * What `lf prune` may remove. Kept: images any container uses (stopped ones too: `lf start` needs them),
@@ -31,29 +32,8 @@ ${LOG_SIZES}
 printf 'JOURNAL\t%s\n' "${JOURNAL_USAGE}"
 `;
 
-export interface PruneImage {
-  id: string;
-  /** repo:tag; none for a dangling image. */
-  tags: string[];
-  /** Bytes, layers shared with other images included. */
-  size: number;
-  created: string;
-  /** Why it stays; none = it may go. */
-  keep?: "used" | "release" | "undo" | "tagged";
-}
-
-export interface PrunePlan {
-  docker: boolean;
-  all: boolean;
-  images: PruneImage[];
-  /** What `docker system df` calls reclaimable build cache, in bytes. */
-  buildCache: number;
-  /** Only for --logs. size: bytes of container logs, rotated ones included; journal: 0 when unknown. Both need root. */
-  logs?: { root: boolean; size: number; journal: number };
-}
-
-export const removable = (p: PrunePlan) => p.images.filter((i) => !i.keep);
-export const kept = (p: PrunePlan, why: PruneImage["keep"]) => p.images.filter((i) => i.keep === why);
+export type { PruneImage, PrunePlan } from "./reclaim";
+export { JOURNAL_KEEP, kept, reclaimable, removable } from "./reclaim";
 
 export function parsePrunePlan(out: string, all = false): PrunePlan {
   const plan: PrunePlan = { docker: true, all, images: [], buildCache: 0 };
@@ -109,15 +89,6 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ images: numbe
   const { stdout } = await runScript(s, script, { capture: true });
   const failed = stdout.split("\n").filter((l) => l.startsWith("FAILED\t")).map((l) => l.slice(7));
   return { images: imgs.length, failed };
-}
-
-/** Journal kept by `lf prune --logs`. */
-export const JOURNAL_KEEP = "100M";
-
-/** At most what the plan frees: image sizes count layers they share, and the journal keeps JOURNAL_KEEP. */
-export function reclaimable(p: PrunePlan): number {
-  const logs = p.logs ? p.logs.size + Math.max(p.logs.journal - journalSize(JOURNAL_KEEP), 0) : 0;
-  return removable(p).reduce((n, i) => n + i.size, 0) + p.buildCache + logs;
 }
 
 /**
