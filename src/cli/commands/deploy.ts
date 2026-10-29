@@ -304,7 +304,6 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       // What lf auth, lf secret and the rest set on the site stays; the release decides the rest.
       const meta: SiteMeta = {
         ...prev,
-        v: 2,
         name,
         kind,
         domains,
