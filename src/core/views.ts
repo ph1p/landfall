@@ -46,7 +46,7 @@ export async function factsView(name: string, server: Server) {
 /** `lf stats --json` and `lf disk --json`. */
 export const statsView = (server: Server) => stats(server);
 export const diskView = (server: Server) => diskUsage(server);
-export const pruneView = (server: Server) => prunePlan(server, { volumes: true });
+export const pruneView = (server: Server) => prunePlan(server, { volumes: "unsized" });
 
 /** `lf system --json`. */
 export async function systemView(name: string, server: Server) {

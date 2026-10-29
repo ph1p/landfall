@@ -10,9 +10,9 @@ import { findRun, laterConflicts, parseJournal, pending } from "../../src/core/j
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/core/inventory";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
 import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
-import { journalSize, parseDisk, parseSize, parseStats } from "../../src/core/stats";
-import { JOURNAL_KEEP, parsePrunePlan, reclaimable, removable, removableVolumes } from "../../src/core/manage";
-import { JOURNAL_KEEP_BYTES } from "../../src/core/reclaim";
+import { parseDisk, parseSize, parseStats } from "../../src/core/stats";
+import { parsePrunePlan } from "../../src/core/manage";
+import { JOURNAL_KEEP_BYTES, journalSize, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/reclaim";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/users";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/updates";
@@ -523,7 +523,6 @@ describe("prune", () => {
   });
 
   test("reclaimable counts logs and the journal above what it keeps", () => {
-    expect(JOURNAL_KEEP_BYTES).toBe(journalSize(JOURNAL_KEEP));
     const p = parsePrunePlan(out);
     const base = reclaimable(p);
     expect(reclaimable({ ...p, logs: { root: true, size: 5, journal: JOURNAL_KEEP_BYTES + 7 } })).toBe(base + 12);
@@ -538,7 +537,7 @@ describe("prune", () => {
   test("volumes for --volumes: ones of existing sites stay", () => {
     expect(parsePrunePlan(out).volumes).toBeUndefined();
     const anon = "f".repeat(64);
-    const p = parsePrunePlan(`${out}\nVOLUMES\nVOL\tblog_data\tblog\nVOL\tgone_db\tgone\nVOL\t${anon}\t\nVOLSZ\tgone_db\t2GB\nVOLSZ\tblog_data\t1GB\nVOLSZ\tused\t5GB`);
+    const p = parsePrunePlan(`${out}\nVOLUMES\nUNUSED\tblog_data\tblog\nUNUSED\tgone_db\tgone\nUNUSED\t${anon}\t\nVOL\tgone_db\t0\t2GB\nVOL\tblog_data\t0\t1GB\nVOL\tused\t1\t5GB`);
     expect(p.volumes).toEqual([
       { name: "gone_db", project: "gone", size: 2e9 },
       { name: "blog_data", project: "blog", size: 1e9, keep: "site" },
@@ -546,6 +545,7 @@ describe("prune", () => {
     ]);
     expect(removableVolumes(p).map((v) => v.name)).toEqual(["gone_db", anon]);
     expect(reclaimable(p) - reclaimable({ ...p, volumes: undefined })).toBe(2e9);
+    expect(pruneSummary(p, [{ what: "volume" }])).toBe(`${removable(p).length} images and the build cache, 1 volumes`);
     expect(parsePrunePlan(`${out}\nVOLUMES`).volumes).toEqual([]);
   });
 
