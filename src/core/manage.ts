@@ -1,6 +1,6 @@
 import type { Server } from "./config";
 import { builtImage, SITE_LINES, readSiteLine } from "./compose";
-import { parseSize } from "./stats";
+import { journalSize, parseSize } from "./stats";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
 import { JOURNAL, PRELUDE } from "./templates";
 
@@ -21,6 +21,13 @@ ids=$(docker ps -aq)
   | grep -o 'sha256:[0-9a-f]\{64\}' | sort -u | sed 's/^/KEEP\t/'
 ${SITE_LINES}
 docker system df --format 'DF\t{{.Type}}\t{{.Reclaimable}}' 2>/dev/null
+# Logs for --logs: json-file keeps rotated ones next to the log as .1, .2 (.gz when compressed). Root-owned.
+S=""; [ "$(id -u)" -eq 0 ] || { sudo -n true 2>/dev/null && S="sudo -n"; }
+printf 'ROOT\t%s\n' "$([ "$(id -u)" -eq 0 ] || [ -n "$S" ] && echo 1)"
+[ -z "$ids" ] || docker inspect -f '{{.LogPath}}' $ids 2>/dev/null | while IFS= read -r p; do
+  [ -n "$p" ] && printf 'LOG\t%s\n' "$($S sh -c 'du -kc "$1" "$1".* 2>/dev/null | tail -n 1' sh "$p" | cut -f1)"
+done
+printf 'JOURNAL\t%s\n' "$($S journalctl --disk-usage 2>/dev/null | sed -n 's/.* take up \([0-9.]*[A-Za-z]*\).*/\1/p')"
 exit 0
 `;
 
@@ -41,13 +48,19 @@ export interface PrunePlan {
   images: PruneImage[];
   /** What `docker system df` calls reclaimable build cache, in bytes. */
   buildCache: number;
+  /** Whether log sizes below are complete (root, or passwordless sudo). */
+  root: boolean;
+  /** Bytes of container log files, rotated ones included. */
+  logs: number;
+  /** Bytes the systemd journal takes, 0 when unknown. */
+  journal: number;
 }
 
 export const removable = (p: PrunePlan) => p.images.filter((i) => !i.keep);
 export const kept = (p: PrunePlan, why: PruneImage["keep"]) => p.images.filter((i) => i.keep === why);
 
 export function parsePrunePlan(out: string, all = false): PrunePlan {
-  const plan: PrunePlan = { docker: true, all, images: [], buildCache: 0 };
+  const plan: PrunePlan = { docker: true, all, images: [], buildCache: 0, root: false, logs: 0, journal: 0 };
   const byId = new Map<string, PruneImage>();
   const used = new Set<string>();
   const undo = new Set<string>();
@@ -65,6 +78,9 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
       const m = readSiteLine(line);
       if (m) for (const r of m.releases) for (const s of r.services ?? []) if (s.build) release.add(builtImage(m.name, s.name, r.id));
     } else if (f[0] === "DF" && /build/i.test(f[1] ?? "")) plan.buildCache = parseSize((f[2] ?? "").split(" ")[0]);
+    else if (f[0] === "ROOT") plan.root = f[1] === "1";
+    else if (f[0] === "LOG") plan.logs += (+f[1] || 0) * 1024;
+    else if (f[0] === "JOURNAL") plan.journal = journalSize(f[1] ?? "");
   }
   for (const img of byId.values()) {
     img.keep = used.has(img.id) ? "used" : img.tags.some((t) => release.has(t)) ? "release" : undo.has(img.id) ? "undo" : img.tags.length && !all ? "tagged" : undefined;
@@ -96,6 +112,29 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ images: numbe
   const { stdout } = await runScript(s, script, { capture: true });
   const failed = stdout.split("\n").filter((l) => l.startsWith("FAILED\t")).map((l) => l.slice(7));
   return { images: imgs.length, failed };
+}
+
+/** Journal kept by `lf prune --logs`. */
+export const JOURNAL_KEEP = "100M";
+
+/**
+ * Empties every container's log files and shrinks the systemd journal to JOURNAL_KEEP. Needs root (an admin login).
+ * The live file is truncated, not deleted: docker keeps its handle and goes on writing to it. Rotated ones
+ * (.1, .2.gz) are deleted: an empty .gz would break `docker logs`, a missing one it skips.
+ */
+export async function pruneLogs(admin: Server): Promise<void> {
+  const script = [
+    PRELUDE,
+    "set +e",
+    String.raw`ids=$($SUDO docker ps -aq 2>/dev/null)`,
+    String.raw`[ -z "$ids" ] || $SUDO docker inspect -f '{{.LogPath}}' $ids 2>/dev/null | while IFS= read -r p; do`,
+    String.raw`  [ -n "$p" ] && $SUDO sh -c ': > "$1"; rm -f "$1".*' sh "$p"`,
+    "done",
+    `command -v journalctl >/dev/null 2>&1 && $SUDO journalctl --rotate --vacuum-size=${JOURNAL_KEEP} >/dev/null 2>&1`,
+    `record ${shq(`emptied container logs, journal down to ${JOURNAL_KEEP}`)}`,
+    "exit 0",
+  ].join("\n");
+  await runScript(admin, script);
 }
 
 const RUNNING = `docker ps --format '{{.Names}}' 2>/dev/null || sudo -n docker ps --format '{{.Names}}' 2>/dev/null || true`;
