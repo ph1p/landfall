@@ -1,9 +1,9 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, projectServer } from "../../core/config";
 import { bytes } from "../../core/facts";
-import { JOURNAL_KEEP, kept, prune, prunePlan, pruneLogs, reboot, reclaimable, removable, type PrunePlan } from "../../core/manage";
+import { JOURNAL_KEEP, kept, prune, prunePlan, reboot, reclaimable, removable, removableVolumes, type PrunePlan } from "../../core/manage";
 import { adminLogin } from "../../core/privilege";
-import { c, confirm, fail, info, ok, step, table, warn } from "../../core/term";
+import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn } from "../../core/term";
 
 function logSizes(l: NonNullable<PrunePlan["logs"]>) {
   if (!l.root) return `container logs and journal ${c.dim("(sizes need root or passwordless sudo)")}`;
@@ -26,42 +26,65 @@ function printPlan(name: string, p: PrunePlan) {
     if (imgs.length > 20) console.log(c.dim(`… ${imgs.length - 20} more`));
   } else console.log(`${c.bold(name)}: no unused images`);
   console.log(`build cache: ${p.buildCache ? bytes(p.buildCache) : c.dim("0")}${p.all ? "" : c.dim(" reclaimable (--all also removes cache still in use)")}`);
+  if (p.networks.length) console.log(`networks: ${p.networks.join(", ")} ${c.dim("(no container uses them)")}`);
   if (p.logs) console.log(`logs: ${logSizes(p.logs)}, journal kept at ${JOURNAL_KEEP}`);
+  if (p.volumes) {
+    const vols = removableVolumes(p);
+    if (vols.length) {
+      console.log(`${vols.length} unused volumes, ${c.bold("their data goes for good")}:`);
+      table([["volume", "size"].map(c.dim), ...vols.map((v) => [v.name.length === 64 ? c.dim(v.name.slice(0, 12)) : v.name, v.size ? bytes(v.size) : c.dim("?")])]);
+    } else console.log("no unused volumes");
+    const site = p.volumes.length - vols.length;
+    if (site) keep.push([site, `volumes of existing sites (lf volume rm --data deletes one)`]);
+  }
   if (keep.length) console.log(c.dim(`kept: ${keep.map(([n, w]) => `${n} ${w}`).join(", ")}`));
 }
 
 export const pruneCmd = defineCommand({
   name: "prune",
   summary:
-    "Free disk space: remove unused Docker images and the build cache, with --logs also container logs and the systemd journal.\n" +
-    "Keeps images any container uses (stopped ones too), images of site releases (for rollback) and the ones undo needs. Volumes and containers stay.",
+    "Free disk space: remove unused Docker images, the build cache and unused networks; with --logs also container logs and the systemd journal, with --volumes unused volumes.\n" +
+    "Keeps images any container uses (stopped ones too), images of site releases (for rollback) and the ones undo needs. Containers stay.",
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "also remove unused tagged images (pulled again when needed) and all build cache" },
     logs: { type: "boolean", desc: `also empty every container's logs and shrink the systemd journal to ${JOURNAL_KEEP} (needs root)` },
+    volumes: { type: "boolean", desc: "also delete volumes no container mounts and no existing site owns (their data is gone for good)" },
     "dry-run": { type: "boolean", desc: "only show what would go" },
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
     const { name, server } = projectServer(o.server);
-    const plan = await prunePlan(server, !!o.all, !!o.logs);
+    const plan = await prunePlan(server, { all: o.all, logs: o.logs, volumes: o.volumes });
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
     const imgs = removable(plan);
-    const images = imgs.length > 0 || plan.buildCache > 0;
-    const nothing = !images && !plan.logs;
+    const vols = removableVolumes(plan);
+    const nothing = !imgs.length && !plan.buildCache && !plan.networks.length && !vols.length && !plan.logs;
     if (o["dry-run"] || (o.json && nothing)) return void (o.json ? console.log(JSON.stringify(plan, null, 2)) : printPlan(name, plan));
     if (!o.json) printPlan(name, plan);
     if (nothing) return ok("nothing to clean up");
-    // The plan already knows whether this login is root: ask for another only when not.
-    const admin = plan.logs && (plan.logs.root ? server : await adminLogin(server, "emptying logs"));
-    const what = `${imgs.length} images, the build cache${plan.logs ? ", container logs and old journal entries" : ""}`;
-    if (!(await confirm(`\nRemove ${what} (up to ${bytes(reclaimable(plan))})?`, true))) return;
+    // Logs need root: the plan already knows whether this login has it, ask for another only when not.
+    const login = plan.logs && !plan.logs.root ? await adminLogin(server, "emptying logs") : server;
+    const what = [
+      `${imgs.length} images, the build cache`,
+      plan.networks.length && `${plan.networks.length} networks`,
+      vols.length && `${vols.length} volumes`,
+      plan.logs && "container logs and old journal entries",
+    ].filter(Boolean).join(", ");
+    const question = `\nRemove ${what} (up to ${bytes(reclaimable(plan))})?`;
+    if (vols.length) await confirmRemoval(question, name);
+    else if (!(await confirm(question, true))) return;
     if (!o.json) step("cleaning up");
-    const res = images ? await prune(server, plan) : { images: 0, failed: [] };
-    if (admin) await pruneLogs(admin);
-    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: res.images - res.failed.length, failed: res.failed }, null, 2));
-    for (const f of res.failed) warn(`${f}: could not remove it (in use?)`);
-    ok(`removed ${res.images - res.failed.length} images and the build cache${admin ? `, emptied container logs, journal down to ${JOURNAL_KEEP}` : ""}`);
+    const res = await prune(login, plan);
+    const gone = (w: string, n: number) => n - res.failed.filter((f) => f.what === w).length;
+    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: gone("image", res.images), failed: res.failed }, null, 2));
+    for (const f of res.failed) warn(`${f.what} ${f.name}: could not remove it (in use?)`);
+    const done = [
+      `${gone("image", res.images)} images and the build cache`,
+      plan.networks.length && `${gone("network", plan.networks.length)} networks`,
+      vols.length && `${gone("volume", res.volumes)} volumes`,
+    ].filter(Boolean).join(", ");
+    ok(`removed ${done}${plan.logs ? `, emptied container logs, journal down to ${JOURNAL_KEEP}` : ""}`);
   },
 });
 
