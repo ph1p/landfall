@@ -1,5 +1,6 @@
 import { builtImage } from "./compose";
 import type { Server } from "./config";
+import { OLD_SITE_IMAGES } from "./legacy";
 import { runScript, shq } from "./ssh";
 import { COMPOSE_INSTALL, COMPOSE_PLUGIN, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 
@@ -333,7 +334,7 @@ for f in ${SITES}/*/site.json; do
   [ -f "$f" ] || continue
   d=$(dirname "$f"); n=$(basename "$d")
   # Sites of landfall before Compose sites: one container, its compose file next to site.json.
-  if ! grep -q '"v": *2' "$f"; then img site "$n" "landfall-$n" "$d"; continue; fi
+  ${OLD_SITE_IMAGES}
   p=$(sed -n 's/^ *"project": *"\([^"]*\)".*/\1/p' "$f"); [ -n "$p" ] || p=$n
   printf '%s\n' "$PS" | while read -r c svc pr; do [ "$pr" != "$p" ] || img site "$n" "$c" "$d/current" "$svc"; done
 done
