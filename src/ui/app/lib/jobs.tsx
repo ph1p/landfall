@@ -108,7 +108,7 @@ function finished(j: Job) {
     });
   }
   if (info.server) invalidate(info.server);
-  refreshState().catch(() => {});
+  refreshState().catch((e) => toast(`could not refresh: ${errorMessage(e)}`));
   render();
   const what = `lf ${info.argv.join(" ")} ${info.code === 0 ? "done" : info.code === null ? "stopped" : `failed (exit ${info.code})`}`;
   // Closed or showing another job: say so, with a way back to it.

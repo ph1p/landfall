@@ -296,7 +296,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
           }
         }
       } catch (e) {
-        await discardRelease(server, name, id, sent).catch(() => {});
+        await discardRelease(server, name, id, sent).catch((e) => warn(`could not remove the failed release ${id} of ${name}: ${e?.message ?? e}`));
         throw e;
       }
 
@@ -327,7 +327,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         });
       } catch (e) {
         // A failed build or pull, or a start that went back to the previous release: its folder and images go.
-        await discardRelease(server, name, id, builtImages(name, release)).catch(() => {});
+        await discardRelease(server, name, id, builtImages(name, release)).catch((e) => warn(`could not remove the failed release ${id} of ${name}: ${e?.message ?? e}`));
         throw e;
       }
       // Domains leave their old site only once this one runs: a failed deploy takes nobody's away.
@@ -454,6 +454,7 @@ function showRoutes(services: Release["services"], domains: string[], live?: Rel
 }
 
 async function checkLive(domain: string) {
+  info(c.dim(`checking https://${domain}`));
   try {
     const get = () => fetch(`https://${domain}`, { signal: AbortSignal.timeout(15000), redirect: "manual" });
     let res = await get();
