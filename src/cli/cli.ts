@@ -22,6 +22,7 @@ import {
   sitesStart,
   sitesStop,
   sitesTunnel,
+  tunnelsList,
 } from "./commands/sites";
 import { diskCmd, statsCmd } from "./commands/stats";
 import { certsCmd, checkCmd, trafficCmd } from "./commands/traffic";
@@ -72,6 +73,7 @@ const commands: Command[] = [
   sitesRemove,
   sitesAdopt,
   sitesTunnel,
+  tunnelsList,
   volumeList,
   volumeBackup,
   volumePull,
@@ -177,6 +179,8 @@ const aliases: Record<string, string> = {
   "sites auth": "auth",
   "sites open": "open",
   "sites tunnel": "tunnel",
+  "tunnels ls": "tunnels",
+  "tunnels list": "tunnels",
   upgrade: "update",
   "server stats": "stats",
   "server disk": "disk",
@@ -225,7 +229,7 @@ function help() {
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
-    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm"]],
+    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm"]],
     ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update", "scan"]],

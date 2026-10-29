@@ -7,7 +7,7 @@ import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveCon
 import { shq, writeFileCmd } from "../../core/ssh";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, table } from "../../core/term";
 import { slug } from "../../core/projects";
-import { ctrAddress, type Ctr, findContainer, openTunnel, portScheme } from "../../core/tunnel";
+import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/tunnel";
 
 /** Site + server from args, falling back to ./.landfall.json. */
 export function target(name: string | undefined, server: string | undefined) {
@@ -59,13 +59,14 @@ export const sitesInfo = defineCommand({
   name: "sites info",
   args: "[name]",
   summary: "Show a site's services, domains and release history.",
-  options: { server: serverOpt },
+  options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output: the site as lf ls --json lists it, with its folder" } },
   async run([n], o) {
     const { site, server } = target(n, o.server);
     // One round trip: the overview has the site's meta and its containers.
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
     if (!st) await noSite(server, site);
     const meta = st!.meta;
+    if (o.json) return void console.log(JSON.stringify({ ...st, dir: meta.adopted ?? `${siteDir(site)}/current` }, null, 2));
     console.log(`${c.bold(meta.name)}  ${st!.kind}  ${paintStatus(st!.status)}`);
     for (const d of st!.domains) console.log(`  ${c.cyan("https://" + d)}`);
     console.log(c.dim(`  ${meta.adopted ?? siteDir(site) + "/current"}  (docker compose works there)`));
@@ -404,6 +405,23 @@ The tunnel stays open until Ctrl-C.`,
     const path = key && !o.port ? owner!.paths?.[key] : undefined;
     await tunnelTo(server, ctr!, proxy.network, o.port ?? port, {
       path, local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
+  },
+});
+
+export const tunnelsList = defineCommand({
+  name: "tunnels",
+  summary: "List the tunnels open on this machine (lf tunnel, lf traefik dashboard): what, where and since when.",
+  options: {
+    json: { type: "boolean", desc: "machine-readable output" },
+  },
+  async run(_, o) {
+    const ts = openTunnels();
+    if (o.json) return void console.log(JSON.stringify(ts, null, 2));
+    if (!ts.length) return info("no tunnels open: lf tunnel <site> opens one");
+    table([
+      ["url", "what", "server", "open", "pid"].map(c.dim),
+      ...ts.map((t) => [c.cyan(t.url), t.what, t.server, ago(t.at), String(t.pid)]),
+    ]);
   },
 });
 

@@ -4,6 +4,7 @@ import { bytes } from "../../core/facts";
 import { overview } from "../../core/remote";
 import { CERT_DAYS_BAD, certs, checkUrl, parseSince, siteTraffic, spanLabel, traffic, type Cert, type Check, type Detail, type Summary } from "../../core/traffic";
 import { c, fail, info, table, warn } from "../../core/term";
+import { siteTrafficView } from "../../core/views";
 
 const num = (n: number) => n.toLocaleString("en-US");
 const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
@@ -61,7 +62,7 @@ export const trafficCmd = defineCommand({
     const t = await traffic(server, secs);
     if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
     const one = site ? siteTraffic(t, site) : null;
-    if (o.json) return void console.log(JSON.stringify(site ? { site, since: t.since, bucket: t.bucket, format: t.format, from: t.from, to: t.to, ...(one ?? {}) } : t, null, 2));
+    if (o.json) return void console.log(JSON.stringify(site ? siteTrafficView(t, site) : t, null, 2));
     if (t.format === "common") {
       return warn(
         t.own
