@@ -27,7 +27,7 @@ export function tunnelWays(n: string, site: SiteStatus): Way[] {
   const cur = m.releases.find((r) => r.id === m.current);
   const many = services.length > 1;
   return services.flatMap((x) => {
-    const rel = cur?.services?.find((r) => r.name === x.service);
+    const rel = cur?.services.find((r) => r.name === x.service);
     const routes = rel?.routes ?? [];
     const priv = Object.entries(rel?.private ?? {});
     const domains = [...(x.service === main ? m.domains : (rel?.domains ?? [])), ...routes.flatMap((r) => r.domains ?? m.domains.map((d) => `${r.subdomain}.${d}`))];

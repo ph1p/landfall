@@ -401,7 +401,7 @@ describe("server stats", () => {
       "STAT\tweb\t1.50%\t3.254MiB / 1.914GiB\t682B / 84B\t20.5kB / 8.19kB\t3",
       "CTR\tweb\tUp 1 second\tblog\tweb\tnginx:alpine",
       "RST\t/web\t2",
-      'SITE\t{"v":2,"name":"blog","releases":[]}',
+      'SITE\t{"name":"blog","domains":[],"releases":[]}',
     ].join("\n");
     const s = parseStats(out, new Date(0));
     expect(s).toMatchObject({ uptime: 101, cpus: 2, load: [0.37, 0.16, 0.07], docker: true });
@@ -488,7 +488,7 @@ describe("versions", () => {
 
 describe("prune", () => {
   const id = (c: string) => `sha256:${c.repeat(64)}`;
-  const site = { v: 2, name: "blog", releases: [{ id: "20260101-1", services: [{ name: "Web", build: true, networks: [] }, { name: "db", networks: [] }] }] };
+  const site = { name: "blog", domains: [], releases: [{ id: "20260101-1", services: [{ name: "Web", build: true, networks: [] }, { name: "db", networks: [] }] }] };
   const out = [
     `IMG\t${id("a")}\tnginx\talpine\t50MB\t2026-01-01 10:00:00 +0000 UTC`,
     `IMG\t${id("b")}\tblog-web\t20260101-1\t120MB\t2026-01-01`,

@@ -23,7 +23,6 @@ describe("templates", () => {
     ],
   };
   const meta: SiteMeta = {
-    v: 2,
     name: "blog",
     kind: "compose",
     domains: ["a.com", "www.a.com"],

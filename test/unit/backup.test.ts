@@ -16,7 +16,7 @@ vi.mock("../../src/core/ssh", async (orig) => ({
 }));
 vi.mock("../../src/core/remote", async (orig) => ({
   ...(await orig<typeof import("../../src/core/remote")>()),
-  requireSite: async (_s: unknown, name: string) => ({ meta: { v: 2, name, releases: [], domains: [] }, env: "", proxy: {} }),
+  requireSite: async (_s: unknown, name: string) => ({ meta: { name, releases: [], domains: [] }, env: "", proxy: {} }),
 }));
 const { backupScript, scheduleBackups } = await import("../../src/cli/commands/volume");
 const { listScript, parseVolumes } = await import("../../src/core/volumes");
