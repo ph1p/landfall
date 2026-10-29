@@ -11,7 +11,7 @@ import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } fr
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
 import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
 import { journalSize, parseDisk, parseSize, parseStats } from "../../src/core/stats";
-import { JOURNAL_KEEP, parsePrunePlan, reclaimable, removable } from "../../src/core/manage";
+import { JOURNAL_KEEP, parsePrunePlan, reclaimable, removable, removableVolumes } from "../../src/core/manage";
 import { JOURNAL_KEEP_BYTES } from "../../src/core/reclaim";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/users";
@@ -528,6 +528,25 @@ describe("prune", () => {
     const base = reclaimable(p);
     expect(reclaimable({ ...p, logs: { root: true, size: 5, journal: JOURNAL_KEEP_BYTES + 7 } })).toBe(base + 12);
     expect(reclaimable({ ...p, logs: { root: true, size: 5, journal: 1 } })).toBe(base + 5);
+  });
+
+  test("unused networks, the proxy's aside", () => {
+    expect(parsePrunePlan(`${out}\nNET\tweb\nNET\told_default\nNET\tedge\nPROXY\tcontainer=t network=edge entrypoint=w resolver=r `).networks).toEqual(["old_default"]);
+    expect(parsePrunePlan(`${out}\nNET\tweb\nPROXY\t`).networks).toEqual([]);
+  });
+
+  test("volumes for --volumes: ones of existing sites stay", () => {
+    expect(parsePrunePlan(out).volumes).toBeUndefined();
+    const anon = "f".repeat(64);
+    const p = parsePrunePlan(`${out}\nVOLUMES\nVOL\tblog_data\tblog\nVOL\tgone_db\tgone\nVOL\t${anon}\t\nVOLSZ\tgone_db\t2GB\nVOLSZ\tblog_data\t1GB\nVOLSZ\tused\t5GB`);
+    expect(p.volumes).toEqual([
+      { name: "gone_db", project: "gone", size: 2e9 },
+      { name: "blog_data", project: "blog", size: 1e9, keep: "site" },
+      { name: anon, size: 0 },
+    ]);
+    expect(removableVolumes(p).map((v) => v.name)).toEqual(["gone_db", anon]);
+    expect(reclaimable(p) - reclaimable({ ...p, volumes: undefined })).toBe(2e9);
+    expect(parsePrunePlan(`${out}\nVOLUMES`).volumes).toEqual([]);
   });
 
   test("no docker", () => {
