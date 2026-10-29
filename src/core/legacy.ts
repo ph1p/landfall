@@ -8,8 +8,10 @@
  * - deploy.ts: the `old` site it moves (old?.domains/auth/createdAt, `takeover: old`, the id comment).
  * - remote.ts: ApplyOpts.takeover and applySite's takeover branch; siteProject becomes projectName.
  * - sites.ts: sitesInfo's "old" state check; ignore.ts: drop IGNORE_FILE from EXCLUDE and uploadList.
- * - "also --env-file" in the dotenv option texts of deploy.ts and sites.ts; README's .landfallignore.
- * - tests: shell.test.ts (--env-file), scripts.test.ts (takeover), releases.test.ts (old site.json).
+ * - "also --env-file" in the dotenv option texts of deploy.ts and sites.ts; ignore.ts's comments on .landfallignore.
+ * - README: --dotenv's old name, volumes of an older landfall (Volumes), .landfallignore (What gets uploaded, Files).
+ * - tests: shell.test.ts (--env-file), scripts.test.ts (takeover), releases.test.ts (old site.json),
+ *   deploy.test.ts and projects.test.ts (IGNORE_FILE), test/e2e/run.sh (.landfallignore).
  */
 import type { Server } from "./config";
 import { projectName, volumeDir, type SiteMeta } from "./compose";
@@ -22,7 +24,7 @@ import { HELPER, SITES } from "./templates";
 export const isOld = (meta: { v?: number }) => meta.v !== 2;
 
 /** Sites of landfall before Compose sites ran as one container in the project landfall-<name>. */
-export const oldProject = (name: string) => `landfall-${name}`;
+const oldProject = (name: string) => `landfall-${name}`;
 
 /** The Compose project of an old site; none for the others. */
 export const oldSiteProject = (meta: SiteMeta) => (isOld(meta) ? oldProject(meta.name) : undefined);
