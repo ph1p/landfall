@@ -4,7 +4,7 @@ import type { DiskUsage, PrunePlan } from "../lib/types";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { dialog, type Values } from "../ui/dialog";
-import { JOURNAL_KEEP, kept, reclaimable, removable, removableVolumes } from "../../../core/reclaim";
+import { JOURNAL_KEEP, kept, reclaimable, removable, removableVolumes, shortName, totalSize } from "../../../core/reclaim";
 import { toast } from "../ui/toast";
 import { Badge, Body, Btn, Card, CardHead, Actions, Note, Spin, Sub, Loading, pending, cx, NUM, HIDE, Table } from "../ui/kit";
 import { Zero, pct, StatusDot, isUp, size } from "./shared";
@@ -120,6 +120,10 @@ function loadDisk(n: string) {
 /** d: the loaded disk usage, which has the log sizes the plan only measures for --logs. */
 function pruneFlow(n: string, d: DiskUsage) {
   http<PrunePlan>(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
+    // The plan comes unsized: the disk view has every volume's size already.
+    const sizes = new Map(d.volumes.map((v) => [v.name, v.size]));
+    for (const v of p.volumes ?? []) v.size = sizes.get(v.name) ?? 0;
+    p.volumes?.sort((a, b) => b.size - a.size);
     const imgs = removable(p);
     const tagged = kept(p, "tagged");
     const vols = removableVolumes(p);
@@ -136,8 +140,8 @@ function pruneFlow(n: string, d: DiskUsage) {
           ? [{
               name: "volumes",
               type: "check" as const,
-              label: `Also delete ${plural(vols.length, "unused volume")} (${size(vols.reduce((t, x) => t + x.size, 0))})`,
-              hint: `No container mounts them and no site owns them: ${vols.slice(0, 3).map((x) => (x.name.length === 64 ? x.name.slice(0, 12) : x.name)).join(", ")}${vols.length > 3 ? ", …" : ""}. Their data is gone for good. lf prune --volumes`,
+              label: `Also delete ${plural(vols.length, "unused volume")} (${size(totalSize(vols))})`,
+              hint: `No container mounts them and no site owns them: ${vols.slice(0, 3).map((x) => shortName(x.name)).join(", ")}${vols.length > 3 ? ", …" : ""}. Their data is gone for good. lf prune --volumes`,
             }]
           : []),
         {
