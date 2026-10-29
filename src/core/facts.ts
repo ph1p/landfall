@@ -5,13 +5,13 @@ import { guessDomains, type Server } from "./config";
 import { runScript } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
-import { OS_RELEASE, PRELUDE } from "./templates";
+import { KV, OS_RELEASE, PRELUDE } from "./templates";
 import { fail } from "./term";
 
 /** What a server runs on: distro, hardware, addresses. Read-only. */
 const FACTS = String.raw`
 set +e
-kv() { printf '%s=%s\n' "$1" "$2"; }
+${KV}
 ${OS_RELEASE}
 kv os "$PRETTY_NAME"
 kv id "$ID"

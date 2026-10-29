@@ -13,7 +13,7 @@ import { listServers, reachAll } from "../../core/dashboard";
 import { overview, removeLines, siteDir } from "../../core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
 import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../../core/term";
-import { ensureKeyLogin, keyFile, loginPassword, serverEntry } from "../../core/login";
+import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { configView, factsView, serverSettings } from "../../core/views";
 
 export const serverAdd = defineCommand({
@@ -46,12 +46,7 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     const existing = cfg.servers[name];
     const ownAlias = sshAliases().includes(name) && !hasManagedBlock(name);
     if (o.host && ownAlias) fail(`${name} is already a Host in your ssh config; pick another name or drop --host`);
-    const login: Server = {
-      host: o.host ?? existing?.host ?? name,
-      user: o.user ?? (o.host ? "root" : existing?.user),
-      port: o.port ? Number(o.port) : existing?.port,
-      key: o.key ?? existing?.key,
-    };
+    const login = loginFrom(name, o, existing);
     const password = await loginPassword(o["password-stdin"]);
     // Without a password or a terminal to type one, only report whether the key works.
     const keyPath = await ensureKeyLogin(name, login, { check: !password && !interactive(), password });

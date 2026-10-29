@@ -2,13 +2,13 @@ import type { Server } from "./config";
 import { SITE_LINES, projectName, readSiteLine } from "./compose";
 import { journalSize } from "./reclaim";
 import { runScript } from "./ssh";
-import { ROOT, SITES } from "./templates";
+import { KV, ROOT, SITES } from "./templates";
 
 /** Two samples a second apart: CPU and network are rates, a single read has none. */
 const STATS = String.raw`
 set +e
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-kv() { printf '%s=%s\n' "$1" "$2"; }
+${KV}
 sample() {
   printf 'T%s\t%s\n' "$1" "$(cut -d' ' -f1 /proc/uptime)"
   printf 'CPU%s\t%s\n' "$1" "$(head -n1 /proc/stat)"
@@ -200,7 +200,7 @@ export const VOLUME_SIZES = String.raw`docker system df -v 2>/dev/null | awk '/^
 export const DISK = String.raw`
 set +e
 ${SUDO_PROBE}
-kv() { printf '%s=%s\n' "$1" "$2"; }
+${KV}
 kv root "$([ "$(id -u)" -eq 0 ] || [ -n "$S" ] && echo 1)"
 df -Pk 2>/dev/null | awk 'NR > 1 && $1 ~ /^\// && $6 !~ /^\/(snap|boot)(\/|$)/ && !seen[$1]++ { print "DISK\t" $6 "\t" $2 "\t" $3 "\t" $4 }'
 kv landfall "$($S du -sk ${ROOT} 2>/dev/null | cut -f1)"

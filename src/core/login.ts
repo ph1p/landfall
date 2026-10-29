@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkAlias, envVar, expandHome, tildify, type Server } from "./config";
+import { checkAlias, checkInt, envVar, expandHome, tildify, type Server } from "./config";
 import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, readStdin, report, step, warn } from "./term";
@@ -102,6 +102,16 @@ export async function ensureKeyLogin(name: string, login: Server, o: { check?: b
     ok("key installed");
   }
   return keyPath;
+}
+
+/** How to log in to a server: --host/--user/--port/--key, else what is saved for it. A new --host logs in as root. */
+export function loginFrom(name: string, o: { host?: string; user?: string; port?: string; key?: string }, existing?: Server): Server {
+  return {
+    host: o.host ?? existing?.host ?? name,
+    user: o.user ?? (o.host ? "root" : existing?.user),
+    port: o.port ? checkInt(o.port, "--port", 1, 65535) : existing?.port,
+    key: o.key ?? existing?.key,
+  };
 }
 
 /**
