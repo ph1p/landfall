@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
+import { go } from "../lib/api";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, Note, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
@@ -160,6 +161,10 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
             title: `To ${older[0].id} (${ago(older[0].at)})`,
             run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }),
           },
+          "-",
+          domains.length > 0 && { label: "Check now", hint: "lf check", title: `Request ${domains.join(", ")} over HTTPS from this machine: status, time, certificate`, run: () => run(["check", name, ...sv(n)], { server: n }) },
+          !old && { label: "Stats", hint: `lf stats ${name}`, title: "CPU, memory and network of its containers right now", run: () => run(["stats", name, ...sv(n)], { server: n }) },
+          { label: "Traffic", hint: `lf traffic ${name}`, title: "Its requests, errors, busiest paths and clients", run: () => ((S.focus[n] = name), go(n, "traffic")) },
           "-",
           ...(ways.length > 1 ? ways : ways.slice(0, 1)).map((w) => ({
             label: ways.length > 1 ? `Tunnel to ${w.label}` : "Open via tunnel",

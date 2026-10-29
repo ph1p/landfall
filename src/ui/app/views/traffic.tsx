@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
-import { svText, S, plural, sv } from "../lib/store";
+import { svText, S, plural, render, sv } from "../lib/store";
+import { siteTraffic } from "../../../core/traffic-merge";
 import type { Cert, Detail, Summary } from "../lib/types";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";
@@ -110,12 +111,24 @@ export function TrafficView({ n }: { n: string }) {
         <CertsCard n={n} />
       </>
     );
-  const T = t.total;
+  // One site alone, from the hosts already read: the same numbers as lf traffic <site>.
+  const focus = S.focus[n];
+  const show = (site?: string) => ((S.focus[n] = site), render());
+  const back = focus && <Btn cls="sm" title="every site again" on={() => show()}>← All sites</Btn>;
+  const T = focus ? siteTraffic(t, focus) : t.total;
+  const cmd = `lf traffic${focus ? ` ${focus}` : ""} --since ${S.since}${svText(n)}`;
+  if (!T)
+    return (
+      <>
+        {spans}
+        <Card><Empty title={`No requests for ${focus} in this span`}><p className="dim">Traefik's access log has nothing for it from the last {S.since}.</p>{back}</Empty></Card>
+      </>
+    );
   const errs = T.classes["4xx"] + T.classes["5xx"];
   const pct = (v: number) => (T.requests ? Math.round((v / T.requests) * 1000) / 10 : 0);
   const other = t.hosts.filter((h) => !h.site);
-  const row = (key: string, label: ReactNode, x: Summary) => (
-    <tr key={key}>
+  const row = (key: string, label: ReactNode, x: Summary, site: string) => (
+    <tr key={key} className="cursor-pointer hover:[&>td]:bg-hover" title={`lf traffic ${site}`} onClick={() => show(site)}>
       <td>{label}</td>
       <td className={NUM}>{count(x.requests)}</td>
       <td className={NUM}>{x.classes["4xx"] ? <Badge kind="warn">{count(x.classes["4xx"])}</Badge> : <Zero />}</td>
@@ -128,9 +141,10 @@ export function TrafficView({ n }: { n: string }) {
   const reach = t.from && +new Date(t.from) - (Date.now() - t.since * 1000) > (t.bucket === "hour" ? 2 * 3_600_000 : 120_000) ? ` · the log reaches back to ${new Date(t.from).toLocaleString()}` : "";
   return (
     <>
+      {focus ? <div className="flex items-center gap-2.5 mb-3.5">{back}<b>{focus}</b><span className="faint">{t.sites.find((x) => x.site === focus)?.hosts.join(" ") ?? ""}</span></div> : null}
       {spans}
       <Meters>
-        <Meter label="Requests" p={null} value={count(T.requests)} sub={`${plural(t.sites.length, "site")} · ${size(T.bytes)} sent`} />
+        <Meter label="Requests" p={null} value={count(T.requests)} sub={`${focus ? focus : plural(t.sites.length, "site")} · ${size(T.bytes)} sent`} />
         <Meter label="Server errors" p={null} value={count(T.classes["5xx"])} sub={`${pct(T.classes["5xx"])}% · 5xx: the site failed`} />
         <Meter label="Client errors" p={null} value={count(T.classes["4xx"])} sub={`${pct(T.classes["4xx"])}% · 4xx: not found, denied`} />
         <Meter label="Response time" p={null} value={ms(T.p50)} sub={`median · 95% within ${ms(T.p95)}`} hint="From Traefik receiving the request to the last byte sent" />
@@ -139,16 +153,16 @@ export function TrafficView({ n }: { n: string }) {
         <CardHead>Requests per {t.bucket} {errs ? <Sub>{count(errs)} failed</Sub> : null}</CardHead>
         <Body><TrafficChart series={T.series} bucket={t.bucket} /></Body>
       </Card>
-      <Card>
-        <CardHead>By site</CardHead>
+      {!focus && <Card>
+        <CardHead>By site <Sub>click one for its paths, errors and clients</Sub></CardHead>
         <Table head={<><th>Site</th><th className={NUM}>Requests</th><th className={NUM}>4xx</th><th className={NUM}>5xx</th><th className={cx(NUM, HIDE)}>Median</th><th className={cx(NUM, HIDE)}>95%</th><th className={cx(NUM, HIDE)}>Sent</th></>}>
-          {t.sites.map((x) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x))}
-          {other.slice(0, 10).map((h) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h))}
+          {t.sites.map((x) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x, x.site))}
+          {other.slice(0, 10).map((h) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h, h.host))}
         </Table>
         {other.length > 0 && (
           <Body className="faint pt-0">Hosts without a site: bots asking for the server's IP or old domains{other.length > 10 ? `, ${other.length - 10} more` : ""}.</Body>
         )}
-      </Card>
+      </Card>}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-x-4 gap-y-5 mt-5 [&>.card]:mt-0! [&+.card]:mt-5">
         <List
           title="Failing requests"
@@ -162,10 +176,10 @@ export function TrafficView({ n }: { n: string }) {
         />
       </div>
       <List title="Clients" cols={[["IP"], ["Requests", NUM]]} rows={T.ips.map((i) => <tr key={i.ip}><td className="mono">{i.ip}</td><td className={NUM}>{count(i.count)}</td></tr>)} />
-      <CertsCard n={n} />
+      {!focus && <CertsCard n={n} />}
       <p className="faint mt-3.5">
         {st.loading && <><Spin />{" "}</>}
-        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}{reach} · <span className="mono">lf traffic --since {S.since}{svText(n)}</span>
+        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}{reach} · <span className="mono">{cmd}</span>
       </p>
     </>
   );

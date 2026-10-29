@@ -199,6 +199,21 @@ export function forget(n: string) {
   });
 }
 
+export function uninstall(n: string) {
+  dialog({
+    title: `Uninstall landfall from ${n}?`,
+    text: "Deletes every site landfall deployed and forgets adopted ones (they keep running), stops landfall's Traefik, reverts what setup changed and deletes /opt/landfall with its journal. Then forgets the server here.\nDocker, packages and firewall rules from lf firewall stay. This cannot be undone.",
+    fields: [
+      { name: "volumes", type: "check", label: "Also delete the sites' named volumes (their data)" },
+      { name: "keep", type: "check", label: "Keep the deploy user, ufw and ssh hardening" },
+    ],
+    ok: "Uninstall",
+    danger: true,
+    typeToConfirm: n,
+    onOk: (v) => run(["server", "uninstall", n, "-y", ...(v.volumes ? ["--volumes"] : []), ...(v.keep ? ["--keep-setup"] : [])], { server: n, after: ifOk(() => (go(null), refreshState())) }),
+  });
+}
+
 export function makeDefault(n: string) {
   run(["server", "use", n], { server: n, after: ifOk(refreshState) });
 }

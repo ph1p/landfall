@@ -7,7 +7,7 @@ import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO }
 import { MenuBtn } from "../ui/menu";
 import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
 import { ReachDot, StatusDot, FactsLine, FactsNote, errorHint, can, connected, sections, reachRank, reachCount, Star, REACH_WORD, REACH_KIND } from "./shared";
-import { runCommand, forget, makeDefault } from "./domains";
+import { runCommand, forget, makeDefault, uninstall } from "./domains";
 import { rebootDlg, SystemView } from "./system";
 import { UsersView } from "./users";
 import { updatesBadge, UpdatesView } from "./updates";
@@ -331,6 +331,7 @@ function Main() {
               !s.isDefault && { label: "Make default", title: "Commands without -s use it", run: () => makeDefault(n) },
               s.registered && "-",
               s.registered && { label: `Forget ${n}`, cls: "danger", hint: "lf server rm", run: () => forget(n) },
+              s.registered && (!k || k.docker) && { label: "Uninstall landfall…", cls: "danger", hint: "lf server uninstall", title: "Remove its sites, Traefik and what setup changed, then forget it", run: () => uninstall(n) },
             ]}
           />
         </div>
