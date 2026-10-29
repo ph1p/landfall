@@ -98,6 +98,8 @@ apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/cr
 /** Shared shell helpers prepended to every remote script. */
 /** Any image with sh, tar, find and chown does; landfall needs nothing of its own on the server. */
 export const HELPER = "alpine:3";
+/** Shell helper for read-only probes: kv <key> <value> prints one key=value line. */
+export const KV = String.raw`kv() { printf '%s=%s\n' "$1" "$2"; }`;
 
 export const PRELUDE = String.raw`
 # useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.
@@ -419,8 +421,7 @@ log "bootstrap done"
  */
 export const PROBE = String.raw`
 set +e
-kv() { printf '%s=%s
-' "$1" "$2"; }
+${KV}
 yn() { if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
 ${OS_RELEASE}
 kv os "$PRETTY_NAME"

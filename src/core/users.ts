@@ -4,7 +4,7 @@ import { requireCap } from "./facts";
 import { adminLogin } from "./privilege";
 import { runScript } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { PRELUDE } from "./templates";
+import { KV, PRELUDE } from "./templates";
 import { fail } from "./term";
 
 /** Debian's NAME_REGEX: what useradd and busybox's adduser both take, and sudoers.d file names allow (no dots). */
@@ -54,7 +54,7 @@ export interface Users {
 /** Root and everyone with a uid from 1000 (people, deploy users), read as admin: /etc/shadow and others' keys need root. */
 export const USERS = String.raw`
 set +e
-kv() { printf '%s=%s\n' "$1" "$2"; }
+${KV}
 kv admin "$(id -un)"
 kv sudo "$(command -v sudo >/dev/null 2>&1 && echo 1)"
 # What sshd really uses (a Match block can override the config file): "no" when it takes keys only.
