@@ -210,9 +210,9 @@ describe("templates", () => {
     expect(a.errors).toEqual([]);
     expect(a.services[0]).toMatchObject({ port: 3000, routes: [{ port: 3001, subdomain: "admin" }, { port: 9000, domains: ["s3.x.io"] }], private: { cms: 3002 } });
     expect(routePlan(a.services, ["a.com", "b.com"])).toEqual([
-      { service: "web", port: 3000, domains: ["a.com", "b.com"], main: true },
-      { service: "web", port: 3001, domains: ["admin.a.com", "admin.b.com"] },
-      { service: "web", port: 9000, domains: ["s3.x.io"] },
+      { key: "web:3000", service: "web", port: 3000, domains: ["a.com", "b.com"], main: true },
+      { key: "web:3001", service: "web", port: 3001, domains: ["admin.a.com", "admin.b.com"], subdomain: "admin" },
+      { key: "web:9000", service: "web", port: 9000, domains: ["s3.x.io"] },
     ]);
     // a port routed and private, or routed twice, is a mistake
     const bad = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, routes: [{ port: 3000, subdomain: "a" }], private: { x: 3000 } } } } }, dir);
