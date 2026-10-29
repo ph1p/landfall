@@ -92,12 +92,14 @@ export function pickVolume(vols: Volume[], name: string | undefined, site: strin
 }
 
 const STAMP = /^\d{8}-\d{6}/;
+/** STAMP as a shell glob. */
+export const STAMP_GLOB = "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]";
 /** Undo backups kept per volume: each push or restore makes one, and the oldest are past any useful undo. */
 export const BEFORE_KEEP = 10;
 /** Shell, run in the site's folder: all but the newest BEFORE_KEEP `<key>-<stamp>-before-*` backups of key go, said. */
 export const pruneBefore = (key: string) => `k=${shq(key)}; n=0
 for old in $(ls -1r backups 2>/dev/null); do
-  case "$old" in "$k"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-before-*.tar.gz) ;; *) continue ;; esac
+  case "$old" in "$k"-${STAMP_GLOB}-before-*.tar.gz) ;; *) continue ;; esac
   n=$((n + 1)); [ "$n" -le ${BEFORE_KEEP} ] || { rm -f -- "backups/$old" && log "removed the old undo backup $old (the newest ${BEFORE_KEEP} stay)"; }
 done`;
 /** `content-20261027-181500.tar.gz`; why = before-push etc. */
