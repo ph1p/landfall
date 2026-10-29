@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { checkAlias, checkInt, envVar, expandHome, tildify, type Server } from "./config";
+import { checkAlias, checkInt, configDir, envVar, expandHome, tildify, type Server } from "./config";
 import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, readStdin, report, step, warn } from "./term";
@@ -17,11 +17,14 @@ let askpass: string | undefined;
  */
 function askpassScript(): string {
   if (askpass) return askpass;
-  const dir = fs.mkdtempSync(join(tmpdir(), "landfall-"));
-  askpass = join(dir, "askpass");
-  fs.writeFileSync(askpass, `#!/bin/sh\nprintf '%s\\n' "$LANDFALL_PASSWORD"\n`, { mode: 0o700 });
-  process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
-  return askpass;
+  // One fixed file, written once: it holds no secret, and a temp copy would outlive a killed lf.
+  const f = join(configDir, "askpass");
+  const body = `#!/bin/sh\nprintf '%s\\n' "$LANDFALL_PASSWORD"\n`;
+  if (!fs.existsSync(f) || fs.readFileSync(f, "utf8") !== body) {
+    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(f, body, { mode: 0o700 });
+  }
+  return (askpass = f);
 }
 
 export const askpassEnv = (password: string) => ({ SSH_ASKPASS: askpassScript(), SSH_ASKPASS_REQUIRE: "force", LANDFALL_PASSWORD: password });

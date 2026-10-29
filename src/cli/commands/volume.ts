@@ -11,7 +11,7 @@ import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from 
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
 import { onStop } from "../../core/job";
-import { backupName, backupsOf, backupTo, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
+import { backupName, backupsOf, backupTo, pickVolume, pruneBefore, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
 /**
@@ -117,6 +117,8 @@ export const backupScript = (project: string, keep: number) => `#!/bin/sh
 # Saves every volume of the Compose project ${project} here, keeping the newest ${keep} of each.
 PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 cd "$(dirname "$0")" || exit 1
+# Its log stays small: past 1 MB it moves to backup.log.1, replacing the one before.
+[ "$(wc -c <backup.log 2>/dev/null || echo 0)" -lt 1048576 ] || mv -f backup.log backup.log.1
 keep=${keep}
 rc=0
 for v in $(docker volume ls -q --filter label=com.docker.compose.project=${project}); do
@@ -230,7 +232,8 @@ ${whileStopped(v.name, [
   `${tarOut(v.name)} > ${shq(before)}`,
   `record ${shq(`${what} (backup ${basename(before)})`)} ${shq(undo)}`,
   `${tarIn(v.name, own)} < ${shq(source)}`,
-])}`,
+])}
+${pruneBefore(v.key)}`,
   );
   info(c.dim(`previous contents: ${before} (lf undo puts them back)`));
 }
