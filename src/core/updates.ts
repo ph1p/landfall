@@ -1,7 +1,7 @@
 import { builtImage } from "./compose";
 import type { Server } from "./config";
 import { runScript, shq } from "./ssh";
-import { COMPOSE_INSTALL, COMPOSE_PLUGIN, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
+import { COMPOSE_INSTALL, COMPOSE_PLUGIN, kvRecord, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 
 // ---------------------------------------------------------------- OS packages
 
@@ -270,7 +270,7 @@ printf 'syno=%s
 ' "$([ -f /etc/synoinfo.conf ] && echo 1)"
 exit 0`;
   const [{ stdout }, ld, lc] = await Promise.all([runScript(s, script, { capture: true }), latestDocker(), latestCompose()]);
-  const v = Object.fromEntries(stdout.split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+  const v = kvRecord(stdout);
   return { docker: v.docker ?? "", compose: v.compose ?? "", composePath: v.path ?? "", dockerCe: v.ce === "1", synology: v.syno === "1", latestDocker: ld, latestCompose: lc };
 }
 

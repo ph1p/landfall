@@ -140,6 +140,7 @@ function locations() {
       { path: tildify(CONFIG_PATH), what: "servers and these defaults" },
       { path: tildify(join(configDir, "projects.json")), what: "folders deployed from here (web UI Recent)" },
       { path: tildify(join(configDir, "ui-token")), what: "web UI login token" },
+      { path: tildify(join(configDir, "askpass")), what: "hands ssh a password you typed or piped in; holds none itself" },
       { path: tildify(join(configDir, "uploads")), what: "folders dropped into the web UI, removed after a day" },
       { path: tildify(TUNNELS_DIR), what: "one file per open tunnel, gone when it closes (lf tunnels)" },
       { path: tildify(SSH_CONFIG), what: "Host <name> blocks between # >>> landfall:<name> markers" },

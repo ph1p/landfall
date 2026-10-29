@@ -98,8 +98,18 @@ apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/cr
 /** Shared shell helpers prepended to every remote script. */
 /** Any image with sh, tar, find and chown does; landfall needs nothing of its own on the server. */
 export const HELPER = "alpine:3";
+/** Shell: one CTR line per container: name, status, compose project, compose service, image, ports. */
+export const CTR_PS = String.raw`docker ps -a --format 'CTR\t{{.Names}}\t{{.Status}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.Image}}\t{{.Ports}}'`;
 /** Shell helper for read-only probes: kv <key> <value> prints one key=value line. */
 export const KV = String.raw`kv() { printf '%s=%s\n' "$1" "$2"; }`;
+/** A `key=value` line of KV's output, as [key, trimmed value]; undefined for any other line. */
+export function kvLine(line: string): [string, string] | undefined {
+  const i = line.indexOf("=");
+  return i > 0 ? [line.slice(0, i), line.slice(i + 1).trim()] : undefined;
+}
+/** Every `key=value` line of KV's output as one record; other lines are skipped. */
+export const kvRecord = (out: string): Record<string, string> =>
+  Object.fromEntries(out.split("\n").map(kvLine).filter((kv) => kv !== undefined));
 
 export const PRELUDE = String.raw`
 # useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.

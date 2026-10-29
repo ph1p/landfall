@@ -2,7 +2,7 @@ import type { Server } from "./config";
 import { SITE_LINES, projectName, readSiteLine } from "./compose";
 import { journalSize } from "./reclaim";
 import { runScript } from "./ssh";
-import { KV, ROOT, SITES } from "./templates";
+import { CTR_PS, KV, kvRecord, ROOT, SITES } from "./templates";
 
 /** Two samples a second apart: CPU and network are rates, a single read has none. */
 const STATS = String.raw`
@@ -35,7 +35,7 @@ awk -F'\t' 'NR == FNR { t[$1] = $2; next } ($1 in t) { print "PROC\t" $1 "\t" ($
 if [ -n "$D" ]; then
   wait
   cat "$T/stats"
-  docker ps -a --format 'CTR\t{{.Names}}\t{{.Status}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.Image}}'
+  ${CTR_PS}
   ids=$(docker ps -aq)
   [ -z "$ids" ] || docker inspect -f 'RST{{"\t"}}{{.Name}}{{"\t"}}{{.RestartCount}}' $ids 2>/dev/null
   ${SITE_LINES}
@@ -98,7 +98,7 @@ const pair = (s = "") => s.split(" / ").map(parseSize) as [number, number];
 const VIRTUAL = /^(lo|veth|docker|br-|virbr|cni|flannel|cali|vxlan)/;
 
 export function parseStats(out: string, now = new Date()): Stats {
-  const v: Record<string, string> = {};
+  const v = kvRecord(out);
   const t: number[] = [];
   const cpu: number[][] = [];
   const net: Map<string, number[]>[] = [new Map(), new Map()];
@@ -122,7 +122,7 @@ export function parseStats(out: string, now = new Date()): Stats {
     else if (k === "SITE") {
       const meta = readSiteLine(line);
       if (meta) sites.set(projectName(meta), meta.name);
-    } else if (line.includes("=")) v[line.slice(0, line.indexOf("="))] = line.slice(line.indexOf("=") + 1).trim();
+    }
   }
   const cpus = Number(v.cpus) || 1;
   // /proc/stat: user nice system idle iowait irq softirq steal …; idle time is idle + iowait.
@@ -237,7 +237,7 @@ export interface DiskUsage {
 }
 
 export function parseDisk(out: string): DiskUsage {
-  const v: Record<string, string> = {};
+  const v = kvRecord(out);
   const d: DiskUsage = { root: false, disks: [], landfall: 0, sites: [], journald: 0, docker: false, dockerDf: [], volumes: [], logs: [] };
   for (const line of out.split("\n")) {
     const f = line.split("\t");
@@ -246,7 +246,6 @@ export function parseDisk(out: string): DiskUsage {
     else if (f[0] === "DF") d.dockerDf.push({ type: f[1], count: +f[2] || 0, active: +f[3] || 0, size: parseSize(f[4] ?? ""), reclaimable: parseSize((f[5] ?? "").split(" ")[0]) });
     else if (f[0] === "VOL") d.volumes.push({ name: f[1], links: +f[2] || 0, size: parseSize(f[3] ?? "") });
     else if (f[0] === "LOG") d.logs.push({ container: f[1], ...(f[2] && { size: +f[2] * 1024 }) });
-    else if (line.includes("=")) v[line.slice(0, line.indexOf("="))] = line.slice(line.indexOf("=") + 1).trim();
   }
   d.root = v.root === "1";
   d.docker = v.docker === "1";
