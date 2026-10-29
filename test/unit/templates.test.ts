@@ -8,7 +8,7 @@ import { htpasswd, traefikSettings } from "../../src/core/traefik";
 import { parse } from "../../src/cli/cmd";
 import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/templates";
-import { adoptCompose, analyze, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, folderVolumes, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
+import { adoptCompose, analyze, findRoute, isCidr, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, folderVolumes, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -58,6 +58,55 @@ describe("templates", () => {
     const y = overrideYaml({ ...meta, auth: ["bob:$2y$05$x"] }, release);
     expect(y).toContain('"traefik.http.middlewares.blog-auth.basicauth.users": "bob:$$2y$$05$$x"');
     expect(y).toContain('"traefik.http.routers.blog_web.middlewares": "blog-auth"');
+  });
+
+  test("allow and route logins: an address check before the login, a route's own login in place of the site's", () => {
+    const r: Release = {
+      ...release,
+      services: [{ name: "web", networks: ["default"], port: 3000, allow: ["10.0.0.0/8"], routes: [{ port: 3001, subdomain: "admin", allow: ["203.0.113.7"] }, { port: 3002, subdomain: "hooks" }] }],
+    };
+    const m: SiteMeta = { ...meta, releases: [r], auth: ["bob:h1"], routeAuth: { "web:3001": ["ann:h2"], "web:3002": [] } };
+    const y = YAML.parse(overrideYaml(m, r)).services.web.labels;
+    expect(y["traefik.http.middlewares.blog_web-allow.ipallowlist.sourcerange"]).toBe("10.0.0.0/8");
+    expect(y["traefik.http.routers.blog_web.middlewares"]).toBe("blog_web-allow,blog-auth");
+    expect(y["traefik.http.middlewares.blog-auth.basicauth.users"]).toBe("bob:h1");
+    expect(y["traefik.http.routers.blog_web_3001.middlewares"]).toBe("blog_web_3001-allow,blog_web_3001-auth");
+    expect(y["traefik.http.middlewares.blog_web_3001-auth.basicauth.users"]).toBe("ann:h2");
+    expect(y["traefik.http.routers.blog_web_3002.middlewares"]).toBeUndefined();
+
+    expect(findRoute(m, "admin")).toEqual({ key: "web:3001", domains: ["admin.a.com", "admin.www.a.com"] });
+    expect(findRoute(m, "hooks.a.com")).toMatchObject({ key: "web:3002" });
+    expect(findRoute(m, "web")).toMatchObject({ key: "web:3000" });
+    expect(findRoute(m, "web:3001")).toMatchObject({ key: "web:3001" });
+    expect(findRoute(m, "nope")).toEqual({ routes: ["web:3000", "web:3001", "web:3002"] });
+  });
+
+  test("eject: the labels for your own Traefik, built from source and with Docker's own volumes", () => {
+    const p = { container: "t", network: "edge", entrypoint: "https", resolver: "le" };
+    const y = overrideYaml({ ...meta, volumes: ["content"], auth: ["bob:h"] }, release, p, { eject: true });
+    expect(y).toMatch(/^# What landfall added to blog/);
+    expect(y).toContain("docker compose -f compose.yaml -f compose.traefik.yaml up -d");
+    const doc = YAML.parse(y);
+    expect(doc.name).toBe("blog");
+    expect(doc.services.web.image).toBeUndefined();
+    expect(doc.services.web.labels["traefik.http.routers.blog_web.middlewares"]).toBe("blog-auth");
+    expect(doc.services.web.labels["landfall.managed"]).toBeUndefined();
+    expect(doc.services.db).toBeUndefined();
+    expect(doc.networks["landfall-proxy"]).toEqual({ name: "edge", external: true });
+    expect(doc.volumes).toBeUndefined();
+  });
+
+  test("allow: addresses and CIDR ranges, on a port or a route", () => {
+    const dir = tmp();
+    const a = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, allow: "192.168.1.0/24", routes: [{ port: 3001, subdomain: "a", allow: ["::1", "2001:db8::/32"] }] } } } }, dir);
+    expect(a.errors).toEqual([]);
+    expect(a.services[0]).toMatchObject({ allow: ["192.168.1.0/24"], routes: [{ port: 3001, subdomain: "a", allow: ["::1", "2001:db8::/32"] }] });
+    expect(routePlan(a.services, ["x.io"])[0].allow).toEqual(["192.168.1.0/24"]);
+    const bad = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, allow: ["10.0.0.0/33", "example.com"], routes: [{ port: 3001, subdomain: "a", allow: [] }] } } } }, dir);
+    expect(bad.errors.join("\n")).toMatch(/not 10\.0\.0\.0\/33, example\.com/);
+    expect(bad.errors.join("\n")).toMatch(/allow is empty/);
+    expect(analyze({ services: { w: { image: "w", "x-landfall": { allow: ["1.2.3.4"], routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join()).toMatch(/put allow on its routes/);
+    expect([isCidr("1.2.3.4"), isCidr("1.2.3.4/32"), isCidr("fe80::1/64"), isCidr("1.2.3.4/x"), isCidr("1.2.3")]).toEqual([true, true, true, false, false]);
   });
 
   test("volumes: bound to the site's folder, Compose's own only", () => {

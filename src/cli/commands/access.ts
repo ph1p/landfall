@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, editList, expandDomain, loadProject, saveProject, type Server } from "../../core/config";
 import { checkDns, serverIps } from "../../core/facts";
 import { updateProjectDomains } from "../../core/projects";
-import { currentRelease, isOld, siteDomains, siteMain, subDomains } from "../../core/compose";
+import { currentRelease, findRoute, isOld, siteDomains, siteMain, subDomains, type SiteMeta } from "../../core/compose";
 import { changeSite, overview, requireSite } from "../../core/remote";
 import type { Proxy } from "../../core/templates";
 import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn } from "../../core/term";
@@ -113,41 +113,84 @@ export const auth = defineCommand({
   lf auth my-site --user anna             add or change a login (asks the password)
   lf auth my-site --rm-user anna          remove a login
   lf auth my-site --off                   remove all logins: the site is public again
-  lf auth my-site                         show who can log in`,
+  lf auth my-site                         show who can log in
+  lf auth my-site -r admin --user bob     a login of its own on one route (admin.<domain>), in place of the site's
+  lf auth my-site -r hooks --public       no login on one route, though the site asks for one
+  lf auth my-site -r admin --off          the route asks for the site's login again`,
   options: {
     server: serverOpt,
     user: { type: "string", short: "u", desc: "login to add or change (default with --password: admin)" },
     password: { type: "string", short: "p", desc: "its password (asked when missing; visible in ps, prefer --password-stdin)" },
     "password-stdin": { type: "boolean", desc: "read the password from stdin" },
     "rm-user": { type: "string", multiple: true, desc: "remove a login" },
-    off: { type: "boolean", desc: "remove every login" },
+    off: { type: "boolean", desc: "remove every login (with --route: its own, so it asks for the site's again)" },
+    route: { type: "string", short: "r", desc: "one route instead of the site: its subdomain, a domain, service:port or service" },
+    public: { type: "boolean", desc: "with --route: no login on it at all" },
   },
   async run([n], o) {
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
-    const users = (meta.auth ?? []).map(loginUser);
+    if (o.public && !o.route) fail("--public goes with --route; lf auth --off makes the whole site public");
+    let key: string | undefined;
+    if (o.route) {
+      const r = findRoute(meta, o.route);
+      if ("routes" in r) return fail(`${site} has no route ${o.route}${r.routes.length ? `; its routes: ${r.routes.join(", ")}` : ""}`);
+      key = r.key;
+    }
+    const own = key ? meta.routeAuth?.[key] : meta.auth;
+    const users = (own ?? []).map(loginUser);
     const password = await passwordOption(o);
     const user = o.user ?? (password ? DEFAULT_USER : undefined);
-    if (!user && !o["rm-user"] && !o.off) {
-      if (!users.length) return void console.log(`${site} is public ${c.dim("(add a login with --user)")}`);
-      return void console.log(`${site} asks for a login: ${users.map((u) => c.bold(u)).join(", ")}`);
-    }
-    let lines = o.off ? [] : [...(meta.auth ?? [])];
-    const drop = new Set<string>(o["rm-user"] ?? []);
-    for (const u of drop) if (!users.includes(u)) warn(`no login ${u} on ${site}`);
-    if (user) drop.add(user);
-    lines = lines.filter((l) => !drop.has(loginUser(l)));
-    if (user) lines.push(await newLogin(user, password));
-    if (lines.join("\n") === (meta.auth ?? []).join("\n")) return ok("nothing to change");
-    const now = lines.map(loginUser);
-    const gone = users.filter((u) => !now.includes(u));
-    if (!now.length) await confirmRemoval(`Remove every login from ${site}? Anyone can open it then.`);
-    else if (gone.length) await confirmRemoval(`Remove the login${gone.length > 1 ? "s" : ""} ${gone.join(", ")} from ${site}?`);
+    if (o.public && (user || o["rm-user"] || o.off)) fail("--public takes no logins: use it alone, or --off to drop the route's own ones");
+    if (!user && !o["rm-user"] && !o.off && !o.public) return void showLogins(site, meta, key);
 
-    await changeSite(server, site, proxy, now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`, (m) => void (m.auth = lines.length ? lines : undefined));
-    ok(now.length ? `${site} asks for a login (${now.join(", ")})` : `${site} is public again`);
+    const where = key ? `${key} of ${site}` : site;
+    let lines: string[] | undefined;
+    if (o.public) lines = [];
+    else if (o.off) lines = key ? undefined : [];
+    else {
+      const drop = new Set<string>(o["rm-user"] ?? []);
+      for (const u of drop) if (!users.includes(u)) warn(`no login ${u} on ${where}`);
+      if (user) drop.add(user);
+      lines = (own ?? []).filter((l) => !drop.has(loginUser(l)));
+      if (user) lines.push(await newLogin(user, password));
+      // A route without logins of its own asks for the site's again; --public makes it open.
+      if (key && !lines.length) lines = undefined;
+    }
+    if (JSON.stringify(lines ?? null) === JSON.stringify(own ?? (key ? null : []))) return ok("nothing to change");
+    const now = (lines ?? []).map(loginUser);
+    const gone = users.filter((u) => !now.includes(u));
+    if (!key && !now.length) await confirmRemoval(`Remove every login from ${site}? Anyone can open it then.`);
+    else if (key && lines?.length === 0 && meta.auth?.length) await confirmRemoval(`Open ${where} without a login? Anyone can use it then.`);
+    else if (gone.length) await confirmRemoval(`Remove the login${gone.length > 1 ? "s" : ""} ${gone.join(", ")} from ${where}?`);
+
+    if (!key) {
+      await changeSite(server, site, proxy, now.length ? `login for ${site}: ${now.join(", ")}` : `removed the login of ${site}`, (m) => void (m.auth = now.length ? lines : undefined));
+      return ok(now.length ? `${site} asks for a login (${now.join(", ")})` : `${site} is public again`);
+    }
+    const said = lines === undefined ? `${where} asks for the site's login again` : lines.length ? `login for ${where}: ${now.join(", ")}` : `${where} is public`;
+    await changeSite(server, site, proxy, said, (m) => {
+      const all = { ...m.routeAuth };
+      if (lines === undefined) delete all[key];
+      else all[key] = lines;
+      m.routeAuth = Object.keys(all).length ? all : undefined;
+    });
+    ok(said);
   },
 });
+
+/** Who can log in to a site, and to the routes that have logins of their own; or to one route (`key`). */
+function showLogins(site: string, meta: SiteMeta, key?: string) {
+  const names = (lines: string[]) => lines.map((l) => c.bold(loginUser(l))).join(", ");
+  const siteSays = meta.auth?.length ? `asks for a login: ${names(meta.auth)}` : "is public";
+  if (key) {
+    const own = meta.routeAuth?.[key];
+    if (!own) return void console.log(`${key} of ${site} has no logins of its own: like the site, it ${siteSays}`);
+    return void console.log(own.length ? `${key} of ${site} asks for its own login: ${names(own)}` : `${key} of ${site} is public ${c.dim("(lf auth -r " + key + " --off asks for the site's login again)")}`);
+  }
+  console.log(`${site} ${siteSays}${meta.auth?.length ? "" : ` ${c.dim("(add a login with --user)")}`}`);
+  for (const [k, own] of Object.entries(meta.routeAuth ?? {})) console.log(`  ${k.padEnd(16)} ${own.length ? `its own login: ${names(own)}` : "public"}`);
+}
 
 export const open = defineCommand({
   name: "open",

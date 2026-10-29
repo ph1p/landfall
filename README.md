@@ -321,6 +321,19 @@ volumes:
 
   A service with only private ports opens the one named like it (else its first) with `lf tunnel <site> <service>`.
 
+- **Only from some addresses**: `allow` on `x-landfall` (for its `port`) or on a route takes IP addresses and
+  CIDR ranges; Traefik answers everyone else with 403 (an `ipallowlist` middleware, checked before any login):
+
+  ```yaml
+  x-landfall:
+    port: 3000
+    routes:
+      - { port: 3001, subdomain: admin, allow: [10.0.0.0/8, 203.0.113.7] }
+  ```
+
+  A route can also have its own login instead of the site's, or none: `lf auth -r admin -u anna`,
+  `lf auth -r hooks --public` ([Day-to-day](#day-to-day)).
+
 - **A compose.yaml without `x-landfall` deploys as it is.** landfall routes the HTTP ports its services
   publish (`ports:`) or `expose:`: the first service with `build:` (else one on a usual web port) gets the
   site's domains with its first port, every other port a subdomain (`<service>` or `<service>-<port>`).
@@ -401,7 +414,10 @@ Everything landfall adds is in the release's `compose.override.yaml`, plain Comp
 image tags, the Traefik labels (a router `<site>_<service>` per service, `<site>_<service>_<port>` per extra
 route), the proxy network and `ports: !reset []`. To leave landfall, copy your `compose.yaml` and that override
 to any host with Docker and run `docker compose up -d`, behind your own Traefik with the same labels (or drop
-the override and publish ports yourself). `x-landfall` is a Compose extension field: `docker compose` ignores it.
+the override and publish ports yourself). `lf eject` does this in your project: it writes the live release's
+labels into `compose.traefik.yaml` (images are built from source again, volumes are Docker's own), for
+`docker compose -f compose.yaml -f compose.traefik.yaml up -d`; `--network`, `--entrypoint` and `--resolver`
+match your Traefik. `x-landfall` is a Compose extension field: `docker compose` ignores it.
 
 `/opt/landfall/README` on the server explains the same. A project you started yourself behind landfall's
 Traefik shows up in `lf sites` as not deployed by landfall; `lf adopt <project>` makes it a site that `lf` can
@@ -450,6 +466,8 @@ lf domains --rm @                  # take the main domain off; the last one leav
 lf auth -u anna                    # login in front of the site (asks for the password, -p passes it)
 lf auth --password-stdin < pw.txt  # the same for user admin, password from stdin
 lf auth --rm-user anna | --off
+lf auth -r admin -u bob            # a login of its own on one route (subdomain, domain or service:port)
+lf auth -r hooks --public          # no login on that route; -r hooks --off asks for the site's login again
 lf open
 lf tunnel blog                     # http://localhost:<port> straight to its container: test it without a domain
 lf tunnel my-compose-app -s vps    # also any Compose project or container landfall did not deploy
@@ -939,7 +957,7 @@ lf undo -s box -y                           # revert the last run
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name] [--json]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
-| `lf auth [name] -u user [-p pw \| --password-stdin]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
+| `lf auth [name] [-r route] -u user [-p pw \| --password-stdin]` / `--rm-user u` / `--off` / `-r route --public` | Puts basic-auth login in front of a site, or gives one route its own login or none. |
 | `lf open [name]` | Opens the site in the browser. |
 | `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
 | `lf env [name] [K=V...] [--dotenv f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows the site's `.env` (values hidden unless `--reveal`), copies it to a local file, or changes it. A change recreates the services. |
@@ -957,6 +975,7 @@ lf undo -s box -y                           # revert the last run
 | `lf volume pull [name] [volume] [--into dir] [-o file] [--backup file\|latest]` | Downloads a volume or one of its backups, as an archive or unpacked. |
 | `lf volume push [name] <volume> <folder\|file.tar.gz>` | Replaces a volume's contents with local files. Backs up first; undoable. |
 | `lf volume restore [name] [volume] [backup]` | Replaces a volume's contents with a backup (default: the newest). Backs up first; undoable. |
+| `lf eject [name] [--network n] [--entrypoint e] [--resolver r]` | Writes the live release's Traefik labels, logins and proxy network into the project as `compose.traefik.yaml`, to run it behind your own Traefik. Changes nothing on the server. |
 | `lf adopt <project> [--name n]` | Makes a Compose project you started yourself a site, so `ls`, logs, restart and rm work for it. |
 
 **Traefik, firewall, updates, history**

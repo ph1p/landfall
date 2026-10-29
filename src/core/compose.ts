@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { isIP } from "node:net";
 import { join } from "node:path";
 import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 import { DOMAIN } from "./config";
@@ -50,6 +51,8 @@ export interface Service {
   paths?: Record<string, string>;
   /** A plain compose.yaml's ports: are dropped on the server; Traefik routes them instead. */
   unpublish?: boolean;
+  /** x-landfall.allow: the addresses (IPs, CIDRs) that may reach its port; any when none. */
+  allow?: string[];
 }
 
 /** One more port of a service, on a subdomain of every site domain or on fixed domains. */
@@ -58,6 +61,8 @@ export interface Route {
   /** admin: admin.<d> for each of the site's domains (\`lf domains\`). */
   subdomain?: string;
   domains?: string[];
+  /** The addresses (IPs, CIDRs) that may reach it; any when none. */
+  allow?: string[];
 }
 
 export interface Release {
@@ -86,6 +91,8 @@ export interface SiteMeta {
   domains: string[];
   /** htpasswd lines (user:bcrypt): the site asks for a login. */
   auth?: string[];
+  /** Logins of single routes by routeKey (\`lf auth --route\`), in place of the site's; [] = public. */
+  routeAuth?: Record<string, string[]>;
   current: string;
   releases: Release[];
   /** Adopted: a Compose project landfall did not deploy, run where it is; `current` points there. */
@@ -186,10 +193,10 @@ export function siteDomains(meta: SiteMeta): string[] {
 }
 
 /** What a release routes, port by port: the main service on the site's domains, each route on its own. */
-export function routePlan(services: Service[], site: string[]): { service: string; port: number; domains: string[]; main?: boolean }[] {
+export function routePlan(services: Service[], site: string[]): { service: string; port: number; domains: string[]; main?: boolean; allow?: string[] }[] {
   return services.flatMap((s) => [
-    ...(s.port && !s.own ? [{ service: s.name, port: s.port, domains: s.domains ?? site, ...(isMain(s) && { main: true }) }] : []),
-    ...(s.own ? [] : (s.routes ?? []).map((r) => ({ service: s.name, port: r.port, domains: routeDomains(r, site) }))),
+    ...(s.port && !s.own ? [{ service: s.name, port: s.port, domains: s.domains ?? site, ...(isMain(s) && { main: true }), ...(s.allow && { allow: s.allow }) }] : []),
+    ...(s.own ? [] : (s.routes ?? []).map((r) => ({ service: s.name, port: r.port, domains: routeDomains(r, site), ...(r.allow && { allow: r.allow }) }))),
   ]);
 }
 
@@ -197,6 +204,8 @@ export function routePlan(services: Service[], site: string[]): { service: strin
 export const builtImage = (site: string, service: string, id: string) => `${site}-${service.toLowerCase()}:${id}`;
 
 /** Compose file names, in the order `docker compose` looks for them. */
+/** Where \`lf eject\` writes a site's override in its project. */
+export const EJECT_FILE = "compose.traefik.yaml";
 export const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
 export const OVERRIDE_FILES = ["compose.override.yaml", "compose.override.yml", "docker-compose.override.yaml", "docker-compose.override.yml"];
 /** What an environment layers over a compose file, as `docker compose -f compose.yaml -f compose.staging.yaml` would. */
@@ -228,7 +237,25 @@ const SIDE_TOOLS = /(^|\/)(adminer|phpmyadmin|pgadmin4?|mailhog|mailpit|maildev|
 /** One or more DNS labels: admin, api.v2. */
 const SUBDOMAIN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 const PRIVATE_NAME = /^[a-z0-9][a-z0-9_.-]*$/i;
-const X_KEYS = ["port", "domains", "publish", "routes", "private"];
+const X_KEYS = ["port", "domains", "publish", "routes", "private", "allow"];
+
+/** An IPv4 or IPv6 address, or a CIDR range of one. */
+export function isCidr(v: string): boolean {
+  const [ip, bits, more] = v.split("/");
+  const kind = isIP(ip);
+  if (!kind || more !== undefined) return false;
+  return bits === undefined || (/^\d{1,3}$/.test(bits) && Number(bits) <= (kind === 4 ? 32 : 128));
+}
+
+/** x-landfall.allow of a service or route: a list of addresses; `where` names it in errors. */
+function readAllow(where: string, value: unknown, errors: string[]): string[] | undefined {
+  if (value === undefined) return undefined;
+  const list = (Array.isArray(value) ? value : [value]).map((v) => String(v).trim());
+  const bad = list.filter((v) => !isCidr(v));
+  if (bad.length) errors.push(`${where}: allow takes IP addresses or CIDR ranges, like allow: [10.0.0.0/8, 203.0.113.7], not ${bad.join(", ")}`);
+  else if (!list.length) errors.push(`${where}: allow is empty, so nobody could reach it; leave it out to allow everyone`);
+  return bad.length || !list.length ? undefined : list;
+}
 
 const toPort = (v: unknown) => {
   const n = typeof v === "string" && !/^\d+$/.test(v.trim()) ? NaN : Number(v);
@@ -295,8 +322,9 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
       errors.push(`${name}: each x-landfall.routes entry needs a port, like { port: 3001, subdomain: admin }; got ${JSON.stringify(r)}`);
       continue;
     }
-    const unknown = Object.keys(r).filter((k) => !["port", "subdomain", "domains"].includes(k));
-    if (unknown.length) errors.push(`${name}: a route knows port, subdomain and domains, not ${unknown.join(", ")}`);
+    const unknown = Object.keys(r).filter((k) => !["port", "subdomain", "domains", "allow"].includes(k));
+    if (unknown.length) errors.push(`${name}: a route knows port, subdomain, domains and allow, not ${unknown.join(", ")}`);
+    const allow = readAllow(`${name}: the route to ${port}`, r.allow, errors);
     if ((r.subdomain === undefined) === (r.domains === undefined)) {
       errors.push(`${name}: the route to ${port} needs a subdomain (admin: admin.<each site domain>) or domains, not ${r.subdomain === undefined ? "neither" : "both"}`);
       continue;
@@ -304,13 +332,13 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
     if (r.subdomain !== undefined) {
       const sub = String(r.subdomain).trim().toLowerCase();
       if (!SUBDOMAIN.test(sub)) errors.push(`${name}: not a subdomain: ${r.subdomain}`);
-      routes.push({ port, subdomain: sub });
+      routes.push({ port, subdomain: sub, ...(allow && { allow }) });
     } else {
       const ds = (Array.isArray(r.domains) ? r.domains : [r.domains]).map((d: unknown) => expand(String(d).trim()));
       const bad = ds.filter((d: string) => !DOMAIN.test(d));
       if (bad.length) errors.push(`${name}: not a domain in the route to ${port}: ${bad.join(", ")}`);
       if (!ds.length) errors.push(`${name}: the route to ${port} has no domains`);
-      routes.push({ port, domains: ds });
+      routes.push({ port, domains: ds, ...(allow && { allow }) });
     }
   }
   return routes;
@@ -388,6 +416,9 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
         s.domains = ds;
       }
       if (routes.length) s.routes = routes;
+      const allow = readAllow(`${name}: x-landfall`, x.allow, errors);
+      if (allow && s.port === undefined) errors.push(`${name}: x-landfall.allow guards x-landfall.port, which it has none of; put allow on its routes`);
+      else if (allow) s.allow = allow;
       if (priv && Object.keys(priv.ports).length) s.private = priv.ports;
       if (priv && Object.keys(priv.paths).length) s.paths = priv.paths;
       const ports = [s.port, ...routes.map((r) => r.port)].filter((p) => p !== undefined);
@@ -576,7 +607,39 @@ const q = yamlStr;
 const PROXY_KEY = "landfall-proxy";
 
 /** Traefik labels for one routed service. */
-export function routeLabels(site: string, s: Service, domains: string[], proxy: Proxy, auth: string[] = [], port = s.port): Record<string, string> {
+/** Who may use one router: the logins it asks for (own: its own, not the site's) and the addresses it serves. */
+export interface Access {
+  auth?: string[];
+  own?: boolean;
+  allow?: string[];
+}
+
+/** How \`lf auth --route\` names a router: the service and the port it routes to. */
+export const routeKey = (service: string, port: number) => `${service}:${port}`;
+
+/** The access of the router to port `port` of `s`: its own logins, else the site's. */
+export function routeAccess(meta: Pick<SiteMeta, "auth" | "routeAuth">, s: Service, port: number, allow?: string[]): Access {
+  const own = meta.routeAuth?.[routeKey(s.name, port)];
+  return { auth: own ?? meta.auth, own: !!own, allow };
+}
+
+/**
+ * The router of the current release that `name` picks: service:port, a subdomain (admin), one of its
+ * domains, or a service for its own port. Else the routers there are, for the error.
+ */
+export function findRoute(meta: SiteMeta, name: string): { key: string; domains: string[] } | { routes: string[] } {
+  const all = (currentRelease(meta)?.services ?? [])
+    .filter((s) => !s.own)
+    .flatMap((s) => [
+      ...(s.port ? [{ key: routeKey(s.name, s.port), service: s.name, domains: s.domains ?? meta.domains }] : []),
+      ...(s.routes ?? []).map((r) => ({ key: routeKey(s.name, r.port), sub: r.subdomain, domains: routeDomains(r, meta.domains) })),
+    ]);
+  const want = name.trim().toLowerCase();
+  const hit = all.find((r) => r.key === want) ?? all.find((r) => "sub" in r && r.sub === want) ?? all.find((r) => r.domains.includes(want)) ?? all.find((r) => "service" in r && r.service === want);
+  return hit ? { key: hit.key, domains: hit.domains } : { routes: all.map((r) => r.key) };
+}
+
+export function routeLabels(site: string, s: Service, domains: string[], proxy: Proxy, access: Access = {}, port = s.port): Record<string, string> {
   // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
   // A route's router carries its port: blog_web_3001 next to blog_web.
   const r = `${site}_${s.name.toLowerCase().replace(/\./g, "-")}${port === s.port ? "" : `_${port}`}`;
@@ -589,10 +652,18 @@ export function routeLabels(site: string, s: Service, domains: string[], proxy: 
     [`traefik.http.routers.${r}.service`]: r,
     [`traefik.http.services.${r}.loadbalancer.server.port`]: String(port),
   };
-  if (auth.length) {
-    out[`traefik.http.middlewares.${site}-auth.basicauth.users`] = auth.join(",");
-    out[`traefik.http.routers.${r}.middlewares`] = `${site}-auth`;
+  // The address check comes first: a refused address never sees the login prompt.
+  const chain: string[] = [];
+  if (access.allow?.length) {
+    out[`traefik.http.middlewares.${r}-allow.ipallowlist.sourcerange`] = access.allow.join(",");
+    chain.push(`${r}-allow`);
   }
+  if (access.auth?.length) {
+    const m = access.own ? `${r}-auth` : `${site}-auth`;
+    out[`traefik.http.middlewares.${m}.basicauth.users`] = access.auth.join(",");
+    chain.push(m);
+  }
+  if (chain.length) out[`traefik.http.routers.${r}.middlewares`] = chain.join(",");
   return out;
 }
 
@@ -601,9 +672,14 @@ export function routeLabels(site: string, s: Service, domains: string[], proxy: 
  * it, so it never changes), per-release tags for built images, the proxy network on routed
  * services next to the networks they had, Traefik's labels, and landfall.* on every service.
  */
-export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROXY): string {
+export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROXY, o: { eject?: boolean } = {}): string {
   const lines = [
-    "# generated by landfall: rewritten on every deploy, rollback and domain change. Edit compose.yaml instead.",
+    ...(o.eject
+      ? [
+          `# What landfall added to ${meta.name} on its server (lf eject): the Traefik labels, the proxy network and the`,
+          `# project name, for your own Traefik. docker compose -f compose.yaml -f ${EJECT_FILE} up -d`,
+        ]
+      : ["# generated by landfall: rewritten on every deploy, rollback and domain change. Edit compose.yaml instead."]),
     `name: ${q(projectName(meta))}`,
     "services:",
   ];
@@ -612,7 +688,8 @@ export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROX
   const secrets = meta.kind === "dockerfile" || meta.kind === "image" ? (meta.secrets ?? []) : [];
   for (const s of r.services) {
     lines.push(`  ${q(s.name)}:`);
-    if (s.build) lines.push(`    image: ${q(builtImage(meta.name, s.name, r.id))}`);
+    // Ejected, compose.yaml builds it again: the release's image is on the server only.
+    if (s.build && !o.eject) lines.push(`    image: ${q(builtImage(meta.name, s.name, r.id))}`);
     // A plain compose.yaml publishes its ports for local use; on the server Traefik routes them.
     if (s.unpublish) lines.push("    ports: !reset []");
     if (secrets.length) lines.push("    secrets:", ...secrets.map((k) => `      - ${q(k)}`));
@@ -623,21 +700,25 @@ export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROX
       if (s.own) labels["traefik.docker.network"] = proxy.network;
       else {
         // A main service with no domains left stays up, unrouted; so do its subdomain routes.
-        if (s.port && (s.domains ?? meta.domains).length) labels = routeLabels(meta.name, s, s.domains ?? meta.domains, proxy, meta.auth);
+        if (s.port && (s.domains ?? meta.domains).length) labels = routeLabels(meta.name, s, s.domains ?? meta.domains, proxy, routeAccess(meta, s, s.port, s.allow));
         for (const route of s.routes ?? []) {
           const ds = routeDomains(route, meta.domains);
-          if (ds.length) Object.assign(labels, routeLabels(meta.name, s, ds, proxy, meta.auth, route.port));
+          if (ds.length) Object.assign(labels, routeLabels(meta.name, s, ds, proxy, routeAccess(meta, s, route.port, route.allow), route.port));
         }
       }
     }
-    labels["landfall.managed"] = "true";
-    labels["landfall.site"] = meta.name;
-    lines.push("    labels:", ...Object.entries(labels).map(([k, v]) => `      ${q(k)}: ${q(composeEscape(v))}`));
+    if (!o.eject) {
+      labels["landfall.managed"] = "true";
+      labels["landfall.site"] = meta.name;
+    }
+    if (Object.keys(labels).length) lines.push("    labels:", ...Object.entries(labels).map(([k, v]) => `      ${q(k)}: ${q(composeEscape(v))}`));
+    else if (lines.at(-1) === `  ${q(s.name)}:`) lines.pop();
   }
+  if (lines.at(-1) === "services:") lines[lines.length - 1] = "services: {}";
   if (usesProxy) lines.push("networks:", `  ${PROXY_KEY}:`, `    name: ${q(proxy.network)}`, "    external: true");
   if (secrets.length) lines.push("secrets:", ...secrets.flatMap((k) => [`  ${q(k)}:`, `    file: ${q(`./${SECRETS_DIR}/${k}`)}`]));
   // Bound to the site's folder: the data sits next to its releases, and `docker volume` still lists it.
-  const vols = meta.adopted ? [] : (meta.volumes ?? []);
+  const vols = meta.adopted || o.eject ? [] : (meta.volumes ?? []);
   if (vols.length)
     lines.push("volumes:", ...vols.flatMap((k) => [`  ${q(k)}:`, "    driver_opts:", "      type: none", "      o: bind", `      device: ${q(volumeDir(meta.name, k))}`]));
   return lines.join("\n") + "\n";

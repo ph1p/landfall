@@ -3,7 +3,7 @@ import { journalCmd, parse, usage, type Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { config } from "./commands/config";
 import { deploy } from "./commands/deploy";
-import { init } from "./commands/init";
+import { eject, init } from "./commands/init";
 import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUninstall, serverUse } from "./commands/server";
 import { firewallAllow, firewallDeny, firewallDisable, firewallEnable, firewallRemove, firewallStatus, firewallUpdate } from "./commands/firewall";
 import { historyLog, historyUndo } from "./commands/history";
@@ -59,6 +59,7 @@ import pkg from "../../package.json";
 const commands: Command[] = [
   setup,
   init,
+  eject,
   deploy,
   sitesList,
   sitesInfo,
@@ -229,7 +230,7 @@ function help() {
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
-    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm"]],
+    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm", "eject"]],
     ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update", "scan"]],
