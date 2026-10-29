@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { defineCommand } from "../cmd";
-import { checkInt } from "../../core/config";
-import { adoptCompose, OVERRIDE_FILES, volumeName } from "../../core/compose";
+import { defineCommand, serverOpt } from "../cmd";
+import { checkInt, loadProject } from "../../core/config";
+import { adoptCompose, COMPOSE_FILES, currentRelease, EJECT_FILE, localCompose, OVERRIDE_FILES, overrideYaml, routed, volumeName } from "../../core/compose";
 import { detectApp, detectProject } from "../../core/projects";
-import { c, fail, info, ok, showDiff, showStack, warn } from "../../core/term";
+import { requireSite } from "../../core/remote";
+import { c, confirm, fail, info, ok, showDiff, showStack, warn } from "../../core/term";
+import { target } from "./sites";
 
 export const init = defineCommand({
   name: "init",
@@ -155,3 +157,49 @@ function adopt(root: string, file: string, a: NonNullable<ReturnType<typeof dete
   for (const w of a.warnings) warn(w);
 }
 
+
+export const eject = defineCommand({
+  name: "eject",
+  args: "[site]",
+  summary: `Write what landfall adds to a site into its project, to run it behind your own Traefik.
+
+  ${EJECT_FILE}   the Traefik labels (logins and allow included), the proxy network and
+                         the project name of the running release; with compose.yaml:
+                         docker compose -f compose.yaml -f ${EJECT_FILE} up -d
+
+Run it in the site's project folder. Nothing changes on the server: the site keeps running
+there, and lf deploy goes on as before.`,
+  options: {
+    server: serverOpt,
+    network: { type: "string", desc: "the Docker network your Traefik watches (default: landfall's)" },
+    entrypoint: { type: "string", desc: "your Traefik's HTTPS entrypoint (default: landfall's)" },
+    resolver: { type: "string", desc: "your Traefik's certificate resolver (default: landfall's)" },
+  },
+  async run([n], o) {
+    const { site, server, name: serverName } = target(n, o.server);
+    const root = process.cwd();
+    const file = loadProject(root)?.compose ?? COMPOSE_FILES.find((f) => fs.existsSync(join(root, f)));
+    const { meta, proxy } = await requireSite(server, site, { deployed: "eject" });
+    if (!file || !fs.existsSync(join(root, file)))
+      fail(meta.kind === "compose" ? `no compose file here: run lf eject in the project folder of ${site}` : `${site} runs a compose.yaml landfall generated: write it into this project with lf init first`);
+    const release = currentRelease(meta);
+    if (!release) return fail(`${site} has no release to eject`);
+    const local = Object.keys(localCompose(root, file!)?.services ?? {});
+    const missing = release.services.filter((s) => routed(s) && !local.includes(s.name)).map((s) => s.name);
+    if (missing.length) warn(`${file} has no service ${missing.join(", ")}, which ${site} routes on ${serverName}: is this its project?`);
+
+    const own = { ...proxy, network: o.network ?? proxy.network, entrypoint: o.entrypoint ?? proxy.entrypoint, resolver: o.resolver ?? proxy.resolver };
+    const text = overrideYaml(meta, release, own, { eject: true });
+    const path = join(root, EJECT_FILE);
+    const before = fs.existsSync(path) ? fs.readFileSync(path, "utf8") : undefined;
+    if (before === text) return ok(`${EJECT_FILE} is up to date`);
+    showDiff(EJECT_FILE, before ?? "", text);
+    if (!(await confirm(before === undefined ? `Write ${EJECT_FILE}?` : `Overwrite ${EJECT_FILE}?`))) return;
+    fs.writeFileSync(path, text);
+    ok(`wrote ${EJECT_FILE} from release ${release.id} of ${site}`);
+    info(`run it:  docker compose -f ${file} -f ${EJECT_FILE} up -d`);
+    info(`your Traefik needs the network ${c.bold(own.network)} (docker network create ${own.network}), the entrypoint ${c.bold(own.entrypoint)} and the certificate resolver ${c.bold(own.resolver)}; --network, --entrypoint and --resolver change them`);
+    if (meta.kind !== "static") info(`the site's .env: lf env --pull .env${meta.volumes?.length ? `; its data: lf volume pull <volume> (${meta.volumes.join(", ")})` : ""}`);
+    if (meta.secrets?.length) info(`its secrets go in ./.secrets: ${meta.secrets.join(", ")}`);
+  },
+});
