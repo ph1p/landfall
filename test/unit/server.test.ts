@@ -514,10 +514,11 @@ describe("prune", () => {
   });
 
   test("log sizes for --logs", () => {
-    const p = parsePrunePlan(`${out}\nROOT\t1\nLOG\t2048\nLOG\t\nLOG\t1024\nJOURNAL\t1.5G`);
-    expect(p).toMatchObject({ root: true, logs: 3 * 1024 * 1024, journal: 1.5 * 1024 ** 3 });
+    expect(parsePrunePlan(out).logs).toBeUndefined();
+    const p = parsePrunePlan(`${out}\nROOT\t1\nLOG\tweb\t2048\nLOG\tdb\t\nLOG\tredis\t1024\nJOURNAL\t1.5G`);
+    expect(p.logs).toEqual({ root: true, size: 3 * 1024 * 1024, journal: 1.5 * 1024 ** 3 });
     // Without root the sizes are not there.
-    expect(parsePrunePlan(`${out}\nROOT\t\nJOURNAL\t`)).toMatchObject({ root: false, logs: 0, journal: 0 });
+    expect(parsePrunePlan(`${out}\nROOT\t\nJOURNAL\t`).logs).toEqual({ root: false, size: 0, journal: 0 });
   });
 
   test("no docker", () => {

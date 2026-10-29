@@ -1,15 +1,16 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, projectServer } from "../../core/config";
 import { bytes } from "../../core/facts";
-import { journalSize } from "../../core/stats";
-import { JOURNAL_KEEP, kept, prune, prunePlan, pruneLogs, reboot, removable, type PrunePlan } from "../../core/manage";
+import { JOURNAL_KEEP, kept, prune, prunePlan, pruneLogs, reboot, reclaimable, removable, type PrunePlan } from "../../core/manage";
 import { adminLogin } from "../../core/privilege";
 import { c, confirm, fail, info, ok, step, table, warn } from "../../core/term";
 
-const logSizes = (p: PrunePlan) =>
-  p.root ? `${bytes(p.logs)} of container logs, journal ${p.journal ? bytes(p.journal) : c.dim("unknown")}` : `container logs and journal ${c.dim("(sizes need root or passwordless sudo)")}`;
+function logSizes(l: NonNullable<PrunePlan["logs"]>) {
+  if (!l.root) return `container logs and journal ${c.dim("(sizes need root or passwordless sudo)")}`;
+  return `${bytes(l.size)} of container logs, journal ${l.journal ? bytes(l.journal) : c.dim("unknown")}`;
+}
 
-function printPlan(name: string, p: PrunePlan, logs: boolean) {
+function printPlan(name: string, p: PrunePlan) {
   const imgs = removable(p);
   const keep = [
     [kept(p, "release").length, "for rollback"],
@@ -25,7 +26,7 @@ function printPlan(name: string, p: PrunePlan, logs: boolean) {
     if (imgs.length > 20) console.log(c.dim(`… ${imgs.length - 20} more`));
   } else console.log(`${c.bold(name)}: no unused images`);
   console.log(`build cache: ${p.buildCache ? bytes(p.buildCache) : c.dim("0")}${p.all ? "" : c.dim(" reclaimable (--all also removes cache still in use)")}`);
-  console.log(logs ? `logs: ${logSizes(p)}, journal kept at ${JOURNAL_KEEP}` : c.dim(`logs: ${logSizes(p)} (--logs empties them)`));
+  if (p.logs) console.log(`logs: ${logSizes(p.logs)}, journal kept at ${JOURNAL_KEEP}`);
   if (keep.length) console.log(c.dim(`kept: ${keep.map(([n, w]) => `${n} ${w}`).join(", ")}`));
 }
 
@@ -43,25 +44,24 @@ export const pruneCmd = defineCommand({
   },
   async run(_, o) {
     const { name, server } = projectServer(o.server);
-    const plan = await prunePlan(server, !!o.all);
+    const plan = await prunePlan(server, !!o.all, !!o.logs);
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
     const imgs = removable(plan);
-    const logs = !!o.logs;
-    const nothing = !imgs.length && !plan.buildCache && !logs;
-    if (o["dry-run"] || (o.json && nothing)) return void (o.json ? console.log(JSON.stringify(plan, null, 2)) : printPlan(name, plan, logs));
-    if (!o.json) printPlan(name, plan, logs);
+    const images = imgs.length > 0 || plan.buildCache > 0;
+    const nothing = !images && !plan.logs;
+    if (o["dry-run"] || (o.json && nothing)) return void (o.json ? console.log(JSON.stringify(plan, null, 2)) : printPlan(name, plan));
+    if (!o.json) printPlan(name, plan);
     if (nothing) return ok("nothing to clean up");
-    const admin = logs ? await adminLogin(server, "emptying logs") : undefined;
-    // Sizes count shared layers in each image: the sum is what could go at most.
-    const most = imgs.reduce((n, i) => n + i.size, 0) + plan.buildCache + (logs ? plan.logs + Math.max(plan.journal - journalSize(JOURNAL_KEEP), 0) : 0);
-    const what = `${imgs.length} images, the build cache${logs ? ", container logs and old journal entries" : ""}`;
-    if (!(await confirm(`\nRemove ${what} (up to ${bytes(most)})?`, true))) return;
+    // The plan already knows whether this login is root: ask for another only when not.
+    const admin = plan.logs && (plan.logs.root ? server : await adminLogin(server, "emptying logs"));
+    const what = `${imgs.length} images, the build cache${plan.logs ? ", container logs and old journal entries" : ""}`;
+    if (!(await confirm(`\nRemove ${what} (up to ${bytes(reclaimable(plan))})?`, true))) return;
     if (!o.json) step("cleaning up");
-    const res = await prune(server, plan);
+    const res = images ? await prune(server, plan) : { images: 0, failed: [] };
     if (admin) await pruneLogs(admin);
-    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: res.images - res.failed.length, failed: res.failed, logsEmptied: logs }, null, 2));
+    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: res.images - res.failed.length, failed: res.failed }, null, 2));
     for (const f of res.failed) warn(`${f}: could not remove it (in use?)`);
-    ok(`removed ${res.images - res.failed.length} images and the build cache${logs ? `, emptied container logs, journal down to ${JOURNAL_KEEP}` : ""}`);
+    ok(`removed ${res.images - res.failed.length} images and the build cache${admin ? `, emptied container logs, journal down to ${JOURNAL_KEEP}` : ""}`);
   },
 });
 
