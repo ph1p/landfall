@@ -49,8 +49,7 @@ describe("secrets stay off the command line", () => {
     });
     // deploy's -e values travel on stdin; its other arguments stay.
     expect(secretsOut(["deploy", "-y", "-e", "A=1", "--env", "B=2", "-n", "C=x"])).toEqual({ args: ["deploy", "-y", "-n", "C=x", "--dotenv", "-"], env: {}, stdin: "A=1\nB=2\n" });
-    // Its own --dotenv (or --env-file) wins: -e stays an argument.
-    expect(secretsOut(["deploy", "--env-file", ".env", "-e", "A=1"]).args).toEqual(["deploy", "--env-file", ".env", "-e", "A=1"]);
+    // Its own --dotenv wins: -e stays an argument.
     expect(secretsOut(["deploy", "--dotenv=.env", "-e", "A=1"]).args).toEqual(["deploy", "--dotenv=.env", "-e", "A=1"]);
     expect(secretsOut(["secret", "blog", "tls.key=abc"])).toEqual({ args: ["secret", "blog", "--dotenv", "-"], env: {}, stdin: "tls.key=abc\n" });
   });
@@ -65,12 +64,6 @@ describe("secrets stay off the command line", () => {
     } finally {
       delete process.env.LANDFALL_SECRET_DASHBOARD_PASSWORD;
     }
-  });
-
-  test("--env-file is --dotenv's old name", () => {
-    const cmd = defineCommand({ name: "t", summary: "", options: { dotenv: { type: "string", desc: "" } }, async run() {} });
-    expect(parse(cmd, ["--env-file", "-"]).values).toEqual({ dotenv: "-" });
-    expect(parse(cmd, ["--env-file=a", "--dotenv", "b"]).values).toEqual({ dotenv: "b" });
   });
 
   test("dotenv lines", () => {

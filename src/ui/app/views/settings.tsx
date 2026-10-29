@@ -3,7 +3,6 @@ import { S, sv } from "../lib/store";
 import type { DnsCheck } from "../lib/types";
 import { ensure, fetchInto, load, refreshState } from "../lib/api";
 import { TunnelBtn, ifOk, run } from "../lib/jobs";
-import { OldTraefikTunnel } from "../lib/legacy";
 import { toast } from "../ui/toast";
 import { Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
@@ -125,7 +124,7 @@ export function TraefikView({ n }: { n: string }) {
             ["tunnel", dash.tunnel
               ? <><TunnelBtn n={n} argv={dashArgv} label="Open via tunnel" /> <span className={cx("dim", MONO)}>lf traefik dashboard</span></>
               : foreign ? <span className="dim">route its dashboard (api@internal) to a domain, or run <span className={MONO}>lf traefik dashboard --port &lt;its api port&gt;</span></span>
-              : <OldTraefikTunnel n={n} opts={reload} />],
+              : <span className="dim">none</span>],
           ]} />
         </Body>
       </Card>
