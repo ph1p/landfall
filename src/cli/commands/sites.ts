@@ -2,7 +2,6 @@ import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/config";
 import { COMPOSE_FILES, currentRelease, gitLabel, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../../core/compose";
-import { isOld, oldSiteError } from "../../core/legacy";
 import { bytes } from "../../core/facts";
 import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, oldReleases, parseEnvPairs, readEnvFile, readSecrets, readSite, removeReleases, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
@@ -75,8 +74,7 @@ export const sitesInfo = defineCommand({
       console.log(`\n${c.bold("Services")}`);
       table(st!.services.map((x) => [`  ${x.service}`, c.dim(x.container), paintStatus(x.status)]));
     }
-    // Sites of the old layout list no services per release.
-    if (!meta.releases.length || st!.state === "old") return;
+    if (!meta.releases.length) return;
     console.log(`\n${c.bold("Releases")}`);
     for (const r of newestFirst(meta)) {
       const mark = r.id === meta.current ? c.green("● ") : "  ";
@@ -219,10 +217,7 @@ data; --volumes deletes them too. An adopted site is stopped and forgotten; its 
   async run([n], o) {
     if (!n) fail("usage: lf sites rm <name>");
     const { site, server, name } = target(n, o.server);
-    // Not requireSite: sites of an older landfall can go too.
-    const { meta } = await readSite(server, site);
-    if (!meta) await noSite(server, site);
-    const m = meta!;
+    const { meta: m } = await requireSite(server, site);
     const domains = siteDomains(m).join(", ") || "no domains";
     const data = o.volumes ? " and its volumes (all its data)" : "";
     await confirmRemoval(
@@ -241,7 +236,7 @@ export const sitesEnv = defineCommand({
   options: {
     server: serverOpt,
     unset: { type: "string", short: "u", multiple: true, desc: "remove KEY" },
-    dotenv: { type: "string", desc: "also set the KEY=VALUE lines of this file; - reads stdin (keeps values out of ps; also --env-file, not on node 26)" },
+    dotenv: { type: "string", desc: "also set the KEY=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
     reveal: { type: "boolean", desc: "show the values (hidden by default)" },
     keys: { type: "boolean", desc: "list the variable names only" },
     json: { type: "boolean", desc: "machine-readable output (values only with --reveal)" },
@@ -289,7 +284,7 @@ export const sitesSecret = defineCommand({
     server: serverOpt,
     unset: { type: "string", short: "u", multiple: true, desc: "remove NAME" },
     file: { type: "string", multiple: true, desc: "NAME=path: the content of a local file (keys, certificates)" },
-    dotenv: { type: "string", desc: "also set the NAME=VALUE lines of this file; - reads stdin (keeps values out of ps; also --env-file, not on node 26)" },
+    dotenv: { type: "string", desc: "also set the NAME=VALUE lines of this file; - reads stdin (keeps values out of ps)" },
     json: { type: "boolean", desc: "machine-readable list (names and sizes, never values)" },
     force: { type: "boolean", desc: "remove a secret its compose.yaml still uses" },
   },
@@ -384,7 +379,6 @@ The tunnel stays open until Ctrl-C.`,
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await readSite(server, site);
     if (!meta) return foreignTunnel(server, site, svc, proxy.network, o);
-    if (isOld(meta)) fail(oldSiteError(site));
     const release = currentRelease(meta);
     // A service by name, else a port named in x-landfall.private: lf tunnel blog admin.
     const named = svc ? release?.services.find((x) => x.name === svc) : undefined;

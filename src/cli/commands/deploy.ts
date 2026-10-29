@@ -4,7 +4,6 @@ import { basename, dirname, join, normalize, relative, resolve } from "node:path
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
 import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, folderVolumes, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
-import { splitOld, takeoverWarning } from "../../core/legacy";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, localEnv, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { uploadList, uploadSize } from "../../core/ignore";
@@ -105,7 +104,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     port: { type: "string", desc: "container port (image/dockerfile; default: EXPOSE or 3000)" },
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
-    dotenv: { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin; also --env-file, not on node 26)" },
+    dotenv: { type: "string", desc: "merge a local .env file into the site's .env (- reads stdin)" },
     "fill-volumes": { type: "boolean", desc: "fill each empty volume from the project's folder named like it that the upload leaves out" },
     "local-env": { type: "boolean", desc: "what the project asks for and the site's .env lacks: take it from the project's local .env" },
     build: { type: "string", short: "b", desc: "build command: static sites run it locally first, apps in their image ('' for none)" },
@@ -164,10 +163,9 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     try {
       const site = await readSite(server, name);
       const { env: prevEnv, proxy, exists } = site;
-      const { old, prev } = splitOld(site.meta);
+      const prev = site.meta;
       if (prev?.adopted) fail(`${name} is adopted (${prev.adopted}): deploy it there with docker compose, or pick another --name`);
-      if (old) warn(takeoverWarning(name));
-      else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
+      if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
       let env: string | undefined;
       if (o.env?.length || dotenv) {
@@ -208,8 +206,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       // What the app needs from its .env: said until the .env has it (or, without a variable, on the first deploy).
       if (app?.note && (app.secret ? !parseEnvPairs(dotenvLines(env ?? prevEnv ?? ""))[app.secret] : !prev)) warn(app.note);
 
-      // A takeover removes the old layout's release folders: the new id must not be one of them.
-      const id = nextReleaseId((site.meta?.releases ?? []).map((r) => r.id), lock.now);
+      const id = nextReleaseId((prev?.releases ?? []).map((r) => r.id), lock.now);
       const releaseDir = `${siteDir(name)}/releases/${id}`;
       const generated: Record<string, string> =
         kind === "compose" ? {} : { "compose.yaml": generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes }), ...(kind === "static" && { "nginx.conf": nginxConf(spa) }) };
@@ -262,7 +259,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         let fromFile = false;
         if (mainService(release)) {
           fromFile = !domainArgs?.length && !!project.domains?.length;
-          domains = noDomain ? [] : ([domainArgs, project.domains, prev?.domains, old?.domains].find((l) => l?.length) ?? []);
+          domains = noDomain ? [] : ([domainArgs, project.domains, prev?.domains].find((l) => l?.length) ?? []);
           // Unrouted until -d: deployed with --no-domain, or a site whose domains were all taken off (lf domains --rm).
           let unrouted = noDomain || (!domains.length && ((!!prev && !!siteMain(prev) && !prev.domains.length) || project.domains?.length === 0));
           // The server's default: new sites stay off the internet until -d.
@@ -312,11 +309,11 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         name,
         kind,
         domains,
-        auth: withLogin(prev?.auth ?? old?.auth, login),
+        auth: withLogin(prev?.auth, login),
         volumes: vols.length ? vols : undefined,
         current: id,
         releases: [...(prev?.releases ?? []), release],
-        createdAt: prev?.createdAt ?? old?.createdAt ?? now,
+        createdAt: prev?.createdAt ?? now,
         updatedAt: now,
       };
       try {
@@ -327,8 +324,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
           pull: true,
           keep,
           prev,
-          takeover: old,
-          existed: !prev && !old && exists,
+          existed: !prev && exists,
           what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${siteDomains(meta).join(", ")})`}`,
         });
       } catch (e) {

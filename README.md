@@ -168,7 +168,7 @@ The first deploy writes `.landfall.json`. Commit it:
 
 Local `.env*` files are never uploaded: each site has its own `.env` on the server. Pass variables with
 `-e`/`--dotenv`, or later with `lf env`. `--local-env` takes what the project asks for (below) and the site's `.env`
-lacks from the project's own `.env`, nothing else; an empty answer to the question takes it too. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`. Its old name `--env-file` still works, but not on Node 26, which takes that flag for itself.
+lacks from the project's own `.env`, nothing else; an empty answer to the question takes it too. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`.
 A variable `compose.yaml` requires (`${ADMIN_PASSWORD:?…}`) that the site's `.env` lacks is asked for before the
 upload (with `-y` the deploy stops there), and `lf ui` shows a field for each in its deploy dialog. The keys of a
 `.env.example` (or `.env.sample`, `.env.template`, `.env.dist`) count too, for every kind but static and for a Compose
@@ -257,8 +257,7 @@ folder. `include` wins over everything else, so it can bring back a default or w
 }
 ```
 
-A deploy keeps both lists when it saves `.landfall.json`. A `.landfallignore` file (one pattern per line, `!` to bring
-one back) still works, and its lines count before `exclude`.
+A deploy keeps both lists when it saves `.landfall.json`.
 
 `.gitignore` does not apply by default: a static site uploads `dist/`, which is usually in it. `lf deploy --gitignore`
 also leaves out what the `.gitignore` files inside the deployed folder ignore, and is saved in `.landfall.json`
@@ -508,9 +507,7 @@ lf volume restore content          # replace it with its newest backup (or name 
 The files of a volume compose.yaml declares plainly (no `external`, `driver`, `driver_opts` or `name:` of its own)
 sit in the site's folder, `/opt/landfall/sites/<site>/volumes/<volume>`, next to its releases: the override binds
 the named volume there (`driver_opts: {type: none, o: bind, device: …}`), so `docker volume ls`, `docker compose`
-and `lf volume` work as before. A volume deployed by an older landfall, in Docker's own storage, moves in on the
-next deploy: its containers stop, its files are copied over, and up starts them on the folder. `lf sites rm`
-keeps the folder (and the backups); `--volumes` deletes both. `lf volume rm --data` deletes its folder too.
+and `lf volume` work as before. `lf sites rm` keeps the folder (and the backups); `--volumes` deletes both. `lf volume rm --data` deletes its folder too.
 
 - `add` and `rm` edit the project in the current folder: compose.yaml gets the mount under the service and the
   volume under the top-level `volumes:` (comments and order kept, plain Compose); an app, Dockerfile or image
@@ -1016,7 +1013,6 @@ lf undo -s box -y                           # revert the last run
 | `~/.ssh/landfall_<name>` | generated keys |
 | `~/.ssh/config` | `Host <name>` blocks between `# >>> landfall:<name>` markers |
 | `./.landfall.json` | per-project deploy settings |
-| `./.landfallignore` | older place for `exclude`: what `lf deploy` leaves out, in `.gitignore` syntax ([What gets uploaded](#what-gets-uploaded)) |
 
 | env var | effect |
 |---|---|

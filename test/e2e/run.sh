@@ -24,7 +24,7 @@ die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 # E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
 SECTIONS="static spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
-  system security traefik remove firewall undo ui undo-all legacy uninstall fresh debian dnf"
+  system security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
 needs() {
   case $1 in
     environments) echo secrets ;;
@@ -111,13 +111,13 @@ if want static; then echo "== static"
 mkdir -p "$WORK/site/dist" && cd "$WORK/site"
 echo '<h1>v1</h1>' > dist/index.html
 echo old > dist/old.txt
-echo secret > dist/notes.txt && echo dist/notes.txt > .landfallignore
+echo secret > dist/notes.txt && echo '{"exclude":["dist/notes.txt"]}' > .landfall.json
 echo draft > dist/draft.html && echo draft.html > dist/.gitignore
 out=$(lf deploy -d site.test -y 2>&1) || { echo "$out"; die "deploy static site"; }
 has "upload: 4 files" <<<"$out" || { echo "$out"; die "first deploy says what it uploads"; }
 expect site.test / v1
-[ "$(code site.test /notes.txt)" = 404 ] && [ "$(code site.test /draft.html)" = 200 ] || die ".landfallignore leaves files out, .gitignore only with --gitignore"
-pass ".landfallignore leaves files out, .gitignore only with --gitignore"
+[ "$(code site.test /notes.txt)" = 404 ] && [ "$(code site.test /draft.html)" = 200 ] || die "exclude leaves files out, .gitignore only with --gitignore"
+pass "exclude leaves files out, .gitignore only with --gitignore"
 { grep -q '"site.test"' .landfall.json; } || die ".landfall.json written"; pass ".landfall.json written"
 echo '<h1>v2</h1>' > dist/index.html   # same second as v1 on purpose: release ids must not collide
 rm dist/old.txt
@@ -346,7 +346,7 @@ lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'new
 lf sites rm vols --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vols || die "rm --volumes deletes the backups"
 pass "sites rm keeps backups with the volumes, --volumes deletes both"
 # A folder left out of the upload, named like an empty volume, fills it with --fill-volumes; one with data stays.
-mkdir -p "$WORK/fill/data" && cd "$WORK/fill" && echo one > data/hi && echo /data/ > .landfallignore
+mkdir -p "$WORK/fill/data" && cd "$WORK/fill" && echo one > data/hi && echo '{"exclude":["/data/"]}' > .landfall.json
 printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
 lf deploy -n fill --no-domain -y >"$WORK/fill.log" 2>&1 && has -- "--fill-volumes" "$WORK/fill.log" || { cat "$WORK/fill.log"; die "deploy says how to fill"; }
 fill() { srv docker run --rm -v fill_data:/v busybox:1.37 cat /v/hi 2>/dev/null || true; }
@@ -846,49 +846,6 @@ docker exec "$NAME" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall/sites
 # The deploy user is gone now, so look at the journal directly.
 { docker exec "$NAME" grep -q "$(printf '\tundo\t')" /opt/landfall/journal.log; } || die "journal kept"
 pass "undo --all leaves the server as it was, journal kept"
-fi
-
-if want legacy; then echo "== site from before Compose sites"
-lf setup box --host 127.0.0.1 --port "$SSH_PORT" --key "$WORK/key" --email test@example.com --staging --no-firewall -y >/dev/null 2>&1 || die "setup again"
-trust_test_hosts
-# A site as the landfall before Compose sites wrote it: one container from sites/<name>/docker-compose.yml.
-docker exec "$NAME" sh -c 'set -e; d=/opt/landfall/sites/mig; mkdir -p $d/releases && cd $d && touch .env
-  printf "%s\n" "{\"name\":\"mig\",\"kind\":\"image\",\"domains\":[\"mig.test\"],\"port\":80,\"current\":\"20250101000000\",\"releases\":[{\"id\":\"20250101000000\",\"at\":\"2025-01-01T00:00:00.000Z\",\"image\":\"traefik/whoami:v1.11\"}],\"createdAt\":\"2025-01-01T00:00:00.000Z\",\"updatedAt\":\"2025-01-01T00:00:00.000Z\"}" > site.json
-  cat > docker-compose.yml <<"EOF"
-# managed by landfall — do not edit, changes are overwritten on deploy
-name: landfall-mig
-services:
-  app:
-    image: "traefik/whoami:v1.11"
-    env_file:
-      - .env
-    container_name: landfall-mig
-    restart: unless-stopped
-    networks:
-      - web
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=web"
-      - "traefik.http.routers.landfall-mig.rule=Host(`mig.test`)"
-      - "traefik.http.routers.landfall-mig.entrypoints=websecure"
-      - "traefik.http.routers.landfall-mig.tls.certresolver=le"
-      - "traefik.http.services.landfall-mig.loadbalancer.server.port=80"
-      - "landfall.managed=true"
-      - "landfall.site=mig"
-networks:
-  web:
-    external: true
-EOF
-  chown -R deploy $d && docker compose up -d >/dev/null 2>&1' || die "make old site"
-expect mig.test / Hostname
-# Deploying an old site makes it a Compose site: same domain, its old container gone.
-mkdir -p "$WORK/mig" && cd "$WORK/mig"
-lf deploy -n mig --image traefik/whoami:v1.11 --port 80 --no-save -y >"$WORK/mig2.log" 2>&1 || { cat "$WORK/mig2.log"; die "deploy takes over an old site"; }
-expect mig.test / Hostname
-{ docker exec "$NAME" grep -q '"v": 2' /opt/landfall/sites/mig/site.json && ! docker exec "$NAME" docker inspect landfall-mig >/dev/null 2>&1 \
-  && ! docker exec "$NAME" test -e /opt/landfall/sites/mig/docker-compose.yml; } || die "old site taken over"
-pass "deploy moves an old site to a Compose project"
-cd "$WORK"
 fi
 
 if want uninstall; then echo "== uninstall"

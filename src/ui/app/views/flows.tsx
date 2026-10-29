@@ -390,7 +390,7 @@ export function buildForm(det: Detected) {
 interface DeployOpts { site?: Redeploy; upload?: boolean; files?: number; name?: string }
 /**
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
- * site: an existing site ({ server, name, domains, old }) this folder redeploys.
+ * site: an existing site ({ server, name, domains }) this folder redeploys.
  */
 export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const p = det.project;
@@ -430,7 +430,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   dialog({
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
     text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
-      + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data${re.old ? "." : ", and Roll back returns to the current one."}` : ""),
+      + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data, and Roll back returns to the current one.` : ""),
     aside: <DeployAside d={det} />,
     sidebar: true,
     fields: [

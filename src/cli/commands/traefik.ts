@@ -1,7 +1,6 @@
 import { defineCommand, logOpts, serverOpt } from "../cmd";
 import { checkEmail, checkInt, resolveServer } from "../../core/config";
 import { assessTraefik, foreignProxy, probeServer } from "../../core/inventory";
-import { oldTraefikDashboard } from "../../core/legacy";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../../core/remote";
 import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikState, traefikStatus as traefikStatusOf, useProxy } from "../../core/traefik";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/tunnel";
@@ -183,7 +182,7 @@ goes to that entrypoint and sends the domain along (log in with its password).`,
       fail(
         st.proxy
           ? `${st.proxy} is your own traefik and serves no dashboard on a domain; if it serves its API (api.insecure), pass its port: --port 8080`
-          : oldTraefikDashboard(name),
+          : `traefik on ${name} serves no dashboard tunnel: \`lf traefik setup -s ${name}\` adds it`,
       );
     const { host, at } = routed!;
     await openTunnel(server, ctrAddress(ctr!, NETWORK), at!.port, {
