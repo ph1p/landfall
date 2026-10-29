@@ -331,7 +331,7 @@ missing=""; for p in $(base_pkgs); do pkg_has "$p" || missing="$missing $p"; don
 if [ -n "$missing" ]; then
   log "installing base packages:$missing"
   pkg_install $missing
-  { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || true
+  { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || log "could not start fail2ban (systemctl status fail2ban)"
   record "installed packages$missing"
 fi
 
@@ -349,6 +349,7 @@ if ! command -v docker >/dev/null 2>&1; then
   record "installed docker"
 fi
 $SUDO systemctl enable --now docker >/dev/null 2>&1 || $SUDO service docker start >/dev/null 2>&1 || true
+$SUDO docker info >/dev/null 2>&1 || log "docker is installed but not running: what follows needs it (systemctl status docker)"
 # Distro docker packages (docker.io, moby) often lack compose 2.24+ or ship older: Docker's own repo has the newest plugin, everyone else gets the release binary.
 if ! compose_ok "$(compose_v)"; then
   log "installing the newest docker compose"

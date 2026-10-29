@@ -263,7 +263,7 @@ async function pushVolume(server: Server, site: string, v: Volume, src: string, 
     step(`replace ${v.key} of ${site}`);
     await replace(server, site, v, upload, { own: true, verb: "push", what: `push ${v.key} of ${site}` });
   } finally {
-    await runScript(server, `rm -f ${shq(upload)}`).catch(() => {});
+    await runScript(server, `rm -f ${shq(upload)}`).catch(() => warn(`could not remove ${upload} on the server: delete it by hand`));
   }
   ok(`${v.key} of ${site} replaced with ${src}`);
 }
