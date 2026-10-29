@@ -3,7 +3,6 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 import { DOMAIN } from "./config";
-import { isOld } from "./legacy";
 import { fail } from "./term";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
@@ -84,7 +83,7 @@ export type SiteKind = "compose" | "static" | "image" | "dockerfile";
 
 /** Metadata stored on the server next to each site (site.json). */
 export interface SiteMeta {
-  /** Layout version: site.json of landfall before Compose sites has none. */
+  /** Layout version of site.json. */
   v: 2;
   name: string;
   kind: SiteKind;
@@ -108,11 +107,11 @@ export interface SiteMeta {
   updatedAt: string;
 }
 
-/** Parsed site.json that has what landfall reads from it; an older layout only needs to be an object. */
+/** Parsed site.json that has what landfall reads from it. */
 export function isSiteMeta(x: unknown): x is SiteMeta {
   if (!x || typeof x !== "object" || Array.isArray(x)) return false;
   const m = x as Record<string, unknown>;
-  return isOld(m) || (typeof m.name === "string" && Array.isArray(m.releases) && (m.domains === undefined || Array.isArray(m.domains)));
+  return typeof m.name === "string" && Array.isArray(m.releases) && (m.domains === undefined || Array.isArray(m.domains));
 }
 
 export const projectName = (meta: SiteMeta) => meta.project ?? meta.name;
@@ -133,22 +132,22 @@ export function folderVolumes(config: any, prev: string[] = []): string[] {
   return [...new Set([...prev.filter((k) => !(k in vols) || own(k)), ...Object.keys(vols).filter(own)])].sort();
 }
 
-/** The live release; none for a site of the old layout, whose releases have no services. */
-export const currentRelease = (meta: SiteMeta) => (isOld(meta) ? undefined : meta.releases.find((r) => r.id === meta.current));
+/** The live release. */
+export const currentRelease = (meta: SiteMeta) => meta.releases.find((r) => r.id === meta.current);
 
 export const routed = (s: Service) => !!(s.port || s.own || s.routes?.length);
 
 /** The routed service serving the site's own domains, if any. */
 const isMain = (s: Service) => !!s.port && !s.domains && !s.own;
 export const mainService = (r?: Release) => r?.services.find(isMain);
-/** The service that serves the site's own domains; none for old or adopted sites. */
+/** The service that serves the site's own domains; none for adopted sites. */
 export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainService(currentRelease(meta)));
 
-/** managed: landfall deploys it; adopted: run where it is; old: deployed before Compose sites. */
-export type SiteState = "managed" | "adopted" | "old";
-export const siteState = (meta: { adopted?: string; v?: number }): SiteState => (meta.adopted ? "adopted" : isOld(meta) ? "old" : "managed");
-/** compose, static, … ; adopted, or deployed by landfall before Compose sites. */
-export const kindOf = (meta: { kind: string; adopted?: string; v?: number }) => ({ managed: meta.kind, adopted: "adopted", old: `${meta.kind} (old)` })[siteState(meta)];
+/** managed: landfall deploys it; adopted: run where it is. */
+export type SiteState = "managed" | "adopted";
+export const siteState = (meta: { adopted?: string }): SiteState => (meta.adopted ? "adopted" : "managed");
+/** compose, static, … ; or adopted. */
+export const kindOf = (meta: { kind: string; adopted?: string }) => (meta.adopted ? "adopted" : meta.kind);
 
 export const isUp = (status: string) => /^up/i.test(status);
 /** A one-shot service that finished fine: not down. */

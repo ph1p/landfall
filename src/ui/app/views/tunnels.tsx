@@ -1,7 +1,6 @@
 import { S, plural, render, sv } from "../lib/store";
 import type { Overview } from "../lib/types";
 import { go } from "../lib/api";
-import { isOldSite } from "../lib/legacy";
 import { TunnelBtn, openTunnels, tunnelFor } from "../lib/jobs";
 import { ACTS, Badge, Btn, Card, CardHead, Empty, Lede, MONO, Scroll, cx } from "../ui/kit";
 import { StatusDot, tunnelWays } from "./shared";
@@ -20,7 +19,6 @@ const bare = (argv: string[]) => argv.filter((a, i, l) => a !== "-s" && l[i - 1]
 function siteBlocks(n: string, o: Overview): Block[] {
   const blocks: Block[] = [];
   for (const x of o.sites) {
-    if (isOldSite(x.state)) continue;
     const ways = tunnelWays(n, x);
     const name = x.meta.name;
     const head: Target = { key: name, name, status: x.status, serves: x.domains, argv: null };

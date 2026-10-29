@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import { loadProject, type Server } from "./config";
-import { isOld, moveVolumes, oldSiteError, oldSiteProject, takeoverLines, takeoverRecord } from "./legacy";
 import { parse as parseYaml } from "yaml";
 import {
   builtImage,
@@ -112,7 +111,6 @@ export async function requireSite(s: Server, name: string, o: { deployed?: strin
   const site = await readSite(s, name);
   if (!site.meta) await noSite(s, name);
   const meta = site.meta!;
-  if (isOld(meta)) fail(oldSiteError(name));
   if (o.deployed && meta.adopted) fail(`${name} is adopted (${meta.adopted}): landfall does not ${o.deployed} it; change its compose files there`);
   return site as { meta: SiteMeta; env: string; proxy: Proxy };
 }
@@ -260,9 +258,6 @@ function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
   return (bad ?? main[0] ?? services[0]).status;
 }
 
-/** The compose project a site runs as; sites of landfall before Compose sites ran as landfall-<name>. */
-export const siteProject = (meta: SiteMeta) => oldSiteProject(meta) ?? projectName(meta);
-
 export async function overview(s: Server): Promise<Overview> {
   const { stdout } = await runScript(
     s,
@@ -307,19 +302,19 @@ ids=$(docker ps -aq 2>/dev/null || true)
       } catch {}
     }
   }
-  o.others = externals(labeled, status, o.proxy, new Set(metas.map(siteProject)));
+  o.others = externals(labeled, status, o.proxy, new Set(metas.map(projectName)));
   o.dashboard = {
     hosts: [...new Set(labeled.flatMap((x) => dashboardHosts(x.labels)))],
     // Through landfall's tunnel entrypoint, else through a router that serves it on a domain.
     tunnel: labeled.some((x) => x.name === o.proxy && (hasDashboardTunnel(x.labels) || dashboardHosts(x.labels).length > 0)),
   };
   const known = new Set([o.proxy, ...o.others.flatMap((e) => e.containers)]);
-  const siteProjects = new Set(metas.map(siteProject));
+  const siteProjects = new Set(metas.map(projectName));
   o.unrouted = ctrs
     .filter((x) => isUp(x.status) && !known.has(x.container) && !(x.project && siteProjects.has(x.project)))
     .sort((x, y) => x.container.localeCompare(y.container));
   o.sites = metas.map((meta) => {
-    const services = (byProject.get(siteProject(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
+    const services = (byProject.get(projectName(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
     return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, state: siteState(meta), kind: kindOf(meta) };
   });
   return o;
@@ -459,8 +454,6 @@ export interface ApplyOpts {
   keep?: number;
   /** The site as it was before, so the journal can put it back; none = new site. */
   prev?: SiteMeta;
-  /** A site of landfall before Compose sites, replaced by this one: its old files and container go, without undo. */
-  takeover?: SiteMeta;
   /** Journal line, e.g. "deploy blog release 20250101-120000". */
   what: string;
   /** A new site whose dir was already there (leftovers, or someone's files): undo removes only what landfall wrote. */
@@ -534,7 +527,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
   // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
   lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
-  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...moveVolumes(meta, o.failed), ...upLines(meta.name, o.failed));
+  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name, o.failed));
   if (o.recreate?.length) lines.push(`log "recreating ${o.recreate.join(", ")}"`, `(cd -P current && ${UP} --force-recreate --no-deps ${o.recreate.map(shq).join(" ")}) || exit 1`);
   return lines;
 }
@@ -604,13 +597,6 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
 
   const dir = siteDir(meta.name);
   const lines = [PRELUDE];
-  if (o.takeover) {
-    // Old container down once the new one is built, but before site.json says v2: a failed start would never get to remove it.
-    const before = [`record ${shq(takeoverRecord(o.what))}`, ...takeoverLines(o.takeover, meta.current)];
-    lines.push(...siteLines(meta, proxy, { ...o, before }));
-    await runScript(s, lines.join("\n"));
-    return;
-  }
   // The undo shell is head + "$u" + tail: $u is what `saved` printed to put .env back.
   let head: string;
   let tail = "";
@@ -681,7 +667,7 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
   const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`), ...(o.volumes ? ["volumes"] : [])].map(shq).join(" ");
   return [
     `cd ${shq(dir)}`,
-    `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(siteProject(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
+    `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(projectName(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
     ...images.map(rmImage),
     // Scheduled backups stop with the site; those already made stay with the volumes.
     `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${shq(cronMark(meta.name))} || crontab -l | grep -vF ${shq(cronMark(meta.name))} | crontab - || true`,

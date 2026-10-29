@@ -25,12 +25,12 @@ describe("releases lf release rm deletes", () => {
 });
 
 describe("site.json read from the server", () => {
-  test("a broken or foreign one is no site; an older layout still is", () => {
+  test("a broken or foreign one is no site", () => {
     expect(readSiteLine('SITE\t{"v":2,"name":"blog","releases":[]}')?.name).toBe("blog");
     expect(readSiteLine('SITE\t{"v":2,"name":"blog","releases":{}}')).toBeUndefined();
     expect(readSiteLine('SITE\t{"v":2,"releases":[]}')).toBeUndefined();
     expect(readSiteLine("SITE\t[]")).toBeUndefined();
     expect(readSiteLine("SITE\tnull")).toBeUndefined();
-    expect(readSiteLine('SITE\t{"name":"old"}')).toEqual({ name: "old" });
+    expect(readSiteLine('SITE\t{"name":"old"}')).toBeUndefined();
   });
 });
