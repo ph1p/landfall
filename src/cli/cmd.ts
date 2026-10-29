@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { statusKind } from "../core/compose";
 import { secretEnv } from "../core/job";
+import { oldDotenvOption, oldDotenvValue } from "../core/legacy";
 import { c, fail } from "../core/term";
 
 type OptSpec = {
@@ -39,11 +40,10 @@ export function parse(cmd: Command, argv: string[]) {
   const rest = cmd.passthrough && dd >= 0 ? argv.slice(dd + 1) : [];
   const options: Record<string, Omit<OptSpec, "desc">> = {};
   for (const [k, { desc, ...spec }] of Object.entries({ ...GLOBAL_OPTS, ...cmd.options })) options[k] = spec;
-  // --dotenv's old name: node 26 reads --env-file itself wherever it stands, and exits before lf runs.
-  if (options.dotenv) options["env-file"] = options.dotenv;
+  oldDotenvOption(options);
   try {
     const { values, positionals } = parseArgs({ args: own, options, allowPositionals: true, allowNegative: true });
-    if (values["env-file"] !== undefined) (values.dotenv ??= values["env-file"]), delete values["env-file"];
+    oldDotenvValue(values);
     // Passwords may come from the environment instead (the web UI passes them so): argv shows in `ps`.
     for (const k of Object.keys(cmd.options ?? {})) {
       if (/(^|-)password$/.test(k) && values[k] === undefined && process.env[secretEnv(k)]) values[k] = process.env[secretEnv(k)];

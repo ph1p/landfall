@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/config";
-import { COMPOSE_FILES, currentRelease, gitLabel, isOld, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../../core/compose";
+import { COMPOSE_FILES, currentRelease, gitLabel, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../../core/compose";
+import { isOld, oldSiteError } from "../../core/legacy";
 import { bytes } from "../../core/facts";
 import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, oldReleases, parseEnvPairs, readEnvFile, readSecrets, readSite, removeReleases, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
@@ -383,7 +384,7 @@ The tunnel stays open until Ctrl-C.`,
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await readSite(server, site);
     if (!meta) return foreignTunnel(server, site, svc, proxy.network, o);
-    if (isOld(meta)) fail(`${site} was deployed by an older landfall: run \`lf deploy\` in its project once to move it to a Compose project`);
+    if (isOld(meta)) fail(oldSiteError(site));
     const release = currentRelease(meta);
     // A service by name, else a port named in x-landfall.private: lf tunnel blog admin.
     const named = svc ? release?.services.find((x) => x.name === svc) : undefined;

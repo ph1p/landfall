@@ -1,14 +1,13 @@
 import fs from "node:fs";
 import { loadProject, type Server } from "./config";
+import { isOld, moveVolumes, oldSiteError, oldSiteProject, takeoverLines, takeoverRecord } from "./legacy";
 import { parse as parseYaml } from "yaml";
 import {
   builtImage,
   COMPOSE_FILES,
   currentRelease,
-  isOld,
   isUp,
   kindOf,
-  oldProject,
   OVERRIDE_FILES,
   overrideYaml,
   projectName,
@@ -113,7 +112,7 @@ export async function requireSite(s: Server, name: string, o: { deployed?: strin
   const site = await readSite(s, name);
   if (!site.meta) await noSite(s, name);
   const meta = site.meta!;
-  if (isOld(meta)) fail(`${name} was deployed by an older landfall: run \`lf deploy\` in its project once to move it to a Compose project`);
+  if (isOld(meta)) fail(oldSiteError(name));
   if (o.deployed && meta.adopted) fail(`${name} is adopted (${meta.adopted}): landfall does not ${o.deployed} it; change its compose files there`);
   return site as { meta: SiteMeta; env: string; proxy: Proxy };
 }
@@ -262,7 +261,7 @@ function siteStatus(meta: SiteMeta, services: ServiceStatus[]): string {
 }
 
 /** The compose project a site runs as; sites of landfall before Compose sites ran as landfall-<name>. */
-export const siteProject = (meta: SiteMeta) => (isOld(meta) ? oldProject(meta.name) : projectName(meta));
+export const siteProject = (meta: SiteMeta) => oldSiteProject(meta) ?? projectName(meta);
 
 export async function overview(s: Server): Promise<Overview> {
   const { stdout } = await runScript(
@@ -498,28 +497,6 @@ interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "file
  * Shell that writes a site's files for meta.current, points `current` at it and starts it.
  * Until the build and pull are done nothing the running site reads changes: the new .env waits in .env.new.
  */
-/**
- * A volume Docker keeps elsewhere (deployed before the site's folder held them) moves into the folder:
- * its containers go (up recreates them), its files are copied over, the volume is removed for up to create it bound.
- */
-function moveVolumes(meta: SiteMeta, failed: string[] = []): string[] {
-  if (meta.adopted) return [];
-  return (meta.volumes ?? []).flatMap((k) => {
-    const v = shq(`${projectName(meta)}_${k}`);
-    const d = shq(volumeDir(meta.name, k));
-    return [
-      `if docker volume inspect ${v} >/dev/null 2>&1 && [ "$(docker volume inspect -f '{{index .Options "device"}}' ${v})" != ${d} ]; then`,
-      `  log ${shq(`moving volume ${k} into ${volumeDir(meta.name, k)}`)}`,
-      `  ids=$(docker ps -aq --filter volume=${v}); [ -z "$ids" ] || docker rm -f $ids >/dev/null`,
-      `  if ! { docker run --rm -q -v ${v}:/from -v ${d}:/to ${HELPER} cp -a /from/. /to/ && docker volume rm ${v} >/dev/null; }; then`,
-      `    log ${shq(`could not move volume ${k}: it is unchanged`)}`,
-      ...failed.map((l) => `    ${l}`),
-      "    exit 1",
-      "  fi",
-      "fi",
-    ];
-  });
-}
 
 function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[] {
   const dir = siteDir(meta.name);
@@ -597,19 +574,6 @@ export async function removeReleases(s: Server, name: string, ids: string[]): Pr
   }
 }
 
-/** Shell that takes down a site of landfall before Compose sites and removes its files, keeping .env. */
-function takeoverLines(old: SiteMeta, keep?: string): string[] {
-  const dir = siteDir(old.name);
-  const images = old.kind === "dockerfile" ? (old.releases as any[]).map((r) => r.image).filter(Boolean) : [];
-  return [
-    `cd ${shq(dir)}`,
-    `log "removing the old container of ${old.name}"`,
-    `dc -p ${shq(oldProject(old.name))} down --remove-orphans >/dev/null 2>&1 || docker rm -f ${shq(oldProject(old.name))} >/dev/null 2>&1 || true`,
-    `rm -f docker-compose.yml nginx.conf`,
-    ...old.releases.filter((r) => r.id !== keep).map((r) => `rm -rf ${shq("releases/" + r.id)}`),
-    ...images.map(rmImage),
-  ];
-}
 
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
 export async function changeSite(s: Server, name: string, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}): Promise<SiteMeta> {
@@ -645,7 +609,7 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   if (o.takeover) {
     // The old layout's releases are not Compose projects: nothing to go back to.
     // Old container down once the new one is built, but before site.json says v2: a failed start would never get to remove it.
-    const before = [`record ${shq(`${o.what} (moved from landfall's old site layout, cannot be undone)`)}`, ...takeoverLines(o.takeover, meta.current)];
+    const before = [`record ${shq(takeoverRecord(o.what))}`, ...takeoverLines(o.takeover, meta.current)];
     lines.push(...siteLines(meta, proxy, { ...o, before }));
     await runScript(s, lines.join("\n"));
     return;

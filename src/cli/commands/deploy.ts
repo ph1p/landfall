@@ -3,7 +3,8 @@ import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, checkImage, checkInt, DEFAULT_KEEP, defaults, DOMAIN, envSiteName, expandDomain, isTunnelOnly, mainDomain, loadConfig, loadProject, PROJECT_FILE, resolveServer, saveProject, type ProjectConfig } from "../../core/config";
-import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, folderVolumes, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, isOld, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { analyze, askable, CONTAINER_PATH, currentRelease, envComposeFile, folderVolumes, missingVars, wantedVars, fixedDomains, routePlan, subDomains, generatedCompose, routed, mainService, nginxConf, siteDomains, siteMain, type Release, type SiteKind, type SiteMeta } from "../../core/compose";
+import { splitOld, takeoverWarning } from "../../core/legacy";
 import { applySite, builtImages, discardRelease, lockSite, dotenvLines, localEnv, mergeEnv, parseEnvPairs, prepareRelease, readEnvFile, readSite, siteDir, validName } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { uploadList, uploadSize } from "../../core/ignore";
@@ -163,10 +164,9 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     try {
       const site = await readSite(server, name);
       const { env: prevEnv, proxy, exists } = site;
-      const old = site.meta && isOld(site.meta) ? site.meta : undefined;
-      const prev = old ? undefined : site.meta;
+      const { old, prev } = splitOld(site.meta);
       if (prev?.adopted) fail(`${name} is adopted (${prev.adopted}): deploy it there with docker compose, or pick another --name`);
-      if (old) warn(`${name} was deployed by an older landfall: this moves it to a Compose project (its old releases go, so it cannot be undone)`);
+      if (old) warn(takeoverWarning(name));
       else if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
       let env: string | undefined;
@@ -305,15 +305,15 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       }
 
       const now = new Date().toISOString();
+      // What lf auth, lf secret and the rest set on the site stays; the release decides the rest.
       const meta: SiteMeta = {
+        ...prev,
         v: 2,
         name,
         kind,
         domains,
         auth: withLogin(prev?.auth ?? old?.auth, login),
-        ...(prev?.routeAuth && { routeAuth: prev.routeAuth }),
-        ...(prev?.secrets?.length ? { secrets: prev.secrets } : {}),
-        ...(vols.length ? { volumes: vols } : {}),
+        volumes: vols.length ? vols : undefined,
         current: id,
         releases: [...(prev?.releases ?? []), release],
         createdAt: prev?.createdAt ?? old?.createdAt ?? now,

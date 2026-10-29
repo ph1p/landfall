@@ -24,7 +24,7 @@ export interface Job {
   /** Set while the panel shows this job: new lines go straight into its output. */
   onLines?: () => void;
 }
-interface RunOpts { server?: string; password?: string; cwd?: string; retry?: string; after?: Job["after"] }
+export interface RunOpts { server?: string; password?: string; cwd?: string; retry?: string; after?: Job["after"] }
 
 /**
  * Run `lf <argv>` on the machine running lf ui; output streams into the side panel.

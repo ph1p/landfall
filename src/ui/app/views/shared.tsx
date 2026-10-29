@@ -1,6 +1,7 @@
 import { S, sv } from "../lib/store";
 import type { Cap, ServerEntry, SiteStatus } from "../lib/types";
 import { SECTIONS, type Tab } from "../lib/api";
+import { isOldSite } from "../lib/legacy";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
 
@@ -24,7 +25,7 @@ export interface Way { svc: string; label: string; argv: string[]; ports: number
  */
 export function tunnelWays(n: string, site: SiteStatus): Way[] {
   const { meta: m, services, main, state } = site;
-  if (state === "old") return [];
+  if (isOldSite(state)) return [];
   const cur = m.releases.find((r) => r.id === m.current);
   const many = services.length > 1;
   return services.flatMap((x) => {
