@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 import { DOMAIN } from "./config";
+import { isOld } from "./legacy";
 import { fail } from "./term";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
@@ -107,8 +108,6 @@ export interface SiteMeta {
   updatedAt: string;
 }
 
-/** site.json written by landfall before sites were Compose projects. */
-export const isOld = (meta: { v?: number }) => meta.v !== 2;
 /** Parsed site.json that has what landfall reads from it; an older layout only needs to be an object. */
 export function isSiteMeta(x: unknown): x is SiteMeta {
   if (!x || typeof x !== "object" || Array.isArray(x)) return false;
@@ -145,8 +144,6 @@ export const mainService = (r?: Release) => r?.services.find(isMain);
 /** The service that serves the site's own domains; none for old or adopted sites. */
 export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainService(currentRelease(meta)));
 
-/** Sites of landfall before Compose sites ran as one container in the project landfall-<name>. */
-export const oldProject = (name: string) => `landfall-${name}`;
 /** managed: landfall deploys it; adopted: run where it is; old: deployed before Compose sites. */
 export type SiteState = "managed" | "adopted" | "old";
 export const siteState = (meta: { adopted?: string; v?: number }): SiteState => (meta.adopted ? "adopted" : isOld(meta) ? "old" : "managed");

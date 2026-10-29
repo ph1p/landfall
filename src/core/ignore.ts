@@ -1,11 +1,10 @@
 import fs from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { ProjectConfig } from "./config";
+import { IGNORE_FILE } from "./legacy";
 
 /** Never uploaded: secrets, local state, and compose overrides (local-only by convention; landfall writes the server's). */
-export const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", ".landfallignore", ".env", ".env.*", ".secrets", "compose.override.*", "docker-compose.override.*"];
-/** The older place for exclude: still read, its lines go before .landfall.json's exclude. */
-export const IGNORE_FILE = ".landfallignore";
+export const EXCLUDE = [".git", "node_modules", ".DS_Store", ".landfall.json", IGNORE_FILE, ".env", ".env.*", ".secrets", "compose.override.*", "docker-compose.override.*"];
 
 /** One line of a .gitignore, compiled. */
 export interface Rule {
