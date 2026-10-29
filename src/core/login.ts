@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { checkAlias, checkInt, configDir, envVar, expandHome, tildify, type Server } from "./config";
+import { checkAlias, checkInt, configDir, envVar, expandHome, tildify, writeAtomic, type Server } from "./config";
 import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, readStdin, report, step, warn } from "./term";
@@ -20,9 +20,13 @@ function askpassScript(): string {
   // One fixed file, written once: it holds no secret, and a temp copy would outlive a killed lf.
   const f = join(configDir, "askpass");
   const body = `#!/bin/sh\nprintf '%s\\n' "$LANDFALL_PASSWORD"\n`;
-  if (!fs.existsSync(f) || fs.readFileSync(f, "utf8") !== body) {
+  let old = "";
+  try {
+    old = fs.readFileSync(f, "utf8");
+  } catch {}
+  if (old !== body) {
     fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(f, body, { mode: 0o700 });
+    writeAtomic(f, body, 0o700);
   }
   return (askpass = f);
 }

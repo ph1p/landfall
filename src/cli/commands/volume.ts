@@ -11,7 +11,7 @@ import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from 
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
 import { onStop } from "../../core/job";
-import { backupName, backupsOf, backupTo, pickVolume, pruneBefore, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
+import { backupName, backupsOf, backupTo, pickVolume, pruneBefore, STAMP_GLOB, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
 /**
@@ -118,7 +118,7 @@ export const backupScript = (project: string, keep: number) => `#!/bin/sh
 PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 cd "$(dirname "$0")" || exit 1
 # Its log stays small: past 1 MB it moves to backup.log.1, replacing the one before.
-[ ! -f backup.log ] || [ "$(wc -c <backup.log)" -lt 1048576 ] || mv -f backup.log backup.log.1
+if [ -f backup.log ] && [ "$(wc -c <backup.log)" -ge 1048576 ]; then mv -f backup.log backup.log.1; fi
 keep=${keep}
 rc=0
 for v in $(docker volume ls -q --filter label=com.docker.compose.project=${project}); do
@@ -127,7 +127,7 @@ for v in $(docker volume ls -q --filter label=com.docker.compose.project=${proje
   if docker run --rm -v "$v:/v:ro" ${HELPER} tar czf - -C /v . >"$f.part"; then mv "$f.part" "$f"; else rm -f "$f.part"; echo "$(date -u) backup of $v failed" >&2; rc=1; continue; fi
   n=0
   for old in $(ls -1r 2>/dev/null | grep -F "$key-"); do
-    case "$old" in "$key"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].tar.gz) ;; *) continue ;; esac
+    case "$old" in "$key"-${STAMP_GLOB}.tar.gz) ;; *) continue ;; esac
     n=$((n + 1)); [ "$n" -le "$keep" ] || rm -f -- "$old"
   done
 done

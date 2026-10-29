@@ -2,7 +2,7 @@ import type { Server } from "./config";
 import { SITE_LINES, projectName, readSiteLine } from "./compose";
 import { journalSize } from "./reclaim";
 import { runScript } from "./ssh";
-import { CTR_PS, KV, kvRecord, ROOT, SITES } from "./templates";
+import { ctrPs, KV, kvRecord, ROOT, SITES } from "./templates";
 
 /** Two samples a second apart: CPU and network are rates, a single read has none. */
 const STATS = String.raw`
@@ -35,7 +35,7 @@ awk -F'\t' 'NR == FNR { t[$1] = $2; next } ($1 in t) { print "PROC\t" $1 "\t" ($
 if [ -n "$D" ]; then
   wait
   cat "$T/stats"
-  ${CTR_PS}
+  ${ctrPs()}
   ids=$(docker ps -aq)
   [ -z "$ids" ] || docker inspect -f 'RST{{"\t"}}{{.Name}}{{"\t"}}{{.RestartCount}}' $ids 2>/dev/null
   ${SITE_LINES}

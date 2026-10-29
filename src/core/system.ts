@@ -4,7 +4,7 @@ import { expandHome, type Server } from "./config";
 import { runScript, shq } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
-import { KV, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
+import { KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
 import { fail } from "./term";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
@@ -205,7 +205,7 @@ function localFingerprints(s: Server): Set<string> {
 }
 
 export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
-  const v: Record<string, string> = {};
+  const v = kvRecord(out);
   const info: SystemInfo = {
     root: false, user: "", hostname: "", timezone: "", time: "", init: "other", swap: [], diskFree: 0, mem: 0,
     services: [], fail2ban: "missing", jails: [], keys: [], security: { reboot: false },
@@ -222,9 +222,6 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     else if (f[0] === "KEY") {
       const k = parseKeyLine(f.slice(2).join("\t"));
       if (k) info.keys.push({ user: f[1], ...k, ...(mine.has(k.fingerprint) ? { mine: true } : {}) });
-    } else {
-      const m = /^(\w+)=(.*)$/.exec(line);
-      if (m) v[m[1]] = m[2];
     }
   }
   for (const s of info.services) if (enabled.has(s.unit)) s.enabled = enabled.get(s.unit);
