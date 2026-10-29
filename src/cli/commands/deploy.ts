@@ -445,15 +445,15 @@ export function planDeploy(
 /** What goes where, port by port; a route the live release did not have is marked new. */
 function showRoutes(services: Release["services"], domains: string[], live?: Release) {
   const plan = routePlan(services, domains);
-  const before = new Set(live ? routePlan(live.services, domains).map((r) => `${r.service}:${r.port}`) : []);
-  const isNew = (r: (typeof plan)[number]) => !!live && !before.has(`${r.service}:${r.port}`);
+  const before = new Set(live ? routePlan(live.services, domains).map((r) => r.key) : []);
+  const isNew = (r: (typeof plan)[number]) => !!live && !before.has(r.key);
   const hidden = services.some((s) => s.private);
   if (plan.length <= 1 && !plan.some(isNew) && !hidden && !plan.some((r) => r.allow)) return;
   info("routes:");
   for (const r of plan) {
     const fresh = isNew(r) ? c.yellow(" new") : "";
     const only = r.allow ? c.dim(` only from ${r.allow.join(", ")}`) : "";
-    console.log(`  ${`${r.service}:${r.port}`.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${only}${fresh}`);
+    console.log(`  ${r.key.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${only}${fresh}`);
   }
   for (const s of services)
     for (const [k, p] of Object.entries(s.private ?? {})) console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}${s.paths?.[k] ? ` opens ${s.paths[k]}` : ""}`)}`);
