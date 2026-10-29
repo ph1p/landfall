@@ -193,7 +193,7 @@ if [ "$ON" = 1 ]; then
   rule="$U ALL=(ALL) ALL"; how=""
   if [ "$NOPW" = 1 ]; then rule="$U ALL=(ALL) NOPASSWD: ALL"; how=" without a password"; fi
   if [ "$($SUDO cat "$f" 2>/dev/null)" = "$rule" ]; then log "$U already has that"; exit 0; fi
-  t=$(mktemp); printf '%s\n' "$rule" > "$t"
+  t=$(mktemp); trap 'rm -f "$t"' EXIT; printf '%s\n' "$rule" > "$t"
   if ! $SUDO visudo -cf "$t" >/dev/null; then rm -f "$t"; log "visudo refused: $rule"; exit 1; fi
   undo=$(saved "$f")
   $SUDO install -m 0440 -o root -g root "$t" "$f"; rm -f "$t"

@@ -633,6 +633,10 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   // Said, not only done: a release that goes is one rollback can no longer reach.
   if (pruned.length) lines.push(`log ${shq(`removing old release${pruned.length > 1 ? "s" : ""} ${pruned.map((r) => r.id).join(", ")} of ${meta.name} (keeping ${keep})`)}`);
   for (const r of pruned) lines.push(...dropRelease(meta, r));
+  // A pull or build that moved a tag leaves the old image untagged: nothing can run it any more.
+  if (o.pull || o.build) lines.push("docker image prune -f >/dev/null 2>&1 || true");
+  // Build cache stays a week, for fast rebuilds: older layers only fill the disk.
+  if (o.build) lines.push(`docker builder prune -f --filter until=168h >/dev/null 2>&1 || true`);
   await runScript(s, lines.join("\n"));
 }
 
