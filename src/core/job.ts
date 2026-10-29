@@ -10,7 +10,8 @@ const self = (): string[] => [process.execPath, ...process.execArgv, process.arg
 export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase().replace(/-/g, "_")}`;
 
 /** --dotenv, or its old name --env-file, with or without =value. */
-const isDotenvFlag = (a: string) => new RegExp(`^--(dotenv|${OLD_DOTENV})(=|$)`).test(a);
+const DOTENV_FLAG = new RegExp(`^--(dotenv|${OLD_DOTENV})(=|$)`);
+const isDotenvFlag = (a: string) => DOTENV_FLAG.test(a);
 
 /** Commands whose KEY=value arguments are .env values. */
 /** -p is the password's short flag, except where it is a port (server add, setup, ui). */
