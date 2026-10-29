@@ -28,7 +28,7 @@ import {
 } from "./compose";
 import { onStop } from "./job";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { CTR_PS, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
+import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
@@ -262,7 +262,7 @@ export async function overview(s: Server): Promise<Overview> {
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
 ${SITE_LINES}
-${CTR_PS} 2>/dev/null || true
+${ctrPs(true)} 2>/dev/null || true
 ids=$(docker ps -aq 2>/dev/null || true)
 # inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
 [ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true`,
