@@ -83,8 +83,6 @@ export type SiteKind = "compose" | "static" | "image" | "dockerfile";
 
 /** Metadata stored on the server next to each site (site.json). */
 export interface SiteMeta {
-  /** Layout version of site.json. */
-  v: 2;
   name: string;
   kind: SiteKind;
   /** Domains of the routed service that names none itself; what `lf domains` changes. */
@@ -111,7 +109,7 @@ export interface SiteMeta {
 export function isSiteMeta(x: unknown): x is SiteMeta {
   if (!x || typeof x !== "object" || Array.isArray(x)) return false;
   const m = x as Record<string, unknown>;
-  return typeof m.name === "string" && Array.isArray(m.releases) && (m.domains === undefined || Array.isArray(m.domains));
+  return typeof m.name === "string" && Array.isArray(m.domains) && Array.isArray(m.releases) && m.releases.every((r) => Array.isArray(r?.services));
 }
 
 export const projectName = (meta: SiteMeta) => meta.project ?? meta.name;

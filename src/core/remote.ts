@@ -530,7 +530,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
 }
 
 /** Images the services of release `r` built. */
-export const builtImages = (name: string, r: Release) => (r.services ?? []).filter((s) => s.build).map((s) => builtImage(name, s.name, r.id));
+export const builtImages = (name: string, r: Release) => r.services.filter((s) => s.build).map((s) => builtImage(name, s.name, r.id));
 
 const dropRelease = (meta: SiteMeta, r: Release) => [
   `rmf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`,
@@ -609,8 +609,7 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
     tail = "\n}";
   } else {
     const old = o.prev;
-    // Volumes stay in the folder: back in Docker's, Compose would ask to recreate them, empty.
-    const back = { ...old, releases: old.releases.filter((r) => kept.some((k) => k.id === r.id)), ...(meta.volumes && { volumes: meta.volumes }) };
+    const back = { ...old, releases: old.releases.filter((r) => kept.some((k) => k.id === r.id)) };
     const added = kept.filter((r) => !old.releases.some((p) => p.id === r.id));
     // `lf sites rm` took its releases since: putting site.json back would revive a broken site.
     head = `[ -d ${shq(dir)} ] || { log ${shq(`${meta.name} was removed since, nothing to put back`)}; exit 0; }\n`;
