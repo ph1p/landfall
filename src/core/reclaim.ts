@@ -35,17 +35,37 @@ export interface PrunePlan {
   volumes?: PruneVolume[];
 }
 
+/** journalctl prints binary sizes with a single letter: 120.5M, 1.2G. 0 when unknown. */
+export function journalSize(s: string): number {
+  const j = /^([\d.]+)([BKMGT]?)/i.exec(s.trim());
+  return j ? Math.round(Number(j[1]) * 1024 ** "BKMGT".indexOf((j[2] || "B").toUpperCase())) : 0;
+}
+
 /** Journal kept by `lf prune --logs`, as journalctl --vacuum-size takes it, and in bytes. */
 export const JOURNAL_KEEP = "100M";
-export const JOURNAL_KEEP_BYTES = 100 * 1024 ** 2;
+export const JOURNAL_KEEP_BYTES = journalSize(JOURNAL_KEEP);
 
 export const removable = (p: PrunePlan) => p.images.filter((i) => !i.keep);
 export const kept = (p: PrunePlan, why: PruneImage["keep"]) => p.images.filter((i) => i.keep === why);
 export const removableVolumes = (p: PrunePlan) => (p.volumes ?? []).filter((v) => !v.keep);
+export const totalSize = (xs: { size: number }[]) => xs.reduce((n, x) => n + x.size, 0);
+/** An anonymous volume's 64-hex name, cut like docker cuts IDs. */
+export const shortName = (name: string) => (name.length === 64 ? name.slice(0, 12) : name);
+
+/** What the plan removes, less what failed: "3 images and the build cache, 2 volumes, …". */
+export function pruneSummary(p: PrunePlan, failed: { what: string }[] = []): string {
+  const n = (what: string, k: number) => k - failed.filter((f) => f.what === what).length;
+  const vols = removableVolumes(p).length;
+  return [
+    `${n("image", removable(p).length)} images and the build cache`,
+    p.networks.length && `${n("network", p.networks.length)} networks`,
+    vols && `${n("volume", vols)} volumes`,
+    p.logs && `container logs and the journal beyond ${JOURNAL_KEEP}`,
+  ].filter(Boolean).join(", ");
+}
 
 /** At most what the plan frees: image sizes count layers they share, and the journal keeps JOURNAL_KEEP. */
 export function reclaimable(p: PrunePlan): number {
   const logs = p.logs ? p.logs.size + Math.max(p.logs.journal - JOURNAL_KEEP_BYTES, 0) : 0;
-  const sum = (xs: { size: number }[]) => xs.reduce((n, x) => n + x.size, 0);
-  return sum(removable(p)) + p.buildCache + logs + sum(removableVolumes(p));
+  return totalSize(removable(p)) + p.buildCache + logs + totalSize(removableVolumes(p));
 }

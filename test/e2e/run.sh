@@ -607,7 +607,7 @@ out=$(lf prune --logs --dry-run --json) || die "prune --logs --dry-run"
 lf prune --logs -y >/dev/null 2>&1 || die "prune --logs"
 [ "$(docker exec "$NAME" stat -c %s "$log")" -lt 200000 ] || die "prune --logs empties container logs"
 { ! docker exec "$NAME" test -e "$log.1"; } || die "prune --logs removes rotated logs"
-{ lf history 2>&1 | has "emptied container logs"; } || die "prune --logs is journaled"
+{ lf history 2>&1 | has "container logs and the journal"; } || die "prune --logs is journaled"
 pass "prune --logs empties container logs, journals it"
 # As root the plan measures the logs, and emptying them needs no second login.
 lf server add rootbox --host 127.0.0.1 --port "$SSH_PORT" --user root -i "$WORK/key" >/dev/null 2>&1 || die "server add rootbox"
