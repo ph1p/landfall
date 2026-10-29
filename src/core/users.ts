@@ -4,7 +4,7 @@ import { requireCap } from "./facts";
 import { adminLogin } from "./privilege";
 import { runScript } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
-import { KV, PRELUDE } from "./templates";
+import { KV, kvRecord, PRELUDE } from "./templates";
 import { fail } from "./term";
 
 /** Debian's NAME_REGEX: what useradd and busybox's adduser both take, and sudoers.d file names allow (no dots). */
@@ -72,17 +72,13 @@ exit 0
 `;
 
 export function parseUsers(out: string, me = ""): Users {
-  const v: Record<string, string> = {};
+  const v = kvRecord(out);
   const pw = new Map<string, Account["password"]>();
   const rows: string[][] = [];
   for (const line of out.split("\n")) {
     const t = line.split("\t");
     if (t[0] === "PW") pw.set(t[1], t[2] as Account["password"]);
     else if (t[0] === "USER") rows.push(t.slice(1));
-    else {
-      const i = line.indexOf("=");
-      if (i > 0) v[line.slice(0, i)] = line.slice(i + 1).trim();
-    }
   }
   const admin = v.admin ?? "";
   const sudo = v.sudo === "1";
