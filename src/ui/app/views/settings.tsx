@@ -124,7 +124,7 @@ export function TraefikView({ n }: { n: string }) {
             ["tunnel", dash.tunnel
               ? <><TunnelBtn n={n} argv={dashArgv} label="Open via tunnel" /> <span className={cx("dim", MONO)}>lf traefik dashboard</span></>
               : foreign ? <span className="dim">route its dashboard (api@internal) to a domain, or run <span className={MONO}>lf traefik dashboard --port &lt;its api port&gt;</span></span>
-              : <span className="dim">none</span>],
+              : <span className="dim">none: <span className={MONO}>lf traefik setup</span> adds it</span>],
           ]} />
         </Body>
       </Card>

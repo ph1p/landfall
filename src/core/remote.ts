@@ -14,8 +14,6 @@ import {
   SECRETS_DIR,
   ROUTER_RULE,
   ruleHosts,
-  siteState,
-  type SiteState,
   siteDomains,
   siteMain,
   SITE_LINES,
@@ -137,7 +135,6 @@ export interface SiteStatus {
   domains: string[];
   /** The service serving the site's own domains: `lf domains` changes them. None: fixed in compose.yaml. */
   main?: string;
-  state: SiteState;
   /** kindOf: what lists show. */
   kind: string;
 }
@@ -302,20 +299,20 @@ ids=$(docker ps -aq 2>/dev/null || true)
       } catch {}
     }
   }
-  o.others = externals(labeled, status, o.proxy, new Set(metas.map(projectName)));
+  const siteProjects = new Set(metas.map(projectName));
+  o.others = externals(labeled, status, o.proxy, siteProjects);
   o.dashboard = {
     hosts: [...new Set(labeled.flatMap((x) => dashboardHosts(x.labels)))],
     // Through landfall's tunnel entrypoint, else through a router that serves it on a domain.
     tunnel: labeled.some((x) => x.name === o.proxy && (hasDashboardTunnel(x.labels) || dashboardHosts(x.labels).length > 0)),
   };
   const known = new Set([o.proxy, ...o.others.flatMap((e) => e.containers)]);
-  const siteProjects = new Set(metas.map(projectName));
   o.unrouted = ctrs
     .filter((x) => isUp(x.status) && !known.has(x.container) && !(x.project && siteProjects.has(x.project)))
     .sort((x, y) => x.container.localeCompare(y.container));
   o.sites = metas.map((meta) => {
     const services = (byProject.get(projectName(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
-    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, state: siteState(meta), kind: kindOf(meta) };
+    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, kind: kindOf(meta) };
   });
   return o;
 }
@@ -480,7 +477,7 @@ const upLines = (name: string, failed: string[] = []) => [
 const rmImage = (i: string) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`;
 
 interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate"> {
-  /** Shell after the build and pull, before anything that changes the running site (journal it, take over). */
+  /** Shell after the build and pull, before anything that changes the running site (journal it). */
   before?: string[];
   /** Shell when it does not start (put the previous release back). */
   failed?: string[];
