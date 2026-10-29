@@ -199,7 +199,7 @@ stops it and forgets it again. The projects you can adopt are listed under \`lf 
     const odd = (e.files ?? "").split(",").filter((f) => f && !defaults.has(f));
     if (odd.length) fail(`${project} was started with ${odd.join(", ")}; rename it to compose.yaml in ${e.dir} (or adopt it after moving it there)`);
     const now = new Date().toISOString();
-    const meta: SiteMeta = { v: 2, name: site, kind: "compose", domains: e.domains, current: "", releases: [], adopted: e.dir, project, createdAt: now, updatedAt: now };
+    const meta: SiteMeta = { name: site, kind: "compose", domains: e.domains, current: "", releases: [], adopted: e.dir, project, createdAt: now, updatedAt: now };
     await adoptSite(server, meta);
     ok(`adopted ${project} as ${site} (${e.domains.join(", ")})`);
     console.log(c.dim(`it runs from ${e.dir} as before; lf logs ${site}, lf restart ${site} and lf sites rm ${site} now work`));

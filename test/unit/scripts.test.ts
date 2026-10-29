@@ -17,7 +17,6 @@ const { applySite, discardRelease, lockSite } = await import("../../src/core/rem
 const server = { host: "example.com" } as any;
 const release = (id: string) => ({ id, at: "", services: [{ name: "web", networks: ["default"], build: true, port: 8000 }] });
 const site = (current: string, ids: string[]): SiteMeta => ({
-  v: 2,
   name: "blog",
   kind: "dockerfile",
   domains: ["blog.test"],
