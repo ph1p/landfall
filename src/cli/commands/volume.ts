@@ -118,7 +118,7 @@ export const backupScript = (project: string, keep: number) => `#!/bin/sh
 PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 cd "$(dirname "$0")" || exit 1
 # Its log stays small: past 1 MB it moves to backup.log.1, replacing the one before.
-[ "$(wc -c <backup.log 2>/dev/null || echo 0)" -lt 1048576 ] || mv -f backup.log backup.log.1
+[ ! -f backup.log ] || [ "$(wc -c <backup.log)" -lt 1048576 ] || mv -f backup.log backup.log.1
 keep=${keep}
 rc=0
 for v in $(docker volume ls -q --filter label=com.docker.compose.project=${project}); do
