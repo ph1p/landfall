@@ -37,7 +37,7 @@ const defaults = (specs: Spec[]): Values =>
 function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detected, environment?: string) {
   const { meta: m, main: svc } = site;
   const name: string = m.name;
-  const managed = site.state === "managed";
+  const managed = !m.adopted;
   const main = mainDomain(n);
   const free = autoDomain(n, name);
   const ips: string[] = S.dns[n]?.data?.ips ?? [];
