@@ -3,7 +3,6 @@ import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
 import { go } from "../lib/api";
-import { isOldSite, OldSiteNote } from "../lib/legacy";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
@@ -94,8 +93,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const name: string = m.name;
   const open = S.open.has(`${n}/${name}`);
   const up = isUp(status);
-  const old = isOldSite(state);
-  // Adopted and pre-Compose sites: landfall runs them, it does not deploy them.
+  // Adopted sites: landfall runs them, it does not deploy them.
   const managed = state === "managed";
   const byDate = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1));
   const older = byDate.filter((r) => r.at < (cur?.at ?? ""));
@@ -140,18 +138,16 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       {deploys ? (
         <Btn cls="sm primary" title={`Build and upload ${tilde(proj.path)} again, then switch to it (lf deploy)`} on={() => redeploy(proj.path, n, name, proj.kind, proj.environment)}><Icon name="deploy" />Redeploy</Btn>
       ) : m.adopted || m.kind === "image" ? null : (
-        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains ?? [], old })}><Icon name="deploy" />Redeploy</Btn>
+        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains ?? [] })}><Icon name="deploy" />Redeploy</Btn>
       )}
       {(main || managed || deploys) && <Btn cls="sm" title="Domains, login, environment and how it builds (lf domains, lf auth, lf env, lf deploy)" on={edit}><Icon name="edit" />Edit</Btn>}
-      {!old && (
-        <BtnGroup label={`Containers of ${name}`}>
-          <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}><Icon name="logs" /><span className={TIGHT}>Logs</span></Btn>
-          <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}><Icon name="restart" /><span className={TIGHT}>Restart</span></Btn>
-          {up
-            ? <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}><Icon name="stop" /><span className={TIGHT}>Stop</span></Btn>
-            : <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}><Icon name="start" /><span className={TIGHT}>Start</span></Btn>}
-        </BtnGroup>
-      )}
+      <BtnGroup label={`Containers of ${name}`}>
+        <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}><Icon name="logs" /><span className={TIGHT}>Logs</span></Btn>
+        <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}><Icon name="restart" /><span className={TIGHT}>Restart</span></Btn>
+        {up
+          ? <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}><Icon name="stop" /><span className={TIGHT}>Stop</span></Btn>
+          : <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}><Icon name="start" /><span className={TIGHT}>Start</span></Btn>}
+      </BtnGroup>
       <MenuBtn
         title={`More for ${name}`}
         cls="sm ghost"
@@ -164,7 +160,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           },
           "-",
           domains.length > 0 && { label: "Check now", hint: "lf check", title: `Request ${domains.join(", ")} over HTTPS from this machine: status, time, certificate`, run: () => run(["check", name, ...sv(n)], { server: n }) },
-          !old && { label: "Stats", hint: `lf stats ${name}`, title: "CPU, memory and network of its containers right now", run: () => run(["stats", name, ...sv(n)], { server: n }) },
+          { label: "Stats", hint: `lf stats ${name}`, title: "CPU, memory and network of its containers right now", run: () => run(["stats", name, ...sv(n)], { server: n }) },
           { label: "Traffic", hint: `lf traffic ${name}`, title: "Its requests, errors, busiest paths and clients", run: () => ((S.focus[n] = name), go(n, "traffic")) },
           "-",
           ...(ways.length > 1 ? ways : ways.slice(0, 1)).map((w) => ({
@@ -197,7 +193,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           </div>
           <span className={SIDE}>
             {own && live && <TunnelBtn n={n} argv={own.argv} ports={own.ports} label="Tunnel" compact />}
-            {!old && svcMenu(x)}
+            {svcMenu(x)}
           </span>
         </div>
         {/* Private ports it names (lf tunnel blog admin), under it. */}
@@ -257,13 +253,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   facts.push(["Created", `${ago(m.createdAt)} · updated ${ago(m.updatedAt)}`]);
   const detail = (
     <div className="flex flex-col gap-3 py-1.5">
-      {old && <OldSiteNote redeploy={!!proj} />}
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           <Panel title="Services" count={services.length}>
             {services.length ? <ul className={LIST}>{svcRows}</ul> : <p className="m-0 px-3 py-2.5 dim">none running</p>}
           </Panel>
-          {!old && <SiteVolumes n={n} name={name} dir={proj?.path} edit={deploys && proj.kind !== "static" ? { path: proj.path, kind: proj.kind, environment: proj.environment, services: services.map((x) => x.service) } : undefined} />}
+          <SiteVolumes n={n} name={name} dir={proj?.path} edit={deploys && proj.kind !== "static" ? { path: proj.path, kind: proj.kind, environment: proj.environment, services: services.map((x) => x.service) } : undefined} />
           {m.releases.length > 0 && (
             <Panel
               title="Releases"
@@ -301,7 +296,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
             </Panel>
           )}
           <Panel title="Details"><Kv className="px-3 py-2.5" pairs={facts} /></Panel>
-          <Panel title={`On ${n}`}><SiteFiles m={m} state={state} /></Panel>
+          <Panel title={`On ${n}`}><SiteFiles m={m} /></Panel>
         </div>
       </div>
     </div>
@@ -311,7 +306,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const where = (
     <>
       {domains.length ? domains.map((d: string) => <DomainChip key={d} n={n} d={d} />)
-      : main && !old && !many ? <span className={CHIP}><span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} /></span>
+      : main && !many ? <span className={CHIP}><span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} /></span>
       : null}
       {reach.map((w) => (
         <span key={w.label} className={cx(CHIP, "gap-1.5")}>
@@ -515,13 +510,12 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
   );
 }
 
-function SiteFiles({ m, state }: { m: SiteMeta; state: string }) {
+function SiteFiles({ m }: { m: SiteMeta }) {
   const dir = `${S.state.paths.sites}/${m.name}`;
   const box = "px-3 py-2.5 text-sm flex flex-col gap-1.5 min-w-0";
   // Paths and commands break anywhere: inside the table, a line that cannot wrap widens every row on a phone.
   const line = cx(MONO, "block break-all");
   if (m.adopted) return <div className={box}><span className={line}>{m.adopted}</span><span className="dim">its own folder; project <span className="mono">{m.project ?? m.name}</span></span></div>;
-  if (isOldSite(state)) return <div className={box}><span className={line}>{dir}</span></div>;
   return (
     <div className={box}>
       <span className={line} title={`${dir}/current is releases/${m.current}`}>{dir}/current <span className="dim">→ releases/{m.current}</span></span>

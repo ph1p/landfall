@@ -6,8 +6,6 @@ import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
 import { detectStaticDir, slug } from "../../src/core/projects";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
-import { IGNORE_FILE } from "../../src/core/legacy";
-import { parse } from "../../src/cli/cmd";
 import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
 import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
 import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/compose";
@@ -206,7 +204,7 @@ describe("upload filtering", () => {
     expect(compile("   ")).toBeUndefined();
   });
 
-  test("uploadList: defaults, .landfallignore, --gitignore, exclude and include", () => {
+  test("uploadList: defaults, --gitignore, exclude and include", () => {
     const root = fs.mkdtempSync(join(tmpdir(), "lf-ignore-"));
     const put = (p: string, body = "x") => (fs.mkdirSync(join(root, p, ".."), { recursive: true }), fs.writeFileSync(join(root, p), body));
     put("index.html");
@@ -219,25 +217,24 @@ describe("upload filtering", () => {
     put("sub/keep.txt");
     put("sub/x.tmp");
     put(".gitignore", "dist/\nlogs/\n");
-    put(IGNORE_FILE, "data/\n!node_modules\n");
-    const paths = (o = {}) => uploadList(root, o).map((e) => e.path);
+    const rules = { exclude: ["data/"], include: ["node_modules"] };
+    const paths = (o = {}) => uploadList(root, { rules, ...o }).map((e) => e.path);
     expect(paths()).toEqual([".gitignore", "dist", "dist/app.js", "index.html", "logs", "logs/a.log", "node_modules", "node_modules/a", "node_modules/a/index.js", "sub", "sub/.gitignore", "sub/keep.txt", "sub/x.tmp"]);
     expect(paths({ gitignore: true })).not.toContain("dist");
     expect(paths({ gitignore: true })).not.toContain("sub/x.tmp");
     expect(paths({ gitignore: true })).toContain("sub/keep.txt");
-    // A subfolder upload (a static site's dist/) never matches its own root, and .landfallignore lives in the project.
-    fs.writeFileSync(join(root, IGNORE_FILE), "dist/app.js\n");
-    expect(uploadList(join(root, "dist"), { project: root, gitignore: true }).map((e) => e.path)).toEqual([]);
+    // A subfolder upload (a static site's dist/) never matches its own root, and exclude is relative to the project.
+    expect(uploadList(join(root, "dist"), { project: root, gitignore: true, rules: { exclude: ["dist/app.js"] } }).map((e) => e.path)).toEqual([]);
     expect(uploadList(join(root, "dist"), { gitignore: true }).map((e) => e.path)).toEqual(["app.js"]);
-    // .landfall.json's exclude adds to .landfallignore's; include beats both, the defaults and .gitignore.
+    // include beats .landfall.json's exclude, the defaults and .gitignore.
     const own = (rules: object) => uploadList(root, { gitignore: true, rules }).map((e) => e.path);
     expect(own({ exclude: ["index.html", "sub/"] })).toEqual([".gitignore", "data", "data/big.bin"]);
-    expect(own({ exclude: ["sub/", "/data"], include: ["dist/", ".env", "node_modules"] })).toEqual([".env", ".gitignore", "dist", "index.html", "node_modules", "node_modules/a", "node_modules/a/index.js"]);
+    expect(own({ exclude: ["sub/", "/data"], include: ["dist/", ".env", "node_modules"] })).toEqual([".env", ".gitignore", "dist", "dist/app.js", "index.html", "node_modules", "node_modules/a", "node_modules/a/index.js"]);
     // A folder left out is not looked into: a file in it does not come back alone.
     expect(own({ include: ["logs/a.log"] })).not.toContain("logs/a.log");
     const size = uploadSize(uploadList(root, { exclude: ["sub"] }));
     expect(size.largest[0]).toEqual(["data", 1000]);
-    expect(size.files).toBe(4);
+    expect(size.files).toBe(5);
   });
 });
 

@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { serverDomains } from "./legacy";
 import { fail } from "./term";
 
 /**
@@ -74,7 +73,6 @@ export function loadConfig(): Config {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) as Config;
     cfg.servers ??= {};
-    serverDomains(cfg.servers);
     return cfg;
   } catch (e: any) {
     if (e.code === "ENOENT") return { servers: {} };

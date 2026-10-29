@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { OLD_DOTENV } from "./legacy";
 import { askpassEnv } from "./login";
 import { REPORT } from "./term";
 
@@ -9,8 +8,8 @@ const self = (): string[] => [process.execPath, ...process.execArgv, process.arg
 /** `--dashboard-password` → `LANDFALL_SECRET_DASHBOARD_PASSWORD`. */
 export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase().replace(/-/g, "_")}`;
 
-/** --dotenv, or its old name --env-file, with or without =value. */
-const DOTENV_FLAG = new RegExp(`^--(dotenv|${OLD_DOTENV})(=|$)`);
+/** --dotenv, with or without =value. */
+const DOTENV_FLAG = /^--dotenv(=|$)/;
 const isDotenvFlag = (a: string) => DOTENV_FLAG.test(a);
 
 /** Commands whose KEY=value arguments are .env values. */

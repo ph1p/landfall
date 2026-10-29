@@ -3,7 +3,6 @@ import { DOMAIN, editList, expandDomain, loadProject, saveProject, type Server }
 import { checkDns, serverIps } from "../../core/facts";
 import { updateProjectDomains } from "../../core/projects";
 import { currentRelease, findRoute, siteDomains, siteMain, subDomains, type SiteMeta } from "../../core/compose";
-import { isOld, OLD_SITE_DOMAINS } from "../../core/legacy";
 import { changeSite, overview, requireSite } from "../../core/remote";
 import type { Proxy } from "../../core/templates";
 import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn } from "../../core/term";
@@ -28,7 +27,7 @@ export async function claimDomains(server: Server, serverName: string, site: str
     const taken = siteDomains(m).filter((d) => domains.includes(d));
     const fixed = !siteMain(m) ? taken : taken.filter((d) => !m.domains.includes(d));
     if (fixed.length) {
-      const where = isOld(m) ? OLD_SITE_DOMAINS : m.adopted ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}` : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
+      const where = m.adopted ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}` : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
       fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
     }
     if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);

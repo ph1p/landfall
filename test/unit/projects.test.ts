@@ -5,8 +5,6 @@ import { describe, expect, test } from "vitest";
 import { detectApp, detectStaticDir, nodeDockerfile } from "../../src/core/projects";
 import { detectBuild } from "../../src/core/frameworks";
 import { nodeMajor } from "../../src/core/runtimes";
-import { HOSTNAME } from "../../src/core/system";
-import { IGNORE_FILE } from "../../src/core/legacy";
 import { baseImages, detectProject } from "../../src/core/projects";
 import { safeParts } from "../../src/ui/server/local";
 
@@ -74,7 +72,7 @@ describe("folders and access", () => {
     fs.mkdirSync(join(n, "data"));
     fs.writeFileSync(join(n, "data", "a.txt"), "x");
     expect(detectProject(n).seeds).toBeUndefined();
-    fs.writeFileSync(join(n, IGNORE_FILE), "/data/\n");
+    fs.writeFileSync(join(n, ".landfall.json"), JSON.stringify({ exclude: ["/data/"] }));
     expect(detectProject(n).seeds).toEqual(["data"]);
   });
   test("the publish folder comes from the site generator, before its first build", () => {

@@ -58,13 +58,6 @@ describe("deploy scripts", () => {
     expect(scripts[0]).toContain("lf undo removes blog");
   });
 
-  test("a takeover takes the old container down only after the build", async () => {
-    const old = { name: "blog", kind: "dockerfile", domains: [], current: "0", releases: [{ id: "0" }] } as any;
-    await applySite(server, site("1", ["1"]), OWN_PROXY, { build: true, takeover: old, what: "deploy blog release 1" });
-    parses(scripts[0]);
-    expect(at(scripts[0], "dc build -q")).toBeLessThan(at(scripts[0], "removing the old container"));
-  });
-
   test("discarding a release keeps the one current points at, and removes its images", async () => {
     await discardRelease(server, "blog", "2", ["blog-web:2"]);
     parses(scripts[0]);

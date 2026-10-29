@@ -1,6 +1,5 @@
 import { builtImage } from "./compose";
 import type { Server } from "./config";
-import { OLD_SITE_IMAGES } from "./legacy";
 import { runScript, shq } from "./ssh";
 import { COMPOSE_INSTALL, COMPOSE_PLUGIN, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 
@@ -333,7 +332,6 @@ PS=$(docker ps -a --format '{{.Names}} {{.Label "com.docker.compose.service"}} {
 for f in ${SITES}/*/site.json; do
   [ -f "$f" ] || continue
   d=$(dirname "$f"); n=$(basename "$d")
-  ${OLD_SITE_IMAGES}
   p=$(sed -n 's/^ *"project": *"\([^"]*\)".*/\1/p' "$f"); [ -n "$p" ] || p=$n
   printf '%s\n' "$PS" | while read -r c svc pr; do [ "$pr" != "$p" ] || img site "$n" "$c" "$d/current" "$svc"; done
 done

@@ -62,7 +62,7 @@ describe("traffic", () => {
         "2026-10-25T15:19:12Z INF Starting provider",
       ],
       3600,
-      { name: "app", domains: ["app.test", "www.app.test"] },
+      { name: "app", domains: ["app.test", "www.app.test"], releases: [] },
     );
     expect(out).toMatch(/^N\t5\t1\t2026-10-25T15:20:01.5Z\t2026-10-25T15:21:00Z$/m);
     const t = parseTraffic(out, 3600, now);
@@ -134,7 +134,7 @@ describe("certs", () => {
     expect(cert.staging).toBe(false);
     expect(readCert("bm90IGEgY2VydA==", "acme")).toBeNull();
     expect([covers("*.app.test", "www.app.test"), covers("*.app.test", "a.b.app.test"), covers("*.app.test", "app.test"), covers("app.test", "app.test")]).toEqual([true, false, false, true]);
-    const certs = parseCerts([`SITE\t{"name":"app","domains":["app.test","www.app.test","other.test"]}`, `CERT\t/x/c.pem\t${b64}`, "LOG\t2026-10-25T15:00:00Z ERR x error=\"nope\" domains=[\"other.test\"]"].join("\n"), now);
+    const certs = parseCerts([`SITE\t{"name":"app","domains":["app.test","www.app.test","other.test"],"releases":[]}`, `CERT\t/x/c.pem\t${b64}`, "LOG\t2026-10-25T15:00:00Z ERR x error=\"nope\" domains=[\"other.test\"]"].join("\n"), now);
     expect(certs.domains.map((d) => [d.domain, d.cert?.path, d.error?.error])).toEqual([
       ["app.test", "/x/c.pem", undefined],
       ["other.test", undefined, "nope"],
