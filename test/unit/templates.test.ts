@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { portScheme, routerPort } from "../../src/core/tunnel";
 import { htpasswd, traefikSettings } from "../../src/core/traefik";
-import { parse } from "../../src/cli/cmd";
 import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/templates";
 import { adoptCompose, analyze, findRoute, isCidr, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, ejectYaml, folderVolumes, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
