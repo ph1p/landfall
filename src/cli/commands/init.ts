@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, loadProject } from "../../core/config";
-import { adoptCompose, currentRelease, EJECT_FILE, localCompose, OVERRIDE_FILES, overrideYaml, routed, volumeName } from "../../core/compose";
+import { adoptCompose, currentRelease, EJECT_FILE, localCompose, ejectYaml, OVERRIDE_FILES, routed, volumeName } from "../../core/compose";
 import { composeFile, detectApp, detectProject } from "../../core/projects";
 import { requireSite } from "../../core/remote";
 import { c, confirm, fail, info, ok, showDiff, showStack, warn } from "../../core/term";
@@ -189,7 +189,7 @@ there, and lf deploy goes on as before.`,
     if (missing.length) warn(`${file} has no service ${missing.join(", ")}, which ${site} routes on ${serverName}: is this its project?`);
 
     const own = { ...proxy, network: o.network ?? proxy.network, entrypoint: o.entrypoint ?? proxy.entrypoint, resolver: o.resolver ?? proxy.resolver };
-    const text = overrideYaml(meta, release, own, { eject: true });
+    const text = ejectYaml(meta, release, own);
     const path = join(root, EJECT_FILE);
     const before = fs.existsSync(path) ? fs.readFileSync(path, "utf8") : undefined;
     if (before === text) return ok(`${EJECT_FILE} is up to date`);
