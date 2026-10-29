@@ -26,8 +26,10 @@ export const S = {
   dns: {} as Store<T.Dns>,          // name -> {data: {ips, domains: [{domain, ips, ok, https: lf check}]}}; checked again each minute
   traffic: {} as Store<T.Traffic>,      // name -> {data: lf traffic --json --since S.since}
   since: "24h",              // the Traffic tab's range
+  focus: {} as Record<string, string | undefined>, // name -> the site the Traffic tab shows alone (lf traffic <site>)
   errs: {} as Store<T.Traffic>,         // name -> {data: lf traffic --json --since 24h}, for the sites' errors card
   certs: {} as Store<T.Certs>,        // name -> {data: lf certs --json}
+  proxy: {} as Store<T.TraefikStatus>, // name -> {data: lf traefik status --json}, for the Traefik tab
   open: new Set<string>(),   // expanded site rows
   allSvcs: {} as Record<string, boolean>, // servers whose System tab lists every service
   filter: "",                // server list filter

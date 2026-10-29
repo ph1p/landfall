@@ -433,7 +433,7 @@ and so is a redeploy whose domain comes only from `.landfall.json` (pass `-d` to
 
 ```sh
 lf ls                              # sites with status, and your own containers behind Traefik
-lf sites info                      # services, domains, releases
+lf sites info                      # services, domains, releases (--json: the site as lf ls --json lists it, with its folder)
 lf logs -f                         # follow logs (-n 500 for more lines)
 lf logs blog db                    # one service
 lf rollback                        # previous release (--to <id> for a specific one)
@@ -455,9 +455,13 @@ lf tunnel blog                     # http://localhost:<port> straight to its con
 lf tunnel my-compose-app -s vps    # also any Compose project or container landfall did not deploy
 lf tunnel my-app db                # a database: postgresql://localhost:5432 (the port its image exposes; --port picks another)
 lf tunnel blog -l 3000 --lan       # local port 3000, also on this machine's network: open it from a phone on the same Wi-Fi
+lf tunnels                         # the tunnels open on this machine: URL, site, server, since when (--json)
 lf sites rm blog                   # delete the site (asks you to type the name)
 lf logs api -s vps                 # another site on another server
 ```
+
+A tunnel needs the server's sshd to allow port forwarding. With `AllowTcpForwarding no` the tunnel opens but
+every request fails; `lf tunnel` then says so: set it to `yes` (or `local`) in `/etc/ssh/sshd_config` and reload ssh.
 
 Commands that remove something ask first: `sites rm`, `domains --rm/--set`, `server domain --rm/--clear`,
 `auth --rm-user/--off`, `firewall rm`, `undo`, `traefik rm`, `server rm` and `server uninstall`. `sites rm` and `undo --all` want the name typed
@@ -559,7 +563,7 @@ their hint points to where they were set up. The UI's Updates tab has the same s
 ## Traefik
 
 ```sh
-lf traefik status                              # container state, routes, mode
+lf traefik status                              # container state, routes, mode (--json)
 lf traefik logs -f                             # certificate errors show up here (--access adds requests)
 lf traefik setup --email you@example.com       # reconfigure (safe to re-run)
 lf traefik setup --dashboard traefik           # dashboard at traefik.<main domain> behind a login; `off` removes it
@@ -817,9 +821,11 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | page | commands |
 |---|---|
 | Overview | `lf server list --check`, recent deploys, `lf config` (defaults, and where landfall puts things) |
-| Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm` |
+| Server menu | `lf server info`, `server use`, `reboot`, `server rm`, `server uninstall` |
+| Sites | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm`; a site's menu runs `lf check <site>`, `lf stats <site>` and opens its traffic |
 | Stats | `lf stats` (a new sample every 5s while the tab is open), `lf disk` on request, Clean up… (`lf prune`) |
-| Traffic | `lf traffic --since 1h/24h/7d`, `lf certs`; the Sites tab shows failing requests of the last 24h and `lf check` on each domain |
+| Traffic | `lf traffic --since 1h/24h/7d`, `lf certs`; click a site for `lf traffic <site>`. The Sites tab shows failing requests of the last 24h and whether each domain answers over HTTPS |
+| Traefik | `lf traefik status` (routes), `traefik logs`, `traefik restart`, `traefik use`, `traefik rm` |
 | Updates | `lf updates`, `lf update` |
 | Firewall | `lf firewall` and its subcommands |
 | Users | `lf users` and its subcommands; the tab shows only where landfall may manage users |
@@ -854,8 +860,9 @@ Everything is a plain command; the web UI only runs those and prints each one (`
   `lf auth --password-stdin`. Any `--…password` option also falls back to `$LANDFALL_SECRET_<NAME>`, e.g.
   `LANDFALL_SECRET_DASHBOARD_PASSWORD`.
   Env values: `lf env --dotenv -` / `lf deploy --dotenv -` read them from stdin.
-- **JSON output:** `--json` works on `ls`, `info`, `server list`, `server config`, `server domain`, `domains`,
-  `firewall`, `updates` and `history`. The web UI reads the very same JSON. `ls --json --others` gives the full
+- **JSON output:** `--json` works on `ls`, `sites info`, `server list`, `server info`, `server config`,
+  `server domain`, `domains`, `env`, `secret`, `volumes`, `stats`, `disk`, `prune`, `traffic`, `certs`, `check`,
+  `traefik status`, `tunnels`, `firewall`, `updates`, `scan`, `security`, `config` and `history`. The web UI reads the very same JSON. `ls --json --others` gives the full
   overview; `domains --json` lists the server's addresses under `ips`.
 - **Dry runs:** `lf setup <name> --check` changes nothing. `lf updates` only reports.
 - **Exit codes:** `0` means success, `1` means error (the message starts with `error:` on stderr), and `2` means unknown command.
@@ -930,7 +937,7 @@ lf undo -s box -y                           # revert the last run
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
 | `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
-| `lf sites info [name]` | Shows services, domains and release history. |
+| `lf sites info [name] [--json]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
 | `lf auth [name] -u user [-p pw \| --password-stdin]` / `--rm-user u` / `--off` | Puts basic-auth login in front of a site. |
 | `lf open [name]` | Opens the site in the browser. |
@@ -941,6 +948,7 @@ lf undo -s box -y                           # revert the last run
 | `lf release rm [name] [id…] [--keep n]` | Deletes old releases and the images built for them: the given ones, else all but the live one (`--keep n` keeps the n newest). The live release always stays. Journaled, not reversible. |
 | `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |
+| `lf tunnels [--json]` | Lists the tunnels open on this machine. |
 | `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes and their backups stay unless `--volumes`. |
 | `lf volumes [name] [--json]` | Lists a site's volumes: size, mounts, backups. Alias: `volume ls`. |
 | `lf volume add [name] [service:]<path> [--as key]` | Keeps a container folder in a named volume: edits compose.yaml or `.landfall.json`; `lf deploy` applies it. |
@@ -959,7 +967,7 @@ lf undo -s box -y                           # revert the last run
 | `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Routes sites through a Traefik you already run. |
 | `lf traefik rm [--certs]` | Removes landfall's Traefik (undoable), or stops using yours after `traefik use`. |
 | `lf traefik dashboard [-l local] [--lan] [--port p]` | Opens Traefik's dashboard on localhost through an SSH tunnel. |
-| `lf traefik status` / `logs [-f]` / `restart` | Inspects or restarts Traefik. `lf traefik` alone means `status`. |
+| `lf traefik status [--json]` / `logs [-f]` / `restart` | Inspects or restarts Traefik: its container and every route it serves. `lf traefik` alone means `status`. |
 | `lf firewall [--json]` | Lists ufw rules and, for each listening port, whether it is reachable. |
 | `lf firewall allow` / `deny <port[/proto]> [--from ip] [--comment c]` | Adds a rule. A deny goes first, so it wins. |
 | `lf firewall update <n> [--port p] [--from ip] [--action allow\|deny\|limit]` | Changes a rule. |

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { checkEmail, checkImage, defaults, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, saveConfig, type Server } from "./config";
 import { runScript, shq, writeFileCmd } from "./ssh";
-import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "./templates";
+import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "./templates";
 import { askSecret, c, fail, info, ok, step, warn } from "./term";
 import { adminLogin } from "./privilege";
 
@@ -205,4 +205,62 @@ ${o.certs ? "rmf letsencrypt" : ""}
 # Certificates removed with --certs come back from Let's Encrypt on the next start.
 record ${shq(`removed traefik${o.certs ? " and its certificates" : ""}`)} "$u; cd ${TRAEFIK_DIR} && dc up -d --remove-orphans"`,
   );
+}
+
+export interface TraefikRoute {
+  container: string;
+  rule: string;
+  entrypoints: string[];
+}
+export interface TraefikStatus {
+  /** The proxy container (landfall's traefik, or yours after `lf traefik use`); null when there is none. */
+  container: { name: string; image: string; status: string; networks: string[] } | null;
+  /** Sites go through a Traefik the server already had (PROXY_FILE). */
+  own: boolean;
+  /** One per rule and container: sites often pair an http and an https router with the same rule. */
+  routes: TraefikRoute[];
+  /** A Traefik landfall does not use yet that publishes 443: `lf traefik use <it>` routes sites through it. */
+  foreign: string | null;
+}
+
+/** `lf traefik status --json`: the proxy container and every route Traefik serves. */
+export async function traefikStatus(server: Server): Promise<TraefikStatus> {
+  const { stdout } = await runScript(
+    server,
+    `P=${PROXY_CTR}
+[ ! -f ${PROXY_FILE} ] || echo OWN
+docker ps --filter publish=443 --format 'PUB\t{{.Names}}\t{{.Image}}' 2>/dev/null || true
+docker ps -a --filter "name=^$P$" --format 'CTR\\t{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Networks}}' 2>/dev/null || true
+# Containers without a rule (traefik.enable only) print nothing.
+docker ps --filter label=traefik.enable=true --format '{{.Names}}' 2>/dev/null | while read -r n; do
+  docker inspect -f '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}' "$n" 2>/dev/null | awk -v n="$n" '
+    /^traefik[.]http[.]routers[.][^.=]+[.](rule|entrypoints)=/ {
+      split($0, k, "."); v = substr($0, index($0, "=") + 1)
+      if ($0 ~ /[.]rule=/) rule[k[4]] = v; else ep[k[4]] = v
+    }
+    END { for (r in rule) printf "ROUTE\\t%s\\t%s\\t%s\\n", n, rule[r], (r in ep) ? ep[r] : "" }' || true
+done`,
+    { capture: true },
+  );
+  const st: TraefikStatus = { container: null, own: false, routes: [], foreign: null };
+  const pub: string[] = [];
+  const byRule = new Map<string, TraefikRoute>();
+  for (const line of stdout.split("\n")) {
+    const [kind, a = "", b = "", d = "", e = ""] = line.split("\t");
+    if (kind === "OWN") st.own = true;
+    if (kind === "PUB" && /traefik/.test(b)) pub.push(a);
+    if (kind === "CTR") st.container = { name: a, image: b, status: d, networks: e.split(",").filter(Boolean) };
+    if (kind === "ROUTE") {
+      const key = `${a}\0${b}`;
+      const r = byRule.get(key) ?? { container: a, rule: b, entrypoints: [] };
+      byRule.set(key, r);
+      for (const x of d ? d.split(",") : ["all"]) if (!r.entrypoints.includes(x)) r.entrypoints.push(x);
+    }
+  }
+  st.foreign = st.own ? null : (pub.find((x) => x !== st.container?.name) ?? null);
+  // Sorted, so the same routes always print the same way.
+  st.routes = [...byRule.values()]
+    .map((r) => ({ ...r, entrypoints: r.entrypoints.sort() }))
+    .sort((x, y) => x.container.localeCompare(y.container) || x.rule.localeCompare(y.rule));
+  return st;
 }

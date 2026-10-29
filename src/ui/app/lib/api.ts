@@ -77,6 +77,7 @@ export function invalidate(name: string) {
   delete S.dns[name];
   delete S.errs[name];
   delete S.certs[name];
+  delete S.proxy[name];
   // What is on screen reloads in place; other tabs reload when opened.
   const shown = new Set(S.sel === name ? needs(S.tab).map((t) => STORE[t]) : []);
   for (const k of Object.values(STORE)) if (!shown.has(k)) delete S[k][name];

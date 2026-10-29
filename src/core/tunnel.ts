@@ -3,7 +3,9 @@ import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import os from "node:os";
-import { checkInt, type Server } from "./config";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { checkInt, configDir, type Server } from "./config";
 import { dest, runScript, shq, targetArgs } from "./ssh";
 import { c, fail, info, ok, report, warn } from "./term";
 
@@ -121,6 +123,69 @@ const lanAddresses = () =>
     .filter((a) => a.family === "IPv4" && !a.internal)
     .map((a) => a.address);
 
+// ---- open tunnels ----------------------------------------------------------
+
+/** Each running `lf tunnel` writes <pid>.json here and removes it when it closes: `lf tunnels` lists them. */
+export const TUNNELS_DIR = join(configDir, "tunnels");
+
+export interface OpenTunnel {
+  pid: number;
+  /** The lf command that opened it, like `tunnel blog -s prod`. */
+  cmd: string;
+  what: string;
+  /** ssh's destination: user@host. */
+  server: string;
+  url: string;
+  lan: string[];
+  at: string;
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM: it runs, as another user.
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+/** The tunnels open on this machine, oldest first; files of ones that died without closing go. */
+export function openTunnels(): OpenTunnel[] {
+  let files: string[];
+  try {
+    files = readdirSync(TUNNELS_DIR).filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const out: OpenTunnel[] = [];
+  for (const f of files) {
+    const file = join(TUNNELS_DIR, f);
+    let t: OpenTunnel | undefined;
+    try {
+      t = JSON.parse(readFileSync(file, "utf8"));
+    } catch {}
+    if (t && alive(t.pid)) out.push(t);
+    else rmSync(file, { force: true });
+  }
+  return out.sort((a, b) => a.at.localeCompare(b.at));
+}
+
+/** Notes this process's tunnel; the returned function removes the note. */
+function noteTunnel(t: Omit<OpenTunnel, "pid" | "cmd" | "at">): () => void {
+  const file = join(TUNNELS_DIR, `${process.pid}.json`);
+  const drop = () => rmSync(file, { force: true });
+  try {
+    mkdirSync(TUNNELS_DIR, { recursive: true });
+    writeFileSync(file, JSON.stringify({ pid: process.pid, cmd: process.argv.slice(2).join(" "), at: new Date().toISOString(), ...t }));
+    process.once("exit", drop);
+  } catch {}
+  return drop;
+}
+
+/** What ssh prints when the server's sshd has AllowTcpForwarding no: forwards open, then every connection fails. */
+export const FORWARD_DENIED = /administratively prohibited/;
+
 /**
  * Forward localhost:<local> to addr:port as the server sees it, until Ctrl-C (or the job is stopped).
  * Nothing changes on the server: no port is published, the site's domains stay as they are.
@@ -140,12 +205,21 @@ export async function openTunnel(
   const fwd = o.as ? await freePort() : local;
   // Its own connection: a forward through the shared one would outlive this command.
   const args = [...targetArgs(s), "-o", "ControlPath=none", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15"];
-  const ssh = spawn("ssh", [...args, "-N", "-L", `${o.as ? "127.0.0.1" : bind}:${fwd}:${addr}:${port}`, dest(s)], { stdio: ["ignore", "inherit", "inherit"] });
+  const ssh = spawn("ssh", [...args, "-N", "-L", `${o.as ? "127.0.0.1" : bind}:${fwd}:${addr}:${port}`, dest(s)], { stdio: ["ignore", "inherit", "pipe"] });
+  // ssh's errors pass through; a refused forward gets a hint once, since ssh itself keeps running.
+  let hinted = false;
+  ssh.stderr.on("data", (b: Buffer) => {
+    process.stderr.write(b);
+    if (hinted || !FORWARD_DENIED.test(b.toString())) return;
+    hinted = true;
+    warn(`${s.host}'s sshd refuses port forwarding: set AllowTcpForwarding yes (or local) in /etc/ssh/sshd_config and reload ssh, then open the tunnel again`);
+  });
   const exited = new Promise<number>((resolve) => ssh.on("close", (code) => resolve(code ?? 1)));
   let stopped = false;
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(sig, () => ((stopped = true), ssh.kill()));
   for (let i = 0; i < 100 && ssh.exitCode === null && !(await listening(fwd)); i++) await new Promise((r) => setTimeout(r, 150));
   let proxy: http.Server | undefined;
+  let drop = () => {};
   if (ssh.exitCode === null) {
     if (o.as) proxy = await hostProxy(local, fwd, o.as, bind);
     const scheme = o.scheme ?? "http";
@@ -153,6 +227,7 @@ export async function openTunnel(
     ok(`${o.what}: ${c.cyan(url("localhost"))}`);
     const ips = o.lan ? lanAddresses() : [];
     report({ url: url("localhost"), lan: ips.map(url) });
+    drop = noteTunnel({ what: o.what, server: dest(s), url: url("localhost"), lan: ips.map(url) });
     if (o.lan) {
       info(ips.length ? `on your network: ${ips.map((ip) => c.cyan(url(ip))).join("  ")}` : "on your network: this machine has no network address yet");
       warn("anyone on that network reaches it too: close it when you are done");
@@ -161,6 +236,7 @@ export async function openTunnel(
     info(c.dim("the tunnel stays open until Ctrl-C"));
   }
   const code = await exited;
+  drop();
   proxy?.close();
   if (!stopped && code !== 0) fail(`the tunnel closed (ssh exit ${code})`);
 }

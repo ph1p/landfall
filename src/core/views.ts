@@ -6,14 +6,15 @@ import fs from "node:fs";
 import { join } from "node:path";
 import { firewallState } from "./firewall";
 import { CONFIG_PATH, configDir, DEFAULT_KEEP, expandHome, isTunnelOnly, loadConfig, tildify, type Server } from "./config";
-import { describeTraefik, traefikSettings } from "./traefik";
+import { describeTraefik, traefikSettings, traefikStatus } from "./traefik";
 import { checkDns, domainDns, facts, suggestDomains, pickIp, serverCaps, serverIps, sslipDomain } from "./facts";
 import { pending, readJournal } from "./journal";
 import { prunePlan } from "./manage";
 import { scanImages, TRIVY_ASK, trivyState, trivyThere } from "./scan";
 import { diskUsage, stats } from "./stats";
 import { securityOf } from "./security";
-import { certs, checkUrl, traffic } from "./traffic";
+import { certs, checkUrl, siteTraffic, traffic, type Traffic } from "./traffic";
+import { TUNNELS_DIR } from "./tunnel";
 import { effectiveSsh, findHostBlock, SSH_CONFIG } from "./sshconfig";
 import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
 import { fail } from "./term";
@@ -90,6 +91,14 @@ export async function dnsView(server: Server, domains: string[]) {
 /** `lf traffic --json`: Traefik's access log, aggregated per host and site on the server. */
 export const trafficView = (server: Server, secs: number) => traffic(server, secs);
 
+/** `lf traffic <site> --json`: only the requests of a site (or a domain); no counts when it had none. */
+export function siteTrafficView(t: Traffic, site: string) {
+  return { site, since: t.since, bucket: t.bucket, format: t.format, from: t.from, to: t.to, ...(siteTraffic(t, site) ?? {}) };
+}
+
+/** `lf traefik status --json`: the proxy container and the routes it serves. */
+export const traefikView = (server: Server) => traefikStatus(server);
+
 /** `lf certs --json`: each site domain's certificate and the last error getting one. */
 export const certsView = (server: Server) => certs(server);
 
@@ -132,6 +141,7 @@ function locations() {
       { path: tildify(join(configDir, "projects.json")), what: "folders deployed from here (web UI Recent)" },
       { path: tildify(join(configDir, "ui-token")), what: "web UI login token" },
       { path: tildify(join(configDir, "uploads")), what: "folders dropped into the web UI, removed after a day" },
+      { path: tildify(TUNNELS_DIR), what: "one file per open tunnel, gone when it closes (lf tunnels)" },
       { path: tildify(SSH_CONFIG), what: "Host <name> blocks between # >>> landfall:<name> markers" },
       { path: "~/.ssh/landfall_<name>", what: "ssh key per server (lf keygen, lf setup)" },
       { path: "./.landfall.json", what: "a project's deploy settings, saved by lf deploy" },
