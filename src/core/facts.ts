@@ -275,18 +275,7 @@ export async function checkDns(domains: string[], serverIpList: string[]): Promi
   );
 }
 
-export const bytes = (n: number) => {
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  while (n >= 1024 && i < u.length - 1) (n /= 1024), i++;
-  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
-};
-
-export const duration = (s: number) => {
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  return d ? `${d}d ${h}h` : h ? `${h}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m`;
-};
+export { bytes, duration } from "./format";
 
 /** Where the main domain and a name below it resolve to: both should point at the server. */
 export async function domainDns(server: Server, domain: string) {
