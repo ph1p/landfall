@@ -238,13 +238,17 @@ export function parseDisk(out: string): DiskUsage {
   d.root = v.root === "1";
   d.docker = v.docker === "1";
   d.landfall = (+v.landfall || 0) * 1024;
-  // journalctl prints binary sizes with a single letter: 120.5M, 1.2G.
-  const j = /^([\d.]+)([BKMGT]?)/i.exec(v.journald ?? "");
-  d.journald = j ? Math.round(Number(j[1]) * 1024 ** "BKMGT".indexOf((j[2] || "B").toUpperCase())) : 0;
+  d.journald = journalSize(v.journald ?? "");
   d.sites.sort((a, b) => b.size - a.size);
   d.volumes.sort((a, b) => b.size - a.size);
   d.logs.sort((a, b) => (b.size ?? -1) - (a.size ?? -1));
   return d;
+}
+
+/** journalctl prints binary sizes with a single letter: 120.5M, 1.2G. 0 when unknown. */
+export function journalSize(s: string): number {
+  const j = /^([\d.]+)([BKMGT]?)/i.exec(s.trim());
+  return j ? Math.round(Number(j[1]) * 1024 ** "BKMGT".indexOf((j[2] || "B").toUpperCase())) : 0;
 }
 
 export async function diskUsage(s: Server): Promise<DiskUsage> {

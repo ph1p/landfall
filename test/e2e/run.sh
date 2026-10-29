@@ -599,6 +599,16 @@ lf prune -y >/dev/null 2>&1 || die "prune"
 { docker exec "$NAME" docker image ls --format '{{.Repository}}' | grep -q '^app-'; } || die "prune keeps built images"
 { lf history 2>&1 | has "pruned"; } || die "prune is journaled"
 pass "prune removes unused images, keeps built images, journals it"
+log=$(docker exec "$NAME" sh -c 'docker inspect -f "{{.LogPath}}" $(docker ps -q | head -n1)')
+docker exec "$NAME" sh -c "head -c 200000 /dev/zero >> '$log' && : > '$log.1'"
+out=$(lf prune --logs --dry-run --json) || die "prune --logs --dry-run"
+# deploy has no sudo here: no log sizes in the plan, emptying them goes through root's key login.
+{ echo "$out" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); process.exit(!p.root && p.logs === 0 ? 0 : 1)'; } || { echo "$out"; die "prune plan: no log sizes without root"; }
+lf prune --logs -y >/dev/null 2>&1 || die "prune --logs"
+[ "$(docker exec "$NAME" stat -c %s "$log")" -lt 200000 ] || die "prune --logs empties container logs"
+{ ! docker exec "$NAME" test -e "$log.1"; } || die "prune --logs removes rotated logs"
+{ lf history 2>&1 | has "emptied container logs"; } || die "prune --logs is journaled"
+pass "prune --logs empties container logs, journals it"
 fi
 
 if want system; then echo "== system"
