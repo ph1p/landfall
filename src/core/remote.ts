@@ -510,7 +510,8 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
   const dc = o.env !== undefined ? "dc --env-file ../../.env.new" : "dc";
   const bail = o.env !== undefined ? "{ rm -f .env.new; exit 1; }" : "exit 1";
   if (o.build && release.services.some((s) => s.build)) {
-    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build -q --pull) || ${bail}`);
+    // Not -q: a build can take minutes, and its steps show it is getting somewhere.
+    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build --pull) || ${bail}`);
   }
   if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && ${dc} pull -q --ignore-buildable) || ${bail}`);
   lines.push(
