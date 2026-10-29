@@ -88,13 +88,13 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
 }
 
 function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
-  const { meta: m, status, services, domains, main, state, kind } = site;
+  const { meta: m, status, services, domains, main, kind } = site;
   const cur = m.releases.find((r) => r.id === m.current);
   const name: string = m.name;
   const open = S.open.has(`${n}/${name}`);
   const up = isUp(status);
   // Adopted sites: landfall runs them, it does not deploy them.
-  const managed = state === "managed";
+  const managed = !m.adopted;
   const byDate = [...m.releases].sort((a, b) => (a.at < b.at ? 1 : -1));
   const older = byDate.filter((r) => r.at < (cur?.at ?? ""));
   const proj = (S.state.projects ?? []).find((p) => p.server === n && p.name === name);
