@@ -143,9 +143,6 @@ export const mainService = (r?: Release) => r?.services.find(isMain);
 /** The service that serves the site's own domains; none for adopted sites. */
 export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainService(currentRelease(meta)));
 
-/** managed: landfall deploys it; adopted: run where it is. */
-export type SiteState = "managed" | "adopted";
-export const siteState = (meta: { adopted?: string }): SiteState => (meta.adopted ? "adopted" : "managed");
 /** compose, static, … ; or adopted. */
 export const kindOf = (meta: { kind: string; adopted?: string }) => (meta.adopted ? "adopted" : meta.kind);
 

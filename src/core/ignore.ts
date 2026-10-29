@@ -80,8 +80,6 @@ export interface ListOpts {
   gitignore?: boolean;
 }
 
-const read = (f: string) => (fs.existsSync(f) ? parseIgnore(fs.readFileSync(f, "utf8")) : []);
-
 /**
  * What an upload of `root` sends: folders before their contents, paths relative to `root` with `/`.
  * The .gitignore files go first, then the defaults, then .landfall.json's exclude, then
@@ -97,7 +95,8 @@ export function uploadList(root: string, o: ListOpts = {}): Entry[] {
   const out: Entry[] = [];
   const walk = (dir: string, git: Layer[]) => {
     if (o.gitignore) {
-      const rules = read(join(dir, ".gitignore"));
+      const f = join(dir, ".gitignore");
+      const rules = fs.existsSync(f) ? parseIgnore(fs.readFileSync(f, "utf8")) : [];
       if (rules.length) git = [...git, { base: dir, rules }];
     }
     const layers = [...git, ...own];

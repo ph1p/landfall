@@ -162,8 +162,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const lock = await lockSite(server, name);
     try {
       const site = await readSite(server, name);
-      const { env: prevEnv, proxy, exists } = site;
-      const prev = site.meta;
+      const { meta: prev, env: prevEnv, proxy, exists } = site;
       if (prev?.adopted) fail(`${name} is adopted (${prev.adopted}): deploy it there with docker compose, or pick another --name`);
       if (prev && prev.kind !== kind) info(c.dim(`site was ${prev.kind}, now ${kind}`));
 
