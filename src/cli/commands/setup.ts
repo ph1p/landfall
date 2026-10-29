@@ -6,7 +6,7 @@ import { canLogin, runScript } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../../core/inventory";
 import { PLATFORM, support } from "../../core/facts";
-import { ensureKey, ensureKeyLogin, loginPassword, serverEntry } from "../../core/login";
+import { ensureKey, ensureKeyLogin, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../../core/templates";
 import { latestCompose, latestDocker } from "../../core/updates";
 import { rootLogin } from "../../core/privilege";
@@ -114,12 +114,7 @@ dashboard unless given as flags.`,
     // Never shadow a Host entry the user wrote themselves (e.g. `Host vps`).
     const isOwnAlias = sshAliases().includes(name) && !hasManagedBlock(name);
 
-    const login: Server = {
-      host: o.host ?? existing?.host ?? name,
-      user: o.user ?? (o.host ? "root" : existing?.user),
-      port: o.port ? Number(o.port) : existing?.port,
-      key: o.key ?? existing?.key,
-    };
+    const login = loginFrom(name, o, existing);
     // Re-running setup on a server we already set up: landfall now logs in as the
     // deploy user, but bootstrapping needs root, which kept key-only access.
     // Root may be locked: then the sudo user that bootstrapped it the first time.

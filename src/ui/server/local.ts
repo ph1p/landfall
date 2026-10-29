@@ -38,11 +38,8 @@ async function save(path: string, f: File) {
   fs.writeFileSync(path, Buffer.from(await f.arrayBuffer()));
 }
 
-/**
- * Store dropped files (with their relative paths) or one archive (.zip, .tar, .tar.gz)
- * in a fresh folder, and return the folder to deploy: the single top folder when there is one.
- */
-export async function receiveUpload(form: FormData) {
+/** Uploads older than a day: their deploys are long done. Also on lf ui start, so they go without a next upload. */
+export function pruneUploads() {
   fs.mkdirSync(UPLOADS, { recursive: true, mode: 0o700 });
   for (const old of fs.readdirSync(UPLOADS)) {
     const p = join(UPLOADS, old);
@@ -50,6 +47,14 @@ export async function receiveUpload(form: FormData) {
     const mtime = fs.statSync(p, { throwIfNoEntry: false })?.mtimeMs ?? Date.now();
     if (Date.now() - mtime > KEEP_MS) fs.rmSync(p, { recursive: true, force: true });
   }
+}
+
+/**
+ * Store dropped files (with their relative paths) or one archive (.zip, .tar, .tar.gz)
+ * in a fresh folder, and return the folder to deploy: the single top folder when there is one.
+ */
+export async function receiveUpload(form: FormData) {
+  pruneUploads();
   const files = form.getAll("file").filter((f): f is File => f instanceof File);
   if (!files.length) throw new Error("no files in the upload");
   // One path per file, in order: any other count would put files under each other's names.

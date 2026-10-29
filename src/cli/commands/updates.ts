@@ -50,7 +50,8 @@ export const updatesList = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { server } = resolveServer(o.server);
+    const { name, server } = resolveServer(o.server);
+    if (!o.json) step(`checking ${name} for updates${o.refresh ? " (refreshing package lists)" : ""}`);
     const view = await updatesView(server, o.refresh);
     if (o.json) return void console.log(JSON.stringify(view, null, 2));
     const { packages, images, engine } = view;
@@ -103,6 +104,7 @@ compose plugin setup installed with the newest release (undoable too).`,
 
     if (doPkgs) {
       const login = await adminLogin(server, "upgrading packages");
+      step(`checking ${name}'s packages`);
       const p = await pkgStatus(login);
       const pick = o.security ? p.updates.filter((u) => u.security) : p.updates;
       if (p.mgr === "none") warn("no supported package manager, skipping packages");
@@ -124,6 +126,7 @@ compose plugin setup installed with the newest release (undoable too).`,
     }
 
     if (doImgs) {
+      step("checking images against their registries");
       const imgs = await imageStatus(server);
       if (sites.length) {
         const unknown = sites.filter((s) => !imgs.some((i) => i.name === s));

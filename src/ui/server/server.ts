@@ -9,7 +9,7 @@ import pkg from "../../../package.json";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
 import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
-import { browse, jobCwd, receiveUpload } from "./local";
+import { browse, jobCwd, pruneUploads, receiveUpload } from "./local";
 import { ENV_PAIR, isEnvCmd, isPasswordShort, secretsOut, startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
@@ -51,6 +51,8 @@ const MAX_RUNNING = 20;
 const MAX_UPLOAD = 512 * 1024 ** 2;
 const MAX_BODY = 1024 ** 2;
 const jobs = new Map<string, WebJob>();
+/** Server reads still running, by path and query. */
+const reads = new Map<string, Promise<Response>>();
 
 /** Commands that make no sense without a terminal, or would start another dashboard. */
 const NO_JOB = new Set(["ui", "web"]);
@@ -306,6 +308,9 @@ const DEFAULT_PORT = 4777;
  */
 export async function webUi(o: { port?: number; open: boolean }): Promise<number> {
   setQuiet(true);
+  try {
+    pruneUploads();
+  } catch {}
   const secret = token();
   const handler = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
@@ -338,11 +343,13 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
       // no Origin: only this page's own requests (or non-browser clients, which send no Sec-Fetch-Site) get in.
       const site = req.headers.get("sec-fetch-site");
       if (site && site !== "same-origin" && site !== "none") return new Response("forbidden", { status: 403 });
-      try {
-        return await api(req, url.pathname.slice(5).split("/").filter(Boolean).map(decodeURIComponent));
-      } catch (e) {
-        return failure(e);
-      }
+      const answer = () => api(req, url.pathname.slice(5).split("/").filter(Boolean).map(decodeURIComponent)).catch((e) => failure(e));
+      if (req.method !== "GET" || !url.pathname.startsWith("/api/servers/")) return answer();
+      // The same read asked again while it runs (a poll, a second tab): one ssh run answers both.
+      const key = url.pathname + url.search;
+      let read = reads.get(key);
+      if (!read) reads.set(key, (read = answer().finally(() => reads.delete(key))));
+      return (await read).clone();
     }
     return new Response("not found", { status: 404 });
   };

@@ -3,6 +3,11 @@ import type { Cap, ServerEntry, SiteStatus } from "../lib/types";
 import { SECTIONS, type Tab } from "../lib/api";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
+import { bytes as size, duration, pct } from "../../../core/format";
+import { isUp, statusKind } from "../../../core/status";
+
+export { bytes as size, pct } from "../../../core/format";
+export { isUp };
 
 // Small pieces many views share.
 
@@ -13,7 +18,6 @@ export function errorHint(error: string) {
   return "";
 }
 
-export const isUp = (status: string) => /^up/i.test(status);
 
 /** Something of a site an SSH tunnel reaches: lf <argv> opens it. priv: its private port, if that is what it opens; path: where. */
 export interface Way { svc: string; label: string; argv: string[]; ports: number[]; domains: string[]; status: string; priv?: number; path?: string }
@@ -40,21 +44,13 @@ export function tunnelWays(n: string, site: SiteStatus): Way[] {
   });
 }
 /** A container's dot from its docker status. */
+const DOTS = { up: ["up", "running"], warn: ["warn", "not healthy"], done: ["", "finished"], down: ["down", "down"] };
+
 export function StatusDot({ status }: { status: string }) {
-  const [cls, word] = /^restarting|\((unhealthy|health: starting)\)/i.test(status) ? ["warn", "not healthy"] : isUp(status) ? ["up", "running"] : /^exited \(0\)/i.test(status) ? ["", "finished"] : ["down", "down"];
+  const [cls, word] = DOTS[statusKind(status)];
   return <Dot kind={cls} role="img" aria-label={word} title={status} />;
 }
 
-export function size(b: number) {
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  while (b >= 1024 && i < u.length - 1) (b /= 1024), i++;
-  return `${b < 10 && i ? b.toFixed(1) : Math.round(b)} ${u[i]}`;
-}
-export function uptime(s: number) {
-  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
-  return d ? `${d}d ${h}h` : h ? `${h}h` : `${Math.floor(s / 60)}m`;
-}
 
 export const REACH_WORD = { ok: "reachable", login: "login refused", down: "unreachable" } as const;
 export const REACH_KIND = { ok: "up", login: "warn", down: "down" } as const;
@@ -68,7 +64,6 @@ export function reachCount(list: ServerEntry[]) {
 /** A faint 0, for an empty count cell. */
 export const Zero = () => <span className="faint">0</span>;
 /** used as a whole percentage of total. */
-export const pct = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
 export const Star = () => <span className="text-warn" title="default server"><StarIcon className="inline-block size-3 -mt-0.5 align-middle fill-current" aria-label="default server" /></span>;
 /** Whether landfall's ssh login to n works, from /api/reach. */
 export function ReachDot({ n, className }: { n: string; className?: string }) {
@@ -88,7 +83,7 @@ export function FactsLine({ n }: { n: string }) {
   const disk = pct(f.disk.used, f.disk.total);
   const items = [
     <><b className="text-fg font-medium">{f.os}</b> {f.arch}</>,
-    <span title={`kernel ${f.kernel}`}>up {uptime(f.uptime)}</span>,
+    <span title={`kernel ${f.kernel}`}>up {duration(f.uptime)}</span>,
     f.cpus ? `${f.cpus} CPU · load ${f.load.split(" ")[0]}` : "",
     f.mem.total ? `RAM ${size(f.mem.total - f.mem.available)} / ${size(f.mem.total)}` : "",
     f.disk.total ? <span className={cx(disk > 85 && "text-warn")}>disk {disk}% of {size(f.disk.total)}</span> : "",

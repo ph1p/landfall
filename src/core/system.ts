@@ -4,13 +4,13 @@ import { expandHome, type Server } from "./config";
 import { runScript, shq } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
-import { PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
+import { KV, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
 import { fail } from "./term";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
 const SYSTEM = String.raw`
 set +e
-kv() { printf '%s=%s\n' "$1" "$2"; }
+${KV}
 SUDO=""; R=1
 if [ "$(id -u)" -ne 0 ]; then if sudo -n true 2>/dev/null; then SUDO=sudo; else R=0; fi; fi
 ${SEC_CHECKS}

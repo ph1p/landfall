@@ -14,6 +14,7 @@ import { detectBuild } from "../../core/frameworks";
 import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
+import { onStop } from "../../core/job";
 import { offerSeed } from "./volume";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 
@@ -231,6 +232,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       // Images built here and (maybe partly) sent: a failed deploy takes them off the server again.
       let sent: string[] = [];
       let vols: string[] = [];
+      // Stopped midway: the half-made release goes like a failed one.
+      const offDiscard = onStop(() => discardRelease(server, name, id, [...sent, ...(release ? builtImages(name, release) : [])]));
       try {
         if (files !== undefined) {
           step(`uploading ${relative(cwd, dir) || "."}`);
@@ -287,16 +290,18 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         move = await claimDomains(server, serverName, name, [...domains, ...fixed, ...subDomains(a.services, domains)], proxy, fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined);
         if (buildLocal) {
           const tmp = buildTmp();
+          const offTmp = onStop(async () => fs.rmSync(tmp, { recursive: true, force: true }));
           try {
             const builds = localBuilds(prepared.config, { site: name, id, serverDir: prepared.dir + files, localDir: dir, generated, tmp });
             sent = builds.map((b) => b.tag);
             await buildLocally(server, builds);
           } finally {
+            offTmp();
             fs.rmSync(tmp, { recursive: true, force: true });
           }
         }
       } catch (e) {
-        await discardRelease(server, name, id, sent).catch(() => {});
+        await discardRelease(server, name, id, sent).catch((e) => warn(`could not remove the failed release ${id} of ${name}: ${e?.message ?? e}`));
         throw e;
       }
 
@@ -325,9 +330,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
           existed: !prev && exists,
           what: `deploy ${name} release ${id}${prev ? "" : ` (new site, ${siteDomains(meta).join(", ")})`}`,
         });
+        offDiscard();
       } catch (e) {
         // A failed build or pull, or a start that went back to the previous release: its folder and images go.
-        await discardRelease(server, name, id, builtImages(name, release)).catch(() => {});
+        await discardRelease(server, name, id, builtImages(name, release)).catch((e) => warn(`could not remove the failed release ${id} of ${name}: ${e?.message ?? e}`));
         throw e;
       }
       // Domains leave their old site only once this one runs: a failed deploy takes nobody's away.
@@ -454,6 +460,7 @@ function showRoutes(services: Release["services"], domains: string[], live?: Rel
 }
 
 async function checkLive(domain: string) {
+  info(c.dim(`checking https://${domain}`));
   try {
     const get = () => fetch(`https://${domain}`, { signal: AbortSignal.timeout(15000), redirect: "manual" });
     let res = await get();

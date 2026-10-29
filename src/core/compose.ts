@@ -144,9 +144,7 @@ export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainServ
 /** compose, static, … ; or adopted. */
 export const kindOf = (meta: { kind: string; adopted?: string }) => (meta.adopted ? "adopted" : meta.kind);
 
-export const isUp = (status: string) => /^up/i.test(status);
-/** A one-shot service that finished fine: not down. */
-export const isDone = (status: string) => /^exited \(0\)/i.test(status);
+export { isDone, isUp, STATUS_RANK, statusKind, type StatusKind } from "./status";
 /** Shell that prints each site's site.json on one line, after SITE and a tab. */
 export const SITE_LINES = `for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done`;
 /** The site.json in a SITE_LINES line; undefined for other lines and when it is corrupt. */
@@ -159,13 +157,6 @@ export function readSiteLine(line: string): SiteMeta | undefined {
     return undefined;
   }
 }
-
-/** A container status read as: up, up but not healthy (yet) or restarting, a one-shot that finished, or down. */
-export type StatusKind = "up" | "warn" | "done" | "down";
-export const statusKind = (status: string): StatusKind =>
-  /^restarting|\((unhealthy|health: starting)\)/i.test(status) ? "warn" : isUp(status) ? "up" : isDone(status) ? "done" : "down";
-/** Higher is worse: what a group of containers shows as its one status. */
-export const STATUS_RANK: Record<StatusKind, number> = { up: 0, done: 1, warn: 2, down: 3 };
 
 /** The domains a route answers on, given the site's. */
 export const routeDomains = (r: Route, site: string[]) => r.domains ?? site.map((d) => `${r.subdomain}.${d}`);

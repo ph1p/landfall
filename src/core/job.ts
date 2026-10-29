@@ -68,7 +68,11 @@ const stopped = (sig: keyof typeof SIGNALS) => {
   stopping = true;
   // Bounded: an unreachable server must not keep a stopped lf alive.
   setTimeout(() => process.exit(SIGNALS[sig]), 10_000).unref();
-  void Promise.allSettled([...cleanups].map((f) => f())).then(() => process.exit(SIGNALS[sig]));
+  if (cleanups.size) process.stderr.write("stopping: cleaning up first\n");
+  void Promise.allSettled([...cleanups].map((f) => f())).then((done) => {
+    for (const d of done) if (d.status === "rejected") process.stderr.write(`clean-up failed: ${d.reason?.message ?? d.reason}\n`);
+    process.exit(SIGNALS[sig]);
+  });
 };
 
 /**

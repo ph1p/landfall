@@ -28,7 +28,7 @@ const trivySize = (t?: TrivyState) => (t?.cache ? size((t.image ?? 0) + t.cache)
 // Shown as scanning at once: a scan takes a minute or more, and the click must answer now.
 const scan = (n: string, install = false) => {
   const q = [onlyOurs.has(n) && "others=0", install && "install=1"].filter(Boolean).join("&");
-  void fetchInto("scan", n, "/scan" + (q && "?" + q)).then(() => void (install && loadTrivy(n).catch(() => {})));
+  void fetchInto("scan", n, "/scan" + (q && "?" + q)).then(() => void (install && loadTrivy(n).catch((e) => toast(`could not read Trivy's state: ${errorMessage(e)}`))));
   render();
 };
 const there = (t: TrivyState) => t.image !== undefined || t.cache !== undefined;

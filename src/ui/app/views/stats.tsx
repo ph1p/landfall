@@ -118,8 +118,14 @@ function loadDisk(n: string) {
   render();
 }
 /** d: the loaded disk usage, which has the log sizes the plan only measures for --logs. */
+// Servers whose clean-up plan is being worked out: it takes a few seconds, the button says so.
+const planning = new Set<string>();
 function pruneFlow(n: string, d: DiskUsage) {
-  http<PrunePlan>(`/api/servers/${encodeURIComponent(n)}/prune`).then((p) => {
+  if (planning.has(n)) return;
+  planning.add(n);
+  render();
+  const done = () => (planning.delete(n), render());
+  http<PrunePlan>(`/api/servers/${encodeURIComponent(n)}/prune`).finally(done).then((p) => {
     // The plan comes unsized: the disk view has every volume's size already.
     const sizes = new Map(d.volumes.map((v) => [v.name, v.size]));
     for (const v of p.volumes ?? []) v.size = sizes.get(v.name) ?? 0;
@@ -193,7 +199,7 @@ function DiskCard({ n }: { n: string }) {
     <Card>
       {head(
         <>
-          {d.docker && <Btn cls="sm" on={() => pruneFlow(n, d)} title="lf prune: remove unused images, the build cache and optionally logs">Clean up</Btn>}
+          {d.docker && <Btn cls="sm" on={() => pruneFlow(n, d)} disabled={planning.has(n)} title="lf prune: remove unused images, the build cache and optionally logs">{planning.has(n) && <><Spin />{" "}</>}Clean up</Btn>}
           <Btn cls="sm" on={() => loadDisk(n)} title="Analyze again" aria-label="Analyze again"><RotateCw className="inline-block size-3.5 -mt-px align-middle" aria-hidden="true" /></Btn>
         </>,
       )}
