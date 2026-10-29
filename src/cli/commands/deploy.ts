@@ -461,8 +461,15 @@ function showRoutes(services: Release["services"], domains: string[], live?: Rel
 
 async function checkLive(domain: string) {
   try {
-    const res = await fetch(`https://${domain}`, { signal: AbortSignal.timeout(15000), redirect: "manual" });
+    const get = () => fetch(`https://${domain}`, { signal: AbortSignal.timeout(15000), redirect: "manual" });
+    let res = await get();
+    // Traefik answers 404 until its Docker provider has seen the recreated container: give it a few seconds.
+    for (let i = 0; res.status === 404 && i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      res = await get();
+    }
     if (res.status < 400) ok(`https://${domain} responded ${res.status}`);
+    else if (res.status === 401) ok(`https://${domain} responded 401: it asks for its login`);
     else warn(`https://${domain} responded ${res.status}`);
   } catch (e: any) {
     const msg = e?.cause?.code ?? e?.code ?? e?.message ?? String(e);
