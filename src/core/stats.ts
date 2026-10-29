@@ -181,9 +181,22 @@ export async function stats(s: Server): Promise<Stats> {
 }
 
 /** Where the space goes: filesystems, docker's share, sites, volumes and container logs. */
+/** Sets S to what reads root-owned files: nothing as root, sudo -n with passwordless sudo. */
+export const SUDO_PROBE = `S=""; [ "$(id -u)" -eq 0 ] || { sudo -n true 2>/dev/null && S="sudo -n"; }`;
+/** The systemd journal's size as journalctl prints it (120.5M), empty when unknown. Needs SUDO_PROBE. */
+export const JOURNAL_USAGE = String.raw`$($S journalctl --disk-usage 2>/dev/null | sed -n 's/.* take up \([0-9.]*[A-Za-z]*\).*/\1/p')`;
+/**
+ * LOG <container> <KiB> per container, json-file's rotated logs (.1, .2.gz) included; no KiB when unreadable.
+ * Needs SUDO_PROBE and docker. One shell reads them all: the files are root's.
+ */
+export const LOG_SIZES = String.raw`ids=$(docker ps -aq)
+[ -z "$ids" ] || docker inspect -f '{{.Name}}{{"\t"}}{{.LogPath}}' $ids 2>/dev/null | $S sh -c 'while IFS="$(printf "\t")" read -r n p; do
+  [ -n "$p" ] && printf "LOG\t%s\t%s\n" "${"${n#/}"}" "$([ -r "$p" ] && du -kc "$p" "$p".* 2>/dev/null | tail -n 1 | cut -f1)"
+done'`;
+
 export const DISK = String.raw`
 set +e
-S=""; [ "$(id -u)" -eq 0 ] || { sudo -n true 2>/dev/null && S="sudo -n"; }
+${SUDO_PROBE}
 kv() { printf '%s=%s\n' "$1" "$2"; }
 kv root "$([ "$(id -u)" -eq 0 ] || [ -n "$S" ] && echo 1)"
 df -Pk 2>/dev/null | awk 'NR > 1 && $1 ~ /^\// && $6 !~ /^\/(snap|boot)(\/|$)/ && !seen[$1]++ { print "DISK\t" $6 "\t" $2 "\t" $3 "\t" $4 }'
@@ -193,15 +206,12 @@ for d in ${SITES}/*/; do
   n=$(basename "$d")
   printf 'SITE\t%s\t%s\t%s\t%s\n' "$n" "$($S du -sk "$d" 2>/dev/null | cut -f1)" "$($S du -sk "$d/releases" 2>/dev/null | cut -f1)" "$(ls -1 "$d/releases" 2>/dev/null | wc -l)"
 done
-kv journald "$($S journalctl --disk-usage 2>/dev/null | sed -n 's/.* take up \([0-9.]*[A-Za-z]*\).*/\1/p')"
+kv journald "${JOURNAL_USAGE}"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   kv docker 1
   docker system df --format 'DF\t{{.Type}}\t{{.TotalCount}}\t{{.Active}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null
   docker system df -v 2>/dev/null | awk '/^VOLUME NAME/ { v = 1; next } v && NF == 0 { v = 0 } v && NF >= 3 { print "VOL\t" $1 "\t" $2 "\t" $NF }'
-  ids=$(docker ps -aq)
-  [ -z "$ids" ] || docker inspect -f '{{.Name}}{{"\t"}}{{.LogPath}}' $ids 2>/dev/null | while IFS="$(printf '\t')" read -r n p; do
-    [ -n "$p" ] && printf 'LOG\t%s\t%s\n' "${"${n#/}"}" "$($S du -k "$p" 2>/dev/null | cut -f1)"
-  done
+  ${LOG_SIZES}
 fi
 exit 0
 `;
