@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
 import { detectStaticDir, slug } from "../../src/core/projects";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
+import { IGNORE_FILE } from "../../src/core/legacy";
 import { parse } from "../../src/cli/cmd";
 import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
 import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
@@ -218,14 +219,14 @@ describe("upload filtering", () => {
     put("sub/keep.txt");
     put("sub/x.tmp");
     put(".gitignore", "dist/\nlogs/\n");
-    put(".landfallignore", "data/\n!node_modules\n");
+    put(IGNORE_FILE, "data/\n!node_modules\n");
     const paths = (o = {}) => uploadList(root, o).map((e) => e.path);
     expect(paths()).toEqual([".gitignore", "dist", "dist/app.js", "index.html", "logs", "logs/a.log", "node_modules", "node_modules/a", "node_modules/a/index.js", "sub", "sub/.gitignore", "sub/keep.txt", "sub/x.tmp"]);
     expect(paths({ gitignore: true })).not.toContain("dist");
     expect(paths({ gitignore: true })).not.toContain("sub/x.tmp");
     expect(paths({ gitignore: true })).toContain("sub/keep.txt");
     // A subfolder upload (a static site's dist/) never matches its own root, and .landfallignore lives in the project.
-    fs.writeFileSync(join(root, ".landfallignore"), "dist/app.js\n");
+    fs.writeFileSync(join(root, IGNORE_FILE), "dist/app.js\n");
     expect(uploadList(join(root, "dist"), { project: root, gitignore: true }).map((e) => e.path)).toEqual([]);
     expect(uploadList(join(root, "dist"), { gitignore: true }).map((e) => e.path)).toEqual(["app.js"]);
     // .landfall.json's exclude adds to .landfallignore's; include beats both, the defaults and .gitignore.
