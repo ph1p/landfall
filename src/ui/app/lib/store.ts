@@ -59,7 +59,7 @@ export async function http<T = unknown>(path: string, body?: unknown): Promise<T
   return data;
 }
 
-export const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+export { plural } from "../../../core/format";
 export { ago } from "../../../core/ago";
 /** The -s flag for server n. */
 export const sv = (n: string) => ["-s", n];

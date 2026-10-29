@@ -1,12 +1,11 @@
 import { defineCommand, paintStatus, serverOpt } from "../cmd";
 import { checkInt, projectServer } from "../../core/config";
 import { isUp } from "../../core/compose";
-import { bytes, duration } from "../../core/facts";
+import { bytes, duration, pct } from "../../core/format";
 import { diskUsage, stats, type DiskUsage, type Stats } from "../../core/stats";
 import { ROOT } from "../../core/templates";
 import { c, fail, table } from "../../core/term";
 
-const pct = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
 
 /** A 10-cell bar, yellow from 70%, red from 90%. */
 function bar(p: number) {
