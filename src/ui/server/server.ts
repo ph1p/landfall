@@ -9,7 +9,7 @@ import pkg from "../../../package.json";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
 import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
-import { browse, jobCwd, receiveUpload } from "./local";
+import { browse, jobCwd, pruneUploads, receiveUpload } from "./local";
 import { ENV_PAIR, isEnvCmd, isPasswordShort, secretsOut, startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
@@ -306,6 +306,9 @@ const DEFAULT_PORT = 4777;
  */
 export async function webUi(o: { port?: number; open: boolean }): Promise<number> {
   setQuiet(true);
+  try {
+    pruneUploads();
+  } catch {}
   const secret = token();
   const handler = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);

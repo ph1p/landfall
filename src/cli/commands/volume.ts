@@ -10,6 +10,7 @@ import { HELPER, PRELUDE } from "../../core/templates";
 import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
+import { onStop } from "../../core/job";
 import { backupName, backupsOf, backupTo, pickVolume, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
@@ -198,7 +199,16 @@ Reads the live volume (read-only, the services keep running), or one of its back
     }
     const file = expandHome(o.output ?? `${site}-${backupName(v.key)}`);
     if (fs.existsSync(file) && !(await confirm(`${file} exists. Overwrite it?`, false))) fail(`${file} exists: pick another file with -o`);
-    await sshPipe(server, remote, { file }, "down");
+    // Under another name until it is whole: a cut-off download must not pass for a backup.
+    const part = `${file}.part`;
+    const off = onStop(async () => fs.rmSync(part, { force: true }));
+    try {
+      await sshPipe(server, remote, { file: part }, "down");
+      fs.renameSync(part, file);
+    } finally {
+      off();
+      fs.rmSync(part, { force: true });
+    }
     ok(`${v.key} of ${site} saved to ${file} (${bytes(fs.statSync(file).size)})`);
   },
 });
@@ -258,12 +268,15 @@ async function pushVolume(server: Server, site: string, v: Volume, src: string, 
   step(`upload ${src}`);
   await runScript(server, `mkdir -p ${shq(`${siteDir(site)}/backups`)}`);
   const local = folder ? ["tar", ...(await bsdtarFlags()), "-czf", "-", "-C", src, "."] : { file: src };
+  const drop = () => runScript(server, `rm -f ${shq(upload)}`);
+  const off = onStop(drop);
   try {
     await sshPipe(server, `cat > ${shq(upload)}`, local, "up");
     step(`replace ${v.key} of ${site}`);
     await replace(server, site, v, upload, { own: true, verb: "push", what: `push ${v.key} of ${site}` });
   } finally {
-    await runScript(server, `rm -f ${shq(upload)}`).catch(() => warn(`could not remove ${upload} on the server: delete it by hand`));
+    off();
+    await drop().catch(() => warn(`could not remove ${upload} on the server: delete it by hand`));
   }
   ok(`${v.key} of ${site} replaced with ${src}`);
 }

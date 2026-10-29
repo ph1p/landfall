@@ -95,14 +95,13 @@ export interface ImageScan {
  */
 export const scanScript = (ids: string[]) => String.raw`
 set +e
-err=$(mktemp)
+err=$(mktemp); trap 'rm -f "$err"' EXIT
 for id in ${ids.map(shq).join(" ")}; do
   printf 'SCAN\t%s\n' "$id"
   docker save "$id" | docker run --rm -i --entrypoint sh -v ${TRIVY_CACHE}:/root/.cache/trivy ${TRIVY} -c 'cat > /tmp/i.tar && trivy image --quiet --input /tmp/i.tar --scanners vuln --format json' 2>"$err" | tr -d '\n'
   rc=$?; echo
   [ "$rc" = 0 ] || printf 'ERR\t%s\n' "$(grep -v '^ *$' "$err" | tail -1)"
 done
-rm -f "$err"
 exit 0
 `;
 

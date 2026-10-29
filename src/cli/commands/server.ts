@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
-import { TRIVY_CACHE } from "../../core/scan";
+import { TRIVY, TRIVY_CACHE } from "../../core/scan";
 import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { runScript, shq, sshExec } from "../../core/ssh";
@@ -11,7 +11,7 @@ import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
 import { listServers, reachAll } from "../../core/dashboard";
 import { overview, removeLines, siteDir } from "../../core/remote";
-import { PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
+import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
 import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../../core/term";
 import { ensureKeyLogin, keyFile, loginPassword, serverEntry } from "../../core/login";
 import { configView, factsView, serverSettings } from "../../core/views";
@@ -167,6 +167,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
       console.error(`  ${c.red("-")} ${what}${o.volumes && !x.meta.adopted ? " and its volumes" : ""}`);
     }
     if (st.compose) console.error(`  ${c.red("-")} stop and remove traefik and its certificates`);
+    console.error(`  ${c.red("-")} remove landfall's images (${st.compose ? "traefik, " : ""}trivy, ${HELPER}) and lf scan's database`);
     if (st.proxy) console.error(`  ${c.dim(`· your traefik ${st.proxy} stays`)}`);
     for (const x of [...steps].reverse()) console.error(`  ${c.cyan("↺")} ${x.what}`);
     console.error(`  ${c.red("-")} delete ${ROOT}, its journal included`);
@@ -182,8 +183,9 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
       lines.push(`log ${shq(`removing ${meta.name}`)}`, "(", ...rm, ")", `record ${shq(`removed site ${meta.name}`)}`);
     }
     if (st.compose) lines.push(`log "stopping traefik"`, `(cd ${TRAEFIK_DIR} && dc down --remove-orphans)`, `record "removed traefik"`);
-    // lf scan's database: a cache, not data.
-    lines.push(`! command -v docker >/dev/null || docker volume rm ${TRIVY_CACHE} >/dev/null 2>&1 || true`);
+    // lf scan's database: a cache, not data. landfall's own images go too; one a container still uses stays.
+    const images = [TRIVY, HELPER, ...(st.compose ? [server.traefikImage || DEFAULT_TRAEFIK_IMAGE] : [])];
+    lines.push(`! command -v docker >/dev/null || { docker volume rm ${TRIVY_CACHE}; docker image rm ${images.map(shq).join(" ")}; } >/dev/null 2>&1 || true`);
     if (lines.length > 1) await runScript(server, lines.join("\n"));
     if (steps.length) {
       step(`reverting setup (${steps.length} change${steps.length > 1 ? "s" : ""})`);
