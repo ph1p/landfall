@@ -20,7 +20,7 @@ export type { Step } from "../../../core/journal";
 export type { ImageStatus, PkgUpdate } from "../../../core/updates";
 export type { ContainerStats, DiskUsage } from "../../../core/stats";
 export type { ImageScan, Severity, TrivyState, Vuln } from "../../../core/scan";
-export type { PrunePlan } from "../../../core/manage";
+export type { PrunePlan } from "../../../core/reclaim";
 export type { Cert, CertError, Certs } from "../../../core/traffic";
 export type { Detail, HostTraffic, StatusClass, Summary, Traffic } from "../../../core/traffic-merge";
 export type { Account, Users } from "../../../core/users";

@@ -1,7 +1,8 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, projectServer } from "../../core/config";
 import { bytes } from "../../core/facts";
-import { JOURNAL_KEEP, kept, prune, prunePlan, reboot, reclaimable, removable, removableVolumes, type PrunePlan } from "../../core/manage";
+import { prune, prunePlan, reboot } from "../../core/manage";
+import { JOURNAL_KEEP, kept, pruneSummary, reclaimable, removable, removableVolumes, shortName, type PrunePlan } from "../../core/reclaim";
 import { adminLogin } from "../../core/privilege";
 import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn } from "../../core/term";
 
@@ -32,7 +33,7 @@ function printPlan(name: string, p: PrunePlan) {
     const vols = removableVolumes(p);
     if (vols.length) {
       console.log(`${vols.length} unused volumes, ${c.bold("their data goes for good")}:`);
-      table([["volume", "size"].map(c.dim), ...vols.map((v) => [v.name.length === 64 ? c.dim(v.name.slice(0, 12)) : v.name, v.size ? bytes(v.size) : c.dim("?")])]);
+      table([["volume", "size"].map(c.dim), ...vols.map((v) => [shortName(v.name), v.size ? bytes(v.size) : c.dim("?")])]);
     } else console.log("no unused volumes");
     const site = p.volumes.length - vols.length;
     if (site) keep.push([site, `volumes of existing sites (lf volume rm --data deletes one)`]);
@@ -65,26 +66,14 @@ export const pruneCmd = defineCommand({
     if (nothing) return ok("nothing to clean up");
     // Logs need root: the plan already knows whether this login has it, ask for another only when not.
     const login = plan.logs && !plan.logs.root ? await adminLogin(server, "emptying logs") : server;
-    const what = [
-      `${imgs.length} images, the build cache`,
-      plan.networks.length && `${plan.networks.length} networks`,
-      vols.length && `${vols.length} volumes`,
-      plan.logs && "container logs and old journal entries",
-    ].filter(Boolean).join(", ");
-    const question = `\nRemove ${what} (up to ${bytes(reclaimable(plan))})?`;
+    const question = `\nRemove ${pruneSummary(plan)} (up to ${bytes(reclaimable(plan))})?`;
     if (vols.length) await confirmRemoval(question, name);
     else if (!(await confirm(question, true))) return;
     if (!o.json) step("cleaning up");
-    const res = await prune(login, plan);
-    const gone = (w: string, n: number) => n - res.failed.filter((f) => f.what === w).length;
-    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: gone("image", res.images), failed: res.failed }, null, 2));
-    for (const f of res.failed) warn(`${f.what} ${f.name}: could not remove it (in use?)`);
-    const done = [
-      `${gone("image", res.images)} images and the build cache`,
-      plan.networks.length && `${gone("network", plan.networks.length)} networks`,
-      vols.length && `${gone("volume", res.volumes)} volumes`,
-    ].filter(Boolean).join(", ");
-    ok(`removed ${done}${plan.logs ? `, emptied container logs, journal down to ${JOURNAL_KEEP}` : ""}`);
+    const { failed } = await prune(login, plan);
+    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: imgs.length - failed.filter((f) => f.what === "image").length, failed }, null, 2));
+    for (const f of failed) warn(`${f.what} ${f.name}: could not remove it (in use?)`);
+    ok(`removed ${pruneSummary(plan, failed)}`);
   },
 });
 

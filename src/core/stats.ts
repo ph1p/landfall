@@ -1,5 +1,6 @@
 import type { Server } from "./config";
 import { SITE_LINES, projectName, readSiteLine } from "./compose";
+import { journalSize } from "./reclaim";
 import { runScript } from "./ssh";
 import { ROOT, SITES } from "./templates";
 
@@ -193,6 +194,9 @@ export const LOG_SIZES = String.raw`ids=$(docker ps -aq)
   [ -n "$p" ] && printf "LOG\t%s\t%s\n" "${"${n#/}"}" "$([ -r "$p" ] && du -kc "$p" "$p".* 2>/dev/null | tail -n 1 | cut -f1)"
 done'`;
 
+/** VOL name links size for every volume: docker system df -v has no --format for them. */
+export const VOLUME_SIZES = String.raw`docker system df -v 2>/dev/null | awk '/^VOLUME NAME/ { v = 1; next } v && NF == 0 { v = 0 } v && NF >= 3 { print "VOL\t" $1 "\t" $2 "\t" $NF }'`;
+
 export const DISK = String.raw`
 set +e
 ${SUDO_PROBE}
@@ -209,7 +213,7 @@ kv journald "${JOURNAL_USAGE}"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   kv docker 1
   docker system df --format 'DF\t{{.Type}}\t{{.TotalCount}}\t{{.Active}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null
-  docker system df -v 2>/dev/null | awk '/^VOLUME NAME/ { v = 1; next } v && NF == 0 { v = 0 } v && NF >= 3 { print "VOL\t" $1 "\t" $2 "\t" $NF }'
+  ${VOLUME_SIZES}
   ${LOG_SIZES}
 fi
 exit 0
@@ -252,12 +256,6 @@ export function parseDisk(out: string): DiskUsage {
   d.volumes.sort((a, b) => b.size - a.size);
   d.logs.sort((a, b) => (b.size ?? -1) - (a.size ?? -1));
   return d;
-}
-
-/** journalctl prints binary sizes with a single letter: 120.5M, 1.2G. 0 when unknown. */
-export function journalSize(s: string): number {
-  const j = /^([\d.]+)([BKMGT]?)/i.exec(s.trim());
-  return j ? Math.round(Number(j[1]) * 1024 ** "BKMGT".indexOf((j[2] || "B").toUpperCase())) : 0;
 }
 
 export async function diskUsage(s: Server): Promise<DiskUsage> {
