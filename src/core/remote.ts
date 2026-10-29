@@ -497,7 +497,6 @@ interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "file
  * Shell that writes a site's files for meta.current, points `current` at it and starts it.
  * Until the build and pull are done nothing the running site reads changes: the new .env waits in .env.new.
  */
-
 function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[] {
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
@@ -574,7 +573,6 @@ export async function removeReleases(s: Server, name: string, ids: string[]): Pr
   }
 }
 
-
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
 export async function changeSite(s: Server, name: string, proxy: Proxy, what: string, change: (m: SiteMeta) => void, o: Pick<ApplyOpts, "files" | "recreate"> = {}): Promise<SiteMeta> {
   // Under the deploy lock, on site.json as it is now: a deploy or change in between would be lost on write.
@@ -607,7 +605,6 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   const dir = siteDir(meta.name);
   const lines = [PRELUDE];
   if (o.takeover) {
-    // The old layout's releases are not Compose projects: nothing to go back to.
     // Old container down once the new one is built, but before site.json says v2: a failed start would never get to remove it.
     const before = [`record ${shq(takeoverRecord(o.what))}`, ...takeoverLines(o.takeover, meta.current)];
     lines.push(...siteLines(meta, proxy, { ...o, before }));

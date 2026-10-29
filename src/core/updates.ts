@@ -333,7 +333,6 @@ PS=$(docker ps -a --format '{{.Names}} {{.Label "com.docker.compose.service"}} {
 for f in ${SITES}/*/site.json; do
   [ -f "$f" ] || continue
   d=$(dirname "$f"); n=$(basename "$d")
-  # Sites of landfall before Compose sites: one container, its compose file next to site.json.
   ${OLD_SITE_IMAGES}
   p=$(sed -n 's/^ *"project": *"\([^"]*\)".*/\1/p' "$f"); [ -n "$p" ] || p=$n
   printf '%s\n' "$PS" | while read -r c svc pr; do [ "$pr" != "$p" ] || img site "$n" "$c" "$d/current" "$svc"; done
