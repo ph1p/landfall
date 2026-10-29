@@ -1,7 +1,7 @@
 import type { Server } from "./config";
 import { runScript } from "./ssh";
 import { passwordOnly } from "./security";
-import { parseProxy, PRELUDE, PROBE, ROOT, TRAEFIK_DIR, type Proxy } from "./templates";
+import { kvLine, parseProxy, PRELUDE, PROBE, ROOT, TRAEFIK_DIR, type Proxy } from "./templates";
 import { cmpVersion } from "./updates";
 import { c, info } from "./term";
 
@@ -41,10 +41,9 @@ function parseListener(value: string): Listener {
 export function parseProbe(out: string): Probe {
   const p: Probe = { values: {}, listen: [], published: [], rules: [] };
   for (const line of out.split("\n")) {
-    const i = line.indexOf("=");
-    if (i < 0) continue;
-    const key = line.slice(0, i);
-    const value = line.slice(i + 1).trim();
+    const kv = kvLine(line);
+    if (!kv) continue;
+    const [key, value] = kv;
     if (key === "listen" || key === "published") p[key].push(parseListener(value));
     else if (key === "ufw_rule") p.rules.push(value);
     else p.values[key] = value;

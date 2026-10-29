@@ -5,7 +5,7 @@ import { guessDomains, type Server } from "./config";
 import { runScript } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
-import { KV, OS_RELEASE, PRELUDE } from "./templates";
+import { KV, kvRecord, OS_RELEASE, PRELUDE } from "./templates";
 import { fail } from "./term";
 
 /** What a server runs on: distro, hardware, addresses. Read-only. */
@@ -93,11 +93,7 @@ export interface Facts {
 }
 
 export function parseFacts(out: string, today = new Date()): Facts {
-  const v: Record<string, string> = {};
-  for (const line of out.split("\n")) {
-    const i = line.indexOf("=");
-    if (i > 0) v[line.slice(0, i)] = line.slice(i + 1).trim();
-  }
+  const v = kvRecord(out);
   const nums = (s = "") => s.split(/\s+/).map((n) => Number(n) * 1024);
   const [memTotal = 0, memAvail = 0] = nums(v.mem);
   const [diskTotal = 0, diskUsed = 0, diskAvail = 0] = nums(v.disk);
