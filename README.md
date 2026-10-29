@@ -702,6 +702,7 @@ lf stats                                                # CPU, memory, disks, ne
 lf stats blog -w                                        # only the containers of one site, refreshed every 5s (--interval)
 lf disk                                                 # where the space goes: images, volumes, build cache, sites, container logs
 lf prune                                                # remove unused images and the build cache (--all: unused tagged images too)
+lf prune --logs                                         # also empty container logs and shrink the systemd journal to 100M
 lf reboot                                               # reboot, wait until it is back, check its containers run again
 ```
 
@@ -711,7 +712,8 @@ root or passwordless sudo, root-owned folders and container logs may be missing.
 
 `prune` keeps images any container uses (stopped ones too), images built for a site release (rollback runs
 them without rebuilding) and images an undo in the journal puts back. Containers and volumes stay. `--dry-run`
-shows what would go.
+shows what would go. `--logs` also empties every container's log (the live file is truncated, rotated ones are
+deleted) and shrinks the systemd journal to its newest 100M; it needs root or passwordless sudo, else root's key login.
 
 ### NAS, Steam Deck and other systems without a package manager
 
@@ -917,7 +919,7 @@ lf undo -s box -y                           # revert the last run
 | `lf traffic [site] [--since 24h] [--json]` | Shows requests, 4xx/5xx, median and 95% response time and bytes per site from Traefik's access log; with a site or host, requests per minute or hour, busiest paths, failing requests and clients. Alias: `server traffic`. |
 | `lf certs [--since 7d] [--json]` | Shows each site domain's certificate (days left, expiry, issuer, staging), other certificates Traefik has, and its recent certificate errors. Alias: `server certs`. |
 | `lf check [site\|domain…] [--resolve ip[:port]] [--json]` | Requests sites over HTTPS from this machine: status, response time, certificate trust and days left. Exits 1 when one fails. Domains need no server. Alias: `sites check`. |
-| `lf prune [--all] [--dry-run] [--json]` | Removes unused Docker images and the build cache. Keeps images in use (stopped containers too), release images for rollback and images undo needs. `--all` also removes unused tagged images (pulled again when needed) and all build cache. Journaled, not reversible. Alias: `server prune`. |
+| `lf prune [--all] [--logs] [--dry-run] [--json]` | Removes unused Docker images and the build cache. Keeps images in use (stopped containers too), release images for rollback and images undo needs. `--all` also removes unused tagged images (pulled again when needed) and all build cache. `--logs` also empties container logs and shrinks the systemd journal to 100M (needs root). Journaled, not reversible. Alias: `server prune`. |
 | `lf reboot [--timeout s]` | Reboots the server (needs root or passwordless sudo), waits until ssh answers again (default 300s) and checks that the containers that ran before run again. Alias: `server reboot`. |
 | `lf system [--json]` | Shows the host name, time zone, clock sync, swap, Docker's log driver and limit, services, SSH keys and fail2ban bans, with hints (no swap on a small server, unlimited Docker logs). Alias: `server system`. |
 | `lf services [--all] [--json]` | Lists services landfall relies on and failed ones; `--all` lists every one. systemd or OpenRC. Alias: `services ls`. |

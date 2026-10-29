@@ -125,10 +125,18 @@ function pruneFlow(n: string) {
     dialog({
       title: `Clean up ${n}?`,
       text: `${plural(imgs.length, "unused image")} and ${size(p.buildCache)} of build cache: up to ${size(most)}.${keep ? ` Kept: ${keep}.` : ""} Volumes and containers stay.`,
-      fields: kept("tagged") ? [{ name: "all", type: "check", label: `Also ${plural(kept("tagged"), "unused tagged image")}`, hint: "Pulled again when a site needs them" }] : [],
+      fields: [
+        ...(kept("tagged") ? [{ name: "all", type: "check" as const, label: `Also ${plural(kept("tagged"), "unused tagged image")}`, hint: "Pulled again when a site needs them" }] : []),
+        {
+          name: "logs",
+          type: "check",
+          label: p.root ? `Also empty container logs (${size(p.logs)}) and shrink the systemd journal${p.journal ? ` (${size(p.journal)})` : ""}` : "Also empty container logs and shrink the systemd journal",
+          hint: "Old log lines are gone for good; the journal keeps its newest 100M. Needs root. lf prune --logs",
+        },
+      ],
       ok: "Clean up",
       danger: true,
-      onOk: (v) => run(["prune", ...sv(n), "-y", ...(v.all ? ["--all"] : [])], { server: n, after: () => (loadDisk(n), []) }),
+      onOk: (v) => run(["prune", ...sv(n), "-y", ...(v.all ? ["--all"] : []), ...(v.logs ? ["--logs"] : [])], { server: n, after: () => (loadDisk(n), []) }),
     });
   }, (e) => toast(errorMessage(e)));
 }
@@ -166,7 +174,7 @@ function DiskCard({ n }: { n: string }) {
     <Card>
       {head(
         <>
-          {d.docker && <Btn cls="sm" on={() => pruneFlow(n)} title="lf prune: remove unused images and the build cache">Clean up</Btn>}
+          {d.docker && <Btn cls="sm" on={() => pruneFlow(n)} title="lf prune: remove unused images, the build cache and optionally logs">Clean up</Btn>}
           <Btn cls="sm" on={() => loadDisk(n)} title="Analyze again" aria-label="Analyze again"><RotateCw className="inline-block size-3.5 -mt-px align-middle" aria-hidden="true" /></Btn>
         </>,
       )}
