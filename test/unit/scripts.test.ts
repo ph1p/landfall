@@ -42,7 +42,7 @@ describe("deploy scripts", () => {
     const s = scripts[0];
     parses(s);
     // The undo shell (in $undo) has its own site.json and up: each looked for after the step before.
-    const build = at(s, "dc --env-file ../../.env.new build -q");
+    const build = at(s, "dc --env-file ../../.env.new build --pull");
     const record = at(s, `record 'deploy blog release 2' "$undo"`, build);
     const mv = at(s, "mv -f .env.new .env", record);
     const up = at(s, "up -d --wait", at(s, "site.json", mv));

@@ -4,6 +4,7 @@ import os from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import type { Server } from "./config";
 import { builtImage } from "./compose";
+import { onStop } from "./job";
 import { runScript, sshPipe } from "./ssh";
 import { c, fail, info, step } from "./term";
 
@@ -79,17 +80,23 @@ export async function buildLocally(server: Server, builds: LocalBuild[]) {
     fail("--build-local needs Docker running on this machine");
   const { stdout } = await runScript(server, "uname -m", { capture: true });
   const platform = dockerPlatform(stdout);
-  for (const b of builds) {
-    step(`building ${b.service} here (${platform})`);
-    const r = spawnSync("docker", ["build", "--pull", "--platform", platform, "-t", b.tag, "-f", b.dockerfile, ...b.args, b.context], { stdio: "inherit" });
-    if (r.status !== 0) fail(`building ${b.service} failed`);
-  }
   const tags = builds.map((b) => b.tag);
-  step(`sending ${tags.length === 1 ? "the image" : `${tags.length} images`} to ${server.host}`);
-  // gzip -1: images are mostly compressed layers already; speed matters more than the last few percent.
-  await sshPipe(server, "gzip -dc | docker load -q >/dev/null", ["sh", "-c", 'docker save "$@" | gzip -1', "sh", ...tags], "up").catch((e) => fail(`sending the images failed: ${e?.message ?? e}`));
-  // Here they would only take up space: the server has them now.
-  spawnSync("docker", ["image", "rm", ...tags], { stdio: "ignore" });
+  // Here they would only take up space: the server has them now, or the deploy failed.
+  const drop = async () => void spawnSync("docker", ["image", "rm", ...tags], { stdio: "ignore" });
+  const off = onStop(drop);
+  try {
+    for (const b of builds) {
+      step(`building ${b.service} here (${platform})`);
+      const r = spawnSync("docker", ["build", "--pull", "--platform", platform, "-t", b.tag, "-f", b.dockerfile, ...b.args, b.context], { stdio: "inherit" });
+      if (r.status !== 0) fail(`building ${b.service} failed`);
+    }
+    step(`sending ${tags.length === 1 ? "the image" : `${tags.length} images`} to ${server.host}`);
+    // gzip -1: images are mostly compressed layers already; speed matters more than the last few percent.
+    await sshPipe(server, "gzip -dc | docker load -q >/dev/null", ["sh", "-c", 'docker save "$@" | gzip -1', "sh", ...tags], "up").catch((e) => fail(`sending the images failed: ${e?.message ?? e}`));
+  } finally {
+    off();
+    await drop();
+  }
   info(c.dim(`built here, sent: ${tags.join(", ")}`));
 }
 

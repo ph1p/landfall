@@ -98,6 +98,8 @@ apk_auto_updates() { pidof crond >/dev/null && { S cat /etc/periodic/*/* /etc/cr
 /** Shared shell helpers prepended to every remote script. */
 /** Any image with sh, tar, find and chown does; landfall needs nothing of its own on the server. */
 export const HELPER = "alpine:3";
+/** Shell helper for read-only probes: kv <key> <value> prints one key=value line. */
+export const KV = String.raw`kv() { printf '%s=%s\n' "$1" "$2"; }`;
 
 export const PRELUDE = String.raw`
 # useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.
@@ -331,7 +333,7 @@ missing=""; for p in $(base_pkgs); do pkg_has "$p" || missing="$missing $p"; don
 if [ -n "$missing" ]; then
   log "installing base packages:$missing"
   pkg_install $missing
-  { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || true
+  { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || log "could not start fail2ban (systemctl status fail2ban)"
   record "installed packages$missing"
 fi
 
@@ -349,6 +351,7 @@ if ! command -v docker >/dev/null 2>&1; then
   record "installed docker"
 fi
 $SUDO systemctl enable --now docker >/dev/null 2>&1 || $SUDO service docker start >/dev/null 2>&1 || true
+$SUDO docker info >/dev/null 2>&1 || log "docker is installed but not running: what follows needs it (systemctl status docker)"
 # Distro docker packages (docker.io, moby) often lack compose 2.24+ or ship older: Docker's own repo has the newest plugin, everyone else gets the release binary.
 if ! compose_ok "$(compose_v)"; then
   log "installing the newest docker compose"
@@ -418,8 +421,7 @@ log "bootstrap done"
  */
 export const PROBE = String.raw`
 set +e
-kv() { printf '%s=%s
-' "$1" "$2"; }
+${KV}
 yn() { if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
 ${OS_RELEASE}
 kv os "$PRETTY_NAME"

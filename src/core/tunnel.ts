@@ -221,7 +221,8 @@ export async function openTunnel(
   let proxy: http.Server | undefined;
   let drop = () => {};
   if (ssh.exitCode === null) {
-    if (o.as) proxy = await hostProxy(local, fwd, o.as, bind);
+    // The proxy's port taken: the forward must not stay open without it.
+    if (o.as) proxy = await hostProxy(local, fwd, o.as, bind).catch((e) => (ssh.kill(), fail(`${e?.message ?? e}`)));
     const scheme = o.scheme ?? "http";
     const url = (host: string) => `${scheme}://${host}:${local}${scheme === "http" ? (o.path ?? "/") : ""}`;
     ok(`${o.what}: ${c.cyan(url("localhost"))}`);

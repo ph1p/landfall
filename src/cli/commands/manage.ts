@@ -56,6 +56,7 @@ export const pruneCmd = defineCommand({
   },
   async run(_, o) {
     const { name, server } = projectServer(o.server);
+    if (!o.json) step(`measuring what can go on ${name}`);
     const plan = await prunePlan(server, { all: o.all, logs: o.logs, volumes: o.volumes });
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
     const imgs = removable(plan);
@@ -72,7 +73,7 @@ export const pruneCmd = defineCommand({
     if (!o.json) step("cleaning up");
     const { failed } = await prune(login, plan);
     if (o.json) return void console.log(JSON.stringify({ ...plan, removed: imgs.length - failed.filter((f) => f.what === "image").length, failed }, null, 2));
-    for (const f of failed) warn(`${f.what} ${f.name}: could not remove it (in use?)`);
+    for (const f of failed) warn(f.name === "-" ? `could not empty the ${f.what}` : `${f.what} ${f.name}: could not remove it (in use?)`);
     ok(`removed ${pruneSummary(plan, failed)}`);
   },
 });

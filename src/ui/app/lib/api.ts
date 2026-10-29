@@ -70,9 +70,16 @@ function logStats(n: string, s: { cpu: number; mem: { total: number; available: 
 /** Fetch what a tab needs (again when forced), showing it as loading right away. */
 export function load(name: string, tab: string, force = false) {
   const todo = needs(tab).filter((t) => force || !S[STORE[t]][name]);
-  for (const t of todo) fetchInto(STORE[t], name, `${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`, t === "stats" ? (data) => logStats(name, data as never) : undefined);
+  for (const t of todo) fetchTab(name, t);
   if (todo.length) render();
 }
+/** Only the tab itself again, not the sites and facts it needs: for polling. */
+export function reload(name: string, tab: Tab) {
+  fetchTab(name, tab);
+  render();
+}
+const fetchTab = (name: string, t: Tab) =>
+  fetchInto(STORE[t], name, `${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`, t === "stats" ? (data) => logStats(name, data as never) : undefined);
 export function invalidate(name: string) {
   delete S.dns[name];
   delete S.errs[name];

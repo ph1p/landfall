@@ -329,7 +329,7 @@ export async function lockSite(s: Server, name: string): Promise<{ now: string; 
     [
       `mkdir -p ${SITES}`,
       `if ! mkdir ${shq(lock)} 2>/dev/null; then`,
-      `  [ -n "$(find ${shq(lock)} -maxdepth 0 -mmin +60 2>/dev/null)" ] && rm -rf ${shq(lock)} && mkdir ${shq(lock)} ||`,
+      `  [ -n "$(find ${shq(lock)} -maxdepth 0 -mmin +60 2>/dev/null)" ] && { echo "taking over the lock of a cut-off run ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown), over an hour old)" >&2; } && rm -rf ${shq(lock)} && mkdir ${shq(lock)} ||`,
       `  { echo "another deploy or change of ${name} is running ($(cat ${shq(lock + "/by")} 2>/dev/null || echo unknown)): wait for it, or remove ${lock} if it was cut off" >&2; exit 1; }`,
       `fi`,
       `printf '%s\\n' "$LANDFALL_ACTOR" >${shq(lock + "/by")}`,
@@ -510,7 +510,8 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
   const dc = o.env !== undefined ? "dc --env-file ../../.env.new" : "dc";
   const bail = o.env !== undefined ? "{ rm -f .env.new; exit 1; }" : "exit 1";
   if (o.build && release.services.some((s) => s.build)) {
-    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build -q --pull) || ${bail}`);
+    // Not -q: a build can take minutes, and its steps show it is getting somewhere.
+    lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build --pull) || ${bail}`);
   }
   if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && ${dc} pull -q --ignore-buildable) || ${bail}`);
   lines.push(
@@ -630,7 +631,13 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
       ]
     : [`log ${shq(`lf undo removes ${meta.name}`)}`];
   lines.push(...siteLines(meta, proxy, { ...o, before, failed }));
+  // Said, not only done: a release that goes is one rollback can no longer reach.
+  if (pruned.length) lines.push(`log ${shq(`removing old release${pruned.length > 1 ? "s" : ""} ${pruned.map((r) => r.id).join(", ")} of ${meta.name} (keeping ${keep})`)}`);
   for (const r of pruned) lines.push(...dropRelease(meta, r));
+  // A pull or build that moved a tag leaves the old image untagged: nothing can run it any more.
+  if (o.pull || o.build) lines.push("docker image prune -f >/dev/null 2>&1 || true");
+  // Build cache stays a week, for fast rebuilds: older layers only fill the disk.
+  if (o.build) lines.push(`docker builder prune -f --filter until=168h >/dev/null 2>&1 || true`);
   await runScript(s, lines.join("\n"));
 }
 
@@ -663,7 +670,9 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
   const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`), ...(o.volumes ? ["volumes"] : [])].map(shq).join(" ");
   return [
     `cd ${shq(dir)}`,
-    `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(projectName(meta))} down --remove-orphans${v} >/dev/null 2>&1 || true`,
+    `log ${shq(`stopping ${meta.name}`)}`,
+    // Its files go either way: a container that would not stop is said, with how to find it.
+    `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(projectName(meta))} down --remove-orphans${v} >/dev/null 2>&1 || log ${shq(`could not stop ${meta.name}'s containers: docker ps --filter label=com.docker.compose.project=${projectName(meta)}`)}`,
     ...images.map(rmImage),
     // Scheduled backups stop with the site; those already made stay with the volumes.
     `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${shq(cronMark(meta.name))} || crontab -l | grep -vF ${shq(cronMark(meta.name))} | crontab - || true`,

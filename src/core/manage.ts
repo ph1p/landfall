@@ -119,14 +119,14 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
     PRELUDE,
     "set +e",
     ...refs.map((r) => rm("image", r)),
-    `docker builder prune -f${plan.all ? "a" : ""} >/dev/null 2>&1 || true`,
+    `docker builder prune -f${plan.all ? "a" : ""} >/dev/null 2>&1 || printf 'FAILED\\tbuild cache\\t-\\n'`,
     ...plan.networks.map((n) => rm("network", n)),
     ...vols.map((v) => rm("volume", v.name)),
     ...(plan.logs
       ? [
           String.raw`ids=$($SUDO docker ps -aq 2>/dev/null)`,
           String.raw`[ -z "$ids" ] || $SUDO docker inspect -f '{{.LogPath}}' $ids 2>/dev/null | $SUDO sh -c 'while IFS= read -r p; do [ -n "$p" ] && : > "$p" && rm -f "$p".*; done'`,
-          `command -v journalctl >/dev/null 2>&1 && $SUDO journalctl --rotate --vacuum-size=${JOURNAL_KEEP} >/dev/null 2>&1`,
+          `! command -v journalctl >/dev/null 2>&1 || $SUDO journalctl --rotate --vacuum-size=${JOURNAL_KEEP} >/dev/null 2>&1 || printf 'FAILED\\tjournal\\t-\\n'`,
         ]
       : []),
     `record ${shq(`pruned ${pruneSummary(plan)}`)}`,
