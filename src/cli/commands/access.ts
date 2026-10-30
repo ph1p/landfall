@@ -17,6 +17,8 @@ import { dnsView } from "../../core/views";
  * With `refuse`, fails instead of asking, giving it as the way out.
  */
 export async function claimDomains(server: Server, serverName: string, site: string, domains: string[], proxy: Proxy, refuse?: string): Promise<() => Promise<void>> {
+  // No domain to claim (--no-domain, a worker): nothing to compare, no need to read every site.
+  if (!domains.length) return async () => {};
   const all = await overview(server);
   for (const e of all.others) {
     const both = e.domains.filter((d) => domains.includes(d));

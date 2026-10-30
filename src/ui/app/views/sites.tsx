@@ -363,8 +363,13 @@ interface VolumeEdit { path: string; kind: string; environment?: string; service
 function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: string; edit?: VolumeEdit }) {
   const [d, setD] = useState<Volumes | null>(null);
   const [err, setErr] = useState("");
+  // The list first, then the sizes: du reads every file, which takes a while on a big database.
+  const url = (sizes: 0 | 1) => `/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}&sizes=${sizes}`;
   const load = () =>
-    http<Volumes>(`/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}`).then((x) => (setD(x), setErr("")), (e) => setErr(errorMessage(e)));
+    http<Volumes>(url(0)).then(
+      (x) => (setD(x), setErr(""), http<Volumes>(url(1)).then(setD, () => {})),
+      (e) => setErr(errorMessage(e)),
+    );
   useEffect(() => void load(), [n, name]);
   const box = (body: ReactNode, aside: ReactNode = addBtn) => <Panel title="Volumes" count={d?.volumes.length || undefined} aside={aside}>{body}</Panel>;
   const compose = edit?.kind === "compose";
