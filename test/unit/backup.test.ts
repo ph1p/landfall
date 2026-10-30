@@ -47,7 +47,7 @@ describe("scheduled backups", () => {
     fs.writeFileSync(path.join(dir, "tab"), "0 1 * * * other job\n");
     await scheduleBackups(server, "blog", "daily", 7);
     runHere(scripts[0]);
-    expect(tab()).toMatch(/^0 1 \* \* \* other job\n\d+ 3 \* \* \* sh .*\/blog\/backups\/backup\.sh >>.*backup\.log 2>&1 # landfall backup blog: daily, keep 7\n$/);
+    expect(tab()).toMatch(/^0 1 \* \* \* other job\n\d+ 3 \* \* \* sh .*\/blog\/backups\/backup\.sh 7 - >>.*backup\.log 2>&1 # landfall backup blog: daily, keep 7\n$/);
     expect(fs.statSync(path.join(dir, "blog/backups/backup.sh")).mode & 0o777).toBe(0o755);
 
     // Changed: still one line. Then undo goes back to daily, and once more to none.
@@ -74,6 +74,16 @@ describe("scheduled backups", () => {
     expect(scripts).toHaveLength(0);
   });
 
+  test("an offsite target goes in the crontab line, and a bad one is refused", async () => {
+    await expect(scheduleBackups(server, "blog", "daily", 7, "nas:/a b")).rejects.toThrow(/\[user@\]host:path/);
+    await expect(scheduleBackups(server, "blog", "off", 7, "nas:x")).rejects.toThrow(/not off/);
+    expect(scripts).toHaveLength(0);
+    await scheduleBackups(server, "blog", "daily", 3, "backup@nas:landfall/blog");
+    expect(scripts[0]).toContain("backup.sh 3 backup@nas:landfall/blog >>");
+    expect(scripts[0]).toContain("blog: daily, keep 3, offsite backup@nas:landfall/blog");
+    expect(scripts[0]).toContain("command -v rsync >/dev/null || pkg_install rsync");
+  });
+
   test("backup.sh saves each volume and keeps the newest of its timestamped backups only", () => {
     const bin = path.join(dir, "bin");
     fs.mkdirSync(bin);
@@ -94,6 +104,52 @@ describe("scheduled backups", () => {
     expect(made).toHaveLength(1);
     expect(fs.readFileSync(path.join(dir, made[0]), "utf8")).toBe("archive\n");
     expect(left).toEqual([...keepAlways, made[0], old[2]].sort());
+  });
+
+  /** backup.sh in dir with docker and rsync as stand-ins logging their calls to dir/calls; one volume blog_db, mounted by a postgres container. */
+  function backupHere(offsite = "", rsyncOk = true) {
+    const bin = path.join(dir, "bin");
+    fs.mkdirSync(bin);
+    const log = path.join(dir, "calls");
+    fs.writeFileSync(
+      path.join(bin, "docker"),
+      `#!/bin/sh\necho "docker $*" >> ${log}\ncase "$1 $2" in "volume ls") echo blog_db ;; "volume inspect") echo db ;; "ps -q") echo c1; echo c2 ;; run*) echo archive ;; "inspect -f") case "$3 $4" in *Image*c1) echo "c1full postgres:16-alpine" ;; *Image*c2) echo "c2full ghcr.io/me/app:1" ;; *) echo /blog-db-1 ;; esac ;; esac\n`,
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(path.join(bin, "rsync"), `#!/bin/sh\necho "rsync $*" >> ${log}\n${rsyncOk ? "" : "exit 1"}\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, "backup.sh"), backupScript("blog", 2, offsite).replace(/^PATH=.*$/m, `PATH="${bin}:$PATH"`));
+    let out: string;
+    try {
+      out = execFileSync("sh", [path.join(dir, "backup.sh")], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e: any) {
+      out = e.stdout;
+    }
+    return { out, calls: fs.readFileSync(log, "utf8") };
+  }
+
+  test("backup.sh pauses a database using the volume while copying it, the app's container not", () => {
+    const { out, calls } = backupHere();
+    expect(out).toMatch(/ ok\n$/);
+    const lines = calls.split("\n");
+    const pause = lines.indexOf("docker pause c1full");
+    const run = lines.findIndex((l) => l.startsWith("docker run"));
+    const unpause = lines.indexOf("docker unpause c1full");
+    expect(pause).toBeGreaterThan(-1);
+    expect(pause < run && run < unpause).toBe(true);
+    expect(calls).not.toContain("c2full");
+  });
+
+  test("backup.sh mirrors to an offsite target, and a failed copy says so in its status line", () => {
+    const ok = backupHere("backup@nas:landfall/blog");
+    expect(ok.calls).toMatch(/rsync -a --delete .*--include=\*\.tar\.gz --exclude=\* \.\/ backup@nas:landfall\/blog\//);
+    expect(ok.out).toMatch(/ ok\n$/);
+    fs.rmSync(path.join(dir, "bin"), { recursive: true });
+    const bad = backupHere("backup@nas:landfall/blog", false);
+    expect(bad.out).toMatch(/ failed: offsite\n$/);
+    // Arguments win over what the script was written with: - is no target.
+    fs.rmSync(path.join(dir, "calls"));
+    execFileSync("sh", [path.join(dir, "backup.sh"), "2", "-"], { encoding: "utf8", stdio: "pipe" });
+    expect(fs.readFileSync(path.join(dir, "calls"), "utf8")).not.toContain("rsync");
   });
 
   test("lf volumes lists with and without a crontab", () => {

@@ -125,9 +125,27 @@ export const backupsOf = (backups: Backup[], key: string) =>
 /** `docker run` that writes the volume's contents as tar.gz to stdout. Read-only: it never changes the volume. */
 export const tarOut = (vol: string) => `docker run --rm -v ${shq(`${vol}:/v:ro`)} ${HELPER} tar czf - -C /v .`;
 
-/** Shell that writes the volume's contents to `file` (shell-quoted), whole or not at all. */
+/** Images whose files are a database's: copied while it writes, the copy may not open. */
+const DB_IMAGES = "postgres|postgis|pgvector|timescale|mysql|mariadb|percona|mongo|redis|valkey|keydb|couchdb|influxdb|clickhouse|neo4j|cassandra|elasticsearch|opensearch";
+
+/**
+ * Shell that runs `cmd` (status in $rc) with the running database containers that mount the volume (`vol`, a shell
+ * word: "$v" or quoted) paused: their files hold still, a copy like after a power cut, which a database recovers
+ * from. Other services keep running. Unpaused when cmd fails too, and when the script is killed. Plain sh.
+ */
+export function dbPaused(vol: string, cmd: string) {
+  return [
+    `db=$(for id in $(docker ps -q --filter volume=${vol}); do docker inspect -f '{{.Id}} {{.Config.Image}}' "$id"; done | grep -iE ' [^ ]*(${DB_IMAGES})' | cut -d' ' -f1 || true)`,
+    `trap '[ -z "$db" ] || docker unpause $db >/dev/null 2>&1' EXIT; trap 'exit 1' HUP INT TERM`,
+    `[ -z "$db" ] || { echo "pausing $(docker inspect -f '{{.Name}}' $db | tr -d / | tr '\\n' ' ')while its volume is copied, so its files hold still" >&2; docker pause $db >/dev/null; }`,
+    `if ${cmd}; then rc=0; else rc=1; fi`,
+    `[ -z "$db" ] || docker unpause $db >/dev/null; db=""; trap - EXIT HUP INT TERM`,
+  ].join("\n");
+}
+
+/** Shell that writes the volume's contents to `file` (shell-quoted), whole or not at all; a database using it paused meanwhile. */
 export const backupTo = (vol: string, file: string) =>
-  `${tarOut(vol)} > ${file}.part || { rm -f ${file}.part; exit 1; }\nmv ${file}.part ${file}`;
+  `${dbPaused(shq(vol), `${tarOut(vol)} > ${file}.part`)}\n[ "$rc" = 0 ] || { rm -f ${file}.part; exit 1; }\nmv ${file}.part ${file}`;
 
 /**
  * `docker run` that replaces the volume's contents with the tar.gz on stdin. own: give the files to the
@@ -135,6 +153,12 @@ export const backupTo = (vol: string, file: string) =>
  */
 export const tarIn = (vol: string, own = false) =>
   `docker run --rm -i -v ${shq(`${vol}:/v`)} ${HELPER} sh -c ${shq(`${own ? "o=$(stat -c %u:%g /v) && " : ""}find /v -mindepth 1 -delete && tar xzf - -C /v${own ? " && chown -R $o /v" : ""}`)}`;
+
+/** Shell for lf undo of a deleted volume: create it again, labelled for its Compose project, filled from `file`. */
+export function recreateFrom(vol: string, key: string, project: string, file: string) {
+  const labels = [`com.docker.compose.project=${project}`, `com.docker.compose.volume=${key}`].map((l) => `--label ${shq(l)}`).join(" ");
+  return `if [ -f ${shq(file)} ]; then docker volume create ${labels} ${shq(vol)} >/dev/null && ${tarIn(vol)} < ${shq(file)}; else log ${shq(`${file} is gone, nothing to put back`)}; fi`;
+}
 
 /**
  * Shell that stops the containers using `vol`, runs `steps` (joined with &&: one failing skips the rest) and

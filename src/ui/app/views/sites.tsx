@@ -107,8 +107,8 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       title: m.adopted ? `Stop and forget ${name}?` : `Delete ${name} from ${n}?`,
       text: m.adopted
         ? `Runs docker compose down in ${m.adopted}; its files and volumes stay.`
-        : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay unless you delete them too.\nThis cannot be undone.",
-      fields: m.adopted ? [] : [{ name: "volumes", type: "check", label: "Also delete its volumes", hint: "Databases, uploads: all its data. lf sites rm --volumes" }],
+        : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay unless you delete them too.\nIts files and releases cannot be brought back.",
+      fields: m.adopted ? [] : [{ name: "volumes", type: "check", label: "Also delete its volumes", hint: "Databases, uploads: all its data. Each is backed up to the site's backups folder first; lf undo brings them back. lf sites rm --volumes" }],
       ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
       danger: true,
       typeToConfirm: m.adopted ? "" : name,
@@ -403,6 +403,15 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
       danger: true,
       onOk: (v) => run(["volume", "restore", name, key, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
     });
+  const forget = (key: string, list: Volumes["backups"]) =>
+    dialog({
+      title: `Delete a backup of ${key}?`,
+      text: "Deletes the file from the site's backups folder. This cannot be undone.",
+      fields: [{ name: "file", type: "select", label: "Backup", value: list.at(-1)!.file, options: list.map((b) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })) }],
+      ok: "Delete",
+      danger: true,
+      onOk: (v) => run(["volume", "backup", "rm", name, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
+    });
   // The UI runs lf from its own folder: suggest absolute paths, next to the project when this machine deploys it.
   const near = (x: string) => (dir ? `${dir.replace(/\/$/, "")}/${x}` : `~/${x}`);
   const push = (v: Volumes["volumes"][number]) =>
@@ -429,9 +438,10 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
       fields: [
         { name: "every", type: "select", label: "Every", value: /^(\w+),/.exec(d.schedule ?? "")?.[1] ?? "daily", options: ["hourly", "daily", "weekly", "off"].map((x) => ({ value: x, label: x })) },
         { name: "keep", label: "Keep per volume", value: /keep (\d+)/.exec(d.schedule ?? "")?.[1] ?? "7" },
+        { name: "offsite", label: "Also copy to (optional)", value: /offsite (\S+)/.exec(d.schedule ?? "")?.[1] ?? "", mono: true, hint: "[user@]host:path: rsync over ssh mirrors the backups there. The server's login user needs an ssh key that host accepts." },
       ],
       ok: "Save",
-      onOk: (v) => run(["volume", "backup", name, "--schedule", v.every, ...(v.every === "off" ? [] : ["--keep", v.keep]), ...sv(n)], { after: ifOk(load) }),
+      onOk: (v) => run(["volume", "backup", name, "--schedule", v.every, ...(v.every === "off" ? [] : ["--keep", v.keep, ...(v.offsite.trim() ? ["--offsite", v.offsite.trim()] : [])]), ...sv(n)], { after: ifOk(load) }),
     });
   // Unmount from the project; the data stays unless asked, and goes only once the redeploy freed it.
   const remove = edit && ((v: Volumes["volumes"][number]) =>
@@ -489,7 +499,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
             <span className={SIDE}>
               {v.empty
                 ? <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>Push…</Btn>
-                : <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>}
+                : <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running, a database using it pauses while it is copied (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>}
               <MenuBtn
                 title={`More for volume ${v.key}`}
                 cls="sm ghost"
@@ -498,6 +508,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
                   !v.empty && { label: "Push…", hint: "lf volume push", title: "Replace its contents with a folder from this machine", run: () => push(v) },
                   !v.empty && { label: "Pull…", hint: "lf volume pull", title: "Unpack it into a folder on this machine", run: () => pull(v) },
                   "-",
+                  baks.length > 0 && { label: "Delete a backup…", hint: "lf volume backup rm", title: "Delete one of its backups (oldest preselected)", cls: "danger", run: () => forget(v.key, baks) },
                   remove && v.mounts.length > 0 && { label: "Remove…", hint: "lf volume rm", title: `Unmount it in ${where}, optionally delete its data`, cls: "danger", run: () => remove(v) },
                   !v.mounts.length && { label: "Delete…", hint: "lf volume rm --data", title: "Delete the unused volume (backed up first)", cls: "danger", run: () => drop(v) },
                 ]}

@@ -6,6 +6,7 @@ import { bytes } from "../../core/facts";
 import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, oldReleases, parseEnvPairs, readEnvFile, readSecrets, readSite, removeReleases, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, table } from "../../core/term";
+import { volumes } from "../../core/volumes";
 import { slug } from "../../core/projects";
 import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/tunnel";
 
@@ -212,20 +213,23 @@ export const sitesRemove = defineCommand({
   summary: `Stop a site and delete its files and releases from the server.
 
 Named volumes (databases, uploads) and their backups stay, so deploying the site again finds its
-data; --volumes deletes them too. An adopted site is stopped and forgotten; its folder stays.`,
+data; --volumes deletes the volumes too, each backed up to the site's backups folder first (lf undo
+brings them back). An adopted site is stopped and forgotten; its folder stays.`,
   options: { server: serverOpt, volumes: { type: "boolean", desc: "also delete the site's named volumes (its data)" } },
   async run([n], o) {
     if (!n) fail("usage: lf sites rm <name>");
     const { site, server, name } = target(n, o.server);
     const { meta: m } = await requireSite(server, site);
     const domains = siteDomains(m).join(", ") || "no domains";
-    const data = o.volumes ? " and its volumes (all its data)" : "";
+    const vols = o.volumes ? (await volumes(server, site)).volumes : undefined;
+    const data = vols ? ` and its volumes (${vols.map((v) => v.key).join(", ") || "none"}; each backed up first, lf undo brings them back)` : "";
     await confirmRemoval(
-      m.adopted ? `Stop ${site} (${domains}) on ${name} and forget it${data}? ${m.adopted} stays.` : `Delete ${site} (${domains})${data} from ${name}? This cannot be undone.`,
+      m.adopted ? `Stop ${site} (${domains}) on ${name} and forget it${data}? ${m.adopted} stays.` : `Delete ${site} (${domains})${data} from ${name}? Its files and releases cannot be brought back.`,
       site,
     );
-    await removeSite(server, m, { volumes: o.volumes });
-    ok(`removed ${site}${o.volumes ? " and its volumes" : c.dim(" (its volumes stay; --volumes deletes them)")}`);
+    await removeSite(server, m, { vols });
+    ok(`removed ${site}${vols ? " and its volumes" : c.dim(" (its volumes stay; --volumes deletes them)")}`);
+    if (vols?.length) info(c.dim(`their contents: ${siteDir(site)}/backups/*-before-rm.tar.gz (lf undo puts them back; rm -rf ${siteDir(site)} deletes them)`));
   },
 });
 

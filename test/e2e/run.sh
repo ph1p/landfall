@@ -301,9 +301,15 @@ lf deploy --local-env -y >"$WORK/local.log" 2>&1 || { cat "$WORK/local.log"; die
 rm .env; pass "deploy --local-env takes what the project asks for from the local .env, nothing else"
 for _ in $(seq 1 30); do psql "select 1" >/dev/null 2>&1 && break; sleep 1; done
 [ "$(psql "select x from t")" = 42 ] || die "a site deployed again finds its data"
+lf volume backup stack db >"$WORK/pgbak.log" 2>&1 || { cat "$WORK/pgbak.log"; die "volume backup of postgres"; }
+{ has "pausing stack-db-1" "$WORK/pgbak.log" && [ "$(srv docker inspect -f '{{.State.Status}}' stack-db-1)" = running ]; } || { cat "$WORK/pgbak.log"; die "a database is paused while backed up, and runs again"; }
+pass "volume backup pauses the database using the volume, then it runs again"
 lf sites rm stack --volumes -y >"$WORK/rmv.log" 2>&1 || { cat "$WORK/rmv.log"; die "sites rm --volumes"; }
 { ! srv docker volume ls -q | has -x stack_db; } || die "rm --volumes deletes it"
-pass "sites rm keeps volumes, --volumes deletes them"
+srv sh -c 'ls /opt/landfall/sites/stack/backups/db-*-before-rm.tar.gz' >/dev/null && ! srv test -e /opt/landfall/sites/stack/site.json || die "rm --volumes backs the volume up first"
+lf undo -s box -y >/dev/null 2>&1 && srv docker run --rm -v stack_db:/v busybox:1.37 test -f /v/PG_VERSION || die "undo brings the deleted volume back"
+srv docker volume rm stack_db >/dev/null && srv rm -rf /opt/landfall/sites/stack
+pass "sites rm keeps volumes, --volumes deletes them (backed up first, undo brings them back)"
 fi
 
 if want volumes; then echo "== volumes"
@@ -326,6 +332,10 @@ lf volume pull vols data --into "$WORK/vols/out" >/dev/null 2>&1 && [ "$(cat "$W
 vol 'rm old'
 lf volume restore vols data -y >/dev/null 2>&1 && [ "$(vol 'cat old')" = old ] || die "volume restore"
 pass "volume backup, pull and restore"
+bak=$(srv sh -c 'cd /opt/landfall/sites/vols/backups && ls data-*.tar.gz | head -n 1')
+{ ! lf volume backup rm vols nope.tar.gz -y >/dev/null 2>&1; } || die "backup rm refuses a backup that is not there"
+lf volume backup rm vols "$bak" -y >/dev/null 2>&1 && ! srv test -e "/opt/landfall/sites/vols/backups/$bak" || die "volume backup rm"
+pass "volume backup rm deletes a listed backup only"
 lf volume add app:/cache --as cache >/dev/null 2>&1 && has 'cache:/cache' < compose.yaml || die "volume add writes compose.yaml"
 lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'app:/cache'; } || die "volume add mounts it"
 lf volume rm cache --data -y >/dev/null 2>&1 && ! has cache < compose.yaml && srv docker volume ls -q | has -x vols_cache || die "volume rm --data keeps a mounted volume"
@@ -339,12 +349,24 @@ srv sh -c 'cd /opt/landfall/sites/vols/backups && for i in 1 2 3; do touch data-
 lf undo -s box -y >/dev/null 2>&1 && { lf volumes vols | has 'scheduled backups: none'; } || die "undo stops the schedule"
 lf volume backup vols --schedule daily >/dev/null 2>&1 || die "volume backup --schedule daily"
 pass "scheduled backups: a crontab line, backup.sh keeps the newest, undo stops it"
+# Offsite: the deploy user copies to itself over ssh, once it has a key the target takes.
+lf volume backup vols --schedule daily --offsite deploy@127.0.0.1:offsite >"$WORK/off.log" 2>&1 && has "cannot log in to deploy@127.0.0.1" "$WORK/off.log" || { cat "$WORK/off.log"; die "--offsite says when the server cannot log in"; }
+srv sh -c 'cd /opt/landfall/sites/vols/backups && su deploy -s /bin/sh -c "sh backup.sh"' >"$WORK/off.log" 2>&1 || true; has 'failed: offsite' "$WORK/off.log" || { cat "$WORK/off.log"; die "a failed offsite copy is its status line"; }
+srv su deploy -s /bin/sh -c 'cp ~/.ssh/authorized_keys ~/.ssh/ak.e2e && ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519 && cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys'
+srv sh -c 'cd /opt/landfall/sites/vols/backups && su deploy -s /bin/sh -c "sh backup.sh"' | has ' ok$' || die "backup.sh copies offsite"
+[ "$(srv sh -c 'ls ~deploy/offsite | grep -c "^data-.*\.tar\.gz$"')" = "$(srv sh -c 'ls /opt/landfall/sites/vols/backups | grep -c "^data-.*\.tar\.gz$"')" ] || die "offsite mirrors the backups"
+{ lf volumes vols | has 'offsite deploy@127.0.0.1:offsite'; } || die "volumes shows the offsite target"
+srv su deploy -s /bin/sh -c 'rm -rf ~/offsite ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub && mv ~/.ssh/ak.e2e ~/.ssh/authorized_keys'
+pass "scheduled backups mirror to an offsite target, a failed copy shows in the status line"
 lf sites rm vols -y >/dev/null 2>&1
 srv sh -c 'ls /opt/landfall/sites/vols/backups/data-*.tar.gz' >/dev/null && ! srv test -e /opt/landfall/sites/vols/site.json || die "rm keeps backups"
 ! srv sh -c 'crontab -u deploy -l 2>/dev/null | grep -q "landfall backup vols:"' || die "rm stops scheduled backups"
 lf deploy -n vols --no-domain -y >/dev/null 2>&1 && { lf volumes vols | has 'newest'; } || die "a site deployed again finds its backups"
-lf sites rm vols --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vols || die "rm --volumes deletes the backups"
-pass "sites rm keeps backups with the volumes, --volumes deletes both"
+lf sites rm vols --volumes -y >/dev/null 2>&1 && ! { srv docker volume ls -q | has -x vols_data; } && ! srv test -e /opt/landfall/sites/vols/site.json || die "rm --volumes deletes the volumes"
+srv sh -c 'ls /opt/landfall/sites/vols/backups/data-*-before-rm.tar.gz' >/dev/null || die "rm --volumes keeps the backups, one more of each volume"
+lf undo -s box -y >/dev/null 2>&1 && srv docker volume ls -q | has -x vols_data || die "undo of rm --volumes brings the volume back"
+srv docker volume rm vols_data >/dev/null && srv rm -rf /opt/landfall/sites/vols
+pass "sites rm keeps backups with the volumes; --volumes deletes the volumes, undo brings them back"
 # A folder left out of the upload, named like an empty volume, fills it with --fill-volumes; one with data stays.
 mkdir -p "$WORK/fill/data" && cd "$WORK/fill" && echo one > data/hi && echo '{"exclude":["/data/"]}' > .landfall.json
 printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
@@ -368,7 +390,8 @@ lf volumes vdir | has "/opt/landfall/sites/vdir/volumes" || die "lf volumes name
 lf rollback vdir -y >/dev/null 2>&1 && lf undo -s box -y >/dev/null 2>&1 && [ "$(srv docker exec vdir-app-1 cat /data/hi)" = new ] || die "rollback and undo keep the folder's volume"
 lf sites rm vdir -y >/dev/null 2>&1 && [ "$(srv cat $vd/hi)" = new ] && ! srv test -e /opt/landfall/sites/vdir/site.json || die "sites rm keeps the folder's volume"
 lf deploy -n vdir --no-domain -y >/dev/null 2>&1 && [ "$(srv docker exec vdir-app-1 cat /data/hi)" = new ] || die "a site deployed again finds its volume"
-lf sites rm vdir --volumes -y >/dev/null 2>&1 && ! srv test -e /opt/landfall/sites/vdir && ! { srv docker volume ls -q | has -x vdir_data; } || die "sites rm --volumes deletes the folder"
+lf sites rm vdir --volumes -y >/dev/null 2>&1 && [ "$(srv ls /opt/landfall/sites/vdir)" = backups ] && ! { srv docker volume ls -q | has -x vdir_data; } || die "sites rm --volumes deletes the folder, all but its backups"
+srv rm -rf /opt/landfall/sites/vdir
 pass "volumes live in the site's folder: an older one moves in, rollback, undo and rm keep it"
 # A port published on the server is refused before anything changes.
 mkdir -p "$WORK/leaky" && cd "$WORK/leaky"
