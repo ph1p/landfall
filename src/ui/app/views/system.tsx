@@ -183,7 +183,7 @@ function securityCard(n: string, i: SystemInfo) {
   return (
     <Card>
       <CardHead>
-        Security {adv.length ? <Badge kind={risks ? "bad" : "warn"}>{plural(adv.length, "thing")} to look at</Badge> : <Badge kind="ok">nothing to fix</Badge>} <Sub>lf security</Sub>
+        Security {adv.length ? <Badge kind={risks ? "bad" : "warn"}>{plural(adv.length, "thing")} to look at</Badge> : <Badge kind="ok">nothing to fix</Badge>} <Sub className={MONO}>lf security</Sub>
       </CardHead>
       {adv.length ? (
         <Scroll>

@@ -4,7 +4,7 @@ import type { Report } from "./types";
 import { invalidate, refreshState } from "./api";
 import { toast, say } from "../ui/toast";
 import { confirmDlg, dialog, portError, type Field } from "../ui/dialog";
-import { Btn, Spin, cx } from "../ui/kit";
+import { Btn, BtnGroup, Spin, cx } from "../ui/kit";
 import { Check, Loader, SlidersHorizontal, Square, X } from "lucide-react";
 
 // ---- jobs ----------------------------------------------------------------
@@ -211,7 +211,7 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact 
     );
   if (!j)
     return (
-      <>
+      <BtnGroup label="Tunnel">
         <Btn cls="sm" title={`lf ${argv.join(" ")}: until you close it`} on={() => run(argv, { server: n })}>{label}</Btn>
         <Btn
           cls="sm"
@@ -221,7 +221,7 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact 
           On network
         </Btn>
         <Btn cls="sm" title="Container port, local port, network" on={() => tunnelOptions(n, argv, ports)}>Options</Btn>
-      </>
+      </BtnGroup>
     );
   const url = tunnelUrl(j);
   const lan = lanUrls(j);

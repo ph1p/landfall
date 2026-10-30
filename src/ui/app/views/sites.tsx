@@ -114,18 +114,23 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       typeToConfirm: m.adopted ? "" : name,
       onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : [])]),
     });
-  // Empty fields keep landfall's own network, entrypoint and resolver.
-  const eject = () =>
+  // Empty fields keep what the site runs behind now: landfall's Traefik, or the one it uses.
+  const eject = () => {
+    const proxy = S.overview[n]?.data?.proxy;
+    const own = S.state.ownProxy;
+    const now = !proxy || proxy === own.container ? own : undefined;
+    const as = (k: "network" | "entrypoint" | "resolver") => now?.[k] ?? `as ${proxy} has it`;
     dialog({
       title: `Eject ${name}`,
       text: `Writes compose.traefik.yaml into ${tilde(proj!.path)}: the Traefik labels, network and project name of its running release, to run it with docker compose behind your own Traefik. Nothing changes on ${n}; an existing compose.traefik.yaml is overwritten.`,
       fields: [
-        { name: "network", label: "Docker network your Traefik watches", placeholder: "landfall's", mono: true },
-        { row: [{ name: "entrypoint", label: "HTTPS entrypoint", placeholder: "landfall's", mono: true }, { name: "resolver", label: "Certificate resolver", placeholder: "landfall's", mono: true }] },
+        { name: "network", label: "Docker network your Traefik watches", placeholder: as("network"), mono: true },
+        { row: [{ name: "entrypoint", label: "HTTPS entrypoint", placeholder: as("entrypoint"), mono: true }, { name: "resolver", label: "Certificate resolver", placeholder: as("resolver"), mono: true }] },
       ],
       ok: "Write it",
       onOk: (v) => run(["eject", name, ...sv(n), "-y", ...(["network", "entrypoint", "resolver"] as const).flatMap((k) => (v[k] ? [`--${k}`, String(v[k]).trim()] : []))], { server: n, cwd: proj!.path }),
     });
+  };
   const many = services.length > 1;
   const ways = tunnelWays(n, site);
   const svcWays = (svc: string) => ways.filter((w) => w.svc === svc);
@@ -163,6 +168,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       <MenuBtn
         title={`More for ${name}`}
         cls="sm ghost"
+        dots
         items={[
           managed && older.length > 0 && {
             label: "Roll back",
@@ -354,11 +360,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           <Badge title={services.map((x) => x.service).join(", ")}>{kind}</Badge>
           {many && (() => {
             const up = services.filter((x) => isUp(x.status)).length;
-            return <> <span className={up < services.length ? "text-warn" : "faint"} title={services.map((x) => `${x.service}: ${x.status.toLowerCase()}`).join("\n")}>{up < services.length ? `${up} of ${services.length} up` : `${services.length} services`}</span></>;
+            return <span className={cx("block mt-1 text-sm", up < services.length ? "text-warn" : "faint")} title={services.map((x) => `${x.service}: ${x.status.toLowerCase()}`).join("\n")}>{up < services.length ? `${up} of ${services.length} up` : `${services.length} services`}</span>;
           })()}
         </td>
         <td className={cx(HIDE, "dim")}>{cur ? ago(cur.at) : ""}</td>
-        <td className={cx(ACTS, HIDE)}>{acts}</td>
+        {/* One line: wrapped, the ⋯ menu would sit alone under the buttons. */}
+        <td className={cx(ACTS, HIDE, "[&>div]:flex-nowrap")}>{acts}</td>
       </tr>
       {open && (
         <tr>
