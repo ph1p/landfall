@@ -458,14 +458,14 @@ export interface ApplyOpts {
 }
 
 // Not the script on stdin: Compose asks there, e.g. to recreate a volume whose configuration changed.
-const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans --quiet-pull </dev/null";
+const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans </dev/null";
 
 /**
  * Shell that starts the Compose project in `current`, printing its state and logs if it does not come up;
  * then `failed` runs (outside the `||`, where set -e would be ignored) and the script exits 1.
  */
 const upLines = (name: string, failed: string[] = []) => [
-  `log "starting ${name}"`,
+  `log "starting ${name}: waits up to 5 minutes for its containers to run (and be healthy, if they have a healthcheck)"`,
   `up=1; (cd -P current && ${UP}) || { up=0; log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; }`,
   `if [ "$up" = 0 ]; then`,
   ...failed,
