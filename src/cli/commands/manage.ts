@@ -35,6 +35,10 @@ function printPlan(name: string, p: PrunePlan) {
       console.log(`${vols.length} unused volumes, ${c.bold("their data goes for good")}:`);
       table([["volume", "size"].map(c.dim), ...vols.map((v) => [shortName(v.name), v.size ? bytes(v.size) : c.dim("?")])]);
     } else console.log("no unused volumes");
+    if (p.leftovers?.length) {
+      console.log(`backups of ${p.leftovers.length} removed sites, ${c.bold("gone for good")}:`);
+      table([["site", "size"].map(c.dim), ...p.leftovers.map((l) => [l.site, bytes(l.size)])]);
+    }
     const site = p.volumes.length - vols.length;
     if (site) keep.push([site, `volumes of existing sites (lf volume rm --data deletes one)`]);
   }
@@ -44,13 +48,13 @@ function printPlan(name: string, p: PrunePlan) {
 export const pruneCmd = defineCommand({
   name: "prune",
   summary:
-    "Free disk space: remove unused Docker images, the build cache and unused networks; with --logs also container logs and the systemd journal, with --volumes unused volumes.\n" +
+    "Free disk space: remove unused Docker images, the build cache and unused networks; with --logs also container logs and the systemd journal, with --volumes unused volumes and the backups of removed sites.\n" +
     "Keeps images any container uses (stopped ones too), images of site releases (for rollback) and the ones undo needs. Containers stay.",
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "also remove unused tagged images (pulled again when needed) and all build cache" },
     logs: { type: "boolean", desc: `also empty every container's logs and shrink the systemd journal to ${JOURNAL_KEEP} (needs root)` },
-    volumes: { type: "boolean", desc: "also delete volumes no container mounts and no existing site owns (their data is gone for good)" },
+    volumes: { type: "boolean", desc: "also delete volumes no container mounts and no existing site owns, and the backups lf sites rm kept (gone for good)" },
     "dry-run": { type: "boolean", desc: "only show what would go" },
     json: { type: "boolean", desc: "machine-readable output" },
   },
@@ -61,14 +65,14 @@ export const pruneCmd = defineCommand({
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
     const imgs = removable(plan);
     const vols = removableVolumes(plan);
-    const nothing = !imgs.length && !plan.buildCache && !plan.networks.length && !vols.length && !plan.logs;
+    const nothing = !imgs.length && !plan.buildCache && !plan.networks.length && !vols.length && !plan.leftovers?.length && !plan.logs;
     if (o["dry-run"] || (o.json && nothing)) return void (o.json ? console.log(JSON.stringify(plan, null, 2)) : printPlan(name, plan));
     if (!o.json) printPlan(name, plan);
     if (nothing) return ok("nothing to clean up");
     // Logs need root: the plan already knows whether this login has it, ask for another only when not.
     const login = plan.logs && !plan.logs.root ? await adminLogin(server, "emptying logs") : server;
     const question = `\nRemove ${pruneSummary(plan)} (up to ${bytes(reclaimable(plan))})?`;
-    if (vols.length) await confirmRemoval(question, name);
+    if (vols.length || plan.leftovers?.length) await confirmRemoval(question, name);
     else if (!(await confirm(question, true))) return;
     if (!o.json) step("cleaning up");
     const { failed } = await prune(login, plan);

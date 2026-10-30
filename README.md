@@ -535,7 +535,8 @@ and `lf volume` work as before. `lf sites rm` keeps the folder (and the backups)
 - Backups made by hand are not pruned: delete them with `lf volume backup rm <file>` (or **Delete a backup…**
   in `lf ui`). `lf sites rm` keeps them with the volumes and removes the schedule; `lf sites rm --volumes` saves
   each volume as `<volume>-<time>-before-rm.tar.gz` first, deletes the volumes and journals it: `lf undo` brings
-  them back. The backups stay in `/opt/landfall/sites/<site>/backups` until you delete that folder.
+  them back. The backups stay in `/opt/landfall/sites/<site>/backups`; `lf prune --volumes` lists and deletes
+  the backups of removed sites.
 - After a deploy, an empty volume whose name matches a local folder the upload left out (`exclude`,
   e.g. `./content` for the volume `content`) gets an offer to push that folder into it. `lf deploy --fill-volumes`
   pushes it without asking (the deploy dialog in `lf ui` ticks this when it finds such a folder); a volume that
@@ -708,7 +709,7 @@ lf stats blog -w                                        # only the containers of
 lf disk                                                 # where the space goes: images, volumes, build cache, sites, container logs
 lf prune                                                # remove unused images, the build cache and unused networks (--all: unused tagged images too)
 lf prune --logs                                         # also empty container logs and shrink the systemd journal to 100M
-lf prune --volumes                                      # also delete volumes no container mounts and no site owns
+lf prune --volumes                                      # also delete volumes no site owns and removed sites' backups
 lf reboot                                               # reboot, wait until it is back, check its containers run again
 ```
 
@@ -928,7 +929,7 @@ lf undo -s box -y                           # revert the last run
 | `lf traffic [site] [--since 24h] [--json]` | Shows requests, 4xx/5xx, median and 95% response time and bytes per site from Traefik's access log; with a site or host, requests per minute or hour, busiest paths, failing requests and clients. Alias: `server traffic`. |
 | `lf certs [--since 7d] [--json]` | Shows each site domain's certificate (days left, expiry, issuer, staging), other certificates Traefik has, and its recent certificate errors. Alias: `server certs`. |
 | `lf check [site\|domain…] [--resolve ip[:port]] [--json]` | Requests sites over HTTPS from this machine: status, response time, certificate trust and days left. Exits 1 when one fails. Domains need no server. Alias: `sites check`. |
-| `lf prune [--all] [--logs] [--volumes] [--dry-run] [--json]` | Removes unused Docker images, the build cache and unused networks. Keeps images in use (stopped containers too), release images for rollback and images undo needs. `--all` also removes unused tagged images (pulled again when needed) and all build cache. `--logs` also empties container logs and shrinks the systemd journal to 100M (needs root). `--volumes` also deletes volumes no container mounts and no existing site owns. Journaled, not reversible. Alias: `server prune`. |
+| `lf prune [--all] [--logs] [--volumes] [--dry-run] [--json]` | Removes unused Docker images, the build cache and unused networks. Keeps images in use (stopped containers too), release images for rollback and images undo needs. `--all` also removes unused tagged images (pulled again when needed) and all build cache. `--logs` also empties container logs and shrinks the systemd journal to 100M (needs root). `--volumes` also deletes volumes no container mounts and no existing site owns, and the backups `lf sites rm` kept of removed sites. Journaled, not reversible. Alias: `server prune`. |
 | `lf reboot [--timeout s]` | Reboots the server (needs root or passwordless sudo), waits until ssh answers again (default 300s) and checks that the containers that ran before run again. Alias: `server reboot`. |
 | `lf system [--json]` | Shows the host name, time zone, clock sync, swap, Docker's log driver and limit, services, SSH keys and fail2ban bans, with hints (no swap on a small server, unlimited Docker logs). Alias: `server system`. |
 | `lf services [--all] [--json]` | Lists services landfall relies on and failed ones; `--all` lists every one. systemd or OpenRC. Alias: `services ls`. |

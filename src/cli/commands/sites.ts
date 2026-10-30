@@ -229,7 +229,7 @@ brings them back). An adopted site is stopped and forgotten; its folder stays.`,
     );
     await removeSite(server, m, { vols });
     ok(`removed ${site}${vols ? " and its volumes" : c.dim(" (its volumes stay; --volumes deletes them)")}`);
-    if (vols?.length) info(c.dim(`their contents: ${siteDir(site)}/backups/*-before-rm.tar.gz (lf undo puts them back; rm -rf ${siteDir(site)} deletes them)`));
+    if (vols?.length) info(c.dim(`their contents: ${siteDir(site)}/backups/*-before-rm.tar.gz (lf undo puts them back; lf prune --volumes deletes them)`));
   },
 });
 

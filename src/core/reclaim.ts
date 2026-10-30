@@ -33,6 +33,8 @@ export interface PrunePlan {
   networks: string[];
   /** Only for --volumes: volumes no container mounts, stopped ones included. */
   volumes?: PruneVolume[];
+  /** Only for --volumes: folders of removed sites that hold nothing but their backups (lf sites rm keeps them). Bytes. */
+  leftovers?: { site: string; size: number }[];
 }
 
 /** journalctl prints binary sizes with a single letter: 120.5M, 1.2G. 0 when unknown. */
@@ -59,7 +61,8 @@ export function pruneSummary(p: PrunePlan, failed: { what: string }[] = []): str
   return [
     `${n("image", removable(p).length)} images and the build cache`,
     p.networks.length && `${n("network", p.networks.length)} networks`,
-    vols && `${n("volume", vols)} volumes`,
+    n("volume", vols) > 0 && `${n("volume", vols)} volumes`,
+    n("backups", p.leftovers?.length ?? 0) > 0 && `the backups of ${n("backups", p.leftovers?.length ?? 0)} removed sites`,
     p.logs && `container logs and the journal beyond ${JOURNAL_KEEP}`,
   ].filter(Boolean).join(", ");
 }
@@ -67,5 +70,5 @@ export function pruneSummary(p: PrunePlan, failed: { what: string }[] = []): str
 /** At most what the plan frees: image sizes count layers they share, and the journal keeps JOURNAL_KEEP. */
 export function reclaimable(p: PrunePlan): number {
   const logs = p.logs ? p.logs.size + Math.max(p.logs.journal - JOURNAL_KEEP_BYTES, 0) : 0;
-  return totalSize(removable(p)) + p.buildCache + logs + totalSize(removableVolumes(p));
+  return totalSize(removable(p)) + p.buildCache + logs + totalSize(removableVolumes(p)) + totalSize(p.leftovers ?? []);
 }
