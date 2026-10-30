@@ -258,7 +258,7 @@ export function UpdatesView({ n }: { n: string }) {
                 <Kv
                   pairs={[
                     ["Docker", <EngineLine have={e.docker} latest={e.latestDocker} old={e.dockerNote} how={e.dockerHow} />],
-                    ["Compose", e.compose ? <EngineLine have={e.compose} latest={e.latestCompose} old={e.composeNote} how={e.composeHow} /> : <><Badge kind="warn">missing</Badge> <span className="faint">lf setup installs it</span></>],
+                    ["Compose", e.compose ? <EngineLine have={e.compose} latest={e.latestCompose} old={e.composeNote} how={e.composeHow} /> : <><Badge kind="warn">missing</Badge> <span className="faint"><code>lf setup</code> installs it</span></>],
                   ]}
                 />
               </Body>
