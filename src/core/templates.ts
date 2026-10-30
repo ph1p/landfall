@@ -305,8 +305,12 @@ compose_install() {
   $SUDO mkdir -p "$(dirname $f)" || return 1
   $SUDO curl -fsSL -o $f.new "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch" || { $SUDO rm -f $f.new; return 1; }
   $SUDO chmod 755 $f.new
-  if [ -f $f ]; then $SUDO mv $f $f.landfall-$LANDFALL_RUN; undo="\$SUDO mv $f.landfall-$LANDFALL_RUN $f"; else undo="\$SUDO rm -f $f"; fi
+  # A dot name: docker reads every docker-* file there as a plugin, and lists the backup as a broken one.
+  b="$(dirname $f)/.docker-compose.landfall-$LANDFALL_RUN"
+  if [ -f $f ]; then $SUDO mv $f "$b"; undo="\$SUDO mv $b $f"; else undo="\$SUDO rm -f $f"; fi
   $SUDO mv $f.new $f
+  # Each is a whole compose binary: only the newest 2 stay (older landfall named them docker-compose.landfall-*).
+  ls -1At "$(dirname $f)" | grep -E '^\.?docker-compose\.landfall-' | tail -n +3 | while IFS= read -r old; do $SUDO rm -f "$(dirname $f)/$old"; done || true
   record "installed docker compose $(docker compose version --short 2>/dev/null) to $f" "$undo"
 }
 `;
