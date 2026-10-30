@@ -1,6 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, projectServer } from "../../core/config";
-import { bytes } from "../../core/facts";
+import { bytes, plural } from "../../core/format";
 import { prune, prunePlan, reboot } from "../../core/manage";
 import { JOURNAL_KEEP, kept, pruneSummary, reclaimable, removable, removableVolumes, shortName, type PrunePlan } from "../../core/reclaim";
 import { adminLogin } from "../../core/privilege";
@@ -73,7 +73,7 @@ export const pruneCmd = defineCommand({
     if (!o.json) step("cleaning up");
     const { failed } = await prune(login, plan);
     if (o.json) return void console.log(JSON.stringify({ ...plan, removed: imgs.length - failed.filter((f) => f.what === "image").length, failed }, null, 2));
-    for (const f of failed) warn(f.name === "-" ? `could not empty the ${f.what}` : `${f.what} ${f.name}: could not remove it (in use?)`);
+    for (const f of failed) warn(`${f.name === "-" ? `could not empty the ${f.what}` : `${f.what} ${f.name}: could not remove it`}${f.why ? `: ${f.why}` : ""}`);
     ok(`removed ${pruneSummary(plan, failed)}`);
   },
 });
@@ -97,6 +97,6 @@ export const rebootCmd = defineCommand({
     if (!r.back) fail(`${name} did not answer within ${timeout}s. Check its console at the provider`);
     ok(`${name} is back after ${r.seconds}s`);
     if (r.missing.length) warn(`not running again: ${r.missing.join(", ")}. See lf stats -s ${name}`);
-    else info("all containers that ran before run again");
+    else info(r.before ? `${plural(r.before, "container")} ran before: all run again` : "no containers ran before");
   },
 });

@@ -42,8 +42,8 @@ export const volumeList = defineCommand({
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run([n], o) {
     const { site, server } = target(n, o.server);
-    const { volumes: vols, backups, schedule } = await volumes(server, site, true);
-    if (o.json) return console.log(JSON.stringify({ volumes: vols, backups, schedule }, null, 2));
+    const { volumes: vols, backups, schedule, lastRun } = await volumes(server, site, true);
+    if (o.json) return console.log(JSON.stringify({ volumes: vols, backups, schedule, lastRun }, null, 2));
     if (!vols.length) return info(`${site} has no volumes`);
     table([
       ["VOLUME", "SIZE", "MOUNTED BY", "BACKUPS"].map((h) => c.dim(h)),
@@ -62,6 +62,8 @@ export const volumeList = defineCommand({
     if (vols.length > inDocker.length) console.log(c.dim(`\nfiles in ${siteDir(site)}/volumes/<volume>`));
     if (inDocker.length) console.log(c.dim(`${vols.length > inDocker.length ? "" : "\n"}in Docker's own storage: ${inDocker.join(", ")}`));
     console.log(c.dim(`\nscheduled backups: ${schedule ?? "none (lf volume backup --schedule daily)"}`));
+    if (lastRun?.failed.length) warn(`the last scheduled backup (${ago(lastRun.time)}) failed for ${lastRun.failed.join(", ")}: see ${siteDir(site)}/backups/backup.log`);
+    else if (lastRun) console.log(c.dim(`last run ${ago(lastRun.time)}: ok`));
     if (backups.length) {
       console.log(`\n${c.dim(`backups in ${siteDir(site)}/backups:`)}`);
       table(backups.map((b) => [b.file, bytes(b.size), c.dim(ago(b.time))]));
@@ -111,6 +113,7 @@ const EVERY: Record<string, (m: number) => string> = { hourly: (m) => `${m} * * 
 /**
  * The script a schedule runs: every volume of the Compose project into a .tar.gz next to it, then all but the
  * newest `keep` of each volume's timestamped backups (not those like `-before-push`) deleted. Plain sh.
+ * Each run ends with one status line in backup.log (`<UTC time> ok` or `<UTC time> failed: <volumes>`): lf volumes shows the last.
  */
 export const backupScript = (project: string, keep: number) => `#!/bin/sh
 # Written by landfall (lf volume backup --schedule). Runs without it too: sh backup.sh
@@ -120,18 +123,21 @@ cd "$(dirname "$0")" || exit 1
 # Its log stays small: past 1 MB it moves to backup.log.1, replacing the one before.
 if [ -f backup.log ] && [ "$(wc -c <backup.log)" -ge 1048576 ]; then mv -f backup.log backup.log.1; fi
 keep=${keep}
-rc=0
-for v in $(docker volume ls -q --filter label=com.docker.compose.project=${project}); do
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+vols=$(docker volume ls -q --filter label=com.docker.compose.project=${project}) || { echo "$(now) failed: docker volume ls"; exit 1; }
+bad=""
+for v in $vols; do
   key=$(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}' "$v"); [ -n "$key" ] || key=$v
   f="$key-$(date -u +%Y%m%d-%H%M%S).tar.gz"
-  if docker run --rm -v "$v:/v:ro" ${HELPER} tar czf - -C /v . >"$f.part"; then mv "$f.part" "$f"; else rm -f "$f.part"; echo "$(date -u) backup of $v failed" >&2; rc=1; continue; fi
+  if docker run --rm -v "$v:/v:ro" ${HELPER} tar czf - -C /v . >"$f.part"; then mv "$f.part" "$f"; else rm -f "$f.part"; echo "$(now) backup of $v failed" >&2; bad="$bad $v"; continue; fi
   n=0
   for old in $(ls -1r 2>/dev/null | grep -F "$key-"); do
     case "$old" in "$key"-${STAMP_GLOB}.tar.gz) ;; *) continue ;; esac
     n=$((n + 1)); [ "$n" -le "$keep" ] || rm -f -- "$old"
   done
 done
-exit $rc
+[ -z "$bad" ] || { echo "$(now) failed:$bad"; exit 1; }
+echo "$(now) ok"
 `;
 
 /** Shell: the crontab without the site's line, in $c. */
