@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { tildify } from "../../core/config";
 import { generateKey } from "../../core/security";
 import { addKey, parseKeyLine, readKey } from "../../core/system";
-import { askSecret, c, confirmRemoval, confirmRisky, fail, info, ok, passwordOption, report, table, warn } from "../../core/term";
+import { askSecret, c, confirmRemoval, confirmRisky, fail, info, ok, passwordOption, report, table, warn, printJson } from "../../core/term";
 import {
   account,
   addUser,
@@ -52,7 +52,7 @@ export const usersList = defineCommand({
   async run(_, o) {
     const { server } = target(o);
     const u = await listUsers(server);
-    if (o.json) return void console.log(JSON.stringify(u, null, 2));
+    if (o.json) return void printJson(u);
     table([
       ["", "user", "uid", "sudo", "password", "keys", "shell"].map(c.dim),
       ...u.accounts.map((a) => [

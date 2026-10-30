@@ -5,7 +5,7 @@ import { updateProjectDomains } from "../../core/projects";
 import { currentRelease, findRoute, siteDomains, siteMain, subDomains, type SiteMeta } from "../../core/compose";
 import { changeSite, overview, requireSite } from "../../core/remote";
 import type { Proxy } from "../../core/templates";
-import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn } from "../../core/term";
+import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/term";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 import { target } from "./sites";
 import { dnsView } from "../../core/views";
@@ -66,7 +66,7 @@ and update .landfall.json of remembered projects.`,
     const { meta, proxy } = await requireSite(server, site, changing ? { deployed: "change the domains of" } : {});
     if (!changing) {
       const { ips, domains: rows } = await dnsView(server, siteDomains(meta));
-      if (o.json) return void console.log(JSON.stringify({ site, ips, domains: rows }, null, 2));
+      if (o.json) return void printJson({ site, ips, domains: rows });
       for (const r of rows) {
         const dnsState = r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");
         const { status, error, tls } = r.https;

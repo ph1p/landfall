@@ -95,6 +95,9 @@ export async function confirm(question: string, def = true): Promise<boolean> {
   return answer.startsWith("y");
 }
 
+/** --json output: indented, so it reads as well as it parses. */
+export const printJson = (x: unknown) => console.log(JSON.stringify(x, null, 2));
+
 export function table(rows: string[][]) {
   if (!rows.length) return;
   // stringWidth ignores ANSI colors.

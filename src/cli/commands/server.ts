@@ -13,7 +13,7 @@ import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
 import { listServers, reachAll } from "../../core/dashboard";
 import { overview, removeLines, siteDir } from "../../core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
-import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../../core/term";
+import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
 import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { configView, factsView, serverSettings } from "../../core/views";
 
@@ -91,7 +91,7 @@ Git hosts (github.com, gitlab.*, User git …) are left out: they are not server
     const target = (s: Server) => `${s.user ? s.user + "@" : ""}${s.host}${s.port ? ":" + s.port : ""}`;
     const status = o.check ? await reachAll(list.map((e) => e.name)) : {};
     if (o.json) {
-      return void console.log(JSON.stringify(list.map((e) => ({ ...e, target: e.registered ? target(cfg.servers[e.name]) : e.name, ...(o.check && { reach: status[e.name] }) })), null, 2));
+      return printJson(list.map((e) => ({ ...e, target: e.registered ? target(cfg.servers[e.name]) : e.name, ...(o.check && { reach: status[e.name] }) })));
     }
     if (!list.length) {
       console.log(`no servers yet — ${c.bold("lf server add <ssh-alias>")} or ${c.bold("lf setup <name> --host <ip>")}`);
@@ -236,7 +236,7 @@ export const serverInfo = defineCommand({
   options: { json: { type: "boolean", desc: "machine-readable output" } },
   async run([name], o) {
     const { name: n, server } = resolveServer(name);
-    if (o.json) return void console.log(JSON.stringify(await factsView(n, server), null, 2));
+    if (o.json) return void printJson(await factsView(n, server));
     const f = await facts(server);
     const caps = await serverCaps(server, f);
     const share = (used: number, total: number) => (total ? ` (${pct(used, total)}%)` : "");
@@ -273,7 +273,7 @@ and the Host block in ~/.ssh/config. Nothing connects to the server.`,
   options: { json: { type: "boolean", desc: "machine-readable output" } },
   async run([n], o) {
     const { name, server } = resolveServer(n);
-    if (o.json) return void console.log(JSON.stringify(await configView(name, server), null, 2));
+    if (o.json) return void printJson(await configView(name, server));
     const s = serverSettings(name);
     const row = (k: string, v: string) => console.log(`  ${c.dim(k.padEnd(10))} ${v}`);
     console.log(`${c.bold(name)}${s.isDefault ? c.dim(" (default)") : ""}`);
@@ -362,14 +362,14 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
     const domains = server.domains ?? [];
     if (!domains.length) {
       const suggest = await suggestDomains(server);
-      if (o.json) return void console.log(JSON.stringify({ name, domains, suggest }, null, 2));
+      if (o.json) return void printJson({ name, domains, suggest });
       info(`${name} has no main domain yet`);
       for (const g of suggest) info(`${g.hosts} routed hosts use ${c.bold(g.domain)} — ${c.bold(`lf server domain ${name} --add ${g.domain}`)}`);
       if (!suggest.length) info(`set one: ${c.bold(`lf server domain ${name} example.com`)}`);
       return;
     }
     const dns = await Promise.all(domains.map((d) => domainDns(server, d)));
-    if (o.json) return void console.log(JSON.stringify({ name, domains: domains.map((domain, i) => ({ domain, primary: i === 0, ...dns[i] })) }, null, 2));
+    if (o.json) return void printJson({ name, domains: domains.map((domain, i) => ({ domain, primary: i === 0, ...dns[i] })) });
     const width = Math.max(...domains.map((d) => d.length)) + 2;
     const records: string[] = [];
     domains.forEach((d, i) => {

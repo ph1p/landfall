@@ -5,7 +5,7 @@ import { firewallState, guardSsh, type FirewallState } from "../../core/firewall
 import { parseRule, type Rule } from "../../core/inventory";
 import { runScript, shq } from "../../core/ssh";
 import { PRELUDE } from "../../core/templates";
-import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn } from "../../core/term";
+import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn, printJson } from "../../core/term";
 import { firewallView } from "../../core/views";
 
 const PORT = /^\d+(:\d+)?(,\d+(:\d+)?)*(\/(tcp|udp))?$/;
@@ -106,7 +106,7 @@ export const firewallStatus = defineCommand({
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
-    if (o.json) return void console.log(JSON.stringify(await firewallView(server), null, 2));
+    if (o.json) return void printJson(await firewallView(server));
     const fw = await firewallState(server);
     const state = fw.ufw === "active" ? c.green("on") : fw.ufw === "missing" ? c.yellow("not installed") : c.yellow("off");
     step(`firewall on ${name}: ${state}${fw.ufw === "active" ? c.dim(` · incoming default ${fw.policy.toLowerCase()}`) : ""}`);

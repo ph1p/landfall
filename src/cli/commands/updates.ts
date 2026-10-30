@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../../core/config";
 import { adminLogin } from "../../core/privilege";
 import { engineNotes, engineStatus, imageStatus, pkgStatus, updateCompose, updateImages, upgradePackages, type Engine, type ImageStatus, type PkgStatus } from "../../core/updates";
-import { c, confirm, fail, info, ok, step, table, warn } from "../../core/term";
+import { c, confirm, fail, info, ok, step, table, warn, printJson } from "../../core/term";
 import { updatesView } from "../../core/views";
 
 const STATE: Record<ImageStatus["state"], (s: string) => string> = {
@@ -53,7 +53,7 @@ export const updatesList = defineCommand({
     const { name, server } = resolveServer(o.server);
     if (!o.json) step(`checking ${name} for updates${o.refresh ? " (refreshing package lists)" : ""}`);
     const view = await updatesView(server, o.refresh);
-    if (o.json) return void console.log(JSON.stringify(view, null, 2));
+    if (o.json) return void printJson(view);
     const { packages, images, engine } = view;
     printPkgs(packages, o.all);
     printEngine(engine);

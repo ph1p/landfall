@@ -5,7 +5,7 @@ import { COMPOSE_FILES, currentRelease, gitLabel, OVERRIDE_FILES, projectName, r
 import { bytes } from "../../core/facts";
 import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, oldReleases, parseEnvPairs, readEnvFile, readSecrets, readSite, removeReleases, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
-import { ago, c, confirm, confirmRemoval, fail, info, ok, table } from "../../core/term";
+import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson } from "../../core/term";
 import { volumes } from "../../core/volumes";
 import { slug } from "../../core/projects";
 import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/tunnel";
@@ -31,7 +31,7 @@ export const sitesList = defineCommand({
     const view = await overview(server);
     const { sites, others } = view;
     // --others: the whole overview the web UI reads (proxy, dashboard, unrouted containers too).
-    if (o.json) return console.log(JSON.stringify(o.others ? view : sites, null, 2));
+    if (o.json) return printJson(o.others ? view : sites);
     if (others.length) {
       console.log(c.dim(`not deployed by landfall, routed by Traefik (\`lf adopt <name>\` manages a Compose project):`));
       table([
@@ -67,7 +67,7 @@ export const sitesInfo = defineCommand({
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
     if (!st) await noSite(server, site);
     const meta = st!.meta;
-    if (o.json) return void console.log(JSON.stringify({ ...st, dir: meta.adopted ?? `${siteDir(site)}/current` }, null, 2));
+    if (o.json) return void printJson({ ...st, dir: meta.adopted ?? `${siteDir(site)}/current` });
     console.log(`${c.bold(meta.name)}  ${st!.kind}  ${paintStatus(st!.status)}`);
     for (const d of st!.domains) console.log(`  ${c.cyan("https://" + d)}`);
     console.log(c.dim(`  ${meta.adopted ?? siteDir(site) + "/current"}  (docker compose works there)`));
@@ -259,7 +259,7 @@ export const sitesEnv = defineCommand({
         fs.chmodSync(o.pull, 0o600);
         return ok(`wrote ${envEntries(env).length} variables of ${site} to ${o.pull}`);
       }
-      if (o.json) return console.log(JSON.stringify(envView(env, o.reveal), null, 2));
+      if (o.json) return printJson(envView(env, o.reveal));
       if (o.keys) return void process.stdout.write(envEntries(env).map((e) => e.key + "\n").join(""));
       if (!envEntries(env).length) return void process.stdout.write(c.dim("(empty)\n"));
       if (o.reveal) return void process.stdout.write(env);
@@ -312,7 +312,7 @@ export const sitesSecret = defineCommand({
     const have = await readSecrets(server, site);
 
     if (!Object.keys(set).length && !unset.length) {
-      if (o.json) return console.log(JSON.stringify({ secrets: have }, null, 2));
+      if (o.json) return printJson({ secrets: have });
       if (!have.length) return void process.stdout.write(c.dim(`(none) set one with: lf secret ${site} NAME=value\n`));
       return table(have.map((h) => [h.key, c.dim(bytes(h.size)), c.dim(`/run/secrets/${h.key}`)]));
     }
@@ -415,7 +415,7 @@ export const tunnelsList = defineCommand({
   },
   async run(_, o) {
     const ts = openTunnels();
-    if (o.json) return void console.log(JSON.stringify(ts, null, 2));
+    if (o.json) return void printJson(ts);
     if (!ts.length) return info("no tunnels open: lf tunnel <site> opens one");
     table([
       ["url", "what", "server", "open", "pid"].map(c.dim),

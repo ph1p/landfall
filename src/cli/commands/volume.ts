@@ -8,7 +8,7 @@ import { plural } from "../../core/format";
 import { cronMark, lockSite, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
 import { HELPER, PRELUDE } from "../../core/templates";
-import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../../core/term";
+import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
 import { onStop } from "../../core/job";
@@ -44,7 +44,7 @@ export const volumeList = defineCommand({
   async run([n], o) {
     const { site, server } = target(n, o.server);
     const { volumes: vols, backups, schedule, lastRun } = await volumes(server, site, true);
-    if (o.json) return console.log(JSON.stringify({ volumes: vols, backups, schedule, lastRun }, null, 2));
+    if (o.json) return printJson({ volumes: vols, backups, schedule, lastRun });
     if (!vols.length) return info(`${site} has no volumes`);
     table([
       ["VOLUME", "SIZE", "MOUNTED BY", "BACKUPS"].map((h) => c.dim(h)),

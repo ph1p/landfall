@@ -1,6 +1,6 @@
 import { defineCommand } from "../cmd";
 import { checkEmail, checkInt, DEFAULT_KEEP, loadConfig, saveConfig, useServer, type Defaults } from "../../core/config";
-import { c, fail, ok } from "../../core/term";
+import { c, fail, ok, printJson } from "../../core/term";
 import { defaultsView } from "../../core/views";
 
 const KEYS = ["tunnel-only", "email", "keep", "default"] as const;
@@ -46,7 +46,7 @@ A server's own setting wins over these (lf server config shows which applies):
       ok("saved");
     }
     const v = defaultsView();
-    if (o.json) return void console.log(JSON.stringify(v, null, 2));
+    if (o.json) return void printJson(v);
     const own = (k: keyof Defaults) => (v.defaults[k] === undefined ? c.dim(" (built in)") : "");
     const row = (k: string, val: string) => console.log(`  ${c.dim(k.padEnd(12))} ${val}`);
     console.log(`${c.bold("landfall defaults")} ${c.dim(v.configFile)}`);

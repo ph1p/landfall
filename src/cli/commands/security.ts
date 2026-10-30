@@ -2,7 +2,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { addKeyFirst, harden, HARDEN_PARTS, lockedOutOn, printAdvice, securityOf, type HardenPart } from "../../core/security";
 import { effectiveSsh } from "../../core/sshconfig";
 import { adminLogin } from "../../core/privilege";
-import { c, confirm, fail, ok, report, table } from "../../core/term";
+import { c, confirm, fail, ok, report, table, printJson } from "../../core/term";
 import { limitedNote, target } from "./system";
 
 export const securityCmd = defineCommand({
@@ -12,7 +12,7 @@ export const securityCmd = defineCommand({
   async run(_, o) {
     const { name, server } = target(o);
     const { advice, ...i } = await securityOf(name, server);
-    if (o.json) return void console.log(JSON.stringify({ ...i.security, fail2ban: i.fail2ban, advice }, null, 2));
+    if (o.json) return void printJson({ ...i.security, fail2ban: i.fail2ban, advice });
     const s = i.security;
     table([
       [c.dim("ssh login"), s.passwordLogin === undefined ? c.dim("unknown") : s.passwordLogin ? c.red("passwords and keys") : c.green("keys only")],
