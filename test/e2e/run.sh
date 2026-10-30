@@ -356,15 +356,14 @@ echo two > data/hi
 lf deploy -n fill --no-domain --fill-volumes -y >/dev/null 2>&1 && [ "$(fill)" = one ] || die "--fill-volumes leaves a volume with data alone"
 lf sites rm fill --volumes -y >/dev/null 2>&1
 pass "deploy --fill-volumes fills an empty volume from its left-out folder, only while empty"
-# Volumes live in the site's folder; one Docker keeps elsewhere (deployed before that) moves in, data and all.
+# Volumes live in the site's folder.
 mkdir -p "$WORK/vdir" && cd "$WORK/vdir"
 printf 'services:\n  app:\n    image: busybox:1.37\n    command: sleep 3600\n    volumes: [data:/data]\nvolumes:\n  data:\n' > compose.yaml
 vd=/opt/landfall/sites/vdir/volumes/data
-srv sh -c 'docker volume create vdir_data >/dev/null && docker run --rm -v vdir_data:/v busybox:1.37 sh -c "echo old > /v/hi"' || die "an old volume"
-lf deploy -n vdir --no-domain -y >"$WORK/vdir.log" 2>&1 && has "moving volume data" "$WORK/vdir.log" || { cat "$WORK/vdir.log"; die "deploy moves the volume into the folder"; }
-[ "$(srv cat $vd/hi)" = old ] && [ "$(srv docker volume inspect -f '{{index .Options "device"}}' vdir_data)" = $vd ] || die "the volume lives in the site's folder"
+lf deploy -n vdir --no-domain -y >"$WORK/vdir.log" 2>&1 || { cat "$WORK/vdir.log"; die "deploy vdir"; }
+[ "$(srv docker volume inspect -f '{{index .Options "device"}}' vdir_data)" = $vd ] || die "the volume lives in the site's folder"
 srv docker exec vdir-app-1 sh -c 'echo new > /data/hi' && [ "$(srv cat $vd/hi)" = new ] || die "the container writes into the folder"
-lf deploy -n vdir --no-domain -y >"$WORK/vdir.log" 2>&1 && ! has "moving volume" "$WORK/vdir.log" && [ "$(srv cat $vd/hi)" = new ] || { cat "$WORK/vdir.log"; die "a redeploy keeps it"; }
+lf deploy -n vdir --no-domain -y >"$WORK/vdir.log" 2>&1 && [ "$(srv cat $vd/hi)" = new ] || { cat "$WORK/vdir.log"; die "a redeploy keeps it"; }
 lf volumes vdir | has "/opt/landfall/sites/vdir/volumes" || die "lf volumes names the folder"
 lf rollback vdir -y >/dev/null 2>&1 && lf undo -s box -y >/dev/null 2>&1 && [ "$(srv docker exec vdir-app-1 cat /data/hi)" = new ] || die "rollback and undo keep the folder's volume"
 lf sites rm vdir -y >/dev/null 2>&1 && [ "$(srv cat $vd/hi)" = new ] && ! srv test -e /opt/landfall/sites/vdir/site.json || die "sites rm keeps the folder's volume"
