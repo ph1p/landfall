@@ -284,7 +284,8 @@ async function replace(server: Server, site: string, v: Volume, source: string, 
     `${PRELUDE}
 cd ${shq(dir)} && mkdir -p backups
 ${whileStopped(v.name, [
-  `${tarOut(v.name)} > ${shq(before)}`,
+  // Whole or not at all: a cut-off copy must not sit in backups/ looking like one to restore.
+  `{ ${tarOut(v.name)} > ${shq(`${before}.part`)} && mv ${shq(`${before}.part`)} ${shq(before)} || { rm -f ${shq(`${before}.part`)}; false; }; }`,
   `record ${shq(`${what} (backup ${basename(before)})`)} ${shq(undo)}`,
   `${tarIn(v.name, own)} < ${shq(source)}`,
 ])}
@@ -324,12 +325,11 @@ Files get the owner of the volume's root folder.`,
 async function pushVolume(server: Server, site: string, v: Volume, src: string, folder: boolean) {
   const upload = `${siteDir(site)}/backups/.upload-${journal.run}.tar.gz`;
   step(`upload ${src}`);
-  await runScript(server, `mkdir -p ${shq(`${siteDir(site)}/backups`)}`);
   const local = folder ? ["tar", ...(await bsdtarFlags()), "-czf", "-", "-C", src, "."] : { file: src };
   const drop = () => runScript(server, `rm -f ${shq(upload)}`);
   const off = onStop(drop);
   try {
-    await sshPipe(server, `cat > ${shq(upload)}`, local, "up");
+    await sshPipe(server, `mkdir -p ${shq(`${siteDir(site)}/backups`)} && cat > ${shq(upload)}`, local, "up");
     step(`replace ${v.key} of ${site}`);
     await replace(server, site, v, upload, { own: true, verb: "push", what: `push ${v.key} of ${site}` });
   } finally {
