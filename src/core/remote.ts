@@ -503,7 +503,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
     o.env !== undefined ? writeFileCmd(".env.new", o.env, "600") : "[ -e .env ] || { touch .env && chmod 600 .env; }",
     // Releases from before .secrets get the link too, so a rollback still finds them.
     ...(meta.adopted ? [] : [`[ -d ${SECRETS_DIR} ] || install -d -m 700 ${SECRETS_DIR}`, `(cd -P ${rel} && ln -sfn ../../${SECRETS_DIR} ${SECRETS_DIR}) || exit 1`]),
-    `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || exit 1`,
+    `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || { rm -f .env.new; exit 1; }`,
     // The override binds them there: Docker cannot create a volume on a folder that is not.
     ...(meta.adopted ? [] : (meta.volumes ?? []).map((k) => `mkdir -p ${shq(volumeDir(meta.name, k))}`)),
   ];
@@ -636,7 +636,7 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   if (pruned.length) lines.push(`log ${shq(`removing old release${pruned.length > 1 ? "s" : ""} ${pruned.map((r) => r.id).join(", ")} of ${meta.name} (keeping ${keep})`)}`);
   for (const r of pruned) lines.push(...dropRelease(meta, r));
   // A pull or build that moved a tag leaves the old image untagged: nothing can run it any more.
-  if (o.pull || o.build) lines.push("docker image prune -f >/dev/null 2>&1 || true");
+  if (o.pull || o.build) lines.push(`freed=$(docker image prune -f 2>/dev/null | sed -n 's/^Total reclaimed space: //p') || true; case "$freed" in ""|0B) ;; *) log "removed untagged images: $freed" ;; esac`);
   // Build cache stays a week, for fast rebuilds: older layers only fill the disk.
   if (o.build) lines.push(`docker builder prune -f --filter until=168h >/dev/null 2>&1 || true`);
   await runScript(s, lines.join("\n"));
