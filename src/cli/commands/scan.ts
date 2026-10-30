@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../../core/config";
 import { removeTrivy, scanImages, SEVERITIES, TRIVY, TRIVY_ASK, TRIVY_CACHE, trivyState, trivyThere, type ImageScan, type Severity } from "../../core/scan";
-import { c, confirm, info, ok, step, table, warn } from "../../core/term";
+import { c, confirm, info, ok, step, table, warn, printJson } from "../../core/term";
 
 const COLOR: Record<Severity, (s: string) => string> = { CRITICAL: c.red, HIGH: c.yellow, MEDIUM: (s) => s, LOW: c.dim, UNKNOWN: c.dim };
 const SHORT: Record<Severity, string> = { CRITICAL: "crit", HIGH: "high", MEDIUM: "med", LOW: "low", UNKNOWN: "?" };
@@ -60,7 +60,7 @@ export const scanCmd = defineCommand({
       return info("not scanned");
     if (!o.json) step(`scanning the images on ${name}`);
     const scans = await scanImages(server, args, !!o.others);
-    if (o.json) return void console.log(JSON.stringify(scans, null, 2));
+    if (o.json) return void printJson(scans);
     if (!scans.length) return info(args.length ? `no running images of ${args.join(", ")}` : "no images to scan");
     printScan(scans, !!o.all, !!o.fixable);
     const bad = scans.filter((i) => i.counts.CRITICAL || i.counts.HIGH).length;

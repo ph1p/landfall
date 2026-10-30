@@ -29,7 +29,7 @@ import {
   type SystemInfo,
 } from "../../core/system";
 import { adminLogin } from "../../core/privilege";
-import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn } from "../../core/term";
+import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn, printJson } from "../../core/term";
 
 export const target = (o: Record<string, any>) => projectServer(o.server);
 const json = { type: "boolean", desc: "machine-readable output" } as const;
@@ -53,7 +53,7 @@ export const systemCmd = defineCommand({
   async run(_, o) {
     const { name, server } = target(o);
     const i = await fullSystem(server);
-    if (o.json) return void console.log(JSON.stringify(i, null, 2));
+    if (o.json) return void printJson(i);
     const swap = i.swap.reduce((n, s) => n + s.size, 0);
     const d = i.docker;
     table([
@@ -80,7 +80,7 @@ export const servicesList = defineCommand({
   async run(_, o) {
     const { name, server } = target(o);
     const i = await system(server);
-    if (o.json) return void console.log(JSON.stringify(i.services, null, 2));
+    if (o.json) return void printJson(i.services);
     if (i.init === "other") fail(`no systemd or OpenRC on ${name}`);
     const shown = o.all ? i.services : i.services.filter((s) => failed(s) || isKey(s) || (running(s) && i.init === "openrc"));
     const rank = (s: Service) => (failed(s) ? 0 : isKey(s) ? 1 : 2);
@@ -144,7 +144,7 @@ export const keysList = defineCommand({
   async run(_, o) {
     const { server } = target(o);
     const i = await fullSystem(server);
-    if (o.json) return void console.log(JSON.stringify(i.keys, null, 2));
+    if (o.json) return void printJson(i.keys);
     if (!i.keys.length) info(c.dim("no authorized keys found"));
     table([
       ["", "user", "key", "comment"].map(c.dim),
@@ -227,7 +227,7 @@ export const bansList = defineCommand({
   async run(_, o) {
     const { name, server } = target(o);
     const i = await fullSystem(server);
-    if (o.json) return void console.log(JSON.stringify({ fail2ban: i.fail2ban, jails: i.jails }, null, 2));
+    if (o.json) return void printJson({ fail2ban: i.fail2ban, jails: i.jails });
     if (i.fail2ban !== "running") {
       if (!i.root && i.fail2ban === "stopped") fail(`${i.user} cannot read fail2ban without passwordless sudo`);
       return info(i.fail2ban === "missing" ? `fail2ban is not installed on ${name}` : `fail2ban is not running on ${name}`);
@@ -266,7 +266,7 @@ export const swapCmd = defineCommand({
     const { name, server } = target(o);
     const i = await system(server);
     if (!arg) {
-      if (o.json) return void console.log(JSON.stringify({ swap: i.swap, swappiness: i.swappiness, mem: i.mem }, null, 2));
+      if (o.json) return void printJson({ swap: i.swap, swappiness: i.swappiness, mem: i.mem });
       if (!i.swap.length) return info(`no swap on ${name}${c.dim(` · ${bytes(i.mem)} memory · lf swap 2G adds a swap file`)}`);
       table([["file", "size", "used"].map(c.dim), ...i.swap.map((s) => [s.file, bytes(s.size), bytes(s.used)])]);
       return;
@@ -343,7 +343,7 @@ export const logLimitCmd = defineCommand({
     const d = i.docker;
     if (!d) fail(`no docker on ${name}`);
     if (!arg) {
-      if (o.json) return void console.log(JSON.stringify({ driver: d!.driver, maxSize: d!.maxSize, maxFile: d!.maxFile }, null, 2));
+      if (o.json) return void printJson({ driver: d!.driver, maxSize: d!.maxSize, maxFile: d!.maxFile });
       return void console.log(d!.maxSize ? `${d!.driver}: ${d!.maxSize} × ${d!.maxFile ?? 1} per container` : `${d!.driver}: ${c.yellow("no limit")}`);
     }
     if (i.managed) fail(i.managed);
