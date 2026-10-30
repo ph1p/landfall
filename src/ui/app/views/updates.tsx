@@ -274,7 +274,8 @@ export function UpdatesView({ n }: { n: string }) {
             <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
               {images.length ? (
                 images.map((i) => {
-                  const [cls, label] = IMG[i.state] ?? ["", i.state];
+                  // Current for its tag, yet a newer version tag is out: say so where the note column is hidden.
+                  const [cls, label] = i.state === "current" && i.newer ? ["", "newer tag"] : IMG[i.state] ?? ["", i.state];
                   const pullable = i.state === "update" || i.state === "unknown";
                   return (
                     <tr key={i.name}>
