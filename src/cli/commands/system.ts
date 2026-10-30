@@ -32,6 +32,11 @@ import { adminLogin } from "../../core/privilege";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn, printJson } from "../../core/term";
 
 export const target = (o: Record<string, any>) => projectServer(o.server);
+/** The target server's name and everything `lf system` knows about it. */
+const inspect = async (o: Record<string, any>) => {
+  const { name, server } = target(o);
+  return { name, server, i: await fullSystem(server) };
+};
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 
 const failed = (s: Service) => s.active === "failed" || s.active === "crashed";
@@ -51,8 +56,7 @@ export const systemCmd = defineCommand({
   summary: "Show a server's basics: host name, time zone, swap, Docker log limits, failed services, SSH keys and bans.",
   options: { server: serverOpt, json },
   async run(_, o) {
-    const { name, server } = target(o);
-    const i = await fullSystem(server);
+    const { name, i } = await inspect(o);
     if (o.json) return void printJson(i);
     const swap = i.swap.reduce((n, s) => n + s.size, 0);
     const d = i.docker;
@@ -142,8 +146,7 @@ export const keysList = defineCommand({
   summary: "List the SSH keys that may log in, per user. ★ marks the key this machine uses.",
   options: { server: serverOpt, json },
   async run(_, o) {
-    const { server } = target(o);
-    const i = await fullSystem(server);
+    const { i } = await inspect(o);
     if (o.json) return void printJson(i.keys);
     if (!i.keys.length) info(c.dim("no authorized keys found"));
     table([
@@ -204,8 +207,7 @@ export const keysRemove = defineCommand({
   },
   async run([which], o) {
     if (!which) fail("usage: lf keys rm <fingerprint|comment>");
-    const { name, server } = target(o);
-    const i = await fullSystem(server);
+    const { name, server, i } = await inspect(o);
     const w = which.replace(/^SHA256:/, "");
     const hits = i.keys.filter((k) => (!o.user || k.user === o.user) && (k.comment === which || (w.length >= 6 && k.fingerprint.slice(7).startsWith(w))));
     if (!hits.length) fail(`no key ${which}${o.user ? ` for ${o.user}` : ""} on ${name}: see lf keys`);
@@ -225,8 +227,7 @@ export const bansList = defineCommand({
   summary: "Show what fail2ban blocks: banned IPs per jail.",
   options: { server: serverOpt, json },
   async run(_, o) {
-    const { name, server } = target(o);
-    const i = await fullSystem(server);
+    const { name, i } = await inspect(o);
     if (o.json) return void printJson({ fail2ban: i.fail2ban, jails: i.jails });
     if (i.fail2ban !== "running") {
       if (!i.root && i.fail2ban === "stopped") fail(`${i.user} cannot read fail2ban without passwordless sudo`);

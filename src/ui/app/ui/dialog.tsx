@@ -17,7 +17,12 @@ export function openDialog(node: ReactNode, cls = "", site?: Redeploy) {
   redraw();
   return ++D.key;
 }
-export const closeDialog = () => el?.close();
+// Emptied right away, not in onClose (a later task): a render in between would show it again.
+export const closeDialog = () => {
+  D.node = null;
+  D.site = undefined;
+  el?.close();
+};
 export const dialogOpen = () => !!el?.open;
 /** Focus x once the dialog is open (showModal would move it otherwise). */
 export const focusInDialog = (x: HTMLElement | null) => void (D.focus = x);
