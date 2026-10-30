@@ -114,6 +114,18 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       typeToConfirm: m.adopted ? "" : name,
       onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : [])]),
     });
+  // Empty fields keep landfall's own network, entrypoint and resolver.
+  const eject = () =>
+    dialog({
+      title: `Eject ${name}`,
+      text: `Writes compose.traefik.yaml into ${tilde(proj!.path)}: the Traefik labels, network and project name of its running release, to run it with docker compose behind your own Traefik. Nothing changes on ${n}; an existing compose.traefik.yaml is overwritten.`,
+      fields: [
+        { name: "network", label: "Docker network your Traefik watches", placeholder: "landfall's", mono: true },
+        { row: [{ name: "entrypoint", label: "HTTPS entrypoint", placeholder: "landfall's", mono: true }, { name: "resolver", label: "Certificate resolver", placeholder: "landfall's", mono: true }] },
+      ],
+      ok: "Write it",
+      onOk: (v) => run(["eject", name, ...sv(n), "-y", ...(["network", "entrypoint", "resolver"] as const).flatMap((k) => (v[k] ? [`--${k}`, String(v[k]).trim()] : []))], { server: n, cwd: proj!.path }),
+    });
   const many = services.length > 1;
   const ways = tunnelWays(n, site);
   const svcWays = (svc: string) => ways.filter((w) => w.svc === svc);
@@ -170,6 +182,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
             run: () => run(w.argv, { server: n }),
           })),
           "-",
+          deploys && m.kind === "compose" && { label: "Eject…", hint: "lf eject", title: `Write its Traefik labels into ${tilde(proj.path)}, to run it behind your own Traefik`, run: eject },
           { label: m.adopted ? `Forget ${name}` : `Delete ${name}`, cls: "danger", hint: "lf sites rm", run: deleteSite },
         ]}
       />
