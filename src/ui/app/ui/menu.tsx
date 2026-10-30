@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Btn, cx } from "./kit";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Ellipsis } from "lucide-react";
 
 export interface MenuItem { label: string; run: () => void; cls?: string; title?: string; hint?: string }
 type Item = MenuItem | "-" | false | null | undefined | "";
@@ -26,13 +26,14 @@ export function closeMenu(restore = true) {
 export const menuOpen = () => !!open;
 
 /** A "More" button for the less used actions; falsy items are skipped, "-" is a divider. */
-export function MenuBtn({ items, title = "More actions", cls = "sm" }: { items: Item[]; title?: string; cls?: string }) {
+export function MenuBtn({ items, title = "More actions", cls = "sm", dots }: { items: Item[]; title?: string; cls?: string; dots?: boolean }) {
   // No divider at either end or twice in a row: items that are left out leave none behind.
   const list = (items.filter(Boolean) as (MenuItem | "-")[]).filter((it, i, all) => it !== "-" || (i > 0 && i < all.length - 1 && all[i + 1] !== "-"));
   if (!list.length) return null;
   return (
     <Btn cls={cls} title={title} aria-haspopup="menu" aria-expanded="false" aria-label={title} on={(e) => openMenu(e.currentTarget, list)}>
-      More <ChevronDown aria-hidden="true" className="inline-block size-3.5 -mt-px ml-0.5 align-middle text-faint" />
+      {/* Where a row is short of room: only "⋯", the title says what it is. */}
+      {dots ? <Ellipsis aria-hidden="true" className="size-4" /> : <>More <ChevronDown aria-hidden="true" className="inline-block size-3.5 -mt-px ml-0.5 align-middle text-faint" /></>}
     </Btn>
   );
 }

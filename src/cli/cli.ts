@@ -227,17 +227,21 @@ function find(argv: string[]): { cmd?: Command; rest: string[] } {
 function help() {
   const groups: [string, string[]][] = [
     ["Servers", ["setup", "server add", "server list", "server info", "stats", "disk", "prune", "reboot", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
-    ["System", ["system", "services", "services restart", "services start", "services stop", "services logs", "keys", "keys add", "keys rm", "bans", "unban", "swap", "hostname", "timezone", "log-limit"]],
+    ["System", ["system", "services", "services restart", "services start", "services stop", "services logs", "keys", "keys add", "keys rm", "bans", "unban", "swap", "hostname", "timezone", "log-limit", "security", "harden"]],
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
-    ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
+    ["Traefik", ["traefik setup", "traefik use", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
-    ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm", "eject"]],
+    ["Sites", ["init", "deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm", "adopt", "eject"]],
     ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume backup rm", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update", "scan"]],
     ["History", ["history", "undo"]],
     ["landfall", ["config", "ui"]],
   ];
+  // A command left out above still shows up.
+  const listed = new Set(groups.flatMap(([, names]) => names));
+  const rest = [...byName.keys()].filter((n) => !listed.has(n));
+  if (rest.length) groups.push(["More", rest]);
   const lines = [
     `${c.bold("landfall")} ${c.dim(pkg.version)} — set up servers and deploy sites behind Traefik + HTTPS`,
     "",

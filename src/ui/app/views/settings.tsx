@@ -167,7 +167,7 @@ function RoutesCard({ n, useDlg }: { n: string; useDlg: (name: string) => void }
   const t = st?.data;
   return (
     <Card>
-      <CardHead>Routes {t?.container && <Badge kind={/^Up/.test(t.container.status) ? "ok" : "bad"}>{t.container.status}</Badge>} <Sub>lf traefik status</Sub></CardHead>
+      <CardHead>Routes {t?.container && <Badge kind={/^Up/.test(t.container.status) ? "ok" : "bad"}>{t.container.status}</Badge>} <Sub className={MONO}>lf traefik status</Sub></CardHead>
       {wait ? <Body>{wait}</Body> : (
         <>
           {t!.foreign && (
