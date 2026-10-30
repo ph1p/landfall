@@ -233,6 +233,12 @@ brings them back). An adopted site is stopped and forgotten; its folder stays.`,
   },
 });
 
+/** The site name and the KEY=VALUE pairs of `[name] [KEY=VALUE...]`, over the lines of --dotenv. */
+async function namedPairs(pos: string[], dotenv: string | undefined, oneLine = false) {
+  const [n] = pos.filter((p) => !p.includes("="));
+  return { n, set: { ...(dotenv ? await readEnvFile(dotenv) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("=")), oneLine) } };
+}
+
 export const sitesEnv = defineCommand({
   name: "env",
   args: "[name] [KEY=VALUE...]",
@@ -247,8 +253,7 @@ export const sitesEnv = defineCommand({
     pull: { type: "string", desc: "write the site's .env to this local file (mode 600; - prints it)" },
   },
   async run(pos, o) {
-    const [n] = pos.filter((p) => !p.includes("="));
-    const set = { ...(o.dotenv ? await readEnvFile(o.dotenv) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("=")), true) };
+    const { n, set } = await namedPairs(pos, o.dotenv, true);
     const { site, server } = target(n, o.server);
     const { env } = await requireSite(server, site, { deployed: "manage the .env of" });
     if (!Object.keys(set).length && !o.unset?.length) {
@@ -293,10 +298,9 @@ export const sitesSecret = defineCommand({
     force: { type: "boolean", desc: "remove a secret its compose.yaml still uses" },
   },
   async run(pos, o) {
-    const [n] = pos.filter((p) => !p.includes("="));
+    const { n, set: pairs } = await namedPairs(pos, o.dotenv);
     const set = {
-      ...(o.dotenv ? await readEnvFile(o.dotenv) : {}),
-      ...parseEnvPairs(pos.filter((p) => p.includes("="))),
+      ...pairs,
       ...Object.fromEntries(
         Object.entries(parseEnvPairs(o.file ?? [])).map(([k, f]) => {
           if (!fs.existsSync(f)) fail(`--file ${k}=${f}: no such file`);
