@@ -513,7 +513,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
     // Not -q: a build can take minutes, and its steps show it is getting somewhere.
     lines.push(`log "building ${meta.name}"`, `(cd -P ${rel} && ${dc} build --pull) || ${bail}`);
   }
-  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && ${dc} pull -q --ignore-buildable) || ${bail}`);
+  if (o.pull) lines.push(`log "pulling images of ${meta.name}"`, `(cd -P ${rel} && ${dc} pull --ignore-buildable >&2) || ${bail}`);
   lines.push(
     ...(o.before ?? []),
     ...(o.env !== undefined ? ["mv -f .env.new .env"] : []),

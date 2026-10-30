@@ -27,12 +27,19 @@ export interface Backup {
   time: string;
 }
 
-/** Parses listScript's output: `vol`, `mnt`, `size`, `empty`, `bak` and `sched` lines. */
-export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[]; schedule?: string } {
+/** The last scheduled run, from backup.log: when, and the volumes that failed (none: it went fine). */
+export interface LastRun {
+  time: string;
+  failed: string[];
+}
+
+/** Parses listScript's output: `vol`, `mnt`, `size`, `empty`, `bak`, `sched` and `last` lines. */
+export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[]; schedule?: string; lastRun?: LastRun } {
   const vols = new Map<string, Volume>();
   const vol = (name: string) => vols.get(name) ?? vols.set(name, { name, key: name, mounts: [] }).get(name)!;
   const backups: Backup[] = [];
   let schedule: string | undefined;
+  let lastRun: LastRun | undefined;
   for (const line of out.split("\n")) {
     const [kind, a, b, d] = line.split("\t");
     if (kind === "vol" && a) {
@@ -46,11 +53,16 @@ export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[
     else if (kind === "empty" && vols.has(a)) vol(a).empty = true;
     else if (kind === "bak" && a) backups.push({ file: a, size: Number(b), time: new Date(Number(d) * 1000).toISOString() });
     else if (kind === "sched" && a) schedule = a;
+    else if (kind === "last" && a) {
+      const [, time, failed] = a.match(/^(\S+) (?:ok|failed:?(.*))$/) ?? [];
+      if (time) lastRun = { time, failed: failed?.trim().split(/\s+/).filter(Boolean) ?? [] };
+    }
   }
   return {
     volumes: [...vols.values()].sort((x, y) => x.key.localeCompare(y.key)),
     backups: backups.sort((x, y) => y.time.localeCompare(x.time)),
     ...(schedule && { schedule }),
+    ...(lastRun && { lastRun }),
   };
 }
 
@@ -76,6 +88,7 @@ fi
 for f in backups/*.tar.gz; do
   [ ! -f "$f" ] || printf 'bak\t%s\t%s\t%s\n' "$(basename "$f")" "$(stat -c %s "$f")" "$(stat -c %Y "$f")"
 done
+[ ! -f backups/backup.log ] || grep -E '^[0-9-]+T[0-9:]+Z (ok|failed)' backups/backup.log | tail -n 1 | sed 's/^/last\t/'
 ! command -v crontab >/dev/null || { crontab -l 2>/dev/null || true; } | awk -v m=${shq(cronMark(site) + " ")} 'i = index($0, m) { print "sched\t" substr($0, i + length(m)) }'
 `;
 

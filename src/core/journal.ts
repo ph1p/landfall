@@ -81,7 +81,8 @@ export function laterConflicts(runs: Run[], after: number, steps: Step[]): { run
 }
 
 export async function readJournal(s: Server): Promise<Run[]> {
-  const { stdout } = await runScript(s, `cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null || true`, { capture: true });
+  const unreadable = `echo "cannot read ${JOURNAL}: log in as its owner, or with passwordless sudo" >&2; exit 1`;
+  const { stdout } = await runScript(s, `cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null || [ ! -e ${JOURNAL} ] || { ${unreadable}; }`, { capture: true });
   return parseJournal(stdout);
 }
 
