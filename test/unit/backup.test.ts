@@ -88,7 +88,7 @@ describe("scheduled backups", () => {
     for (const f of [...old, ...keepAlways]) fs.writeFileSync(path.join(dir, f), "");
     const script = backupScript("blog", 2).replace(/^PATH=.*$/m, `PATH="${bin}:$PATH"`);
     fs.writeFileSync(path.join(dir, "backup.sh"), script);
-    execFileSync("sh", [path.join(dir, "backup.sh")]);
+    expect(execFileSync("sh", [path.join(dir, "backup.sh")], { encoding: "utf8" })).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ ok\n$/);
     const left = fs.readdirSync(dir).filter((f) => f.endsWith(".tar.gz")).sort();
     const made = left.filter((f) => /^data-\d{8}-\d{6}\.tar\.gz$/.test(f) && !old.includes(f));
     expect(made).toHaveLength(1);
@@ -105,6 +105,12 @@ describe("scheduled backups", () => {
     expect(list()).toBe("");
     fs.writeFileSync(path.join(dir, "tab"), "17 3 * * * sh backup.sh # landfall backup blog: daily, keep 7\n");
     expect(list()).toBe("sched\tdaily, keep 7\n");
+    // The last status line of backup.log, not the error lines around it.
+    fs.mkdirSync(path.join(dir, "backups"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "backups/backup.log"), "2026-10-01T03:17:00Z ok\n2026-10-02T03:17:00Z backup of blog_db failed\ntar: error\n2026-10-02T03:17:01Z failed: blog_db blog_x\n");
+    expect(list()).toBe("last\t2026-10-02T03:17:01Z failed: blog_db blog_x\nsched\tdaily, keep 7\n");
+    expect(parseVolumes(list()).lastRun).toEqual({ time: "2026-10-02T03:17:01Z", failed: ["blog_db", "blog_x"] });
+    expect(parseVolumes("last\t2026-10-03T03:17:00Z ok\n").lastRun).toEqual({ time: "2026-10-03T03:17:00Z", failed: [] });
   });
 
   test("lf volumes reads the schedule", () => {

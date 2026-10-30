@@ -109,17 +109,20 @@ export async function prunePlan(s: Server, o: { all?: boolean; logs?: boolean; v
  * Logs: the live file is truncated, not deleted: docker keeps its handle and goes on writing to it.
  * Rotated ones (.1, .2.gz) are deleted: an empty .gz would break `docker logs`, a missing one it skips.
  */
-export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { what: string; name: string }[] }> {
+export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { what: string; name: string; why?: string }[] }> {
   const imgs = removable(plan);
   const vols = removableVolumes(plan);
   // Tagged images go by tag: an ID with several tags only goes with -f, which would also take kept tags.
   const refs = imgs.flatMap((i) => (i.tags.length ? i.tags : [i.id]));
-  const rm = (what: string, r: string) => `docker ${what} rm ${shq(r)} >/dev/null 2>&1 || printf 'FAILED\\t${what}\\t%s\\n' ${shq(r)}`;
+  // A failure keeps docker's last error line, without its "Error response from daemon: " prefix.
+  const why = String.raw`"$(printf %s "$e" | tail -n 1 | sed 's/^Error response from daemon: //' | tr '	' ' ')"`;
+  const tryRm = (cmd: string, what: string, name: string) => `e=$(${cmd} 2>&1 >/dev/null) || printf 'FAILED\\t%s\\t%s\\t%s\\n' ${shq(what)} ${shq(name)} ${why}`;
+  const rm = (what: string, r: string) => tryRm(`docker ${what} rm ${shq(r)}`, what, r);
   const script = [
     PRELUDE,
     "set +e",
     ...refs.map((r) => rm("image", r)),
-    `docker builder prune -f${plan.all ? "a" : ""} >/dev/null 2>&1 || printf 'FAILED\\tbuild cache\\t-\\n'`,
+    tryRm(`docker builder prune -f${plan.all ? "a" : ""}`, "build cache", "-"),
     ...plan.networks.map((n) => rm("network", n)),
     ...vols.map((v) => rm("volume", v.name)),
     ...(plan.logs
@@ -134,8 +137,8 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
   ].join("\n");
   const { stdout } = await runScript(s, script, { capture: true });
   const failed = stdout.split("\n").filter((l) => l.startsWith("FAILED\t")).map((l) => {
-    const [, what, name] = l.split("\t");
-    return { what, name };
+    const [, what, name, why] = l.split("\t");
+    return { what, name, ...(why && { why }) };
   });
   return { failed };
 }
@@ -160,7 +163,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * `s` must be a login with root or passwordless sudo (adminLogin).
  */
 export async function reboot(s: Server, o: { timeout: number; onWait?: (phase: "down" | "ssh" | "containers") => void }) {
-  const before = await running(s).catch(() => [] as string[]);
+  // Not caught: without this list the check afterwards would report every container back.
+  const before = await running(s);
   const start = Date.now();
   await runScript(s, PRELUDE + REBOOT);
   // The shared connection still points at the old boot: later calls would hang on it until it times out.
@@ -175,7 +179,7 @@ export async function reboot(s: Server, o: { timeout: number; onWait?: (phase: "
     if ((back = await canLogin(s))) break;
     await sleep(5000);
   }
-  if (!back) return { back: false, seconds: Math.round((Date.now() - start) / 1000), missing: before };
+  if (!back) return { back: false, seconds: Math.round((Date.now() - start) / 1000), missing: before, before: before.length };
   const seconds = Math.round((Date.now() - start) / 1000);
   o.onWait?.("containers");
   // Docker starts them on boot (restart: unless-stopped); give it up to a minute, within the timeout.
@@ -187,5 +191,5 @@ export async function reboot(s: Server, o: { timeout: number; onWait?: (phase: "
     if (!missing.length || Date.now() >= until) break;
     await sleep(5000);
   }
-  return { back: true, seconds, missing };
+  return { back: true, seconds, missing, before: before.length };
 }
