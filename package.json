@@ -1,6 +1,6 @@
 {
   "name": "landfall",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Set up servers and deploy sites behind Traefik with automatic HTTPS",
   "author": "ph1p <me@ph1p.dev>",
   "license": "MIT",
