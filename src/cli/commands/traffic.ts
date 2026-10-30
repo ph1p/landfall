@@ -1,13 +1,13 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, projectServer } from "../../core/config";
 import { bytes } from "../../core/facts";
+import { ms } from "../../core/format";
 import { overview } from "../../core/remote";
 import { CERT_DAYS_BAD, certs, checkUrl, parseSince, siteTraffic, spanLabel, traffic, type Cert, type Check, type Detail, type Summary } from "../../core/traffic";
 import { c, fail, info, table, warn } from "../../core/term";
 import { siteTrafficView } from "../../core/views";
 
 const num = (n: number) => n.toLocaleString("en-US");
-const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
 const BARS = "▁▂▃▄▅▆▇█";
 
 /** Requests per bucket as one line of block characters, errors in red where a bucket has any 5xx. */

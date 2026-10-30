@@ -5,6 +5,7 @@ import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, load
 import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases } from "../../core/sshconfig";
+import { pct } from "../../core/format";
 import { bytes, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
 import { traefikState } from "../../core/traefik";
 import { guardUndo } from "./history";
@@ -231,7 +232,7 @@ export const serverInfo = defineCommand({
     if (o.json) return void console.log(JSON.stringify(await factsView(n, server), null, 2));
     const f = await facts(server);
     const caps = await serverCaps(server, f);
-    const pct = (used: number, total: number) => (total ? ` (${Math.round((used / total) * 100)}%)` : "");
+    const share = (used: number, total: number) => (total ? ` (${pct(used, total)}%)` : "");
     const memUsed = f.mem.total - f.mem.available;
     console.log(c.bold(n) + c.dim(` (${server.host})`));
     const rows: [string, string][] = [
@@ -239,8 +240,8 @@ export const serverInfo = defineCommand({
       ["kernel", `${f.kernel} ${f.arch}`],
       ["uptime", `${duration(f.uptime)}${f.reboot ? c.yellow(" · reboot required") : ""}`],
       ["cpu", `${f.cpus} cores, load ${f.load}`],
-      ["memory", `${bytes(memUsed)} / ${bytes(f.mem.total)}${pct(memUsed, f.mem.total)}`],
-      ["disk", `${bytes(f.disk.used)} / ${bytes(f.disk.total)}${pct(f.disk.used, f.disk.total)}`],
+      ["memory", `${bytes(memUsed)} / ${bytes(f.mem.total)}${share(memUsed, f.mem.total)}`],
+      ["disk", `${bytes(f.disk.used)} / ${bytes(f.disk.total)}${share(f.disk.used, f.disk.total)}`],
       ["address", [f.ip4, f.ip6].filter(Boolean).join(", ") || "unknown"],
       ["login", `${f.user}${caps.can.admin ? (f.admin ? c.dim(" · root or sudo") : c.dim(" · root's key for admin work")) : c.yellow(" · no sudo")}`],
       ["init", f.init === "other" ? c.dim("no systemd or OpenRC") : f.init],
@@ -354,7 +355,7 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
     const domains = server.domains ?? [];
     if (!domains.length) {
       const suggest = await suggestDomains(server);
-      if (o.json) return void console.log(JSON.stringify({ name, domains, suggest }));
+      if (o.json) return void console.log(JSON.stringify({ name, domains, suggest }, null, 2));
       info(`${name} has no main domain yet`);
       for (const g of suggest) info(`${g.hosts} routed hosts use ${c.bold(g.domain)} — ${c.bold(`lf server domain ${name} --add ${g.domain}`)}`);
       if (!suggest.length) info(`set one: ${c.bold(`lf server domain ${name} example.com`)}`);

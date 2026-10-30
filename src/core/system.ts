@@ -5,6 +5,7 @@ import { runScript, shq } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
+import { KEY_SERVICES, serviceName } from "./status";
 import { fail } from "./term";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
@@ -152,9 +153,7 @@ export interface SystemInfo {
   managed?: string;
 }
 
-/** Services worth showing first: what keeps the server and its sites running. */
-export const KEY_SERVICES = ["docker", "containerd", "ssh", "sshd", "fail2ban", "ufw", "unattended-upgrades", "cron", "crond", "systemd-timesyncd", "chronyd", "chrony"];
-export const serviceName = (unit: string) => unit.replace(/\.service$/, "");
+export { KEY_SERVICES, serviceName };
 
 const KEY_TYPE = /^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-\S+|sk-\S+@openssh\.com)$/;
 

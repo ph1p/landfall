@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { svText, S, plural, render, sv } from "../lib/store";
 import { siteTraffic } from "../../../core/traffic-merge";
+import { ms } from "../../../core/format";
 import type { Cert, Detail, Summary } from "../lib/types";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";
@@ -13,7 +14,6 @@ import { Meter, Meters } from "./stats";
 const TRAFFIC_SPANS = [["1h", "Last hour"], ["24h", "24 hours"], ["7d", "7 days"]] as const;
 const CLASSES = ["2xx", "3xx", "4xx", "5xx"] as const;
 const CLASS_COLORS: Record<string, string> = { "2xx": "var(--accent)", "3xx": "var(--faint)", "4xx": "var(--warn)", "5xx": "var(--bad)" };
-const ms = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`);
 const count = (v: number) => v.toLocaleString();
 const HOUR = new Intl.DateTimeFormat([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 const MINUTE = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
