@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { S, plural, render, sv } from "../lib/store";
 import type { Advice, SystemInfo, SystemService } from "../lib/types";
 import { run } from "../lib/jobs";
-import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, SR, Scroll, Sub, cx, pending, Table } from "../ui/kit";
+import { ACTS, Actions, cmds, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, SR, Scroll, Sub, cx, pending, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, keyError } from "../ui/dialog";
 import { size } from "./shared";
@@ -192,7 +192,7 @@ function securityCard(n: string, i: SystemInfo) {
               {adv.map((a) => (
                 <tr key={a.title}>
                   <td><Badge kind={LEVEL[a.level]}>{a.level}</Badge></td>
-                  <td><b>{a.title}</b><div className="dim">{a.why}</div></td>
+                  <td><b>{a.title}</b><div className="dim">{cmds(a.why)}</div></td>
                   <td className={ACTS}>{fix(a)}</td>
                 </tr>
               ))}

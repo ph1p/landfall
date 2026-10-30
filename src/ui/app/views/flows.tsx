@@ -258,7 +258,7 @@ function ComposePlan({ a }: { a?: Detected["analysis"] }) {
               <span key={`${r.port}:${r.domains[0]}`} className="block pl-4"><code>:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span></span>
             ))}
             {priv.map(([k, p]) => (
-              <span key={k} className="block pl-4"><code>:{p}{s.paths?.[k] ?? ""}</code> <span className="dim">private, lf tunnel … {k}</span></span>
+              <span key={k} className="block pl-4"><code>:{p}{s.paths?.[k] ?? ""}</code> <span className="dim">private, <code>lf tunnel … {k}</code></span></span>
             ))}
             {!routes.length && !priv.length && <span className="block pl-4 dim">{s.own ? "routed by its own traefik labels" : "no port reached from outside"}</span>}
             {about?.volumes?.length ? <span className="block pl-4 dim">volumes: {about.volumes.join(", ")}</span> : null}

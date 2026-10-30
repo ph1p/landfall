@@ -77,7 +77,7 @@ export function UsersView({ n }: { n: string }) {
     <>
       <Card>
         <CardHead>
-          Users <Badge>{u.accounts.length}</Badge> <Sub>root and uid 1000+, as lf users</Sub>
+          Users <Badge>{u.accounts.length}</Badge> <Sub>root and uid 1000+, as <code>lf users</code></Sub>
           <Actions><Btn cls="sm" on={() => addUserDlg(n, u)}>Add user</Btn></Actions>
         </CardHead>
         <Table head={<><th>User</th><th>Sudo</th><th>Password</th><th>Keys</th><th className={HIDE}>UID</th><th className={HIDE}>Home</th><th><span className={SR}>Actions</span></th></>}>
