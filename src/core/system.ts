@@ -303,7 +303,7 @@ export function serviceLogs(unit: string, o: { lines: number; follow?: boolean }
     : `${S} journalctl -u ${shq(unit)} -n ${n} --no-pager 2>/dev/null || ${S} tail -n ${n} /var/log/${shq(serviceName(unit))}.log /var/log/messages 2>/dev/null`;
 }
 
-const HOME = `home=$(getent passwd "$KEY_USER" 2>/dev/null | cut -d: -f6); [ -n "$home" ] || home=$(awk -F: -v u="$KEY_USER" '$1 == u { print $6 }' /etc/passwd)
+const HOME = `home=$(home_of "$KEY_USER")
 [ -n "$home" ] || { log "no user $KEY_USER"; exit 1; }
 f="$home/.ssh/authorized_keys"`;
 

@@ -307,11 +307,16 @@ export const sitesSecret = defineCommand({
     const unset: string[] = o.unset ?? [];
     for (const k of [...Object.keys(set), ...unset]) if (!SECRET_NAME.test(k)) fail(`"${k}" cannot name a secret: use letters, digits, _ . -`);
     const { site, server } = target(n, o.server);
-    const { meta, proxy } = await requireSite(server, site, { deployed: "manage the secrets of" });
+    const changing = Object.keys(set).length > 0 || unset.length > 0;
+    // Independent reads: one round trip's wait instead of three.
+    const [{ meta, proxy }, have, config] = await Promise.all([
+      requireSite(server, site, { deployed: "manage the secrets of" }),
+      readSecrets(server, site),
+      changing ? liveConfig(server, site) : undefined,
+    ]);
     if (meta.kind === "static") fail(`${site} serves static files: it has no service to give a secret to`);
-    const have = await readSecrets(server, site);
 
-    if (!Object.keys(set).length && !unset.length) {
+    if (!changing) {
       if (o.json) return printJson({ secrets: have });
       if (!have.length) return void process.stdout.write(c.dim(`(none) set one with: lf secret ${site} NAME=value\n`));
       return table(have.map((h) => [h.key, c.dim(bytes(h.size)), c.dim(`/run/secrets/${h.key}`)]));
@@ -319,7 +324,6 @@ export const sitesSecret = defineCommand({
 
     const missing = unset.filter((k) => !have.some((h) => h.key === k));
     if (missing.length) fail(`${site} has no secret ${missing.join(", ")}`);
-    const config = await liveConfig(server, site);
     const generated = meta.kind === "dockerfile" || meta.kind === "image";
     const used = secretUsers(config, unset);
     if (!generated && used.length && !o.force) fail(`${used.join(", ")} still use ${unset.join(", ")}: take it out of compose.yaml first, or pass --force`);

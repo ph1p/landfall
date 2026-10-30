@@ -30,13 +30,15 @@ export interface RunOpts { server?: string; password?: string; cwd?: string; ret
  * Run `lf <argv>` on the machine running lf ui; output streams into the side panel.
  * after(job) may return follow-up actions [{label, run, cls}] once it ends.
  */
+// The server an argv names with -s: its undo and reload follow it, not whichever server is on screen.
+const argvServer = (argv: string[]) => (argv.includes("-s") ? argv[argv.indexOf("-s") + 1] : undefined);
 export async function run(argv: string[], o: RunOpts = {}) {
   let info: JobInfo;
   try {
     // A retry runs the job's own argv on the server: the page only has it with passwords masked.
     info = o.retry
       ? await http(`/api/jobs/${encodeURIComponent(o.retry)}/force`, {})
-      : await http("/api/jobs", { argv, server: o.server ?? S.sel ?? undefined, password: o.password, cwd: o.cwd });
+      : await http("/api/jobs", { argv, server: o.server ?? argvServer(argv) ?? S.sel ?? undefined, password: o.password, cwd: o.cwd });
   } catch (e) {
     return toast(errorMessage(e));
   }
