@@ -4,7 +4,7 @@ import { TRIVY, TRIVY_CACHE } from "../../core/scan";
 import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
-import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases } from "../../core/sshconfig";
+import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
 import { pct } from "../../core/format";
 import { bytes, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
 import { traefikState } from "../../core/traefik";
@@ -124,12 +124,12 @@ export const serverRemove = defineCommand({
     if (!cfg.servers[name] && !hasManagedBlock(name)) fail(`unknown server "${name}"`);
     await confirmRemoval(`Forget server ${name}? Nothing on the server changes.`);
     forgetServer(name);
-    if (o["ssh-config"] && removeHostBlock(name)) ok(`removed Host ${name} from ~/.ssh/config`);
+    if (o["ssh-config"] && removeHostBlock(name)) ok(`removed Host ${name} from ${tildify(SSH_CONFIG)}`);
     ok(`removed ${name}`);
     // Said, not deleted: the key may still be the way in, and the Host block is plain ssh config.
     const key = /^[\w@:\[\]][\w.@:\[\]-]*$/.test(name) ? keyFile(name) : "";
     const kept = [
-      ...(hasManagedBlock(name) ? [`Host ${name} in ~/.ssh/config (--ssh-config removes it)`] : []),
+      ...(hasManagedBlock(name) ? [`Host ${name} in ${tildify(SSH_CONFIG)} (--ssh-config removes it)`] : []),
       ...(key && fs.existsSync(key) ? [`the key ${tildify(key)}`] : []),
     ];
     if (kept.length) info(c.dim(`kept on this machine: ${kept.join(", ")}`));
@@ -201,7 +201,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     ok(`landfall removed from ${name}`);
 
     forgetServer(name);
-    if (removeHostBlock(name)) ok(`removed Host ${name} from ~/.ssh/config`);
+    if (removeHostBlock(name)) ok(`removed Host ${name} from ${tildify(SSH_CONFIG)}`);
     ok(`forgot ${name}`);
     if (fs.existsSync(keyFile(name))) info(c.dim(`${tildify(keyFile(name))} stays: root on ${name} still accepts it`));
   },
