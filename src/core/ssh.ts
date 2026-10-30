@@ -367,36 +367,16 @@ export async function upload(s: Server, localDir: string, remoteDir: string, lis
 
 async function tarUpload(s: Server, localDir: string, remoteDir: string, list: Entry[]) {
   // "." first: an empty list still makes a valid archive. --no-recursion before -T (GNU tar reads it in order).
-  const tarArgs = [...(await bsdtarFlags()), "-czf", "-", "-C", localDir, "--no-recursion", "--null", "-T", "-"];
-  const remote = `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`;
-  await new Promise<void>((resolve, reject) => {
-    // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.
-    const tar = spawn("tar", tarArgs, {
-      stdio: ["pipe", "pipe", "inherit"],
-      env: { ...process.env, COPYFILE_DISABLE: "1" },
-    });
-    tar.stdin.end(`.\0${fileList(list)}`);
-    const ssh = spawn("ssh", [...sshArgs(s), remote], { stdio: ["pipe", "inherit", "inherit"] });
-    // ssh gone: stop tar too, or it blocks on its full pipe and the upload never ends.
-    ssh.stdin.on("error", () => tar.kill());
-    tar.stdout.pipe(meter("sent")).pipe(ssh.stdin);
-    tar.on("error", reject);
-    ssh.on("error", reject);
-    // Wait for both: ssh may exit 0 before tar reports that it failed halfway.
-    const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
-    Promise.all([exit(tar), exit(ssh)]).then(([tarCode, code]) => {
-      if (tarCode !== 0) reject(new CliError(`tar failed (exit ${tarCode})`));
-      else if (code !== 0) reject(new CliError(`upload failed (exit ${code})`));
-      else resolve();
-    });
-  });
+  const tar = ["tar", ...(await bsdtarFlags()), "-czf", "-", "-C", localDir, "--no-recursion", "--null", "-T", "-"];
+  await sshPipe(s, `mkdir -p ${shq(remoteDir)} && tar -xzof - -C ${shq(remoteDir)}`, tar, "up", `.\0${fileList(list)}`);
 }
 
 /**
  * Streams between this machine and a remote command: "up" pipes the local side into it, "down" pipes
  * its output into the local side. The local side is a command (argv) or a file.
  */
-export async function sshPipe(s: Server, remote: string, local: string[] | { file: string }, dir: "up" | "down") {
+export async function sshPipe(s: Server, remote: string, local: string[] | { file: string }, dir: "up" | "down", input?: string) {
+  // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.
   const env = { ...process.env, COPYFILE_DISABLE: "1" };
   const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
   const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], { stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"] });
@@ -417,8 +397,9 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
         done.push(new Promise((ok) => f.on("close", () => ok(0))));
       }
     } else {
-      const p = spawn(local[0], local.slice(1), { stdio: dir === "up" ? ["ignore", "pipe", "inherit"] : ["pipe", "inherit", "inherit"], env });
+      const p = spawn(local[0], local.slice(1), { stdio: dir === "up" ? [input === undefined ? "ignore" : "pipe", "pipe", "inherit"] : ["pipe", "inherit", "inherit"], env });
       p.on("error", reject);
+      if (dir === "up" && input !== undefined) p.stdin!.end(input);
       // One end gone: stop the other, or it blocks on its full pipe and never exits.
       if (dir === "up") {
         ssh.stdin!.on("error", () => p.kill());

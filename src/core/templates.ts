@@ -120,6 +120,8 @@ SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 ${SEC_CHECKS}
 # Files a container wrote may be root's.
 rmf() { rm -rf "$@" 2>/dev/null || $SUDO rm -rf "$@"; }
+# A user's home: getent also asks LDAP and friends; /etc/passwd where there is no getent.
+home_of() { local h; h=$(getent passwd "$1" 2>/dev/null | cut -d: -f6) || true; [ -n "$h" ] || h=$(awk -F: -v u="$1" '$1 == u { print $6 }' /etc/passwd); printf '%s' "$h"; }
 # The distro's package manager, and installing with it.
 ${PKG_MGR}
 ${REBOOT_NEEDED}
@@ -383,7 +385,9 @@ if [ -n "$DEPLOY_USER" ]; then
     *) $SUDO usermod -aG docker "$DEPLOY_USER"
        record "added $DEPLOY_USER to group docker" "case \" \$(id -nG $DEPLOY_USER 2>/dev/null) \" in *' docker '*) \$SUDO gpasswd -d $DEPLOY_USER docker >/dev/null 2>&1 || \$SUDO delgroup $DEPLOY_USER docker ;; esac" ;;
   esac
-  home=$(getent passwd "$DEPLOY_USER" | cut -d: -f6)
+  home=$(home_of "$DEPLOY_USER")
+  # An empty home would put the key in /.ssh.
+  [ -n "$home" ] || { log "$DEPLOY_USER has no home directory"; exit 1; }
   $SUDO install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$home/.ssh"
   $SUDO touch "$home/.ssh/authorized_keys"
   if ! $SUDO grep -qxF "$PUBKEY" "$home/.ssh/authorized_keys"; then
@@ -453,7 +457,7 @@ if [ -n "$DEPLOY_USER" ] && id "$DEPLOY_USER" >/dev/null 2>&1; then
   kv user 1
   kv user_docker "$(id -nG "$DEPLOY_USER" | tr ' ' '
 ' | grep -cx docker)"
-  home=$(getent passwd "$DEPLOY_USER" | cut -d: -f6)
+  home=$(home_of "$DEPLOY_USER")
   kv user_key "$(yn S grep -qxF "$PUBKEY" "$home/.ssh/authorized_keys")"
 else
   kv user 0
