@@ -81,11 +81,45 @@ interface RunResult {
   stderr: string;
 }
 
-function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: string; capture?: boolean; silent?: boolean }): Promise<RunResult> {
+// A captured run prints nothing while the server works: after a moment a "waiting for <host>" line says so,
+// so a slow read never looks like a hang. Terminal only, on stderr, and gone once the run ends.
+const STARTED = "landfall:started";
+const waits = new Map<object, { host: string; since: number }>();
+let ticker: NodeJS.Timeout | undefined;
+let drawn = false;
+const erase = () => drawn && ((drawn = false), origErr("\r\x1b[K"));
+const origErr = (s: string) => origWrite.err.call(process.stderr, s);
+const origWrite = { out: process.stdout.write, err: process.stderr.write };
+function draw() {
+  const w = [...waits.values()].sort((a, b) => a.since - b.since)[0];
+  const secs = w ? Math.round((Date.now() - w.since) / 1000) : 0;
+  if (secs < 2) return void erase();
+  origErr(`\r\x1b[K${c.dim(`  waiting for ${w.host}… ${secs}s`)}`);
+  drawn = true;
+}
+function waitStart(key: object, host: string) {
+  waits.set(key, { host, since: Date.now() });
+  if (ticker) return;
+  // Anything else written meanwhile goes on a clean line.
+  process.stdout.write = ((...a: Parameters<typeof process.stdout.write>) => (erase(), origWrite.out.apply(process.stdout, a))) as typeof process.stdout.write;
+  process.stderr.write = ((...a: Parameters<typeof process.stderr.write>) => (erase(), origWrite.err.apply(process.stderr, a))) as typeof process.stderr.write;
+  ticker = setInterval(draw, 1000);
+  ticker.unref();
+}
+function waitEnd(key: object) {
+  if (!waits.delete(key) || waits.size) return;
+  clearInterval(ticker);
+  ticker = undefined;
+  erase();
+  process.stdout.write = origWrite.out;
+  process.stderr.write = origWrite.err;
+}
+
+function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: string; capture?: boolean; silent?: boolean; waitFor?: string }): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       ...opts,
-      stdio: [opts.input !== undefined ? "pipe" : "inherit", opts.capture ? "pipe" : "inherit", quiet || opts.silent ? "pipe" : "inherit"],
+      stdio: [opts.input !== undefined ? "pipe" : "inherit", opts.capture ? "pipe" : "inherit", quiet || opts.silent || opts.waitFor ? "pipe" : "inherit"],
     });
     let stdout = "";
     let stderr = "";
@@ -95,9 +129,28 @@ function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: stri
     // ssh may exit (no login, host down) before it read all its input: that shows in its exit code, not as EPIPE.
     child.stdin?.on("error", () => {});
     child.stdout?.on("data", (d) => (stdout += d));
-    child.stderr?.on("data", (d) => (stderr += d));
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    // waitFor: stderr is passed on line by line; the script's first line says the login is done (no prompt can follow).
+    let part = "";
+    const pass = (l: string) => {
+      if (l === STARTED) return waitStart(child, opts.waitFor!);
+      stderr += l + "\n";
+      process.stderr.write(l + "\n");
+      // Counts the quiet since the last line, not since the start.
+      const w = waits.get(child);
+      if (w) w.since = Date.now();
+    };
+    child.stderr?.on("data", (d: string) => {
+      if (!opts.waitFor) return void (stderr += d);
+      const lines = (part + d).split("\n");
+      part = lines.pop()!;
+      lines.forEach(pass);
+    });
+    child.on("error", (e) => (waitEnd(child), reject(e)));
+    child.on("close", (code) => {
+      waitEnd(child);
+      if (part) (stderr += part), process.stderr.write(part);
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
     if (opts.input !== undefined) child.stdin!.end(opts.input);
   });
 }
@@ -170,14 +223,16 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
     .join("\n");
+  const waitFor = o.capture && process.stderr.isTTY && !quiet ? s.host : undefined;
   const res = await shared(s, () =>
     spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-      input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${script}\n`,
+      input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${script}\n`,
       capture: o.capture,
+      waitFor,
     }),
   );
-  // Quiet runs capture stderr: pass the script's report lines on all the same.
-  const lines = res.stderr.trim().split("\n");
+  // Quiet runs capture stderr: pass the script's report lines on all the same. A waited-for run showed them already.
+  const lines = waitFor ? [] : res.stderr.trim().split("\n");
   for (const l of lines) if (l.startsWith(REPORT)) process.stderr.write(l + "\n");
   if (res.code !== 0) {
     const why = lines.filter((l) => !l.startsWith(REPORT)).at(-1);
