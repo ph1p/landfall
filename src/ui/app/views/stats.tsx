@@ -39,7 +39,7 @@ export function Meter({ label, p, value, sub, line, hint }: { label: string; p: 
     </div>
   );
 }
-export const Meters = ({ children }: { children: ReactNode }) => <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3 mb-5">{children}</div>;
+export const Meters = ({ children }: { children: ReactNode }) => <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3 mb-5">{children}</div>;
 
 /** Live usage of one server: meters, the busiest processes and containers, disk usage on request. */
 export function StatsView({ n }: { n: string }) {

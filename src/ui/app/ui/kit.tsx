@@ -74,7 +74,7 @@ export const Dot = ({ kind = "", className, ...rest }: { kind?: string } & HTMLA
 export const Spin = ({ className, ...rest }: HTMLAttributes<HTMLSpanElement>) => <span className={cx("spin", className)} {...rest} />;
 
 const NOTE: Record<string, string> = { "": "bg-warn-bg text-warn", warn: "bg-warn-bg text-warn", bad: "bg-bad-bg text-bad", info: "bg-accent-bg text-accent" };
-export const noteClass = (kind = "") => cx("px-3.5 py-[11px] rounded-md mb-4 border border-[color-mix(in_srgb,currentColor_18%,transparent)]", NOTE[kind]);
+export const noteClass = (kind = "") => cx("px-3.5 py-[11px] rounded-md mb-4 [.card+&]:mt-5 border border-[color-mix(in_srgb,currentColor_18%,transparent)]", NOTE[kind]);
 export const Note = ({ kind = "", className, children, ...rest }: { kind?: string } & HTMLAttributes<HTMLDivElement>) => (
   <div className={cx(noteClass(kind), className)} {...rest}>{children}</div>
 );

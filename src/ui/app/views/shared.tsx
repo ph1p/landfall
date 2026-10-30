@@ -63,7 +63,6 @@ export function reachCount(list: ServerEntry[]) {
 }
 /** A faint 0, for an empty count cell. */
 export const Zero = () => <span className="faint">0</span>;
-/** used as a whole percentage of total. */
 export const Star = () => <span className="text-warn" title="default server"><StarIcon className="inline-block size-3 -mt-0.5 align-middle fill-current" aria-label="default server" /></span>;
 /** Whether landfall's ssh login to n works, from /api/reach. */
 export function ReachDot({ n, className }: { n: string; className?: string }) {
