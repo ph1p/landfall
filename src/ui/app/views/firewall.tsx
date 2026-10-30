@@ -70,7 +70,7 @@ export function FirewallView({ n }: { n: string }) {
         </Table>
         <Body className="border-t border-line">
           <form className="flex gap-2.5 flex-wrap items-end" onSubmit={addRule}>
-            <label className="flex-[1_1_140px]">Port <input name="port" placeholder="5432, 51820/udp, 6000:6007/tcp" required /></label>
+            <label className="flex-[1_1_140px]">Port <input name="port" placeholder="5432 or 51820/udp" title="A port, port/proto or a range: 5432, 51820/udp, 6000:6007/tcp" required /></label>
             <label className="flex-[1_1_140px]">From <input name="from" placeholder="anywhere, or 10.0.0.0/8" /></label>
             <label className="flex-[0_0_110px]">Action <select name="action"><option value="allow">allow</option><option value="deny">deny</option></select></label>
             <Btn type="submit" cls="primary">Add rule</Btn>
