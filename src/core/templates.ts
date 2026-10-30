@@ -133,12 +133,13 @@ pkg_has() {
   esac >/dev/null 2>&1
 }
 pkg_install() {
+  log "installing $*"
   case "$(pkg_mgr)" in
-    apt-get) $SUDO apt-get update -qq && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >/dev/null ;;
-    dnf) $SUDO dnf install -y -q "$@" >/dev/null ;;
-    yum) $SUDO yum install -y -q "$@" >/dev/null ;;
-    apk) $SUDO apk add -q --no-cache "$@" >/dev/null ;;
-    zypper) $SUDO zypper -n -q install "$@" >/dev/null ;;
+    apt-get) $SUDO apt-get update -q >&2 && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" >&2 ;;
+    dnf) $SUDO dnf install -y "$@" >&2 ;;
+    yum) $SUDO yum install -y "$@" >&2 ;;
+    apk) $SUDO apk add --no-cache "$@" >&2 ;;
+    zypper) $SUDO zypper -n install "$@" >&2 ;;
     *) log "no apt, dnf, yum, apk or zypper to install $*"; return 1 ;;
   esac
 }
@@ -356,8 +357,8 @@ if ! command -v docker >/dev/null 2>&1; then
     # get.docker.com knows centos/rhel/fedora, not their rebuilds: those take Docker's centos repo.
     dnf:rocky|dnf:almalinux|dnf:ol|dnf:centos) $SUDO dnf -y -q install dnf-plugins-core >/dev/null \
       && $SUDO dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo >/dev/null \
-      && $SUDO dnf -y -q install docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null ;;
-    *) curl -fsSL https://get.docker.com | $SUDO sh >/dev/null ;;
+      && $SUDO dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin >&2 ;;
+    *) curl -fsSL https://get.docker.com | $SUDO sh >&2 ;;
   esac
   record "installed docker"
 fi
