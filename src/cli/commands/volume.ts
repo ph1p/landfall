@@ -4,14 +4,15 @@ import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Server } from "../../core/config";
 import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/compose";
 import { bytes } from "../../core/facts";
+import { plural } from "../../core/format";
 import { cronMark, lockSite, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
 import { HELPER, PRELUDE } from "../../core/templates";
-import { ago, c, confirm, fail, info, interactive, ok, step, table, warn } from "../../core/term";
+import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn } from "../../core/term";
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
 import { onStop } from "../../core/job";
-import { backupName, backupsOf, backupTo, pickVolume, pruneBefore, STAMP_GLOB, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
+import { backupName, backupsOf, backupTo, dbPaused, pickVolume, pruneBefore, recreateFrom, STAMP_GLOB, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
 import { target } from "./sites";
 
 /**
@@ -77,25 +78,30 @@ export const volumeBackup = defineCommand({
   name: "volume backup",
   args: "[name] [volume]",
   summary: `Save a volume (default: all of the site's) as a .tar.gz in /opt/landfall/sites/<name>/backups.
-The services keep running: for a database, prefer its own dump tool.
+The services keep running; a database using it (postgres, mysql, mongo, redis…) is paused while it is
+copied, so its files hold still: a copy like after a power cut, which it recovers from.
 
   lf volume backup blog --schedule daily --keep 14   every night, the newest 14 of each volume kept
+  lf volume backup blog --schedule daily --offsite backup@nas:landfall/blog
   lf volume backup blog --schedule off
 
 A schedule is a line in the login user's crontab running backups/backup.sh, a plain
-script that also runs by hand (sh backup.sh).`,
+script that also runs by hand (sh backup.sh). --offsite then mirrors the backups folder's
+.tar.gz files to [user@]host:path with rsync over ssh, as that user: give them an ssh key
+the target accepts (lf says when it does not yet).`,
   options: {
     server: serverOpt,
     schedule: { type: "string", desc: "hourly, daily, weekly, or off: back up every volume on a timer" },
     keep: { type: "string", desc: `scheduled backups kept per volume (default ${KEEP_BACKUPS})` },
+    offsite: { type: "string", desc: "with --schedule: also mirror the backups to [user@]host:path (rsync over ssh)" },
   },
   async run(pos, o) {
     const { site, server, rest, found } = await locate(pos, 1, o.server);
     if (o.schedule !== undefined) {
       if (rest[0]) fail("--schedule backs up every volume of the site: leave out the volume");
-      return scheduleBackups(server, site, o.schedule, checkInt(o.keep ?? KEEP_BACKUPS, "--keep", 1, 1000));
+      return scheduleBackups(server, site, o.schedule, checkInt(o.keep ?? KEEP_BACKUPS, "--keep", 1, 1000), o.offsite);
     }
-    if (o.keep !== undefined) fail("--keep goes with --schedule");
+    if (o.keep !== undefined || o.offsite !== undefined) fail("--keep and --offsite go with --schedule");
     const vols = rest[0] ? [pickVolume(found.volumes, rest[0], site)] : found.volumes;
     if (!vols.length) fail(`${site} has no volumes`);
     for (const v of vols) {
@@ -108,34 +114,62 @@ script that also runs by hand (sh backup.sh).`,
   },
 });
 
+export const volumeBackupRemove = defineCommand({
+  name: "volume backup rm",
+  args: "[name] <backup...>",
+  summary: `Delete backups from the site's backups folder (lf volumes lists them). Cannot be undone.`,
+  options: { server: serverOpt },
+  async run(pos, o) {
+    const { site, server, rest, found } = await locate(pos, Infinity, o.server);
+    if (!rest.length) fail("usage: lf volume backup rm [name] <backup...>");
+    const files = rest.map((f) => found.backups.find((b) => b.file === f || b.file === `${f}.tar.gz`)?.file ?? fail(`${site} has no backup ${f} (lf volumes ${site})`));
+    await confirmRemoval(`Delete ${files.length === 1 ? files[0] : `${files.length} backups`} of ${site}? This cannot be undone.`);
+    for (const f of files) step(`delete ${f}`);
+    // Names come from the listing (backups/ only, no slashes): nothing outside the folder can match.
+    await runScript(server, `${PRELUDE}
+cd ${shq(`${siteDir(site)}/backups`)}
+rm -f -- ${files.map(shq).join(" ")}
+record ${shq(`deleted backup${files.length > 1 ? "s" : ""} ${files.join(", ")} of ${site}`)}`);
+    ok(`deleted ${plural(files.length, "backup")} of ${site}`);
+  },
+});
+
 const EVERY: Record<string, (m: number) => string> = { hourly: (m) => `${m} * * * *`, daily: (m) => `${m} 3 * * *`, weekly: (m) => `${m} 3 * * 0` };
 
 /**
  * The script a schedule runs: every volume of the Compose project into a .tar.gz next to it, then all but the
- * newest `keep` of each volume's timestamped backups (not those like `-before-push`) deleted. Plain sh.
- * Each run ends with one status line in backup.log (`<UTC time> ok` or `<UTC time> failed: <volumes>`): lf volumes shows the last.
+ * newest `keep` of each volume's timestamped backups (not those like `-before-push`) deleted, then with an offsite
+ * target the folder's .tar.gz files mirrored there. Plain sh. Keep and target are its arguments too: the crontab line
+ * says all it does, so lf undo of a schedule change is whole. Each run ends with one status line in backup.log
+ * (`<UTC time> ok` or `<UTC time> failed: <volumes, offsite>`): lf volumes shows the last.
  */
-export const backupScript = (project: string, keep: number) => `#!/bin/sh
-# Written by landfall (lf volume backup --schedule). Runs without it too: sh backup.sh
-# Saves every volume of the Compose project ${project} here, keeping the newest ${keep} of each.
+export const backupScript = (project: string, keep: number, offsite = "") => `#!/bin/sh
+# Written by landfall (lf volume backup --schedule). Runs without it too: sh backup.sh [keep] [user@host:path, or -]
+# Saves every volume of the Compose project ${project} here, keeping the newest ${keep} of each${offsite ? `, and mirrors them to ${offsite}` : ""}.
 PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 cd "$(dirname "$0")" || exit 1
 # Its log stays small: past 1 MB it moves to backup.log.1, replacing the one before.
 if [ -f backup.log ] && [ "$(wc -c <backup.log)" -ge 1048576 ]; then mv -f backup.log backup.log.1; fi
-keep=${keep}
+keep=\${1:-${keep}}
+offsite=\${2:-${offsite ? shq(offsite) : "-"}}; [ "$offsite" != - ] || offsite=""
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 vols=$(docker volume ls -q --filter label=com.docker.compose.project=${project}) || { echo "$(now) failed: docker volume ls"; exit 1; }
 bad=""
 for v in $vols; do
   key=$(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}' "$v"); [ -n "$key" ] || key=$v
   f="$key-$(date -u +%Y%m%d-%H%M%S).tar.gz"
-  if docker run --rm -v "$v:/v:ro" ${HELPER} tar czf - -C /v . >"$f.part"; then mv "$f.part" "$f"; else rm -f "$f.part"; echo "$(now) backup of $v failed" >&2; bad="$bad $v"; continue; fi
+  ${dbPaused('"$v"', `docker run --rm -v "$v:/v:ro" ${HELPER} tar czf - -C /v . >"$f.part"`).replace(/\n/g, "\n  ")}
+  if [ "$rc" = 0 ]; then mv "$f.part" "$f"; else rm -f "$f.part"; echo "$(now) backup of $v failed" >&2; bad="$bad $v"; continue; fi
   n=0
   for old in $(ls -1r 2>/dev/null | grep -F "$key-"); do
     case "$old" in "$key"-${STAMP_GLOB}.tar.gz) ;; *) continue ;; esac
     n=$((n + 1)); [ "$n" -le "$keep" ] || rm -f -- "$old"
   done
 done
+# A mirror: what is pruned here goes there too, so it never grows past this folder.
+if [ -n "$offsite" ] && ! rsync -a --delete -e "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new" --include='*.tar.gz' --exclude='*' ./ "$offsite/"; then
+  echo "$(now) copy to $offsite failed" >&2; bad="$bad offsite"
+fi
 [ -z "$bad" ] || { echo "$(now) failed:$bad"; exit 1; }
 echo "$(now) ok"
 `;
@@ -145,15 +179,21 @@ const cronWithout = (site: string) => `c=$(crontab -l 2>/dev/null | grep -vF ${s
 /** Shell: install $c plus `line` (none: just $c) as the crontab. */
 const cronSet = (line: string) => `printf '%s\\n%s\\n' "$c" ${line} | sed '/^$/d' | crontab -`;
 
-export async function scheduleBackups(server: Server, site: string, every: string, keep: number) {
+/** [user@]host:path, as rsync and ssh take it: no spaces or quotes, nothing the crontab line would mangle. */
+const OFFSITE = /^([\w.-]+@)?[\w.-]+:[\w./~-]+$/;
+
+export async function scheduleBackups(server: Server, site: string, every: string, keep: number, offsite?: string) {
   if (every !== "off" && !EVERY[every]) fail(`--schedule takes hourly, daily, weekly or off, not ${every}`);
+  if (offsite && every === "off") fail("--offsite goes with a schedule, not off");
+  if (offsite && !OFFSITE.test(offsite)) fail(`--offsite takes [user@]host:path, like backup@nas:landfall/${site}, not ${offsite}`);
   const { meta } = await requireSite(server, site);
   const dir = `${siteDir(site)}/backups`;
   const mark = cronMark(site);
   // A minute of its own per site: not every server's backups at 03:00 sharp.
   const minute = [...site].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 60, 7);
   const [head, tail] = cronSet("@").split(" @ ");
-  const line = every === "off" ? "" : `${EVERY[every](minute)} sh ${dir}/backup.sh >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}`;
+  const line = every === "off" ? "" : `${EVERY[every](minute)} sh ${dir}/backup.sh ${keep} ${offsite || "-"} >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}${offsite ? `, offsite ${offsite}` : ""}`;
+  const host = offsite?.replace(/:.*/, "");
   const { stdout } = await runScript(
     server,
     [
@@ -162,7 +202,14 @@ export async function scheduleBackups(server: Server, site: string, every: strin
       // busybox crontab (Alpine) gives a user other than root a crontab only when setuid.
       `[ "$(id -u)" = 0 ] || [ "$(pkg_mgr)" != apk ] || pkg_has busybox-suid || pkg_install busybox-suid || true`,
       `old=$(crontab -l 2>/dev/null | grep -F ${shq(mark)} || true)`,
-      ...(line ? [`mkdir -p ${shq(dir)}`, writeFileCmd(`${dir}/backup.sh`, backupScript(projectName(meta), keep), "755")] : []),
+      ...(line ? [`mkdir -p ${shq(dir)}`, writeFileCmd(`${dir}/backup.sh`, backupScript(projectName(meta), keep, offsite), "755")] : []),
+      // The copy runs as the login user: rsync here, and a key the target takes, or every run fails.
+      ...(host
+        ? [
+            "command -v rsync >/dev/null || pkg_install rsync",
+            `ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ${shq(host)} true </dev/null >/dev/null 2>&1 || echo nologin`,
+          ]
+        : []),
       cronWithout(site),
       `${cronSet(line ? shq(line) : '""')} || { echo "could not change the crontab of $(id -un): a server without setuid crontab (Alpine: apk add busybox-suid) lets only root have one" >&2; exit 1; }`,
       // Undo puts back the line that was there (or none); backup.sh stays, it does nothing on its own.
@@ -172,8 +219,10 @@ export async function scheduleBackups(server: Server, site: string, every: strin
     { capture: true },
   );
   if (!line) return ok(`no scheduled backups of ${site}`);
-  ok(`${site}'s volumes are backed up ${every}, the newest ${keep} of each kept in ${dir}`);
+  ok(`${site}'s volumes are backed up ${every}, the newest ${keep} of each kept in ${dir}${offsite ? `, mirrored to ${offsite}` : ""}`);
   info(c.dim(`runs: ${dir}/backup.sh from the crontab of ${server.user ?? "the login user"} (log: ${dir}/backup.log)`));
+  if (stdout.includes("nologin"))
+    warn(`${server.user ?? "the login user"} on the server cannot log in to ${host} with ssh yet, so the copy fails: run ssh-keygen there and add its .pub to ${host}'s authorized_keys (lf volumes shows when a run failed)`);
   if (stdout.includes("nocron")) warn("cron is not running on the server: start it (Alpine: rc-service crond start), or nothing runs");
 }
 
@@ -433,8 +482,7 @@ function unmount(d: ReturnType<typeof detectProject>, key: string, service?: str
 async function deleteVolume(server: Server, site: string, v: Volume, project: string) {
   const dir = siteDir(site);
   const file = `${dir}/backups/${backupName(v.key, new Date(), "before-rm")}`;
-  const labels = [`com.docker.compose.project=${project}`, `com.docker.compose.volume=${v.key}`].map((l) => `--label ${shq(l)}`).join(" ");
-  const undo = `if [ -f ${shq(file)} ]; then docker volume create ${labels} ${shq(v.name)} >/dev/null && ${tarIn(v.name)} < ${shq(file)}; else log ${shq(`${file} is gone, nothing to put back`)}; fi`;
+  const undo = recreateFrom(v.name, v.key, project, file);
   step(`delete ${v.key} of ${site}`);
   runs(`${tarOut(v.name)} > ${file}; docker volume rm ${v.name}${v.dir ? `; rm -rf ${v.dir}` : ""}`);
   // Under the deploy lock: site.json is rewritten below, and a deploy in between would be lost.

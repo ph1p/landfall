@@ -47,7 +47,7 @@ import {
 import { hardenCmd, securityCmd } from "./commands/security";
 import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./commands/users";
 import { ui } from "./commands/ui";
-import { volumeAdd, volumeBackup, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
+import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
 import { update, updatesList } from "./commands/updates";
 import { scanCmd } from "./commands/scan";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
@@ -80,6 +80,7 @@ const commands: Command[] = [
   volumePull,
   volumePush,
   volumeRestore,
+  volumeBackupRemove,
   volumeAdd,
   volumeRemove,
   domains,
@@ -215,7 +216,7 @@ const aliases: Record<string, string> = {
 const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));
 
 function find(argv: string[]): { cmd?: Command; rest: string[] } {
-  for (const n of [2, 1]) {
+  for (const n of [3, 2, 1]) {
     const key = argv.slice(0, n).join(" ");
     const cmd = byName.get(aliases[key] ?? key);
     if (cmd && argv.length >= n) return { cmd, rest: argv.slice(n) };
@@ -231,7 +232,7 @@ function help() {
     ["Traefik", ["traefik setup", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     ["Sites", ["deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm", "eject"]],
-    ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume pull", "volume push", "volume restore"]],
+    ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume backup rm", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update", "scan"]],
     ["History", ["history", "undo"]],

@@ -27,6 +27,7 @@ import {
   volumeDir,
 } from "./compose";
 import { onStop } from "./job";
+import { backupName, backupTo, recreateFrom } from "./volumes";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
@@ -680,10 +681,8 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
     ...(o.volumes ? [`[ ! -d volumes ] || docker run --rm -q -v "$PWD/volumes:/v" ${HELPER} find /v -mindepth 1 -delete`] : []),
     ...(o.keepDir
       ? [`rmf ${files}`, "rmdir releases 2>/dev/null || true"]
-      : o.volumes
-        ? ["cd /", `rmf ${shq(dir)}`]
-        : // The volumes stay, and so do their backups (lf volume backup): only those are left in the folder.
-          [`for f in * .[!.]* ..?*; do { [ -e "$f" ] || [ -L "$f" ]; } && [ "$f" != backups ] && [ "$f" != volumes ] && rmf "$f" || true; done`, "cd /", `rmdir ${shq(dir)} 2>/dev/null || true`]),
+      : // The backups stay (lf volume backup, and lf sites rm --volumes saves each volume there), and the volumes unless deleted.
+        [`for f in * .[!.]* ..?*; do { [ -e "$f" ] || [ -L "$f" ]; } && [ "$f" != backups ] && ${o.volumes ? "" : '[ "$f" != volumes ] && '}rmf "$f" || true; done`, "cd /", `rmdir ${shq(dir)} 2>/dev/null || true`]),
   ];
 }
 
@@ -691,9 +690,25 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
  * Deletes a site for good: its releases are gone, so this cannot be undone. Named volumes
  * (databases, uploads) stay unless `volumes`. An adopted site's own folder is left alone.
  */
-export async function removeSite(s: Server, meta: SiteMeta, o: { volumes?: boolean } = {}) {
-  const what = `removed site ${meta.name} (${siteDomains(meta).join(", ") || "no domains"})${o.volumes ? " and its volumes" : ""}`;
-  await runScript(s, [PRELUDE, ...removeLines(meta, o), `record ${shq(what)}`].join("\n"));
+/**
+ * vols: the site's volumes, deleted with it (--volumes). Each is backed up to its backups folder first and
+ * journaled, so lf undo brings them back; a backup that fails stops it all before anything is gone.
+ */
+export async function removeSite(s: Server, meta: SiteMeta, o: { vols?: { name: string; key: string }[] } = {}) {
+  const what = `removed site ${meta.name} (${siteDomains(meta).join(", ") || "no domains"})${o.vols ? " and its volumes" : ""}`;
+  const dir = siteDir(meta.name);
+  const now = new Date();
+  const saves = (o.vols ?? []).flatMap((v) => {
+    const name = backupName(v.key, now, "before-rm");
+    const file = `${dir}/backups/${name}`;
+    return [
+      `log ${shq(`saving ${v.key} to ${file}`)}`,
+      backupTo(v.name, shq(file)),
+      `record ${shq(`delete volume ${v.key} of ${meta.name} (backup ${name})`)} ${shq(recreateFrom(v.name, v.key, projectName(meta), file))}`,
+    ];
+  });
+  const head = saves.length ? [`cd ${shq(dir)} && mkdir -p backups`, ...saves] : [];
+  await runScript(s, [PRELUDE, ...head, ...removeLines(meta, { volumes: !!o.vols }), `record ${shq(what)}`].join("\n"));
 }
 
 /** Merge KEY=VALUE pairs into dotenv text, preserving order and comments. */
