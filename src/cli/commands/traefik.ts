@@ -6,7 +6,7 @@ import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikSt
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/tunnel";
 import { runScript, shq, sshExec } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/templates";
-import { c, confirm, confirmRemoval, fail, info, ok } from "../../core/term";
+import { c, confirm, confirmRemoval, fail, info, ok, printJson } from "../../core/term";
 
 export const traefikSetup = defineCommand({
   name: "traefik setup",
@@ -113,7 +113,7 @@ export const traefikStatus = defineCommand({
   async run(_, o) {
     const { server } = resolveServer(o.server);
     const st = await traefikStatusOf(server);
-    if (o.json) return void console.log(JSON.stringify(st, null, 2));
+    if (o.json) return void printJson(st);
     if (st.foreign) console.log(`${st.foreign} is a traefik landfall does not use: lf traefik use ${st.foreign} routes sites through it`);
     if (!st.container) return void console.log("traefik is not installed (lf traefik setup)");
     if (st.own) console.log(`your own traefik, landfall only routes sites through it (${PROXY_FILE})`);

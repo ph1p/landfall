@@ -3,7 +3,7 @@ import { resolveServer, type Server } from "../../core/config";
 import { parseRule, type Rule } from "../../core/inventory";
 import { findRun, laterConflicts, pending, readJournal, undoSteps, type Run, type Step } from "../../core/journal";
 import { JOURNAL } from "../../core/templates";
-import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn } from "../../core/term";
+import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn, printJson } from "../../core/term";
 import { firewallState, guardSsh } from "../../core/firewall";
 import { historyView } from "../../core/views";
 
@@ -58,7 +58,7 @@ export const historyLog = defineCommand({
   },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
-    if (o.json) return console.log(JSON.stringify(await historyView(server, Number(o.n) || 20), null, 2));
+    if (o.json) return printJson(await historyView(server, Number(o.n) || 20));
     const runs = (await readJournal(server)).reverse().slice(0, Number(o.n) || 20);
     if (!runs.length) return info(`nothing in ${JOURNAL} on ${name} yet`);
     for (const r of runs) {
