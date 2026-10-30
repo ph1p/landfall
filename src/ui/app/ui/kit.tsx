@@ -17,6 +17,10 @@ export const MONO = "font-mono text-sm";
 export const NAME = "flex items-center gap-0.5 whitespace-nowrap";
 export const SR = "sr-only";
 
+/** Text with its `lf …` commands set as code: in the sans font "lf" reads as "If". */
+export const cmds = (text: string): ReactNode =>
+  text.split(/(\blf(?: (?:[a-z][\w-]*|-[\w-]+))+)/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+
 // Button looks, by the words the old markup used: "sm primary", "danger solid", "ghost sm"…
 const LOOK: Record<string, string> = {
   sm: "px-[9px] py-0.5 text-sm",
