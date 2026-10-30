@@ -3,8 +3,8 @@ import { defineCommand } from "../cmd";
 import { TRIVY, TRIVY_CACHE } from "../../core/scan";
 import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
-import { runScript, shq, sshExec } from "../../core/ssh";
-import { hasManagedBlock, removeHostBlock, sshAliases } from "../../core/sshconfig";
+import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
+import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases } from "../../core/sshconfig";
 import { bytes, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
 import { traefikState } from "../../core/traefik";
 import { guardUndo } from "./history";
@@ -148,7 +148,10 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
   },
   async run([n], o) {
     if (!n) fail("usage: lf server uninstall <name>");
-    const { name, server } = resolveServer(n);
+    const { name, server: saved } = resolveServer(n);
+    // After lf undo --all the deploy user is gone: root's key still gets in.
+    const server = (await canLogin(saved)) ? saved : { ...saved, user: "root" };
+    if (server !== saved && !(await canLogin(server))) fail(`cannot log in to ${name}, neither as ${effectiveSsh(saved).user} nor as root`);
     // Deleting ROOT needs root: found now, while the deploy user still exists.
     const root = await loginFor(server, "root");
     const [ov, st, runs] = await Promise.all([overview(server), traefikState(server), readJournal(server)]);
