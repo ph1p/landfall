@@ -77,7 +77,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
   return (
     <>
       <Card>
-        <Table head={<><th>Site</th><th className={HIDE}>Domains</th><th className={HIDE}>Kind</th><th className={HIDE}>Deployed</th><th><span className={SR}>Actions</span></th></>}>
+        <Table head={<><th>Site</th><th className={HIDE}>Domains</th><th className={HIDE}>Kind</th><th className={HIDE}>Deployed</th><th className={HIDE}><span className={SR}>Actions</span></th></>}>
           {o.sites.map((site) => <SiteRows key={site.meta.name} n={n} site={site} />)}
         </Table>
       </Card>
@@ -333,6 +333,8 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
             {!!m.auth?.length && <span className="ml-1 text-dim" title="password protected" role="img" aria-label="password protected"><Lock className="size-3" aria-hidden="true" /></span>}
           </div>
           <div className={cx(CHIPS, SHOW, "mt-1")}>{where}</div>
+          {/* On a phone the actions go under the name: in their own narrow column they stack one per line. */}
+          <div className={cx(SHOW, "mt-2 [&>div]:justify-start!")}>{acts}</div>
         </td>
         <td className={HIDE}><div className={CHIPS}>{where}</div></td>
         <td className={HIDE}>
@@ -343,7 +345,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           })()}
         </td>
         <td className={cx(HIDE, "dim")}>{cur ? ago(cur.at) : ""}</td>
-        <td className={ACTS}>{acts}</td>
+        <td className={cx(ACTS, HIDE)}>{acts}</td>
       </tr>
       {open && (
         <tr>
