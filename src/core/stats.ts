@@ -4,6 +4,9 @@ import { journalSize } from "./reclaim";
 import { runScript } from "./ssh";
 import { ctrPs, KV, kvRecord, ROOT, SITES } from "./templates";
 
+/** Real filesystems, one line per device, and / whatever it is (overlay in a container, where /etc/hosts is a bind mount of the host's disk). */
+const DISKS = String.raw`df -Pk 2>/dev/null | awk 'NR > 1 && ($6 == "/" || $1 ~ /^\//) && $6 !~ /^\/(snap|boot|etc)(\/|$)/ && !seen[$1]++ { print "DISK\t" $6 "\t" $2 "\t" $3 "\t" $4 }'`;
+
 /** Two samples a second apart: CPU and network are rates, a single read has none. */
 const STATS = String.raw`
 set +e
@@ -29,7 +32,7 @@ kv load "$(cut -d' ' -f1-3 /proc/loadavg)"
 kv mem "$(awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree):/ {v[$1] = $2} END {print v["MemTotal:"], v["MemAvailable:"], v["SwapTotal:"], v["SwapFree:"]}' /proc/meminfo)"
 kv page "$(getconf PAGESIZE 2>/dev/null || echo 4096)"
 kv docker "$D"
-df -Pk 2>/dev/null | awk 'NR > 1 && $1 ~ /^\// && $6 !~ /^\/(snap|boot)(\/|$)/ && !seen[$1]++ { print "DISK\t" $6 "\t" $2 "\t" $3 "\t" $4 }'
+${DISKS}
 awk -F'\t' 'NR == FNR { t[$1] = $2; next } ($1 in t) { print "PROC\t" $1 "\t" ($2 - t[$1]) "\t" $3 "\t" $4 }' "$T/p1" "$T/p2" > "$T/procs"
 { sort -t"$(printf '\t')" -k3,3nr "$T/procs" | head -n 8; sort -t"$(printf '\t')" -k4,4nr "$T/procs" | head -n 8; } | sort -u
 if [ -n "$D" ]; then
@@ -202,7 +205,7 @@ set +e
 ${SUDO_PROBE}
 ${KV}
 kv root "$([ "$(id -u)" -eq 0 ] || [ -n "$S" ] && echo 1)"
-df -Pk 2>/dev/null | awk 'NR > 1 && $1 ~ /^\// && $6 !~ /^\/(snap|boot)(\/|$)/ && !seen[$1]++ { print "DISK\t" $6 "\t" $2 "\t" $3 "\t" $4 }'
+${DISKS}
 kv landfall "$($S du -sk ${ROOT} 2>/dev/null | cut -f1)"
 for d in ${SITES}/*/; do
   [ -d "$d" ] || continue
