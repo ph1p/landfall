@@ -227,9 +227,9 @@ async function api(req: Request, path: string[]): Promise<Response> {
     }
     if (method === "GET" && sub === "secrets") {
       const site = validName(new URL(req.url).searchParams.get("site") ?? "");
-      await requireSite(server, site, { deployed: "manage the secrets of" });
+      const [, have] = await Promise.all([requireSite(server, site, { deployed: "manage the secrets of" }), readSecrets(server, site)]);
       // Names and sizes only: no route ever sends a secret's content.
-      return json({ vars: (await readSecrets(server, site)).map((x) => ({ key: x.key, length: x.size })) });
+      return json({ vars: have.map((x) => ({ key: x.key, length: x.size })) });
     }
     if (method === "GET" && sub === "volumes") {
       // lf volumes --json: sizes, mounts and backups. sizes=0 skips du (slow on big volumes) but still tells which are empty.
