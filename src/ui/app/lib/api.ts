@@ -1,15 +1,21 @@
 import { S, http, render, server, errorMessage, type Slot, type StoreName } from "./store";
 import type { Reach, State } from "./types";
 import { toast } from "../ui/toast";
+import { closeDialog, dialogOpen } from "../ui/dialog";
 
 // ---- routing: #/<server>/<tab> ---------------------------------------------
 
+/** Set while the hash changes through go(): any other change is the browser's back or forward. */
+let ours = false;
 export function go(sel: string | null, tab = S.tab) {
   const hash = sel ? `#/${encodeURIComponent(sel)}/${tab}` : "#/";
-  if (location.hash !== hash) location.hash = hash;
+  if (location.hash !== hash) (ours = true), (location.hash = hash);
   else route();
 }
 export function route() {
+  // Back or forward leaves the page a dialog was opened on: a dialog left open would act on what is no longer shown.
+  if (!ours && dialogOpen()) closeDialog();
+  ours = false;
   const [, name, tab] = location.hash.split("/");
   S.sel = name ? decodeURIComponent(name) : null;
   S.tab = tab && tab in STORE ? tab : "sites";
