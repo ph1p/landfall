@@ -4,7 +4,7 @@ import { bytes, plural } from "../../core/format";
 import { prune, prunePlan, reboot } from "../../core/manage";
 import { JOURNAL_KEEP, kept, pruneSummary, reclaimable, removable, removableVolumes, shortName, type PrunePlan } from "../../core/reclaim";
 import { adminLogin } from "../../core/privilege";
-import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn } from "../../core/term";
+import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn, printJson } from "../../core/term";
 
 function logSizes(l: NonNullable<PrunePlan["logs"]>) {
   if (!l.root) return `container logs and journal ${c.dim("(sizes need root or passwordless sudo)")}`;
@@ -66,7 +66,7 @@ export const pruneCmd = defineCommand({
     const imgs = removable(plan);
     const vols = removableVolumes(plan);
     const nothing = !imgs.length && !plan.buildCache && !plan.networks.length && !vols.length && !plan.leftovers?.length && !plan.logs;
-    if (o["dry-run"] || (o.json && nothing)) return void (o.json ? console.log(JSON.stringify(plan, null, 2)) : printPlan(name, plan));
+    if (o["dry-run"] || (o.json && nothing)) return void (o.json ? printJson(plan) : printPlan(name, plan));
     if (!o.json) printPlan(name, plan);
     if (nothing) return ok("nothing to clean up");
     // Logs need root: the plan already knows whether this login has it, ask for another only when not.
@@ -76,7 +76,7 @@ export const pruneCmd = defineCommand({
     else if (!(await confirm(question, true))) return;
     if (!o.json) step("cleaning up");
     const { failed } = await prune(login, plan);
-    if (o.json) return void console.log(JSON.stringify({ ...plan, removed: imgs.length - failed.filter((f) => f.what === "image").length, failed }, null, 2));
+    if (o.json) return void printJson({ ...plan, removed: imgs.length - failed.filter((f) => f.what === "image").length, failed });
     for (const f of failed) warn(`${f.name === "-" ? `could not empty the ${f.what}` : `${f.what} ${f.name}: could not remove it`}${f.why ? `: ${f.why}` : ""}`);
     ok(`removed ${pruneSummary(plan, failed)}`);
   },

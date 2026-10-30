@@ -4,7 +4,7 @@ import { isUp } from "../../core/compose";
 import { bytes, duration, pct } from "../../core/format";
 import { diskUsage, stats, type DiskUsage, type Stats } from "../../core/stats";
 import { ROOT } from "../../core/templates";
-import { c, fail, table } from "../../core/term";
+import { c, fail, table, printJson } from "../../core/term";
 
 
 /** A 10-cell bar, yellow from 70%, red from 90%. */
@@ -68,7 +68,7 @@ export const statsCmd = defineCommand({
     const { name, server } = projectServer(o.server);
     if (o.json) {
       if (o.watch) fail("--watch and --json do not go together: run lf stats --json in a loop");
-      return void console.log(JSON.stringify(await stats(server), null, 2));
+      return void printJson(await stats(server));
     }
     if (!o.watch) return printStats(name, await stats(server), site);
     const every = checkInt(o.interval, "--interval", 1, 3600) * 1000;
@@ -121,7 +121,7 @@ export const diskCmd = defineCommand({
   async run(_, o) {
     const { name, server } = projectServer(o.server);
     const d = await diskUsage(server);
-    if (o.json) return void console.log(JSON.stringify(d, null, 2));
+    if (o.json) return void printJson(d);
     printDisk(name, d);
   },
 });

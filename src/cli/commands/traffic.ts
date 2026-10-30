@@ -4,7 +4,7 @@ import { bytes } from "../../core/facts";
 import { ms } from "../../core/format";
 import { overview } from "../../core/remote";
 import { CERT_DAYS_BAD, certs, checkUrl, parseSince, siteTraffic, spanLabel, traffic, type Cert, type Check, type Detail, type Summary } from "../../core/traffic";
-import { c, fail, info, table, warn } from "../../core/term";
+import { c, fail, info, table, warn, printJson } from "../../core/term";
 import { siteTrafficView } from "../../core/views";
 
 const num = (n: number) => n.toLocaleString("en-US");
@@ -62,7 +62,7 @@ export const trafficCmd = defineCommand({
     const t = await traffic(server, secs);
     if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
     const one = site ? siteTraffic(t, site) : null;
-    if (o.json) return void console.log(JSON.stringify(site ? siteTrafficView(t, site) : t, null, 2));
+    if (o.json) return void printJson(site ? siteTrafficView(t, site) : t);
     if (t.format === "common") {
       return warn(
         t.own
@@ -128,7 +128,7 @@ export const certsCmd = defineCommand({
   async run(_, o) {
     const { name, server } = projectServer(o.server);
     const r = await certs(server, parseSince(o.since));
-    if (o.json) return void console.log(JSON.stringify(r, null, 2));
+    if (o.json) return void printJson(r);
     if (!r.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
     if (r.domains.length) {
       table([
@@ -173,7 +173,7 @@ export const checkCmd = defineCommand({
       if (!targets.length) return info(`no site on ${name} has a domain`);
     }
     const res: Check[] = await Promise.all(targets.map(async (t) => ({ ...(await checkUrl(t.domain, { resolve: o.resolve })), ...(t.site && { site: t.site }) })));
-    if (o.json) console.log(JSON.stringify(res, null, 2));
+    if (o.json) printJson(res);
     else {
       table([
         ["", "domain", "site", "status", "time", "certificate"].map(c.dim),

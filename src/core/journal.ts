@@ -1,5 +1,6 @@
 import type { Server } from "./config";
-import { canLogin, closeMux, runScript, shq } from "./ssh";
+import { closeMux, runScript, shq } from "./ssh";
+import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { JOURNAL, PRELUDE, ROOT, SITES, TRAEFIK_DIR } from "./templates";
 import { fail } from "./term";
@@ -104,9 +105,10 @@ export async function loginFor(s: Server, user: string): Promise<{ login: Server
   if (user !== "root") return { login: { ...s, user } };
   const { stdout } = await runScript(s, "sudo -n true 2>/dev/null && echo yes || true", { capture: true });
   if (stdout.trim() === "yes") return { login: s, sudo: true };
-  const root = { ...s, user: "root" };
-  if (await canLogin(root)) return { login: root };
-  return fail(`undoing this needs root: ${me} has no passwordless sudo and root's key login does not work`);
+  // The same fallback as every other root step: root's key login, else the sudo admin's.
+  const other = await rootLogin(s);
+  if (other) return other.user === "root" ? { login: other } : { login: other, sudo: true };
+  return fail(`undoing this needs root: ${me} has no passwordless sudo, and neither root's nor the admin's key login works`);
 }
 
 const UNDO_STEP = String.raw`
