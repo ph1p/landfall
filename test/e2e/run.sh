@@ -642,14 +642,17 @@ lf server rm rootbox -y >/dev/null 2>&1
 pass "prune --logs as root: sizes in the plan, logs emptied"
 # Unused networks go, landfall's stays; --volumes deletes unowned volumes, keeps a site's.
 docker exec "$NAME" sh -c 'docker network create junknet && docker volume create junkvol && docker volume create --label com.docker.compose.project=app appvol' >/dev/null
+# What lf sites rm --volumes leaves: a folder with only the removed site's backups.
+docker exec "$NAME" sh -c 'mkdir -p /opt/landfall/sites/gone/backups && head -c 4096 /dev/urandom > /opt/landfall/sites/gone/backups/data-20200101-000000.tar.gz && chown -R deploy /opt/landfall/sites/gone'
 out=$(lf prune --volumes --dry-run --json) || die "prune --volumes --dry-run"
-{ echo "$out" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); const v = (n) => p.volumes.find((x) => x.name === n); process.exit(p.networks.includes("junknet") && !p.networks.includes("web") && v("junkvol") && !v("junkvol").keep && v("appvol")?.keep === "site" ? 0 : 1)'; } \
-  || { echo "$out" | tail -40; die "prune plan: junk network and volume go, the site's volume stays"; }
+{ echo "$out" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); const v = (n) => p.volumes.find((x) => x.name === n); process.exit(p.networks.includes("junknet") && !p.networks.includes("web") && v("junkvol") && !v("junkvol").keep && v("appvol")?.keep === "site" && p.leftovers.map((l) => l.site).join() === "gone" ? 0 : 1)'; } \
+  || { echo "$out" | tail -40; die "prune plan: junk network and volume and a removed site's backups go, the site's volume stays"; }
 lf prune --volumes -y >/dev/null 2>&1 || die "prune --volumes"
 { ! docker exec "$NAME" docker network inspect junknet >/dev/null 2>&1 && docker exec "$NAME" docker network inspect web >/dev/null 2>&1; } || die "prune removes unused networks, keeps web"
 { ! docker exec "$NAME" docker volume inspect junkvol >/dev/null 2>&1 && docker exec "$NAME" docker volume inspect appvol >/dev/null 2>&1; } || die "prune --volumes removes junkvol, keeps appvol"
+! docker exec "$NAME" test -e /opt/landfall/sites/gone || die "prune --volumes deletes a removed site's backups"
 docker exec "$NAME" docker volume rm appvol >/dev/null
-pass "prune removes unused networks and with --volumes unowned volumes"
+pass "prune removes unused networks and with --volumes unowned volumes and removed sites' backups"
 fi
 
 if want system; then echo "== system"
