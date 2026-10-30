@@ -19,7 +19,7 @@ import { USER_NAME } from "../../core/users";
 import { trivyState } from "../../core/scan";
 import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, siteTrafficView, certsView, traefikView, updatesView, usersView } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
-import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
+import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
 import { c, CliError, openUrl } from "../../core/term";
 
 interface WebJob {
@@ -173,6 +173,7 @@ export function state() {
     project: projectHere(),
     projects: loadProjects(),
     defaultImage: DEFAULT_TRAEFIK_IMAGE,
+    ownProxy: OWN_PROXY,
     // The CLI's own input rules, so forms reject what the command would.
     rules: { loginName: LOGIN_NAME.source, userName: USER_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source, envName: ENV_NAME.source, secretName: SECRET_NAME.source },
     paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },

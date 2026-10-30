@@ -5,7 +5,7 @@ import { ms } from "../../../core/format";
 import type { Cert, Detail, Summary } from "../lib/types";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";
-import { Actions, Badge, Body, BoneRows, Btn, Card, CardHead, Empty, Note, Spin, Sub, pending, waiting, cx, NUM, HIDE, Table } from "../ui/kit";
+import { Actions, Badge, Body, BoneRows, Btn, Card, CardHead, Empty, Note, Spin, Sub, pending, waiting, cx, NUM, HIDE, MONO, Table } from "../ui/kit";
 import { Zero, can, size } from "./shared";
 import { Meter, Meters } from "./stats";
 
@@ -188,7 +188,7 @@ export function TrafficView({ n }: { n: string }) {
 /** Each site domain's certificate: days left, who issued it, why getting one failed. */
 export function CertsCard({ n }: { n: string }) {
   const st = S.certs[n];
-  const head = <CardHead>Certificates <Sub>lf certs</Sub></CardHead>;
+  const head = <CardHead>Certificates <Sub className={MONO}>lf certs</Sub></CardHead>;
   if (waiting(st)) return <Card aria-busy="true">{head}<BoneRows rows={2} /></Card>;
   const wait = pending(st, "reading certificates…");
   if (wait) return <Card>{head}<Body>{wait}</Body></Card>;
