@@ -69,15 +69,12 @@ export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[
 /** Volumes of a Compose project, what mounts them, their sizes and the site's backups. */
 export const listScript = (project: string, dir: string, site: string) => String.raw`
 cd ${shq(dir)}
-vols=""
-for v in $(docker volume ls -q --filter label=com.docker.compose.project=${shq(project)}); do
-  printf 'vol\t%s\t%s\n' "$v" "$(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}{{"\t"}}{{if .Options}}{{index .Options "device"}}{{end}}' "$v")"
-  vols="$vols $v"
-done
-for ctr in $(docker ps -aq --filter label=com.docker.compose.project=${shq(project)}); do
-  m=$(docker inspect -f '{{$s := index .Config.Labels "com.docker.compose.service"}}{{range .Mounts}}{{if eq .Type "volume"}}mnt{{"\t"}}{{.Name}}{{"\t"}}{{$s}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}{{end}}' "$ctr")
-  [ -z "$m" ] || { printf '%s\n' "$m"; vols="$vols $(printf '%s\n' "$m" | cut -f2)"; }
-done
+# One inspect for all volumes and one for all containers: each docker call is a round trip to the daemon.
+vols=$(docker volume ls -q --filter label=com.docker.compose.project=${shq(project)})
+[ -z "$vols" ] || docker volume inspect -f 'vol{{"\t"}}{{.Name}}{{"\t"}}{{index .Labels "com.docker.compose.volume"}}{{"\t"}}{{if .Options}}{{index .Options "device"}}{{end}}' $vols
+ctrs=$(docker ps -aq --filter label=com.docker.compose.project=${shq(project)})
+m=""; [ -z "$ctrs" ] || m=$(docker inspect -f '{{$s := index .Config.Labels "com.docker.compose.service"}}{{range .Mounts}}{{if eq .Type "volume"}}mnt{{"\t"}}{{.Name}}{{"\t"}}{{$s}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}{{end}}' $ctrs | sed '/^$/d')
+[ -z "$m" ] || { printf '%s\n' "$m"; vols="$vols $(printf '%s\n' "$m" | cut -f2)"; }
 vols=$(printf '%s\n' $vols | sort -u | tr '\n' ' ')
 if { [ "$SIZES" = 1 ] || [ "$EMPTY" = 1 ]; } && [ -n "$(printf %s "$vols" | tr -d ' ')" ]; then
   args=""; for v in $vols; do args="$args -v $v:/v/$v:ro"; done
