@@ -382,7 +382,7 @@ export async function updateImages(s: Server, targets: ImageStatus[]) {
   for (const t of targets) byRef.set(t.ref, [...(byRef.get(t.ref) ?? []), t]);
   const lines = [PRELUDE];
   for (const [ref, ts] of byRef) {
-    lines.push(`log ${shq(`pulling ${ref}`)}`, `docker pull -q ${shq(ref)} >/dev/null`, `new=$(docker image inspect -f '{{.Id}}' ${shq(ref)})`);
+    lines.push(`log ${shq(`pulling ${ref}`)}`, `docker pull ${shq(ref)} >&2`, `new=$(docker image inspect -f '{{.Id}}' ${shq(ref)})`);
     for (const t of ts) {
       const svc = t.service ? ` ${shq(t.service)}` : "";
       const undo = `docker tag $old ${shq(ref)} && cd -P ${shq(t.dir)} && dc up -d${svc}`;

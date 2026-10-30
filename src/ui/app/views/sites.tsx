@@ -464,6 +464,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
   const timer = (
     <>
       <span className="faint text-sm">{d.schedule ? `backups ${d.schedule}` : "no scheduled backups"}</span>
+      {d.lastRun?.failed.length ? <Badge kind="bad" title="backups/backup.log on the server">last backup failed: {d.lastRun.failed.join(", ")}</Badge> : null}
       <Btn cls="sm ghost" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
       {addBtn}
     </>

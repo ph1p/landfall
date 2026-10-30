@@ -522,7 +522,7 @@ and `lf volume` work as before. `lf sites rm` keeps the folder (and the backups)
   database's volume may not be.
 - `lf volume backup --schedule daily` (or `hourly`, `weekly`) backs up every volume of the site from cron and
   keeps the newest 7 per volume (`--keep 14`); `--schedule off` stops it, `lf volumes` shows the schedule and
-  `lf undo` restores the previous one. It writes `/opt/landfall/sites/<site>/backup.sh` and one line in the login
+  whether its last run failed (and for which volumes; details in `backups/backup.log`), `lf undo` restores the previous one. It writes `/opt/landfall/sites/<site>/backup.sh` and one line in the login
   user's crontab, both plain: they keep working without landfall. The server needs a running cron daemon
   (`--schedule` warns otherwise; on Alpine, `crontab` for a non-root user needs `busybox-suid`, which
   `lf setup` installs).
