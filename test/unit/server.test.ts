@@ -549,6 +549,14 @@ describe("prune", () => {
     expect(parsePrunePlan(`${out}\nVOLUMES`).volumes).toEqual([]);
   });
 
+  test("the backups of removed sites go with --volumes", () => {
+    const p = parsePrunePlan(`${out}\nVOLUMES\nLEFTOVER\tgone\t2048`);
+    expect(p.leftovers).toEqual([{ site: "gone", size: 2048 * 1024 }]);
+    expect(reclaimable(p) - reclaimable({ ...p, leftovers: undefined })).toBe(2048 * 1024);
+    expect(pruneSummary(p)).toBe(`${removable(p).length} images and the build cache, the backups of 1 removed sites`);
+    expect(pruneSummary(p, [{ what: "backups" }])).toBe(`${removable(p).length} images and the build cache`);
+  });
+
   test("no docker", () => {
     expect(parsePrunePlan("NODOCKER\n").docker).toBe(false);
   });

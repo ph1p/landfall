@@ -133,21 +133,22 @@ function pruneFlow(n: string, d: DiskUsage) {
     const imgs = removable(p);
     const tagged = kept(p, "tagged");
     const vols = removableVolumes(p);
+    const left = p.leftovers ?? [];
     const logs = { root: d.root, size: d.logs.reduce((t, l) => t + (l.size ?? 0), 0), journal: d.journald };
     // The plan as the ticked boxes make it: --all frees the tagged images too.
-    const most = (v: Values) => reclaimable({ ...p, images: v.all ? p.images.map((i) => (i.keep === "tagged" ? { ...i, keep: undefined } : i)) : p.images, logs: v.logs ? logs : undefined, volumes: v.volumes ? p.volumes : undefined });
+    const most = (v: Values) => reclaimable({ ...p, images: v.all ? p.images.map((i) => (i.keep === "tagged" ? { ...i, keep: undefined } : i)) : p.images, logs: v.logs ? logs : undefined, volumes: v.volumes ? p.volumes : undefined, leftovers: v.volumes ? left : undefined });
     const keep = ([[kept(p, "release").length, "for rollback"], [kept(p, "undo").length, "for undo"], [kept(p, "used").length, "in use"]] as const).filter(([k]) => k).map(([k, w]) => `${k} ${w}`).join(", ");
     dialog({
       title: `Clean up ${n}?`,
       text: `${plural(imgs.length, "unused image")}, ${size(p.buildCache)} of build cache${p.networks.length ? ` and ${plural(p.networks.length, "unused network")}` : ""}.${keep ? ` Kept: ${keep}.` : ""} Containers stay.`,
       fields: [
         ...(tagged.length ? [{ name: "all", type: "check" as const, label: `Also ${plural(tagged.length, "unused tagged image")}`, hint: "Pulled again when a site needs them" }] : []),
-        ...(vols.length
+        ...(vols.length || left.length
           ? [{
               name: "volumes",
               type: "check" as const,
-              label: `Also delete ${plural(vols.length, "unused volume")} (${size(totalSize(vols))})`,
-              hint: `No container mounts them and no site owns them: ${vols.slice(0, 3).map((x) => shortName(x.name)).join(", ")}${vols.length > 3 ? ", …" : ""}. Their data is gone for good. lf prune --volumes`,
+              label: `Also delete ${[vols.length && plural(vols.length, "unused volume"), left.length && `the backups of ${plural(left.length, "removed site")}`].filter(Boolean).join(" and ")} (${size(totalSize(vols) + totalSize(left))})`,
+              hint: `${vols.length ? `No container mounts these volumes and no site owns them: ${vols.slice(0, 3).map((x) => shortName(x.name)).join(", ")}${vols.length > 3 ? ", …" : ""}. ` : ""}${left.length ? `Backups lf sites rm kept: ${left.slice(0, 3).map((l) => l.site).join(", ")}${left.length > 3 ? ", …" : ""}. ` : ""}Gone for good. lf prune --volumes`,
             }]
           : []),
         {

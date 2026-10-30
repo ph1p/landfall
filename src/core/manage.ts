@@ -2,7 +2,7 @@ import type { Server } from "./config";
 import { builtImage, projectName, SITE_LINES, readSiteLine } from "./compose";
 import { JOURNAL_USAGE, LOG_SIZES, parseSize, SUDO_PROBE, VOLUME_SIZES } from "./stats";
 import { canLogin, closeMux, runScript, shq } from "./ssh";
-import { JOURNAL, NETWORK, parseProxy, PRELUDE, PROXY_FILE } from "./templates";
+import { JOURNAL, NETWORK, parseProxy, PRELUDE, PROXY_FILE, SITES } from "./templates";
 import { JOURNAL_KEEP, journalSize, pruneSummary, removable, removableVolumes, type PruneImage, type PrunePlan, type PruneVolume } from "./reclaim";
 
 /**
@@ -30,6 +30,8 @@ printf 'PROXY\t%s\n' "$(cat ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
 const VOLUMES_PLAN = String.raw`
 echo VOLUMES
 docker volume ls --filter dangling=true --format 'UNUSED{{"\t"}}{{.Name}}{{"\t"}}{{.Label "com.docker.compose.project"}}' 2>/dev/null
+# What lf sites rm leaves: a removed site's folder, holding only its backups.
+for d in ${SITES}/*/; do [ -e "$d/site.json" ] || [ ! -d "$d/backups" ] || printf 'LEFTOVER\t%s\t%s\n' "$(basename "$d")" "$(du -sk "$d" 2>/dev/null | cut -f1)"; done
 `;
 
 /** What `lf prune --logs` empties; only measured then. */
@@ -52,6 +54,7 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
   const vols: PruneVolume[] = [];
   const volSize = new Map<string, number>();
   const nets: string[] = [];
+  const leftovers: { site: string; size: number }[] = [];
   let proxyNet = NETWORK;
   for (const line of out.split("\n")) {
     const f = line.split("\t");
@@ -76,6 +79,7 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
     else if (f[0] === "PROXY") proxyNet = parseProxy(f[1] ?? "")?.network ?? NETWORK;
     else if (f[0] === "VOLUMES") plan.volumes = [];
     else if (f[0] === "UNUSED" && f[1]) vols.push({ name: f[1], ...(f[2] && { project: f[2] }), size: 0 });
+    else if (f[0] === "LEFTOVER" && f[1]) leftovers.push({ site: f[1], size: (+f[2] || 0) * 1024 });
     else if (f[0] === "VOL" && f[1]) volSize.set(f[1], parseSize(f[3] ?? ""));
   }
   // landfall's proxy network and the one ensure_network makes: deploys expect them, even while no container is on them.
@@ -87,6 +91,7 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
       plan.volumes.push(v);
     }
     plan.volumes.sort((a, b) => b.size - a.size);
+    plan.leftovers = leftovers;
   }
   for (const img of byId.values()) {
     img.keep = used.has(img.id) ? "used" : img.tags.some((t) => release.has(t)) ? "release" : undo.has(img.id) ? "undo" : img.tags.length && !all ? "tagged" : undefined;
@@ -125,6 +130,7 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
     tryRm(`docker builder prune -f${plan.all ? "a" : ""}`, "build cache", "-"),
     ...plan.networks.map((n) => rm("network", n)),
     ...vols.map((v) => rm("volume", v.name)),
+    ...(plan.leftovers ?? []).map((l) => tryRm(`rm -rf -- ${shq(`${SITES}/${l.site}`)}`, "backups", l.site)),
     ...(plan.logs
       ? [
           String.raw`ids=$($SUDO docker ps -aq 2>/dev/null)`,
