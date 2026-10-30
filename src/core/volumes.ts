@@ -164,9 +164,11 @@ export function recreateFrom(vol: string, key: string, project: string, file: st
 export function whileStopped(vol: string, steps: string[]) {
   return [
     `ids=$(docker ps -q --filter ${shq(`volume=${vol}`)})`,
+    // Cut off between stop and start (Ctrl-C, a dropped ssh): the trap starts them, the site must not stay down.
+    `trap '[ -z "$ids" ] || docker start $ids >/dev/null 2>&1' EXIT; trap 'exit 1' HUP INT TERM`,
     `[ -z "$ids" ] || docker stop $ids >/dev/null`,
     `if ${steps.join(" && ")}; then rc=0; else rc=1; fi`,
-    `[ -z "$ids" ] || docker start $ids >/dev/null`,
+    `[ -z "$ids" ] || docker start $ids >/dev/null; trap - EXIT HUP INT TERM`,
     `[ "$rc" = 0 ]`,
   ].join("\n");
 }

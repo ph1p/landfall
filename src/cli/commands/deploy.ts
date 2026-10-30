@@ -241,10 +241,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
           step(`uploading ${relative(cwd, dir) || "."} (${plural(size.files, "file")}, ${bytes(size.total)})`);
           // A redeploy starts from the live release's files and sends only what changed.
           const seedRelease = prev?.kind === kind ? prev.current : undefined;
-          const sent = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
-          if (sent === "rsync") info(c.dim(`sent only what changed since release ${seedRelease}`));
-          else if (sent === "tar:no-local-rsync") info(c.dim("sent every file: install rsync on this machine to send only what changed"));
-          else if (sent === "tar:no-server-rsync") info(c.dim(`sent every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
+          const uploaded = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
+          if (uploaded === "rsync") info(c.dim(`uploaded only what changed since release ${seedRelease}`));
+          else if (uploaded === "tar:no-local-rsync") info(c.dim("uploaded every file: install rsync on this machine to send only what changed"));
+          else if (uploaded === "tar:no-server-rsync") info(c.dim(`uploaded every file: ${serverName} has no rsync, \`lf setup ${serverName}\` installs it to send only what changed`));
         }
         const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
         vols = folderVolumes(prepared.config, prev?.volumes);
