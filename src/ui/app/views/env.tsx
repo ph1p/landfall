@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { http, errorMessage } from "../lib/store";
+import { http, errorMessage, S } from "../lib/store";
 import { Btn, cx, MONO } from "../ui/kit";
 import { secretProps } from "../ui/dialog";
 
@@ -10,19 +10,18 @@ export const NO_ENV_CHANGE: EnvChange = { set: {}, unset: [] };
 /** value: undefined until revealed. edit: what was typed, undefined while unchanged. */
 interface Row { key: string; length?: number; value?: string; edit?: string; removed?: boolean; added?: boolean }
 
-const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// Compose secret names: file names in .secrets.
-const SECRET = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 export const envUrl = (n: string, site: string, reveal: boolean, secrets = false) =>
   `/api/servers/${encodeURIComponent(n)}/${secrets ? "secrets" : "env"}?site=${encodeURIComponent(site)}${reveal ? "&reveal=1" : ""}`;
 
-function change(rows: Row[], KEY_OK = KEY): EnvChange {
+function change(rows: Row[], secrets = false): EnvChange {
+  // The CLI's own rules: secret names are file names in .secrets.
+  const KEY_OK = new RegExp(secrets ? S.state.rules.secretName : S.state.rules.envName);
   const set: Record<string, string> = {};
   let bad: string | undefined;
   for (const r of rows) {
     if (r.removed || r.edit === undefined || (!r.added && r.edit === r.value)) continue;
     if (r.added && !r.key && !r.edit) continue;
-    if (!KEY_OK.test(r.key)) bad ??= `Not a${KEY_OK === SECRET ? " secret" : " variable"} name: ${r.key || "(empty)"}`;
+    if (!KEY_OK.test(r.key)) bad ??= `Not a${secrets ? " secret" : " variable"} name: ${r.key || "(empty)"}`;
     else if (r.edit.includes("\n")) bad ??= `${r.key}: a value is one line`;
     else set[r.key] = r.edit;
   }
@@ -44,7 +43,7 @@ export function EnvTable({ n, site, onChange, secrets }: { n: string; site?: str
   }, []);
   const update = (next: Row[]) => {
     setRows(next);
-    onChange(change(next, secrets ? SECRET : KEY));
+    onChange(change(next, secrets));
   };
   const patch = (i: number, p: Partial<Row>) => update(rows!.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const reveal = () =>

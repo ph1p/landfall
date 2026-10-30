@@ -868,10 +868,14 @@ upath=$(echo "$up" | node --input-type=module -e 'console.log(JSON.parse((await 
 job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":["deploy","-y","-s","box","-n","up","-d","up.test","--no-save"],"server":"box","cwd":"'"$upath"'"}' "$UI/api/jobs" | node --input-type=module -e 'console.log(JSON.parse((await import("node:fs")).readFileSync(0, "utf8")).id)')
 { curl -s -N --max-time 60 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui deploys an upload"
 expect up.test / up
+json() { node --input-type=module -e "const i = JSON.parse((await import('node:fs')).readFileSync(0, 'utf8')); console.log($1)"; }
 vj=$(curl -s -b "$JAR" "$UI/api/servers/box/volumes?site=up")
 { has -F '"volumes":[]' <<<"$vj" && has -F '"backups":[]' <<<"$vj"; } || { echo "$vj"; die "ui reads a site's volumes"; }
+{ curl -s -b "$JAR" "$UI/api/servers/box/volumes?site=up&sizes=0" | has -F '"volumes":[]'; } || die "ui reads a site's volumes without sizes"
+# Forms check names with the CLI's own rules: a dotted variable name passes both.
+{ curl -s -b "$JAR" "$UI/api/state" | json 'new RegExp(i.rules.envName).test("app.port") && new RegExp(i.rules.secretName).test("db-pass")' | has -x true; } \
+  || die "ui serves the CLI's env and secret name rules"
 # A security fix button: the advice's argv, run as a job.
-json() { node --input-type=module -e "const i = JSON.parse((await import('node:fs')).readFileSync(0, 'utf8')); console.log($1)"; }
 argv=$(curl -s -b "$JAR" "$UI/api/servers/box/system" | json 'JSON.stringify(i.advice.find((a) => a.id === "fail2ban").fix.argv)')
 job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":'"$argv"',"server":"box"}' "$UI/api/jobs" | json i.id)
 { curl -s -N --max-time 120 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui runs a security fix: $argv"

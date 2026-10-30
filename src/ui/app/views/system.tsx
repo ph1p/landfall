@@ -6,15 +6,14 @@ import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, 
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, keyError } from "../ui/dialog";
 import { size } from "./shared";
+import { KEY_SERVICES, serviceName } from "../../../core/status";
 
 // ---- system ----------------------------------------------------------------
 
 const SVC_FAILED = (s: SystemService) => s.active === "failed" || s.active === "crashed";
 const SVC_UP = (s: SystemService) => s.active === "active" || s.active === "started";
 // What keeps the server and its sites running: shown first, the rest behind "all".
-const KEY_SVCS = ["docker", "containerd", "ssh", "sshd", "fail2ban", "ufw", "unattended-upgrades", "cron", "crond", "systemd-timesyncd", "chronyd", "chrony"];
-const svcName = (u: string) => u.replace(/\.service$/, "");
-const isKey = (x: SystemService) => KEY_SVCS.includes(svcName(x.unit));
+const isKey = (x: SystemService) => KEY_SERVICES.includes(serviceName(x.unit));
 
 export function SystemView({ n }: { n: string }) {
   const st = S.system[n];
@@ -65,7 +64,7 @@ export function SystemView({ n }: { n: string }) {
       .sort((a, b) => (+SVC_FAILED(b) - +SVC_FAILED(a)) || (+isKey(b) - +isKey(a)) || a.unit.localeCompare(b.unit));
     const nFailed = i.services.filter(SVC_FAILED).length;
     const row = (x: SystemService) => {
-      const u = svcName(x.unit);
+      const u = serviceName(x.unit);
       const ssh = /^sshd?$/.test(u), core = /^(docker|containerd)$/.test(u);
       const stop = () => confirmDlg({
         title: `Stop ${u} on ${n}?`,

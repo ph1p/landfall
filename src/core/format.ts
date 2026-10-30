@@ -16,4 +16,7 @@ export const duration = (s: number) => {
 /** Whole percent of used in total; 0 without a total. */
 export const pct = (used: number, total: number) => (total ? Math.round((used / total) * 100) : 0);
 
+/** A duration in milliseconds: 230ms, 1.4s. */
+export const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
+
 export const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;

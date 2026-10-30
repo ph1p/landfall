@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
 import pkg from "../../../package.json";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
+import { ENV_NAME, SECRET_NAME } from "../../core/compose";
 import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
 import { browse, jobCwd, pruneUploads, receiveUpload } from "./local";
@@ -173,7 +174,7 @@ export function state() {
     projects: loadProjects(),
     defaultImage: DEFAULT_TRAEFIK_IMAGE,
     // The CLI's own input rules, so forms reject what the command would.
-    rules: { loginName: LOGIN_NAME.source, userName: USER_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source },
+    rules: { loginName: LOGIN_NAME.source, userName: USER_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source, envName: ENV_NAME.source, secretName: SECRET_NAME.source },
     paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },
     defaults: defaultsView(),
     servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: savedView(cfg.servers[e.name]) })),
@@ -231,8 +232,10 @@ async function api(req: Request, path: string[]): Promise<Response> {
       return json({ vars: (await readSecrets(server, site)).map((x) => ({ key: x.key, length: x.size })) });
     }
     if (method === "GET" && sub === "volumes") {
-      // lf volumes --json: sizes, mounts and backups.
-      return json(await volumes(server, validName(new URL(req.url).searchParams.get("site") ?? ""), true));
+      // lf volumes --json: sizes, mounts and backups. sizes=0 skips du (slow on big volumes) but still tells which are empty.
+      const q = new URL(req.url).searchParams;
+      const sizes = q.get("sizes") !== "0";
+      return json(await volumes(server, validName(q.get("site") ?? ""), sizes, !sizes));
     }
     if (method === "GET" && sub === "dns") {
       const domains = (new URL(req.url).searchParams.get("domains") ?? "").split(",").filter((d) => DOMAIN.test(d)).slice(0, 50);
