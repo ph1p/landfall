@@ -9,7 +9,8 @@ import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
 import { uploadList, uploadSize } from "../../core/ignore";
 import { journal, setUpState, upload } from "../../core/ssh";
 import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
-import { bytes, pickIp, serverIps, sslipDomain } from "../../core/facts";
+import { pickIp, serverIps, sslipDomain } from "../../core/facts";
+import { bytes, plural } from "../../core/format";
 import { detectBuild } from "../../core/frameworks";
 import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
 import { claimDomains } from "./access";
@@ -236,7 +237,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       const offDiscard = onStop(() => discardRelease(server, name, id, [...sent, ...(release ? builtImages(name, release) : [])]));
       try {
         if (files !== undefined) {
-          step(`uploading ${relative(cwd, dir) || "."}`);
+          const size = uploadSize(list);
+          step(`uploading ${relative(cwd, dir) || "."} (${plural(size.files, "file")}, ${bytes(size.total)})`);
           // A redeploy starts from the live release's files and sends only what changed.
           const seedRelease = prev?.kind === kind ? prev.current : undefined;
           const sent = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from "../lib/store";
+import { bytes } from "../../../core/format";
 import { slug } from "../../../core/slug";
 import type { Browse, Detected, Redeploy, Remembered, SavedServer } from "../lib/types";
 import { go, load, refreshState } from "../lib/api";
@@ -709,7 +710,7 @@ async function upload(pairs: Pair[], label = "site", site?: Redeploy) {
   if (!pairs.length) return toast("Nothing to upload");
   const fd = new FormData();
   for (const [f, path] of pairs) fd.append("file", f), fd.append("path", path);
-  toast(`Uploading ${plural(pairs.length, "file")}…`);
+  toast(`Uploading ${plural(pairs.length, "file")}, ${bytes(pairs.reduce((n, [f]) => n + f.size, 0))}…`);
   try {
     const r = await fetch("/api/upload", { method: "POST", body: fd });
     const data: { files: number; detected: Detected; error?: string } = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));

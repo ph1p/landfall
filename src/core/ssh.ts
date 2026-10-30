@@ -2,10 +2,12 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 import fs from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { Transform } from "node:stream";
 import { envVar, expandHome, type Server } from "./config";
+import { bytes } from "./format";
 import type { Entry } from "./ignore";
 import { ROOT } from "./templates";
-import { CliError, fail, REPORT } from "./term";
+import { c, CliError, fail, REPORT } from "./term";
 
 let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
@@ -235,6 +237,25 @@ export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-logi
   return fail(`cannot connect to ${s.host}${why ? `: ${why}` : ""}`);
 }
 
+/** Passes bytes through and, on a terminal, shows how many went so far (at most every 200 ms). */
+function meter(label: string): Transform {
+  const tty = process.stderr.isTTY;
+  let n = 0;
+  let last = 0;
+  const show = () => process.stderr.write(`\r\x1b[2K  ${c.dim(`${label} ${bytes(n)}`)}`);
+  return new Transform({
+    transform(chunk: Buffer, _, done) {
+      n += chunk.length;
+      if (tty && Date.now() - last > 200) (last = Date.now()), show();
+      done(null, chunk);
+    },
+    flush(done) {
+      if (tty) show(), process.stderr.write("\n");
+      done();
+    },
+  });
+}
+
 let bsdtar: string[] | undefined;
 /** bsdtar (macOS) would otherwise embed xattr headers GNU tar warns about. */
 export async function bsdtarFlags(): Promise<string[]> {
@@ -246,7 +267,12 @@ export async function bsdtarFlags(): Promise<string[]> {
 }
 
 let localRsync: Promise<boolean> | undefined;
-const hasRsync = () => (localRsync ??= spawnP("rsync", ["--version"], { capture: true, silent: true }).then((r) => r.code === 0, () => false));
+let rsync3 = false;
+const hasRsync = () =>
+  (localRsync ??= spawnP("rsync", ["--version"], { capture: true, silent: true }).then(
+    (r) => ((rsync3 = /version 3\./.test(r.stdout)), r.code === 0),
+    () => false,
+  ));
 
 /** How upload sent the files: rsync (only the changes) or tar (everything, and why). */
 export type Sent = "rsync" | "tar" | "tar:no-local-rsync" | "tar:no-server-rsync";
@@ -275,6 +301,7 @@ export async function upload(s: Server, localDir: string, remoteDir: string, lis
   const shell = ["ssh", ...sshOptions(s)].map(shq).join(" ");
   // No -r: the list names every folder and file, and -r would send what it leaves out of a folder.
   const args = ["-lptz", "--from0", "--files-from=-", `--copy-dest=${seed}`, "-e", shell, `${localDir.replace(/\/*$/, "")}/`, `${dest(s)}:${remoteDir}/`];
+  if (rsync3 && process.stdout.isTTY) args.unshift("--info=progress2");
   const rsync = spawn("rsync", args, { stdio: ["pipe", "inherit", "inherit"] });
   rsync.stdin.on("error", () => {});
   rsync.stdin.end(fileList(list));
@@ -297,7 +324,7 @@ async function tarUpload(s: Server, localDir: string, remoteDir: string, list: E
     const ssh = spawn("ssh", [...sshArgs(s), remote], { stdio: ["pipe", "inherit", "inherit"] });
     // ssh gone: stop tar too, or it blocks on its full pipe and the upload never ends.
     ssh.stdin.on("error", () => tar.kill());
-    tar.stdout.pipe(ssh.stdin);
+    tar.stdout.pipe(meter("sent")).pipe(ssh.stdin);
     tar.on("error", reject);
     ssh.on("error", reject);
     // Wait for both: ssh may exit 0 before tar reports that it failed halfway.
@@ -326,12 +353,12 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
       f.on("error", reject);
       if (dir === "up") {
         ssh.stdin!.on("error", () => (f as fs.ReadStream).destroy());
-        (f as fs.ReadStream).pipe(ssh.stdin!);
+        (f as fs.ReadStream).pipe(meter("sent")).pipe(ssh.stdin!);
         // A read error rejects above: ssh's exit is the whole result.
         done.push(Promise.resolve(0));
       }
       else {
-        ssh.stdout!.pipe(f as fs.WriteStream);
+        ssh.stdout!.pipe(meter("received")).pipe(f as fs.WriteStream);
         done.push(new Promise((ok) => f.on("close", () => ok(0))));
       }
     } else {
@@ -340,7 +367,7 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
       // One end gone: stop the other, or it blocks on its full pipe and never exits.
       if (dir === "up") {
         ssh.stdin!.on("error", () => p.kill());
-        p.stdout!.pipe(ssh.stdin!);
+        p.stdout!.pipe(meter("sent")).pipe(ssh.stdin!);
       } else {
         p.stdin!.on("error", () => ssh.kill());
         ssh.stdout!.pipe(p.stdin!);
