@@ -1,6 +1,9 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 import { fail } from "./term";
 
 /**
@@ -93,25 +96,73 @@ export function writeAtomic(file: string, data: string, mode?: number) {
   fs.renameSync(tmp, real);
 }
 
-export function saveConfig(cfg: Config) {
+/** Serialize the entire read-modify-write, not just the final rename. Never await in the mutator. */
+export async function updateConfig(mutate: (cfg: Config) => unknown, timeout = 5000): Promise<Config> {
   fs.mkdirSync(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });
-  writeAtomic(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", 0o600);
+  const real = fs.existsSync(CONFIG_PATH) ? fs.realpathSync(CONFIG_PATH) : join(fs.realpathSync(dirname(CONFIG_PATH)), basename(CONFIG_PATH));
+  const lock = real + ".lock";
+  const owner = JSON.stringify({ id: randomUUID(), pid: process.pid, at: new Date().toISOString() });
+  const until = Date.now() + timeout;
+  for (;;) {
+    try {
+      fs.mkdirSync(lock, { mode: 0o700 });
+      break;
+    } catch (e: any) {
+      if (e.code !== "EEXIST") throw e;
+      if (Date.now() >= until) fail(`local config is locked: ${lock}. Check that no landfall writer is active before removing an abandoned lock; config was not saved.`);
+      await delay(25);
+    }
+  }
+  try {
+    fs.writeFileSync(join(lock, "owner.json"), owner, { mode: 0o600 });
+    const cfg = loadConfig();
+    const result = mutate(cfg);
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+      // Also consume rejected async callbacks: refusing one must not cause an unhandled rejection.
+      void Promise.resolve(result).catch(() => {});
+      fail("config mutations must be synchronous");
+    }
+    writeAtomic(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", 0o600);
+    return cfg;
+  } finally {
+    // A manually removed/replaced lock is no longer ours to release.
+    let stillOurs = false;
+    try { stillOurs = fs.readFileSync(join(lock, "owner.json"), "utf8") === owner; } catch {}
+    if (stillOurs) fs.rmSync(lock, { recursive: true, force: true });
+  }
+}
+
+/** Commit only fields changed by a long operation; refuse overlapping edits or a removed entry. */
+export function patchServer(cfg: Config, name: string, before: Server | undefined, next: Server): Server {
+  const current = cfg.servers[name];
+  const conflict = () => fail(`local configuration for ${name} changed during this command; not saved. Review it before retrying; remote work was not reverted.`);
+  if (before && !current) conflict();
+  if (!before && current && !isDeepStrictEqual(current, next)) conflict();
+  const merged = { ...current } as Server;
+  for (const key of new Set([...Object.keys(before ?? {}), ...Object.keys(next)]) as Set<keyof Server>) {
+    if (isDeepStrictEqual(before?.[key], next[key])) continue;
+    if (!isDeepStrictEqual(current?.[key], before?.[key]) && !isDeepStrictEqual(current?.[key], next[key])) conflict();
+    if (next[key] === undefined) delete merged[key];
+    else Object.assign(merged, { [key]: next[key] });
+  }
+  cfg.servers[name] = merged;
+  return merged;
 }
 
 /** Drop a server from the config (and as the default). */
-export function forgetServer(name: string) {
-  const cfg = loadConfig();
-  delete cfg.servers[name];
-  if (cfg.default === name) delete cfg.default;
-  saveConfig(cfg);
+export async function forgetServer(name: string) {
+  await updateConfig((cfg) => {
+    delete cfg.servers[name];
+    if (cfg.default === name) delete cfg.default;
+  });
 }
 
 /** Make a server the default, registering an ssh alias as it is. */
-export function useServer(name: string) {
-  const cfg = loadConfig();
-  cfg.servers[name] ??= { host: name };
-  cfg.default = name;
-  saveConfig(cfg);
+export async function useServer(name: string) {
+  await updateConfig((cfg) => {
+    cfg.servers[name] ??= { host: name };
+    cfg.default = name;
+  });
 }
 
 /**

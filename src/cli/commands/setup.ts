@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
-import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, saveConfig, tildify, type Server } from "../../core/config";
+import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, updateConfig, patchServer, tildify, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { canLogin, runScript } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/sshconfig";
@@ -222,9 +222,10 @@ dashboard unless given as flags.`,
     const entry = serverEntry(name, target, keyPath, { existing, sshConfig: o["ssh-config"], ownAlias: isOwnAlias, port: o.port, keyGiven: !!o.key });
     if (domain) entry.domains = withPrimary(entry.domains, domain);
     if (eff.user !== "root" && effectiveSsh(target).user !== eff.user) entry.admin = eff.user;
-    cfg.servers[name] = entry;
-    cfg.default ??= name;
-    saveConfig(cfg);
+    await updateConfig((fresh) => {
+      patchServer(fresh, name, existing, entry);
+      fresh.default ??= name;
+    });
 
     // 5. traefik
     next("traefik");
