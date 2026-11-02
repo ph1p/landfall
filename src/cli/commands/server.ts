@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
 import { TRIVY, TRIVY_CACHE } from "../../core/scan";
-import { checkDomain, checkEmail, defaults, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, saveConfig, tildify, useServer, type Server } from "../../core/config";
+import { checkDomain, checkEmail, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, updateConfig, patchServer, tildify, useServer, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
@@ -59,10 +59,11 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     if (!entry.port) delete entry.port;
     if (o.email) entry.email = checkEmail(o.email);
     if (domain) entry.domains = withPrimary(entry.domains, domain);
-    cfg.servers[name] = entry;
-    if (o.default || !cfg.default) cfg.default = name;
-    saveConfig(cfg);
-    ok(`added ${c.bold(name)}${cfg.default === name ? c.dim(" (default)") : ""}`);
+    const saved = await updateConfig((fresh) => {
+      patchServer(fresh, name, existing, entry);
+      if (o.default || !fresh.default) fresh.default = name;
+    });
+    ok(`added ${c.bold(name)}${saved.default === name ? c.dim(" (default)") : ""}`);
     if (!keyPath) info(`then: ${c.bold(`lf setup ${name}`)} (asks for the password and installs a key)`);
     else {
       info(c.dim(`next: lf setup ${name} --check shows what setup would install`));
@@ -123,7 +124,7 @@ export const serverRemove = defineCommand({
     const cfg = loadConfig();
     if (!cfg.servers[name] && !hasManagedBlock(name)) fail(`unknown server "${name}"`);
     await confirmRemoval(`Forget server ${name}? Nothing on the server changes.`);
-    forgetServer(name);
+    await forgetServer(name);
     if (o["ssh-config"] && removeHostBlock(name)) ok(`removed Host ${name} from ${tildify(SSH_CONFIG)}`);
     ok(`removed ${name}`);
     // Said, not deleted: the key may still be the way in, and the Host block is plain ssh config.
@@ -200,7 +201,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     await runScript(root.login, `rm -rf ${ROOT}`, { sudo: root.sudo });
     ok(`landfall removed from ${name}`);
 
-    forgetServer(name);
+    await forgetServer(name);
     if (removeHostBlock(name)) ok(`removed Host ${name} from ${tildify(SSH_CONFIG)}`);
     ok(`forgot ${name}`);
     if (fs.existsSync(keyFile(name))) info(c.dim(`${tildify(keyFile(name))} stays: root on ${name} still accepts it`));
@@ -213,7 +214,7 @@ export const serverUse = defineCommand({
   summary: "Set the default server used when --server is omitted.",
   async run([name]) {
     if (!name) fail("usage: lf server use <name>");
-    useServer(name);
+    await useServer(name);
     ok(`default server: ${c.bold(name)}`);
   },
 });
@@ -333,29 +334,39 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
     const { name, server } = resolveServer(n);
     const tunnelOnly: boolean | undefined = o["tunnel-only"];
     const changing = !!(given.length || o.add || o.rm || o.primary || o.clear);
+    let next: string[] | undefined;
+    if (changing) {
+      const rm: string[] = (o.rm ?? []).map(checkDomain);
+      const base = o.clear ? [] : given.length ? given.map(checkDomain) : (server.domains ?? []);
+      next = withPrimary(editList(base, (o.add ?? []).map(checkDomain), rm), o.primary && checkDomain(o.primary))!;
+      const missing = rm.filter((d) => !server.domains?.includes(d));
+      if (missing.length) warn(`${missing.join(", ")} is not a main domain of ${name}`);
+      const dropped = (server.domains ?? []).filter((d) => !next!.includes(d));
+      if (dropped.length) await confirmRemoval(`Remove the main domain${dropped.length > 1 ? "s" : ""} ${dropped.join(", ")} of ${name}? Sites keep their domains.`);
+    }
+    if (changing || tunnelOnly !== undefined) {
+      const saved = await updateConfig((fresh) => {
+        const entry = { ...server };
+        if (next) {
+          if (next.length) entry.domains = next;
+          else delete entry.domains;
+        }
+        if (tunnelOnly !== undefined) {
+          // Follow the latest global default when the requested value matches it.
+          if (tunnelOnly === (fresh.defaults?.tunnelOnly ?? false)) delete entry.tunnelOnly;
+          else entry.tunnelOnly = tunnelOnly;
+        }
+        patchServer(fresh, name, cfg.servers[name], entry);
+      });
+      Object.assign(server, saved.servers[name]);
+      server.domains = saved.servers[name].domains;
+      server.tunnelOnly = saved.servers[name].tunnelOnly;
+    }
     if (tunnelOnly !== undefined) {
-      const entry = (cfg.servers[name] ??= { host: name });
-      // Same as landfall's default: follow it, so `lf config` changes this server too.
-      if (tunnelOnly === (defaults().tunnelOnly ?? false)) delete entry.tunnelOnly;
-      else entry.tunnelOnly = tunnelOnly;
-      saveConfig(cfg);
-      server.tunnelOnly = entry.tunnelOnly;
       ok(tunnelOnly ? `new sites on ${c.bold(name)} get no domain: reach them with lf tunnel, or deploy with -d` : `new sites on ${c.bold(name)} get a domain again`);
       if (!changing) return;
     }
-    if (changing) {
-      const entry = (cfg.servers[name] ??= { host: name });
-      const rm: string[] = (o.rm ?? []).map(checkDomain);
-      const base = o.clear ? [] : given.length ? given.map(checkDomain) : (entry.domains ?? []);
-      const next = withPrimary(editList(base, (o.add ?? []).map(checkDomain), rm), o.primary && checkDomain(o.primary))!;
-      const missing = rm.filter((d) => !entry.domains?.includes(d));
-      if (missing.length) warn(`${missing.join(", ")} is not a main domain of ${name}`);
-      const dropped = (entry.domains ?? []).filter((d) => !next.includes(d));
-      if (dropped.length) await confirmRemoval(`Remove the main domain${dropped.length > 1 ? "s" : ""} ${dropped.join(", ")} of ${name}? Sites keep their domains.`);
-      if (next.length) entry.domains = next;
-      else delete entry.domains;
-      saveConfig(cfg);
-      server.domains = entry.domains;
+    if (next) {
       ok(next.length ? `main domains of ${c.bold(name)}: ${next.map((d, i) => (i ? d : c.bold(d))).join(", ")}${next.length > 1 ? c.dim(" (first = primary)") : ""}` : `${name} has no main domain`);
       if (!next.length) return;
     }
