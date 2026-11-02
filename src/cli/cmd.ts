@@ -33,15 +33,20 @@ const GLOBAL_OPTS: Record<string, OptSpec> = {
   environment: { type: "string", short: "E", desc: "an environment of .landfall.json (staging…), deployed as its own site; or LANDFALL_ENV" },
 };
 
-export function parse(cmd: Command, argv: string[]) {
+/** Shared by execution and dashboard argument masking; Node owns the accepted flag syntax. */
+export function tokenize(cmd: Command, argv: string[]) {
   const dd = argv.indexOf("--");
   const own = cmd.passthrough && dd >= 0 ? argv.slice(0, dd) : argv;
   const rest = cmd.passthrough && dd >= 0 ? argv.slice(dd + 1) : [];
   const options: Record<string, Omit<OptSpec, "desc">> = {};
   for (const [k, { desc, ...spec }] of Object.entries({ ...GLOBAL_OPTS, ...cmd.options })) options[k] = spec;
+  return { ...parseArgs({ args: own, options, allowPositionals: true, allowNegative: true, tokens: true }), rest };
+}
+
+export function parse(cmd: Command, argv: string[]) {
   try {
-    const { values, positionals } = parseArgs({ args: own, options, allowPositionals: true, allowNegative: true });
-    // Passwords may come from the environment instead (the web UI passes them so): argv shows in `ps`.
+    const { values, positionals, rest } = tokenize(cmd, argv);
+    // Passwords may come from the environment instead: argv shows in `ps`.
     for (const k of Object.keys(cmd.options ?? {})) {
       if (/(^|-)password$/.test(k) && values[k] === undefined && process.env[secretEnv(k)]) values[k] = process.env[secretEnv(k)];
     }

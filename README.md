@@ -875,8 +875,11 @@ folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refuse
 - **Local only:** it listens on `127.0.0.1` and refuses requests with a foreign `Host` or `Origin`.
 - Running `lf ui` again while it runs just opens the page. If another program has port 4777, it takes the next
   free one (an explicit `--port` fails instead).
-- **Limits:** at most 20 commands run at once. Passwords and env values are handed to the `lf` subprocess
-  through env vars and stdin, never on its command line.
+- **Limits:** at most 20 commands run at once. Job arguments are handed to the `lf` subprocess through
+  a private, lossless stdin envelope, never on its command line. Command text masks passwords and env/secret
+  values; arbitrary command output can still contain sensitive data. Dashboard jobs cannot also read command
+  stdin (`--dotenv -` / `--password-stdin`): use a dotenv filename or the dashboard's password/value fields.
+  Direct terminal commands retain their normal stdin options.
 - **No screen scraping:** commands report results the UI needs (deploy URL, tunnel address, setup checks, a
   refusal that `--force` would override) on a separate channel, so the UI never parses CLI text.
 
@@ -1082,6 +1085,8 @@ On the server:
 | `… blocks ssh port 22 … (--force to do it anyway)` | `lf firewall allow 22/tcp` first, or force if you have another way in |
 | `ssh cannot resolve <name>` | not in your ssh config: `lf server add <name> --host …` |
 | `… Pass -y to confirm (no terminal to ask)` | non-interactive run of a command that asks: add `-y` |
+| `local config is locked: …` | another writer has up to 5 seconds to finish. Check that no landfall writer is active before removing only the reported abandoned `.lock` directory; never delete the config directory |
+| `local configuration … changed during this command` | another command changed the same settings. Review local config before retrying; completed remote work was not reverted |
 
 ## Development
 
@@ -1094,6 +1099,12 @@ pnpm build             # tsdown → dist/cli.mjs, copies the web page next to it
 pnpm e2e               # full run against a throwaway sshd+dockerd container (needs Docker)
 E2E_ONLY="volumes ui" pnpm e2e   # setup, then only these sections and the ones they build on
 ```
+
+CI runs unit tests, both typechecks, and the production build on current Node 22 and 24 releases.
+Build tools require newer Node patches than the CLI: use Node 22.18+ or Node 24.11+ for development.
+A separate job installs only production dependencies and checks the built CLI on Node 22.4.0,
+the advertised runtime floor. The Docker smoke suite (`static secrets ui`, plus prerequisites) runs
+only on manual workflow dispatch, without server credentials or deployments.
 
 ## License
 

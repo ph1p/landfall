@@ -1,5 +1,5 @@
 import { defineCommand } from "../cmd";
-import { checkEmail, checkInt, DEFAULT_KEEP, loadConfig, saveConfig, useServer, type Defaults } from "../../core/config";
+import { checkEmail, checkInt, DEFAULT_KEEP, updateConfig, type Defaults } from "../../core/config";
 import { c, fail, ok, printJson } from "../../core/term";
 import { defaultsView } from "../../core/views";
 
@@ -31,18 +31,23 @@ A server's own setting wins over these (lf server config shows which applies):
     if (bad.length) fail(`cannot unset ${bad.join(", ")}: one of ${KEYS.join(", ")}`);
     const changing = o["tunnel-only"] !== undefined || o.email !== undefined || o.keep !== undefined || o.default !== undefined || unset.length > 0;
     if (changing) {
-      if (o.default !== undefined) useServer(o.default);
-      const cfg = loadConfig();
-      const d: Defaults = (cfg.defaults ??= {});
-      if (o["tunnel-only"] !== undefined) d.tunnelOnly = o["tunnel-only"];
-      if (o.email !== undefined) d.email = checkEmail(o.email);
-      if (o.keep !== undefined) d.keep = checkInt(o.keep, "--keep", 1);
-      if (unset.includes("tunnel-only")) delete d.tunnelOnly;
-      if (unset.includes("email")) delete d.email;
-      if (unset.includes("keep")) delete d.keep;
-      if (unset.includes("default")) delete cfg.default;
-      if (!Object.keys(d).length) delete cfg.defaults;
-      saveConfig(cfg);
+      const email = o.email !== undefined ? checkEmail(o.email) : undefined;
+      const keep = o.keep !== undefined ? checkInt(o.keep, "--keep", 1) : undefined;
+      await updateConfig((cfg) => {
+        if (o.default !== undefined) {
+          cfg.servers[o.default] ??= { host: o.default };
+          cfg.default = o.default;
+        }
+        const d: Defaults = (cfg.defaults ??= {});
+        if (o["tunnel-only"] !== undefined) d.tunnelOnly = o["tunnel-only"];
+        if (email !== undefined) d.email = email;
+        if (keep !== undefined) d.keep = keep;
+        if (unset.includes("tunnel-only")) delete d.tunnelOnly;
+        if (unset.includes("email")) delete d.email;
+        if (unset.includes("keep")) delete d.keep;
+        if (unset.includes("default")) delete cfg.default;
+        if (!Object.keys(d).length) delete cfg.defaults;
+      });
       ok("saved");
     }
     const v = defaultsView();

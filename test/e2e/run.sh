@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/landfall-e2e.XXXXXX")
-NAME=landfall-e2e
+NAME=${E2E_NAME:-landfall-e2e}
 SSH_PORT=${SSH_PORT:-2222}
 HTTPS_PORT=${HTTPS_PORT:-18443}
 
@@ -875,6 +875,33 @@ vj=$(curl -s -b "$JAR" "$UI/api/servers/box/volumes?site=up")
 # Forms check names with the CLI's own rules: a dotted variable name passes both.
 { curl -s -b "$JAR" "$UI/api/state" | json 'new RegExp(i.rules.envName).test("app.port") && new RegExp(i.rules.secretName).test("db-pass")' | has -x true; } \
   || die "ui serves the CLI's env and secret name rules"
+# The same private transport carries aliases, exact whitespace and multiline secret files.
+payload=$(node --input-type=module -e 'console.log(JSON.stringify({argv:["sites","secret","app","UI_TOKEN=  synthetic-ui-token  ","UI_CERT=synthetic-ui-cert\nsecond line\n","-s","box","-y"],server:"box"}))')
+created=$(curl -s -b "$JAR" -H 'content-type: application/json' -d "$payload" "$UI/api/jobs")
+{ ! has "synthetic-ui-" <<<"$created"; } || die "ui creation metadata reveals a value"
+job=$(json i.id <<<"$created")
+events=$(curl -s -N --max-time 60 -b "$JAR" "$UI/api/jobs/$job/events")
+{ has '"code":0' <<<"$events" && ! has "synthetic-ui-" <<<"$events"; } || die "ui secret job or done metadata"
+{ [ "$(docker exec "$NAME" cat /opt/landfall/sites/app/.secrets/UI_TOKEN)" = "  synthetic-ui-token  " ]; } || die "ui secret whitespace changed"
+actual=$(docker exec "$NAME" base64 /opt/landfall/sites/app/.secrets/UI_CERT | tr -d '\n')
+expected=$(printf 'synthetic-ui-cert\nsecond line\n' | base64 | tr -d '\n')
+[ "$actual" = "$expected" ] || die "ui multiline secret bytes changed"
+for endpoint in "/api/state" "/api/jobs/$job"; do
+  { ! curl -s -b "$JAR" "$UI$endpoint" | has "synthetic-ui-"; } || die "ui metadata reveals secret values"
+done
+# Inline env flags work alongside a dotenv file, explicit values still win, and metadata masks them.
+printf 'GREETING=from-file\n' > "$WORK/ui.env"
+payload=$(node --input-type=module -e 'console.log(JSON.stringify({argv:["deploy","--env=GREETING=synthetic-ui-env","--dotenv",process.argv[1],"-s","box","-y","--no-save"],server:"box",cwd:process.argv[2]}))' "$WORK/ui.env" "$WORK/app")
+created=$(curl -s -b "$JAR" -H 'content-type: application/json' -d "$payload" "$UI/api/jobs")
+{ ! has "synthetic-ui-env" <<<"$created"; } || die "ui inline env metadata reveals a value"
+job=$(json i.id <<<"$created")
+{ curl -s -N --max-time 120 -b "$JAR" "$UI/api/jobs/$job/events" | has '"code":0'; } || die "ui inline env deploy"
+expect app.test / "app synthetic-ui-env"
+# Reject command stdin without echoing arbitrary argument values.
+status=$(curl -s -b "$JAR" -o "$WORK/invalid-job.json" -w '%{http_code}' -H 'content-type: application/json' \
+  -d '{"argv":["env","app","--dotenv=-"]}' "$UI/api/jobs")
+[ "$status" = 400 ] || die "ui command stdin is not rejected"
+pass "web dashboard preserves secret bytes, masks aliases/inline env, and rejects command stdin"
 # A security fix button: the advice's argv, run as a job.
 argv=$(curl -s -b "$JAR" "$UI/api/servers/box/system" | json 'JSON.stringify(i.advice.find((a) => a.id === "fail2ban").fix.argv)')
 job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":'"$argv"',"server":"box"}' "$UI/api/jobs" | json i.id)
