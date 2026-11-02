@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { checkEmail, checkImage, defaults, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, saveConfig, type Server } from "./config";
+import { checkEmail, checkImage, defaults, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, updateConfig, patchServer, type Server } from "./config";
 import { runScript, shq, writeFileCmd } from "./ssh";
 import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "./templates";
 import { askSecret, c, fail, info, ok, step, warn } from "./term";
@@ -54,6 +54,7 @@ export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
 
 /** Install traefik and remember its settings on the lf server entry `name` (if registered). */
 export async function installTraefik(name: string, server: Server, o: TraefikInstall) {
+  const before = loadConfig().servers[name];
   const t = traefikSettings(server, o);
   checkImage(t.image);
   if (t.email) checkEmail(t.email);
@@ -108,18 +109,19 @@ dc up -d --remove-orphans --quiet-pull
 sleep 2 # traefik exits shortly after start on a bad config
 ensure_running traefik`,
   );
-  const cfg = loadConfig();
-  if (cfg.servers[name]) {
-    Object.assign(cfg.servers[name], {
+  if (before) {
+    const defaultEmail = defaults().email;
+    const next = {
+      ...before,
       // landfall's default stays the default: changing it later reaches this server too.
-      email: email === defaults().email ? undefined : email,
+      email: email === defaultEmail ? undefined : email,
       staging: staging || undefined,
       traefikImage: t.image === DEFAULT_TRAEFIK_IMAGE ? undefined : t.image,
       hostNetwork: t.hostNetwork || undefined,
       http3: t.http3 ? undefined : false,
       dashboard,
-    });
-    saveConfig(cfg);
+    };
+    await updateConfig((cfg) => { patchServer(cfg, name, before, next); });
   }
   ok(`traefik running (${describeTraefik(t)}) — HTTPS certificates from Let's Encrypt`);
   if (t.hostNetwork) info(c.dim("host network: ufw now decides who reaches 80/443"));

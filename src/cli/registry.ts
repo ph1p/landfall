@@ -1,0 +1,115 @@
+import type { Command } from "./cmd";
+import { auth, domains, open } from "./commands/access";
+import { config } from "./commands/config";
+import { deploy } from "./commands/deploy";
+import { eject, init } from "./commands/init";
+import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUninstall, serverUse } from "./commands/server";
+import { firewallAllow, firewallDeny, firewallDisable, firewallEnable, firewallRemove, firewallStatus, firewallUpdate } from "./commands/firewall";
+import { historyLog, historyUndo } from "./commands/history";
+import { keygen, setup } from "./commands/setup";
+import { sitesEnv, sitesSecret, sitesInfo, sitesList, sitesLogs, sitesRemove, sitesAdopt, sitesRestart, releaseRemove, sitesRollback, sitesStart, sitesStop, sitesTunnel, tunnelsList } from "./commands/sites";
+import { diskCmd, statsCmd } from "./commands/stats";
+import { certsCmd, checkCmd, trafficCmd } from "./commands/traffic";
+import { pruneCmd, rebootCmd } from "./commands/manage";
+import { bansList, hostnameCmd, keysAdd, keysList, keysRemove, logLimitCmd, servicesList, servicesLogs, servicesRestart, servicesStart, servicesStop, swapCmd, systemCmd, timezoneCmd, unbanCmd } from "./commands/system";
+import { hardenCmd, securityCmd } from "./commands/security";
+import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./commands/users";
+import { ui } from "./commands/ui";
+import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
+import { update, updatesList } from "./commands/updates";
+import { scanCmd } from "./commands/scan";
+import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
+
+/** Registration only: importing commands must never start the CLI. */
+export const commands: Command[] = [
+  setup, init, eject, deploy, sitesList, sitesInfo, sitesLogs, sitesEnv, sitesSecret,
+  sitesRollback, releaseRemove, sitesRestart, sitesStop, sitesStart, sitesRemove,
+  sitesAdopt, sitesTunnel, tunnelsList, volumeList, volumeBackup, volumePull,
+  volumePush, volumeRestore, volumeBackupRemove, volumeAdd, volumeRemove,
+  domains, auth, open, updatesList, scanCmd, update, serverAdd, serverList,
+  serverInfo, statsCmd, diskCmd, trafficCmd, certsCmd, checkCmd, pruneCmd,
+  rebootCmd, systemCmd, securityCmd, hardenCmd, servicesList, servicesRestart,
+  servicesStart, servicesStop, servicesLogs, keysList, keysAdd, keysRemove,
+  usersList, usersAdd, usersRemove, usersPasswd, usersSudo, bansList, unbanCmd,
+  swapCmd, hostnameCmd, timezoneCmd, logLimitCmd, serverConfig, serverDomain,
+  serverUse, serverRemove, serverUninstall, serverSsh, traefikSetup, traefikUse,
+  traefikStatus, traefikDashboard, traefikRestart, traefikLogs, traefikRemove,
+  firewallStatus, firewallEnable, firewallDisable, firewallAllow, firewallDeny,
+  firewallUpdate, firewallRemove, historyLog, historyUndo, keygen, config, ui,
+];
+
+/** Shorthands → canonical command names. */
+export const aliases: Record<string, string> = {
+  ls: "sites list",
+  sites: "sites list",
+  servers: "server list",
+  "server ls": "server list",
+  "server ssh": "ssh",
+  "sites logs": "logs",
+  "sites env": "env",
+  "sites secret": "secret",
+  "sites rollback": "rollback",
+  "releases rm": "release rm",
+  "release remove": "release rm",
+  "release delete": "release rm",
+  "sites restart": "restart",
+  "sites stop": "stop",
+  "sites start": "start",
+  "sites ls": "sites list",
+  "sites remove": "sites rm",
+  "server remove": "server rm",
+  uninstall: "server uninstall",
+  "traefik remove": "traefik rm",
+  traefik: "traefik status",
+  firewall: "firewall status",
+  "firewall remove": "firewall rm",
+  log: "history",
+  revert: "undo",
+  web: "ui",
+  info: "server info",
+  "sites domains": "domains",
+  "sites auth": "auth",
+  "sites open": "open",
+  "sites tunnel": "tunnel",
+  "tunnels ls": "tunnels",
+  "tunnels list": "tunnels",
+  upgrade: "update",
+  "server stats": "stats",
+  "server disk": "disk",
+  "server traffic": "traffic",
+  "server certs": "certs",
+  "sites check": "check",
+  volume: "volumes",
+  "volume ls": "volumes",
+  "volume list": "volumes",
+  "volumes ls": "volumes",
+  "volume remove": "volume rm",
+  "volume delete": "volume rm",
+  "server prune": "prune",
+  "server reboot": "reboot",
+  "server system": "system",
+  "services ls": "services",
+  "services list": "services",
+  "keys ls": "keys",
+  "keys list": "keys",
+  "keys remove": "keys rm",
+  "users ls": "users",
+  "users list": "users",
+  "users remove": "users rm",
+  "users password": "users passwd",
+  "bans unban": "unban",
+  "server swap": "swap",
+  "server hostname": "hostname",
+  "server timezone": "timezone",
+};
+
+export const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));
+
+export function find(argv: string[]): { cmd?: Command; rest: string[]; prefix: number } {
+  for (const n of [3, 2, 1]) {
+    const key = argv.slice(0, n).join(" ");
+    const cmd = byName.get(aliases[key] ?? key);
+    if (cmd && argv.length >= n) return { cmd, rest: argv.slice(n), prefix: n };
+  }
+  return { rest: argv, prefix: 0 };
+}

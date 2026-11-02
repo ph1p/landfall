@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { defineCommand, parse } from "../../src/cli/cmd";
 import { checkEmail, checkLoginName } from "../../src/core/config";
-import { secretEnv, secretsOut } from "../../src/core/job";
+import { secretEnv } from "../../src/core/job";
+import { decodeJobInput, encodeJobInput } from "../../src/core/job-input";
 import { dotenvLines, parseEnvPairs } from "../../src/core/remote";
 import { shq, writeFileCmd } from "../../src/core/ssh";
 import { PRELUDE } from "../../src/core/templates";
@@ -34,24 +35,9 @@ describe("shell quoting", () => {
 });
 
 describe("secrets stay off the command line", () => {
-  test("web jobs pass passwords as env and env pairs on stdin", () => {
-    expect(secretsOut(["deploy", "--auth-password", "s3cret", "-y"])).toEqual({ args: ["deploy", "-y"], env: { LANDFALL_SECRET_AUTH_PASSWORD: "s3cret" }, stdin: undefined });
-    expect(secretsOut(["auth", "blog", "--password=a b"]).env).toEqual({ LANDFALL_SECRET_PASSWORD: "a b" });
-    // -p is the password too, except where it is a port.
-    expect(secretsOut(["users", "add", "bob", "-p", "pw"])).toEqual({ args: ["users", "add", "bob"], env: { LANDFALL_SECRET_PASSWORD: "pw" }, stdin: undefined });
-    expect(secretsOut(["server", "add", "web", "-p", "2222"]).args).toEqual(["server", "add", "web", "-p", "2222"]);
-    // After --, the remote command's own: lf ssh box -- mkdir -p x.
-    expect(secretsOut(["ssh", "box", "--", "mkdir", "-p", "/srv/x"])).toEqual({ args: ["ssh", "box", "--", "mkdir", "-p", "/srv/x"], env: {}, stdin: undefined });
-    expect(secretsOut(["env", "blog", "-s", "x", "A=1", "B=two=2", "-u", "C"])).toEqual({
-      args: ["env", "blog", "-s", "x", "-u", "C", "--dotenv", "-"],
-      env: {},
-      stdin: "A=1\nB=two=2\n",
-    });
-    // deploy's -e values travel on stdin; its other arguments stay.
-    expect(secretsOut(["deploy", "-y", "-e", "A=1", "--env", "B=2", "-n", "C=x"])).toEqual({ args: ["deploy", "-y", "-n", "C=x", "--dotenv", "-"], env: {}, stdin: "A=1\nB=2\n" });
-    // Its own --dotenv wins: -e stays an argument.
-    expect(secretsOut(["deploy", "--dotenv=.env", "-e", "A=1"]).args).toEqual(["deploy", "--dotenv=.env", "-e", "A=1"]);
-    expect(secretsOut(["secret", "blog", "tls.key=abc"])).toEqual({ args: ["secret", "blog", "--dotenv", "-"], env: {}, stdin: "tls.key=abc\n" });
+  test("web jobs carry the whole original vector, not a lossy dotenv conversion", () => {
+    const args = ["sites", "secret", "blog", "KEY=  synthetic  \r\n", "--dotenv=.env", "KEY=last"];
+    expect(decodeJobInput(encodeJobInput(args))).toEqual(args);
   });
 
   test("password options fall back to LANDFALL_SECRET_*", () => {

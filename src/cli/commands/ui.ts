@@ -1,5 +1,6 @@
 import { defineCommand } from "../cmd";
 import { checkInt } from "../../core/config";
+import { maskJobArgs, validateJobArgs } from "../job-args";
 
 export const ui = defineCommand({
   name: "ui",
@@ -10,6 +11,10 @@ export const ui = defineCommand({
   },
   async run(_, o) {
     const { webUi } = await import("../../ui/server/server");
-    return webUi({ port: o.port === undefined ? undefined : checkInt(o.port, "--port", 1, 65535), open: o.open });
+    return webUi({
+      port: o.port === undefined ? undefined : checkInt(o.port, "--port", 1, 65535),
+      open: o.open,
+      args: { validate: validateJobArgs, mask: maskJobArgs },
+    });
   },
 });

@@ -1,51 +1,13 @@
 import { spawn } from "node:child_process";
 import { askpassEnv } from "./login";
 import { REPORT } from "./term";
+import { encodeJobInput, JOB_INPUT } from "./job-input";
 
 /** How to start this landfall again: node with the same flags (tsx loader in dev) and entry script. */
 const self = (): string[] => [process.execPath, ...process.execArgv, process.argv[1]];
 
 /** `--dashboard-password` → `LANDFALL_SECRET_DASHBOARD_PASSWORD`. */
 export const secretEnv = (flag: string) => `LANDFALL_SECRET_${flag.toUpperCase().replace(/-/g, "_")}`;
-
-/** --dotenv, with or without =value. */
-const DOTENV_FLAG = /^--dotenv(=|$)/;
-const isDotenvFlag = (a: string) => DOTENV_FLAG.test(a);
-
-/** Commands whose KEY=value arguments are .env values. */
-/** -p is the password's short flag, except where it is a port (server add, setup, ui). */
-export const isPasswordShort = (argv: string[], a: string | undefined) => a === "-p" && !["server", "setup", "ui"].includes(argv[0]);
-export const isEnvCmd = (argv: string[]) => argv[0] === "env" || argv[0] === "secret" || (argv[0] === "sites" && argv[1] === "env");
-// Secret names may hold dots and dashes too.
-export const ENV_PAIR = /^[A-Za-z0-9_][A-Za-z0-9_.-]*=/;
-
-/**
- * Move passwords and .env values off the job's command line, where `ps` would show them:
- * `--x-password v` travels as LANDFALL_SECRET_X_PASSWORD, `env` pairs and deploy's `-e` as a dotenv on stdin (`--dotenv -`).
- */
-export function secretsOut(argv: string[]) {
-  const args: string[] = [];
-  const env: Record<string, string> = {};
-  const pairs: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    // After --: a remote command's own arguments (lf ssh box -- mkdir -p x), not landfall's.
-    if (a === "--") {
-      args.push(...argv.slice(i));
-      break;
-    }
-    const flag = isPasswordShort(argv, a) ? ["-p", "password"] : a.match(/^--((?:[\w-]+-)?password)(?:=(.*))?$/s);
-    if (flag && (flag[2] !== undefined || i + 1 < argv.length)) {
-      env[secretEnv(flag[1])] = flag[2] ?? argv[++i];
-    } else if (isEnvCmd(argv) && ENV_PAIR.test(a) && !a.includes("\n") && !argv.some(isDotenvFlag)) {
-      pairs.push(a);
-    } else if (argv[0] === "deploy" && (a === "-e" || a === "--env") && ENV_PAIR.test(argv[i + 1] ?? "") && !argv[i + 1].includes("\n") && !argv.some(isDotenvFlag)) {
-      pairs.push(argv[++i]);
-    } else args.push(a);
-  }
-  if (pairs.length) args.push("--dotenv", "-");
-  return { args, env, stdin: pairs.length ? pairs.join("\n") + "\n" : undefined };
-}
 
 export interface Job {
   argv: string[];
@@ -117,14 +79,15 @@ const clip = (l: string) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) + "…" 
  * Run `lf <argv>` as a child with piped output and no terminal, so it never
  * prompts: the web dashboard asks the questions before starting it.
  */
-export function startJob(argv: string[], onChange: () => void, opts: { password?: string; env?: Record<string, string>; cwd?: string; stdin?: string } = {}): Job {
+export function startJob(argv: string[], onChange: () => void, opts: { password?: string; env?: Record<string, string>; cwd?: string } = {}): Job {
+  const input = encodeJobInput(argv);
   const env: Record<string, string | undefined> = { ...process.env, NO_COLOR: "1", LANDFALL_REPORT: "1", LANDFALL_PARENT: String(process.pid), ...opts.env };
   if (opts.password) {
     Object.assign(env, askpassEnv(opts.password));
   }
   // Own process group, so stopping it also stops the ssh it started (e.g. `logs -f`).
-  const child = spawn(self()[0], [...self().slice(1), ...argv], { stdio: [opts.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"], env, cwd: opts.cwd, detached: true });
-  child.stdin?.on("error", () => {}).end(opts.stdin);
+  const child = spawn(self()[0], [...self().slice(1), JOB_INPUT], { stdio: ["pipe", "pipe", "pipe"], env, cwd: opts.cwd, detached: true });
+  child.stdin?.on("error", () => {}).end(input);
   const job: Job = {
     argv,
     lines: [],

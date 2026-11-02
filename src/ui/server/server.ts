@@ -11,7 +11,7 @@ import { ENV_NAME, SECRET_NAME } from "../../core/compose";
 import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
 import { browse, jobCwd, pruneUploads, receiveUpload } from "./local";
-import { ENV_PAIR, isEnvCmd, isPasswordShort, secretsOut, startJob, type Job } from "../../core/job";
+import { startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
@@ -25,6 +25,7 @@ import { c, CliError, openUrl } from "../../core/term";
 interface WebJob {
   id: string;
   argv: string[];
+  shown: string[];
   server?: string;
   startedAt: string;
   job: Job;
@@ -75,13 +76,19 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 // A CliError is a refusal or a failed step the user can act on, not a crash in the server.
 const failure = (e: any, status = e instanceof CliError ? 400 : 500) => json({ error: e?.message ?? String(e) }, status);
 
-function startWebJob(argv: string[], o: { server?: string; password?: string; cwd?: string }): WebJob {
+/** The CLI supplies its parser policy; the UI server never imports CLI implementation modules. */
+interface JobArgsPolicy {
+  validate(argv: string[]): void;
+  mask(argv: string[]): string[];
+}
+
+function startWebJob(argv: string[], o: { server?: string; password?: string; cwd?: string }, policy: JobArgsPolicy): WebJob {
   // The journal credits what the job changes to this id, so it can be undone as one.
   const id = newRunId();
   const listeners = new Set<() => void>();
-  const { args, env, stdin } = secretsOut(argv);
-  const job = startJob(args, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, stdin, env: { ...env, LANDFALL_RUN: id } });
-  const w: WebJob = { id, argv, server: o.server, startedAt: new Date().toISOString(), job, listeners, opts: o };
+  policy.validate(argv);
+  const job = startJob(argv, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, env: { LANDFALL_RUN: id } });
+  const w: WebJob = { id, argv, shown: policy.mask(argv), server: o.server, startedAt: new Date().toISOString(), job, listeners, opts: o };
   jobs.set(id, w);
   for (const [old, j] of jobs) {
     if (jobs.size <= MAX_JOBS) break;
@@ -90,24 +97,9 @@ function startWebJob(argv: string[], o: { server?: string; password?: string; cw
   return w;
 }
 
-/** The command as the page shows it: passwords given as flags, `lf env` and deploy `-e` values, are masked. */
-const shown = (argv: string[]) => {
-  // After --: a remote command's own arguments, as secretsOut leaves them.
-  const end = argv.includes("--") ? argv.indexOf("--") : argv.length;
-  return argv.map((a, i) =>
-    i >= end
-      ? a
-      : isPasswordShort(argv, argv[i - 1]) || /^--([\w-]+-)?password$/.test(argv[i - 1])
-        ? "***"
-        : (isEnvCmd(argv) || (argv[0] === "deploy" && /^(-e|--env)$/.test(argv[i - 1]))) && ENV_PAIR.test(a)
-          ? a.replace(/=.*/s, "=***")
-          : a.replace(/^(--([\w-]+-)?password=).*/, "$1***"),
-  );
-};
-
 const jobInfo = (w: WebJob) => ({
   id: w.id,
-  argv: shown(w.argv),
+  argv: w.shown,
   server: w.server,
   startedAt: w.startedAt,
   code: w.job.code,
@@ -183,7 +175,7 @@ export function state() {
   };
 }
 
-async function api(req: Request, path: string[]): Promise<Response> {
+async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise<Response> {
   const [what, name, sub] = path;
   const method = req.method;
 
@@ -260,7 +252,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
       } catch (e) {
         return failure(e, 400);
       }
-      return json(jobInfo(startWebJob(argv, { server: body.server, password: body.password || undefined, cwd })));
+      return json(jobInfo(startWebJob(argv, { server: body.server, password: body.password || undefined, cwd }, policy)));
     }
     const w = name ? jobs.get(name) : undefined;
     if (name && !w) return failure(`no job ${name}`, 404);
@@ -271,7 +263,7 @@ async function api(req: Request, path: string[]): Promise<Response> {
     if (w && method === "POST" && sub === "force") {
       if (w.job.code === undefined || w.argv.includes("--force")) return failure("only a finished job without --force", 400);
       if ([...jobs.values()].filter((j) => j.job.code === undefined).length >= MAX_RUNNING) return failure("too many jobs running", 429);
-      return json(jobInfo(startWebJob([...w.argv, "--force"], w.opts)));
+      return json(jobInfo(startWebJob([...w.argv, "--force"], w.opts, policy)));
     }
     if (w && method === "POST" && sub === "stop") {
       w.job.stop();
@@ -310,7 +302,7 @@ const DEFAULT_PORT = 4777;
  * The web dashboard: a local page that runs landfall's commands.
  * It runs commands as `lf` child processes, exactly like typing them, and streams their output.
  */
-export async function webUi(o: { port?: number; open: boolean }): Promise<number> {
+export async function webUi(o: { port?: number; open: boolean; args: JobArgsPolicy }): Promise<number> {
   setQuiet(true);
   try {
     pruneUploads();
@@ -347,7 +339,7 @@ export async function webUi(o: { port?: number; open: boolean }): Promise<number
       // no Origin: only this page's own requests (or non-browser clients, which send no Sec-Fetch-Site) get in.
       const site = req.headers.get("sec-fetch-site");
       if (site && site !== "same-origin" && site !== "none") return new Response("forbidden", { status: 403 });
-      const answer = () => api(req, url.pathname.slice(5).split("/").filter(Boolean).map(decodeURIComponent)).catch((e) => failure(e));
+      const answer = () => api(req, url.pathname.slice(5).split("/").filter(Boolean).map(decodeURIComponent), o.args).catch((e) => failure(e));
       if (req.method !== "GET" || !url.pathname.startsWith("/api/servers/")) return answer();
       // The same read asked again while it runs (a poll, a second tab): one ssh run answers both.
       const key = url.pathname + url.search;
