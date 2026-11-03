@@ -11,8 +11,14 @@
     "traefik",
     "vps"
   ],
+  "homepage": "https://github.com/ph1p/landfall#readme",
+  "bugs": "https://github.com/ph1p/landfall/issues",
   "license": "MIT",
   "author": "ph1p <me@ph1p.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ph1p/landfall.git"
+  },
   "bin": {
     "landfall": "dist/cli.mjs",
     "lf": "dist/cli.mjs"

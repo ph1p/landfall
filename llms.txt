@@ -1,0 +1,40 @@
+# landfall
+
+> landfall (`lf`) is a CLI that sets up Linux servers over ssh and deploys sites to them as Docker Compose
+> projects behind Traefik with automatic HTTPS. There is no agent on the server, every change is journaled and can
+> be undone with `lf undo`, and every feature is an `lf` command usable from scripts, CI and AI agents.
+
+Key facts for agents:
+
+- Install with `npm i -g landfall`. Needs Node.js 22.4+, `ssh`, `ssh-copy-id` and `tar`.
+- A server is any ssh target (`-s vps`, `-s user@host`). A site is one Compose project under
+  `/opt/landfall/sites/<name>` on it. `./.landfall.json` stores a folder's site name, server and domains.
+- Without a terminal, `lf` never prompts. A command that would ask fails and says to pass `-y`. `-y` never
+  overrides a safety refusal; only `--force` does.
+- Read commands support `--json` on stdout. Progress and errors go to stderr. Exit codes: 0 ok, 1 error, 2 unknown
+  command.
+- Pass secrets on stdin (`--password-stdin`, `--dotenv -`) or in `LANDFALL_PASSWORD` / `LANDFALL_SECRET_<OPTION>`,
+  never in argv.
+- `lf <command> --help` prints every option of a command.
+
+## Docs
+
+- [Scripts, CI and AI agents](docs/automation.md): the non-interactive contract, `--json` commands, secrets, server and site resolution, what cannot be undone, recipes
+- [Reference](docs/reference.md): every command and alias, local and remote files, `.landfall.json` keys, environment variables
+- [Servers](docs/servers.md): `lf setup` for fresh and existing servers, setup flags, registering servers, systems without a package manager
+- [Deploy a site](docs/deploy.md): site kinds, env and secrets, deploying from CI, what gets uploaded, environments, main domains
+- [Compose sites](docs/compose.md): `x-landfall` (port, domains, routes, private ports, allowlists), volumes, published ports
+- [Day-to-day](docs/sites.md): logs, env, secrets, domains, logins, tunnels, restart and removal
+- [Volumes and backups](docs/volumes.md): volumes, backups, schedules, offsite copies, push and pull
+- [History and undo](docs/history.md): the server journal and what `lf undo` reverts
+- [Troubleshooting](docs/troubleshooting.md): error messages and fixes
+
+## Optional
+
+- [Updates](docs/updates.md): OS packages, images, Docker Compose, vulnerability scans
+- [Traefik](docs/traefik.md): landfall's Traefik, HTTP/3, dashboard, using your own Traefik
+- [Server administration](docs/system.md): firewall, services, SSH keys, users, swap, hardening
+- [Traffic, certificates and checks](docs/monitoring.md): request stats, certificate state, HTTPS checks
+- [Web UI](docs/web-ui.md): `lf ui`, its pages and the commands behind them
+- [AGENTS.md](AGENTS.md): architecture, layer rules and invariants for agents changing landfall's code
+- [README](README.md): overview and quickstart
