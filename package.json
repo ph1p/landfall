@@ -2,18 +2,17 @@
   "name": "landfall",
   "version": "0.11.4",
   "description": "Set up servers and deploy sites behind Traefik with automatic HTTPS",
-  "author": "ph1p <me@ph1p.dev>",
-  "license": "MIT",
   "keywords": [
+    "cli",
     "deploy",
-    "traefik",
     "docker",
-    "self-hosted",
-    "vps",
     "https",
-    "cli"
+    "self-hosted",
+    "traefik",
+    "vps"
   ],
-  "type": "module",
+  "license": "MIT",
+  "author": "ph1p <me@ph1p.dev>",
   "bin": {
     "landfall": "dist/cli.mjs",
     "lf": "dist/cli.mjs"
@@ -21,16 +20,16 @@
   "files": [
     "dist"
   ],
-  "engines": {
-    "node": ">=22.4"
-  },
-  "packageManager": "pnpm@12.15.0",
+  "type": "module",
   "scripts": {
     "dev": "tsx src/cli/cli.ts",
     "build": "tsdown && vite build",
     "prepublishOnly": "pnpm build",
     "test": "vitest run test/unit",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/app",
+    "lint": "oxlint",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "e2e": "pnpm build && bash test/e2e/run.sh",
     "dev:ui": "vite build --watch"
   },
@@ -46,6 +45,8 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "lucide-react": "^1.61.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tailwindcss": "^4.3.3",
@@ -54,5 +55,9 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
-  }
+  },
+  "engines": {
+    "node": ">=22.4"
+  },
+  "packageManager": "pnpm@12.15.0"
 }

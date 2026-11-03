@@ -22,8 +22,8 @@ export function dockerPlatform(arch: string): string {
   const a = arch.trim();
   if (a === "x86_64" || a === "amd64") return "linux/amd64";
   if (a === "aarch64" || a === "arm64") return "linux/arm64";
-  if (/^armv7/.test(a)) return "linux/arm/v7";
-  if (/^armv6/.test(a)) return "linux/arm/v6";
+  if (a.startsWith("armv7")) return "linux/arm/v7";
+  if (a.startsWith("armv6")) return "linux/arm/v6";
   return `linux/${a}`;
 }
 
@@ -50,7 +50,7 @@ export function localBuilds(
       const b = typeof s.build === "string" ? { context: s.build } : s.build;
       const unsupported = ["ssh", "secrets", "additional_contexts", "platforms"].filter((k) => b[k] !== undefined);
       if (unsupported.length) fail(`${service} builds with ${unsupported.join(", ")}: build it on the server (leave out --build-local)`);
-      if (/^[a-z]+:\/\//i.test(b.context ?? "") || /^git@/.test(b.context ?? "")) fail(`${service} builds from ${b.context}: build it on the server (leave out --build-local)`);
+      if (/^[a-z]+:\/\//i.test(b.context ?? "") || (b.context ?? "").startsWith("git@")) fail(`${service} builds from ${b.context}: build it on the server (leave out --build-local)`);
       const serverContext = b.context ?? o.serverDir;
       const context = here(serverContext, service);
       let dockerfile: string;

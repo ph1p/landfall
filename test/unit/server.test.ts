@@ -12,7 +12,7 @@ import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHo
 import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/core/stats";
 import { parsePrunePlan } from "../../src/core/manage";
-import { JOURNAL_KEEP_BYTES, journalSize, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/reclaim";
+import { JOURNAL_KEEP_BYTES, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/reclaim";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/users";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/updates";

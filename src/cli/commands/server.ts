@@ -128,7 +128,7 @@ export const serverRemove = defineCommand({
     if (o["ssh-config"] && removeHostBlock(name)) ok(`removed Host ${name} from ${tildify(SSH_CONFIG)}`);
     ok(`removed ${name}`);
     // Said, not deleted: the key may still be the way in, and the Host block is plain ssh config.
-    const key = /^[\w@:\[\]][\w.@:\[\]-]*$/.test(name) ? keyFile(name) : "";
+    const key = /^[\w@:[\]][\w.@:[\]-]*$/.test(name) ? keyFile(name) : "";
     const kept = [
       ...(hasManagedBlock(name) ? [`Host ${name} in ${tildify(SSH_CONFIG)} (--ssh-config removes it)`] : []),
       ...(key && fs.existsSync(key) ? [`the key ${tildify(key)}`] : []),

@@ -246,11 +246,11 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact 
 
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 function lineClass(l: string) {
-  if (/^==> /.test(l)) return "c-cyan";
+  if (l.startsWith("==> ")) return "c-cyan";
   if (/^\s*✓/.test(l)) return "c-green";
   if (/^\s*!/.test(l)) return "c-yellow";
   if (/^\s*(error|✗|FAIL)/i.test(l)) return "c-red";
-  if (/^\$ /.test(l)) return "c-dim";
+  if (l.startsWith("$ ")) return "c-dim";
   return "";
 }
 /** Adds the lines out does not show yet, keeping a reader's scroll position unless they are at the bottom. */
