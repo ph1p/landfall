@@ -15,7 +15,9 @@ export function HistoryView({ n }: { n: string }) {
   if (!runs.length)
     return (
       <Card>
-        <Empty title="Nothing yet"><p>Every change landfall makes on {n} is logged here, with a way to undo it.</p></Empty>
+        <Empty title="Nothing yet">
+          <p>Every change landfall makes on {n} is logged here, with a way to undo it.</p>
+        </Empty>
       </Card>
     );
   const s = sv(n);
@@ -51,7 +53,10 @@ export function HistoryView({ n }: { n: string }) {
         const undoRun = () =>
           dialog({
             title: `Undo #${r.n} ${r.cmd} on ${n}?`,
-            text: [...todo.map((x) => `↺ ${x.what}`).reverse(), ...(later.length ? ["", `Later runs build on it and stay: ${later.map((x) => `#${x.n}`).join(", ")}`] : [])].join("\n"),
+            text: [
+              ...todo.map((x) => `↺ ${x.what}`).reverse(),
+              ...(later.length ? ["", `Later runs build on it and stay: ${later.map((x) => `#${x.n}`).join(", ")}`] : []),
+            ].join("\n"),
             ok: `Revert ${plural(todo.length, "change")}`,
             danger: true,
             onOk: () => undo([String(r.n)]),
@@ -62,8 +67,18 @@ export function HistoryView({ n }: { n: string }) {
               <b>#{r.n}</b>
               <span className="font-mono font-semibold text-md">{r.cmd || "?"}</span>
               <span className="dim">{ago(r.time)}</span>
-              <span className={cx("faint mono", HIDE)}>{r.actor} · {r.id}</span>
-              <Actions>{r.pending ? <Btn cls="sm" on={undoRun}>Undo {plural(r.pending, "change")}</Btn> : <span className="faint">nothing to undo</span>}</Actions>
+              <span className={cx("faint mono", HIDE)}>
+                {r.actor} · {r.id}
+              </span>
+              <Actions>
+                {r.pending ? (
+                  <Btn cls="sm" on={undoRun}>
+                    Undo {plural(r.pending, "change")}
+                  </Btn>
+                ) : (
+                  <span className="faint">nothing to undo</span>
+                )}
+              </Actions>
             </div>
             <ul className="steps list-none mt-2 mb-0 mx-0 pl-1">
               {r.steps.map((x, i) => {
@@ -75,7 +90,14 @@ export function HistoryView({ n }: { n: string }) {
                     {!x.undo && !x.reverts && <span className="faint">(not reversible)</span>}
                     {x.undone && <span className="faint">(undone)</span>}
                     {x.undo && !x.undone && (
-                      <Btn cls="ghost sm" on={() => confirmDlg({ title: `Undo step ${r.n}.${i + 1}?`, text: x.what, ok: "Undo it", danger: true, onOk: () => undo([`${r.n}.${i + 1}`]) })}>undo</Btn>
+                      <Btn
+                        cls="ghost sm"
+                        on={() =>
+                          confirmDlg({ title: `Undo step ${r.n}.${i + 1}?`, text: x.what, ok: "Undo it", danger: true, onOk: () => undo([`${r.n}.${i + 1}`]) })
+                        }
+                      >
+                        undo
+                      </Btn>
                     )}
                   </li>
                 );

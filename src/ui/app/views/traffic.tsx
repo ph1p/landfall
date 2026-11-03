@@ -11,7 +11,11 @@ import { Meter, Meters } from "./stats";
 
 // ---- traffic ---------------------------------------------------------------
 
-const TRAFFIC_SPANS = [["1h", "Last hour"], ["24h", "24 hours"], ["7d", "7 days"]] as const;
+const TRAFFIC_SPANS = [
+  ["1h", "Last hour"],
+  ["24h", "24 hours"],
+  ["7d", "7 days"],
+] as const;
 const CLASSES = ["2xx", "3xx", "4xx", "5xx"] as const;
 const CLASS_COLORS: Record<string, string> = { "2xx": "var(--accent)", "3xx": "var(--faint)", "4xx": "var(--warn)", "5xx": "var(--bad)" };
 const count = (v: number) => v.toLocaleString();
@@ -20,7 +24,8 @@ const MINUTE = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" 
 
 /** Requests per minute or hour, stacked by status class; hover a bar for its numbers. */
 function TrafficChart({ series, bucket }: { series: Detail["series"]; bucket: string }) {
-  const W = 600, H = 120;
+  const W = 600,
+    H = 120;
   const tot = series.map((x) => x["2xx"] + x["3xx"] + x["4xx"] + x["5xx"]);
   const max = Math.max(1, ...tot);
   const bw = W / series.length;
@@ -30,10 +35,19 @@ function TrafficChart({ series, bucket }: { series: Detail["series"]; bucket: st
   return (
     <div className="relative">
       <div className="absolute top-[-2px] left-0 text-xs faint">{count(max)}</div>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Requests per ${bucket}`} className="block w-full h-[120px] border-b border-line">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Requests per ${bucket}`}
+        className="block w-full h-[120px] border-b border-line"
+      >
         {series.map((x, i) => {
           let y = H;
-          const tip = `${label(x.at)}: ${count(tot[i])} requests${(["4xx", "5xx"] as const).filter((k) => x[k]).map((k) => `, ${count(x[k])} ${k}`).join("")}`;
+          const tip = `${label(x.at)}: ${count(tot[i])} requests${(["4xx", "5xx"] as const)
+            .filter((k) => x[k])
+            .map((k) => `, ${count(x[k])} ${k}`)
+            .join("")}`;
           return (
             <g key={x.at}>
               <title>{tip}</title>
@@ -49,12 +63,17 @@ function TrafficChart({ series, bucket }: { series: Detail["series"]; bucket: st
       </svg>
       <div className="grid grid-cols-3 text-xs faint mt-1">
         {[0, Math.floor(series.length / 2), series.length - 1].map((i, j) => (
-          <span key={j} className={["text-left", "text-center", "text-right"][j]}>{label(series[i].at)}</span>
+          <span key={j} className={["text-left", "text-center", "text-right"][j]}>
+            {label(series[i].at)}
+          </span>
         ))}
       </div>
       <div className="flex gap-3.5 text-xs text-dim mt-2">
         {Object.entries(CLASS_COLORS).map(([k, col]) => (
-          <span key={k}><i className="inline-block w-2.5 h-2.5 rounded-[2px] mr-[5px] align-[-1px]" style={{ background: col }} />{k}</span>
+          <span key={k}>
+            <i className="inline-block w-2.5 h-2.5 rounded-[2px] mr-[5px] align-[-1px]" style={{ background: col }} />
+            {k}
+          </span>
         ))}
       </div>
     </div>
@@ -81,12 +100,20 @@ export function TrafficView({ n }: { n: string }) {
   const spans = (
     <Actions className="m-0 mb-3.5">
       {TRAFFIC_SPANS.map(([v, l]) => (
-        <Btn key={v} cls={`sm${S.since === v ? " primary" : ""}`} title={`lf traffic --since ${v}`} on={() => ((S.since = v), load(n, "traffic", true))}>{l}</Btn>
+        <Btn key={v} cls={`sm${S.since === v ? " primary" : ""}`} title={`lf traffic --since ${v}`} on={() => ((S.since = v), load(n, "traffic", true))}>
+          {l}
+        </Btn>
       ))}
     </Actions>
   );
   const wait = pending(st, "reading Traefik's access log…");
-  if (wait) return <>{spans}{wait}</>;
+  if (wait)
+    return (
+      <>
+        {spans}
+        {wait}
+      </>
+    );
   const t = st!.data!;
   if (!t.proxy) return <Note>No Traefik on {n}: nothing to count. Set up the server to install it.</Note>;
   if (t.format === "common")
@@ -95,9 +122,17 @@ export function TrafficView({ n }: { n: string }) {
         <Note kind="warn">
           Traefik writes its access log as plain text.{" "}
           {t.own ? (
-            <>Add <span className="mono">--accesslog.format=json</span> to its command to see traffic here.</>
+            <>
+              Add <span className="mono">--accesslog.format=json</span> to its command to see traffic here.
+            </>
           ) : (
-            <Btn cls="sm" title="lf traefik setup: restarts Traefik for a moment" on={() => run(["traefik", "setup", ...sv(n), "-y"], { server: n, after: () => (load(n, "traffic", true), []) })}>Switch to JSON</Btn>
+            <Btn
+              cls="sm"
+              title="lf traefik setup: restarts Traefik for a moment"
+              on={() => run(["traefik", "setup", ...sv(n), "-y"], { server: n, after: () => (load(n, "traffic", true), []) })}
+            >
+              Switch to JSON
+            </Btn>
           )}
         </Note>
         <CertsCard n={n} />
@@ -107,21 +142,34 @@ export function TrafficView({ n }: { n: string }) {
     return (
       <>
         {spans}
-        <Card><Empty title="No requests in this span"><p className="dim">Traefik's access log has nothing from the last {S.since}.</p></Empty></Card>
+        <Card>
+          <Empty title="No requests in this span">
+            <p className="dim">Traefik's access log has nothing from the last {S.since}.</p>
+          </Empty>
+        </Card>
         <CertsCard n={n} />
       </>
     );
   // One site alone, from the hosts already read: the same numbers as lf traffic <site>.
   const focus = S.focus[n];
   const show = (site?: string) => ((S.focus[n] = site), render());
-  const back = focus && <Btn cls="sm" title="every site again" on={() => show()}>← All sites</Btn>;
+  const back = focus && (
+    <Btn cls="sm" title="every site again" on={() => show()}>
+      ← All sites
+    </Btn>
+  );
   const T = focus ? siteTraffic(t, focus) : t.total;
   const cmd = `lf traffic${focus ? ` ${focus}` : ""} --since ${S.since}${svText(n)}`;
   if (!T)
     return (
       <>
         {spans}
-        <Card><Empty title={`No requests for ${focus} in this span`}><p className="dim">Traefik's access log has nothing for it from the last {S.since}.</p>{back}</Empty></Card>
+        <Card>
+          <Empty title={`No requests for ${focus} in this span`}>
+            <p className="dim">Traefik's access log has nothing for it from the last {S.since}.</p>
+            {back}
+          </Empty>
+        </Card>
       </>
     );
   const errs = T.classes["4xx"] + T.classes["5xx"];
@@ -138,48 +186,123 @@ export function TrafficView({ n }: { n: string }) {
       <td className={cx(NUM, HIDE)}>{size(x.bytes)}</td>
     </tr>
   );
-  const reach = t.from && +new Date(t.from) - (Date.now() - t.since * 1000) > (t.bucket === "hour" ? 2 * 3_600_000 : 120_000) ? ` · the log reaches back to ${new Date(t.from).toLocaleString()}` : "";
+  const reach =
+    t.from && +new Date(t.from) - (Date.now() - t.since * 1000) > (t.bucket === "hour" ? 2 * 3_600_000 : 120_000)
+      ? ` · the log reaches back to ${new Date(t.from).toLocaleString()}`
+      : "";
   return (
     <>
-      {focus ? <div className="flex items-center gap-2.5 mb-3.5">{back}<b>{focus}</b><span className="faint">{t.sites.find((x) => x.site === focus)?.hosts.join(" ") ?? ""}</span></div> : null}
+      {focus ? (
+        <div className="flex items-center gap-2.5 mb-3.5">
+          {back}
+          <b>{focus}</b>
+          <span className="faint">{t.sites.find((x) => x.site === focus)?.hosts.join(" ") ?? ""}</span>
+        </div>
+      ) : null}
       {spans}
       <Meters>
         <Meter label="Requests" p={null} value={count(T.requests)} sub={`${focus ? focus : plural(t.sites.length, "site")} · ${size(T.bytes)} sent`} />
         <Meter label="Server errors" p={null} value={count(T.classes["5xx"])} sub={`${pct(T.classes["5xx"])}% · 5xx: the site failed`} />
         <Meter label="Client errors" p={null} value={count(T.classes["4xx"])} sub={`${pct(T.classes["4xx"])}% · 4xx: not found, denied`} />
-        <Meter label="Response time" p={null} value={ms(T.p50)} sub={`median · 95% within ${ms(T.p95)}`} hint="From Traefik receiving the request to the last byte sent" />
+        <Meter
+          label="Response time"
+          p={null}
+          value={ms(T.p50)}
+          sub={`median · 95% within ${ms(T.p95)}`}
+          hint="From Traefik receiving the request to the last byte sent"
+        />
       </Meters>
       <Card>
-        <CardHead>Requests per {t.bucket} {errs ? <Sub>{count(errs)} failed</Sub> : null}</CardHead>
-        <Body><TrafficChart series={T.series} bucket={t.bucket} /></Body>
+        <CardHead>
+          Requests per {t.bucket} {errs ? <Sub>{count(errs)} failed</Sub> : null}
+        </CardHead>
+        <Body>
+          <TrafficChart series={T.series} bucket={t.bucket} />
+        </Body>
       </Card>
-      {!focus && <Card>
-        <CardHead>By site <Sub>click one for its paths, errors and clients</Sub></CardHead>
-        <Table head={<><th>Site</th><th className={NUM}>Requests</th><th className={NUM}>4xx</th><th className={NUM}>5xx</th><th className={cx(NUM, HIDE)}>Median</th><th className={cx(NUM, HIDE)}>95%</th><th className={cx(NUM, HIDE)}>Sent</th></>}>
-          {t.sites.map((x) => row(`s:${x.site}`, <><b>{x.site}</b><div className="faint">{x.hosts.join(" ")}</div></>, x, x.site))}
-          {other.slice(0, 10).map((h) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h, h.host))}
-        </Table>
-        {other.length > 0 && (
-          <Body className="faint pt-0">Hosts without a site: bots asking for the server's IP or old domains{other.length > 10 ? `, ${other.length - 10} more` : ""}.</Body>
-        )}
-      </Card>}
+      {!focus && (
+        <Card>
+          <CardHead>
+            By site <Sub>click one for its paths, errors and clients</Sub>
+          </CardHead>
+          <Table
+            head={
+              <>
+                <th>Site</th>
+                <th className={NUM}>Requests</th>
+                <th className={NUM}>4xx</th>
+                <th className={NUM}>5xx</th>
+                <th className={cx(NUM, HIDE)}>Median</th>
+                <th className={cx(NUM, HIDE)}>95%</th>
+                <th className={cx(NUM, HIDE)}>Sent</th>
+              </>
+            }
+          >
+            {t.sites.map((x) =>
+              row(
+                `s:${x.site}`,
+                <>
+                  <b>{x.site}</b>
+                  <div className="faint">{x.hosts.join(" ")}</div>
+                </>,
+                x,
+                x.site,
+              ),
+            )}
+            {other.slice(0, 10).map((h) => row(`h:${h.host}`, <span className="mono dim">{h.host}</span>, h, h.host))}
+          </Table>
+          {other.length > 0 && (
+            <Body className="faint pt-0">
+              Hosts without a site: bots asking for the server's IP or old domains{other.length > 10 ? `, ${other.length - 10} more` : ""}.
+            </Body>
+          )}
+        </Card>
+      )}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-x-4 gap-y-5 mt-5 [&>.card]:mt-0! [&+.card]:mt-5">
         <List
           title="Failing requests"
           cols={[["Status"], ["Path"], ["Requests", NUM]]}
-          rows={T.errors.map((e, i) => <tr key={i}><td><ErrorCell status={e.status} /></td><td className="mono">{e.path}</td><td className={NUM}>{count(e.count)}</td></tr>)}
+          rows={T.errors.map((e, i) => (
+            <tr key={i}>
+              <td>
+                <ErrorCell status={e.status} />
+              </td>
+              <td className="mono">{e.path}</td>
+              <td className={NUM}>{count(e.count)}</td>
+            </tr>
+          ))}
         />
         <List
           title="Busiest paths"
           cols={[["Path"], ["Requests", NUM], ["Failed", NUM]]}
-          rows={T.paths.map((p) => <tr key={p.path}><td className="mono">{p.path}</td><td className={NUM}>{count(p.count)}</td><td className={NUM}>{p.errors ? <Badge kind="warn">{count(p.errors)}</Badge> : null}</td></tr>)}
+          rows={T.paths.map((p) => (
+            <tr key={p.path}>
+              <td className="mono">{p.path}</td>
+              <td className={NUM}>{count(p.count)}</td>
+              <td className={NUM}>{p.errors ? <Badge kind="warn">{count(p.errors)}</Badge> : null}</td>
+            </tr>
+          ))}
         />
       </div>
-      <List title="Clients" cols={[["IP"], ["Requests", NUM]]} rows={T.ips.map((i) => <tr key={i.ip}><td className="mono">{i.ip}</td><td className={NUM}>{count(i.count)}</td></tr>)} />
+      <List
+        title="Clients"
+        cols={[["IP"], ["Requests", NUM]]}
+        rows={T.ips.map((i) => (
+          <tr key={i.ip}>
+            <td className="mono">{i.ip}</td>
+            <td className={NUM}>{count(i.count)}</td>
+          </tr>
+        ))}
+      />
       {!focus && <CertsCard n={n} />}
       <p className="faint mt-3.5">
-        {st.loading && <><Spin />{" "}</>}
-        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}{reach} · <span className="mono">{cmd}</span>
+        {st.loading && (
+          <>
+            <Spin />{" "}
+          </>
+        )}
+        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}
+        {reach} · <span className="mono">{cmd}</span>
       </p>
     </>
   );
@@ -188,25 +311,65 @@ export function TrafficView({ n }: { n: string }) {
 /** Each site domain's certificate: days left, who issued it, why getting one failed. */
 export function CertsCard({ n }: { n: string }) {
   const st = S.certs[n];
-  const head = <CardHead>Certificates <Sub className={MONO}>lf certs</Sub></CardHead>;
-  if (waiting(st)) return <Card aria-busy="true">{head}<BoneRows rows={2} /></Card>;
+  const head = (
+    <CardHead>
+      Certificates <Sub className={MONO}>lf certs</Sub>
+    </CardHead>
+  );
+  if (waiting(st))
+    return (
+      <Card aria-busy="true">
+        {head}
+        <BoneRows rows={2} />
+      </Card>
+    );
   const wait = pending(st, "reading certificates…");
-  if (wait) return <Card>{head}<Body>{wait}</Body></Card>;
+  if (wait)
+    return (
+      <Card>
+        {head}
+        <Body>{wait}</Body>
+      </Card>
+    );
   const r = st!.data!;
   if (!r.domains.length) return null;
   const days = (c?: Cert) =>
-    !c ? <Badge kind="bad">none</Badge>
-    : c.days < 7 ? <Badge kind="bad">{c.days < 0 ? "expired" : plural(c.days, "day")}</Badge>
-    : c.staging ? <Badge kind="warn">staging</Badge>
-    : <Badge kind={c.days < 30 ? "warn" : "ok"}>{plural(c.days, "day")}</Badge>;
+    !c ? (
+      <Badge kind="bad">none</Badge>
+    ) : c.days < 7 ? (
+      <Badge kind="bad">{c.days < 0 ? "expired" : plural(c.days, "day")}</Badge>
+    ) : c.staging ? (
+      <Badge kind="warn">staging</Badge>
+    ) : (
+      <Badge kind={c.days < 30 ? "warn" : "ok"}>{plural(c.days, "day")}</Badge>
+    );
   return (
     <Card>
       {head}
-      {r.denied.length > 0 && <Body><Note kind="warn" className="m-0">{r.denied.join(", ")} needs root to read: this login has no passwordless sudo.</Note></Body>}
-      <Table head={<><th>Domain</th><th className={HIDE}>Site</th><th>Left</th><th className={HIDE}>Expires</th><th className={HIDE}>Issuer</th></>}>
+      {r.denied.length > 0 && (
+        <Body>
+          <Note kind="warn" className="m-0">
+            {r.denied.join(", ")} needs root to read: this login has no passwordless sudo.
+          </Note>
+        </Body>
+      )}
+      <Table
+        head={
+          <>
+            <th>Domain</th>
+            <th className={HIDE}>Site</th>
+            <th>Left</th>
+            <th className={HIDE}>Expires</th>
+            <th className={HIDE}>Issuer</th>
+          </>
+        }
+      >
         {r.domains.map((d) => (
           <tr key={d.domain}>
-            <td>{d.domain}{d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}</td>
+            <td>
+              {d.domain}
+              {d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}
+            </td>
             <td className={cx(HIDE, "dim")}>{d.site}</td>
             <td>{days(d.cert)}</td>
             <td className={cx(HIDE, "dim")}>{d.cert ? new Date(d.cert.expires).toLocaleDateString() : ""}</td>
@@ -237,13 +400,32 @@ export function ErrorsCard({ n }: { n: string }) {
   return (
     <Card>
       <CardHead>
-        Errors in the last 24h <Sub>{fives ? `${count(fives)} server errors · ` : ""}{count(t.total.classes["4xx"])} client errors</Sub>
-        <Actions><Btn cls="sm" on={() => (location.hash = `#/${encodeURIComponent(n)}/traffic`)}>Traffic</Btn></Actions>
+        Errors in the last 24h{" "}
+        <Sub>
+          {fives ? `${count(fives)} server errors · ` : ""}
+          {count(t.total.classes["4xx"])} client errors
+        </Sub>
+        <Actions>
+          <Btn cls="sm" on={() => (location.hash = `#/${encodeURIComponent(n)}/traffic`)}>
+            Traffic
+          </Btn>
+        </Actions>
       </CardHead>
-      <Table head={<><th>Status</th><th>Site</th><th>Path</th><th className={NUM}>Requests</th></>}>
+      <Table
+        head={
+          <>
+            <th>Status</th>
+            <th>Site</th>
+            <th>Path</th>
+            <th className={NUM}>Requests</th>
+          </>
+        }
+      >
         {rows.map((e, i) => (
           <tr key={i}>
-            <td><ErrorCell status={e.status} /></td>
+            <td>
+              <ErrorCell status={e.status} />
+            </td>
             <td>{e.site ? <b>{e.where}</b> : <span className="mono dim">{e.where}</span>}</td>
             <td className="mono">{e.path}</td>
             <td className={NUM}>{count(e.count)}</td>

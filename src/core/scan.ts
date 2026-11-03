@@ -110,7 +110,9 @@ exit 0
 
 interface TrivyReport {
   Metadata?: { OS?: { Family?: string; Name?: string; EOSL?: boolean } };
-  Results?: { Vulnerabilities?: { VulnerabilityID: string; PkgName: string; InstalledVersion: string; FixedVersion?: string; Severity?: string; Title?: string }[] }[];
+  Results?: {
+    Vulnerabilities?: { VulnerabilityID: string; PkgName: string; InstalledVersion: string; FixedVersion?: string; Severity?: string; Title?: string }[];
+  }[];
 }
 
 const rank = (v: Vuln) => SEVERITIES.indexOf(v.severity) * 2 + (v.fixed ? 0 : 1);
@@ -186,7 +188,13 @@ export const parseContainers = (out: string): Container[] =>
     .split("\n")
     .map((l) => l.split("\t"))
     .filter((f) => f.length >= 3 && f[1].startsWith("sha256:"))
-    .map(([name, id, ref, project = "", service = ""]) => ({ name: name.replace(/^\//, ""), id, ref, ...(project && { project }), ...(service && { service }) }));
+    .map(([name, id, ref, project = "", service = ""]) => ({
+      name: name.replace(/^\//, ""),
+      id,
+      ref,
+      ...(project && { project }),
+      ...(service && { service }),
+    }));
 
 /** What fixes the vulnerabilities of an image landfall did not deploy. */
 export function otherHint(s: Pick<ImageScan, "eol" | "fixable">, ref: string): string | undefined {

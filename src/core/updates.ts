@@ -271,16 +271,29 @@ printf 'syno=%s
 exit 0`;
   const [{ stdout }, ld, lc] = await Promise.all([runScript(s, script, { capture: true }), latestDocker(), latestCompose()]);
   const v = kvRecord(stdout);
-  return { docker: v.docker ?? "", compose: v.compose ?? "", composePath: v.path ?? "", dockerCe: v.ce === "1", synology: v.syno === "1", latestDocker: ld, latestCompose: lc };
+  return {
+    docker: v.docker ?? "",
+    compose: v.compose ?? "",
+    composePath: v.path ?? "",
+    dockerCe: v.ce === "1",
+    synology: v.syno === "1",
+    latestDocker: ld,
+    latestCompose: lc,
+  };
 }
 
 /** What to tell about the engine, and whether landfall can update compose itself. */
 export function engineNotes(e: Engine): { dockerNote?: string; composeNote?: string; composeUpdate: boolean; dockerHow?: string; composeHow?: string } {
   const old = (have: string, want?: string) => !!have && !!want && cmpVersion(have, want) < 0;
   const from = e.synology ? "comes with Container Manager updates in Package Center" : undefined;
-  const dockerHow = old(e.docker, e.latestDocker) ? (from ?? (e.dockerCe ? "comes with the package upgrades" : "distro package: switch to Docker's repo for the newest")) : undefined;
+  const dockerHow = old(e.docker, e.latestDocker)
+    ? (from ?? (e.dockerCe ? "comes with the package upgrades" : "distro package: switch to Docker's repo for the newest"))
+    : undefined;
   const composeUpdate = old(e.compose, e.latestCompose) && e.composePath === COMPOSE_PLUGIN && !e.synology;
-  const composeHow = old(e.compose, e.latestCompose) && !composeUpdate ? (from ?? (e.dockerCe ? "comes with the package upgrades" : `from ${e.composePath || "the distro"}`)) : undefined;
+  const composeHow =
+    old(e.compose, e.latestCompose) && !composeUpdate
+      ? (from ?? (e.dockerCe ? "comes with the package upgrades" : `from ${e.composePath || "the distro"}`))
+      : undefined;
   const dockerNote = dockerHow && `docker ${e.docker}, ${e.latestDocker} is current (${dockerHow})`;
   const composeNote = !e.compose
     ? "docker compose missing: lf setup installs it"
@@ -357,7 +370,8 @@ export async function imageStatus(s: Server): Promise<ImageStatus[]> {
     rows.map(async ([, kind, name, ctr, dir, service = "", ref = "", local = "", id = ""]): Promise<ImageStatus> => {
       const base = { name, container: ctr, dir, ref, service: service || undefined, ...(id && { id }) };
       // Built on the server: landfall's override tags it per release (builtImage).
-      if (kind === "site" && service && ref.startsWith(builtImage(name, service, ""))) return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
+      if (kind === "site" && service && ref.startsWith(builtImage(name, service, "")))
+        return { ...base, kind: "site", state: "rebuild", note: "built on the server: redeploy to rebuild" };
       if (!ref) return { ...base, kind: kind as ImageStatus["kind"], state: "missing", note: "no container" };
       if (kind === "proxy") return { ...base, kind: "proxy", state: "foreign", note: "not landfall's traefik: update it where it was set up" };
       if (ref.includes("@")) return { ...base, kind: kind as ImageStatus["kind"], state: "pinned", note: "pinned to a digest" };

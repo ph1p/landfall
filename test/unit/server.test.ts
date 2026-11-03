@@ -73,7 +73,7 @@ describe("server inventory", () => {
     "password_auth=yes",
     "password_users=root ",
     "traefik_compose=none",
-    "listen=0.0.0.0:22 users:((\"sshd\",pid=1,fd=3))",
+    'listen=0.0.0.0:22 users:(("sshd",pid=1,fd=3))',
   ].join("\n");
   const status = (out: string, w = want) => Object.fromEntries(assess(parseProbe(out), w).map((c) => [c.part, c.status]));
 
@@ -259,8 +259,7 @@ describe("firewall", () => {
   });
 
   test("tells for every port whether it is reachable", () => {
-    const probe = (lines: string[]) =>
-      Object.fromEntries(reachability(parseProbe(lines.join("\n"))).map((r) => [`${r.port} ${r.proc}`, r.why]));
+    const probe = (lines: string[]) => Object.fromEntries(reachability(parseProbe(lines.join("\n"))).map((r) => [`${r.port} ${r.proc}`, r.why]));
     const listen = [
       'listen=0.0.0.0:22 users:(("sshd",pid=1,fd=3))',
       'listen=0.0.0.0:5432 users:(("postgres",pid=2,fd=3))',
@@ -283,9 +282,17 @@ describe("firewall", () => {
 
   test("builds ufw arguments and rejects bad input", () => {
     expect(ruleArgs({ action: "allow", port: "51820/udp" })).toEqual(["allow", "51820/udp"]);
-    expect(ruleArgs({ action: "deny", port: "5432", from: "10.0.0.0/8", comment: "db" })).toEqual(
-      ["deny", "from", "10.0.0.0/8", "to", "any", "port", "5432", "comment", "db"],
-    );
+    expect(ruleArgs({ action: "deny", port: "5432", from: "10.0.0.0/8", comment: "db" })).toEqual([
+      "deny",
+      "from",
+      "10.0.0.0/8",
+      "to",
+      "any",
+      "port",
+      "5432",
+      "comment",
+      "db",
+    ]);
     expect(() => ruleArgs({ action: "allow", port: "80; rm -rf /" })).toThrow("not a port");
     expect(() => ruleArgs({ action: "allow", port: "6000:6007" })).toThrow("needs a protocol");
     expect(() => ruleArgs({ action: "allow", port: "70000" })).toThrow("1 to 65535");
@@ -312,7 +319,11 @@ describe("journal", () => {
 
   test("groups lines into runs and marks undone steps", () => {
     const runs = parseJournal(text);
-    expect(runs.map((r) => [r.n, r.id, r.steps.length])).toEqual([[1, "a", 2], [2, "b", 1], [3, "c", 1]]);
+    expect(runs.map((r) => [r.n, r.id, r.steps.length])).toEqual([
+      [1, "a", 2],
+      [2, "b", 1],
+      [3, "c", 1],
+    ]);
     expect(runs[0].steps[0]).toMatchObject({ line: 1, undo: "userdel -r deploy", undone: false });
     expect(runs[0].steps[1].undo).toBeUndefined();
     expect(runs[1].steps[0].undone).toBe(true);
@@ -329,28 +340,32 @@ describe("journal", () => {
   });
 
   test("flags later runs that touched the same site", () => {
-    const runs = parseJournal([
-      line("a", "do", "deployed blog", b64("rm -rf /opt/landfall/sites/blog/releases/1")),
-      line("b", "do", "deployed shop", b64("rm -rf /opt/landfall/sites/shop/releases/1")),
-      line("c", "do", "redeployed blog", b64("ln -sfn x /opt/landfall/sites/blog/current")),
-    ].join("\n"));
+    const runs = parseJournal(
+      [
+        line("a", "do", "deployed blog", b64("rm -rf /opt/landfall/sites/blog/releases/1")),
+        line("b", "do", "deployed shop", b64("rm -rf /opt/landfall/sites/shop/releases/1")),
+        line("c", "do", "redeployed blog", b64("ln -sfn x /opt/landfall/sites/blog/current")),
+      ].join("\n"),
+    );
     expect(laterConflicts(runs, 1, runs[0].steps).map((x) => [x.run.n, x.subject])).toEqual([[3, "/opt/landfall/sites/blog"]]);
     expect(laterConflicts(runs, 2, runs[1].steps)).toEqual([]);
   });
-
 });
 
 test("journalCmd keeps flags but not defaults or secrets", () => {
   const cmd = { name: "deploy", options: { keep: { type: "string", desc: "", default: "5" }, save: { type: "boolean", desc: "", default: true } } } as const;
-  expect(journalCmd(cmd, ["./dist", "TOKEN=abc"], { keep: "5", save: false, server: "vps", yes: true, env: ["A=1"], "dashboard-password": "pw", spa: true })).toBe(
-    "deploy ./dist TOKEN=… --no-save --env A=… --dashboard-password … --spa",
-  );
+  expect(
+    journalCmd(cmd, ["./dist", "TOKEN=abc"], { keep: "5", save: false, server: "vps", yes: true, env: ["A=1"], "dashboard-password": "pw", spa: true }),
+  ).toBe("deploy ./dist TOKEN=… --no-save --env A=… --dashboard-password … --spa");
 });
 
 describe("server facts", () => {
   const day = new Date("2026-10-23");
   test("parses the probe", () => {
-    const f = parseFacts("os=Ubuntu 24.04.5 LTS\nid=ubuntu\nversion=24.04\narch=aarch64\nuptime=90061.5\nmem=8000000 2000000\ndisk=100 40 60\npkg=apt-get\nreboot=1\n", day);
+    const f = parseFacts(
+      "os=Ubuntu 24.04.5 LTS\nid=ubuntu\nversion=24.04\narch=aarch64\nuptime=90061.5\nmem=8000000 2000000\ndisk=100 40 60\npkg=apt-get\nreboot=1\n",
+      day,
+    );
     expect(f).toMatchObject({ os: "Ubuntu 24.04.5 LTS", arch: "aarch64", uptime: 90062, pkg: "apt-get", reboot: true, support: { level: "ok" } });
     expect(f.mem).toEqual({ total: 8000000 * 1024, available: 2000000 * 1024 });
     expect(f.disk.used).toBe(40 * 1024);
@@ -437,7 +452,9 @@ describe("server stats", () => {
 
 describe("updates", () => {
   test("apt list", () => {
-    const p = parsePkgList("mgr=apt-get\npkg=tmux\t3.4-1ubuntu0.1\t3.4-1ubuntu0.2\tnoble-updates,noble-security\npkg=curl\t8.5.0-2\t8.5.0-3\tnoble-updates\nreboot=1\n");
+    const p = parsePkgList(
+      "mgr=apt-get\npkg=tmux\t3.4-1ubuntu0.1\t3.4-1ubuntu0.2\tnoble-updates,noble-security\npkg=curl\t8.5.0-2\t8.5.0-3\tnoble-updates\nreboot=1\n",
+    );
     expect(p.mgr).toBe("apt-get");
     expect(p.reboot).toBe(true);
     expect(p.updates).toEqual([
@@ -476,19 +493,49 @@ describe("versions", () => {
   });
 
   test("engineNotes: landfall's own compose can be updated, distro ones are only reported", () => {
-    const e = { docker: "29.9.2", compose: "2.40.3", composePath: "/usr/local/lib/docker/cli-plugins/docker-compose", dockerCe: false, synology: false, latestDocker: "29.9.2", latestCompose: "5.6.1" };
+    const e = {
+      docker: "29.9.2",
+      compose: "2.40.3",
+      composePath: "/usr/local/lib/docker/cli-plugins/docker-compose",
+      dockerCe: false,
+      synology: false,
+      latestDocker: "29.9.2",
+      latestCompose: "5.6.1",
+    };
     expect(engineNotes(e)).toMatchObject({ dockerNote: undefined, composeUpdate: true });
-    expect(engineNotes({ ...e, composePath: "/usr/libexec/docker/cli-plugins/docker-compose", dockerCe: true })).toMatchObject({ composeUpdate: false, composeNote: "compose 2.40.3, 5.6.1 is current (comes with the package upgrades)" });
+    expect(engineNotes({ ...e, composePath: "/usr/libexec/docker/cli-plugins/docker-compose", dockerCe: true })).toMatchObject({
+      composeUpdate: false,
+      composeNote: "compose 2.40.3, 5.6.1 is current (comes with the package upgrades)",
+    });
     expect(engineNotes({ ...e, docker: "26.1.5" }).dockerNote).toContain("29.9.2 is current");
-    expect(engineNotes({ ...e, latestDocker: undefined, latestCompose: undefined })).toMatchObject({ dockerNote: undefined, composeNote: undefined, composeUpdate: false });
+    expect(engineNotes({ ...e, latestDocker: undefined, latestCompose: undefined })).toMatchObject({
+      dockerNote: undefined,
+      composeNote: undefined,
+      composeUpdate: false,
+    });
     // Same plugin path on DSM, but Container Manager owns it.
-    expect(engineNotes({ ...e, synology: true })).toMatchObject({ composeUpdate: false, composeNote: "compose 2.40.3, 5.6.1 is current (comes with Container Manager updates in Package Center)" });
+    expect(engineNotes({ ...e, synology: true })).toMatchObject({
+      composeUpdate: false,
+      composeNote: "compose 2.40.3, 5.6.1 is current (comes with Container Manager updates in Package Center)",
+    });
   });
 });
 
 describe("prune", () => {
   const id = (c: string) => `sha256:${c.repeat(64)}`;
-  const site = { name: "blog", domains: [], releases: [{ id: "20260101-1", services: [{ name: "Web", build: true, networks: [] }, { name: "db", networks: [] }] }] };
+  const site = {
+    name: "blog",
+    domains: [],
+    releases: [
+      {
+        id: "20260101-1",
+        services: [
+          { name: "Web", build: true, networks: [] },
+          { name: "db", networks: [] },
+        ],
+      },
+    ],
+  };
   const out = [
     `IMG\t${id("a")}\tnginx\talpine\t50MB\t2026-01-01 10:00:00 +0000 UTC`,
     `IMG\t${id("b")}\tblog-web\t20260101-1\t120MB\t2026-01-01`,
@@ -511,7 +558,11 @@ describe("prune", () => {
     expect(p.images.find((i) => i.id === id("f"))!.tags).toEqual(["redis:7", "redis:latest"]);
     expect(p.buildCache).toBe(300e6);
     expect(removable(p).map((i) => i.id)).toEqual([id("c")]);
-    expect(removable(parsePrunePlan(out, true)).map((i) => i.id).sort()).toEqual([id("a"), id("c"), id("f")]);
+    expect(
+      removable(parsePrunePlan(out, true))
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual([id("a"), id("c"), id("f")]);
   });
 
   test("log sizes for --logs", () => {
@@ -530,14 +581,18 @@ describe("prune", () => {
   });
 
   test("unused networks, the proxy's aside", () => {
-    expect(parsePrunePlan(`${out}\nNET\tweb\nNET\told_default\nNET\tedge\nPROXY\tcontainer=t network=edge entrypoint=w resolver=r `).networks).toEqual(["old_default"]);
+    expect(parsePrunePlan(`${out}\nNET\tweb\nNET\told_default\nNET\tedge\nPROXY\tcontainer=t network=edge entrypoint=w resolver=r `).networks).toEqual([
+      "old_default",
+    ]);
     expect(parsePrunePlan(`${out}\nNET\tweb\nPROXY\t`).networks).toEqual([]);
   });
 
   test("volumes for --volumes: ones of existing sites stay", () => {
     expect(parsePrunePlan(out).volumes).toBeUndefined();
     const anon = "f".repeat(64);
-    const p = parsePrunePlan(`${out}\nVOLUMES\nUNUSED\tblog_data\tblog\nUNUSED\tgone_db\tgone\nUNUSED\t${anon}\t\nVOL\tgone_db\t0\t2GB\nVOL\tblog_data\t0\t1GB\nVOL\tused\t1\t5GB`);
+    const p = parsePrunePlan(
+      `${out}\nVOLUMES\nUNUSED\tblog_data\tblog\nUNUSED\tgone_db\tgone\nUNUSED\t${anon}\t\nVOL\tgone_db\t0\t2GB\nVOL\tblog_data\t0\t1GB\nVOL\tused\t1\t5GB`,
+    );
     expect(p.volumes).toEqual([
       { name: "gone_db", project: "gone", size: 2e9 },
       { name: "blog_data", project: "blog", size: 1e9, keep: "site" },
@@ -672,14 +727,27 @@ describe("system", () => {
 
   test("parseSystem", () => {
     const out = [
-      "root=1", "user=deploy", "hostname=box", "timezone=Europe/Berlin", "ntp=yes", "time=2026-01-01T00:00:00Z", "init=systemd",
-      "SWAP\t/swapfile\tfile\t2147483648\t1048576", "swappiness=60", "disk_free=10000000000", "mem=1000000000",
-      "log_driver=json-file", 'DAEMON\t{ "log-opts": { "max-size": "10m", "max-file": "3" }, "bip": "10.1.0.1/24" }',
+      "root=1",
+      "user=deploy",
+      "hostname=box",
+      "timezone=Europe/Berlin",
+      "ntp=yes",
+      "time=2026-01-01T00:00:00Z",
+      "init=systemd",
+      "SWAP\t/swapfile\tfile\t2147483648\t1048576",
+      "swappiness=60",
+      "disk_free=10000000000",
+      "mem=1000000000",
+      "log_driver=json-file",
+      'DAEMON\t{ "log-opts": { "max-size": "10m", "max-file": "3" }, "bip": "10.1.0.1/24" }',
       "SVC\tdocker.service\tloaded\tactive\trunning\tDocker Application Container Engine",
       "SVC\tnginx.service\tloaded\tfailed\tfailed\tA high performance web server",
       "UF\tdocker.service\tenabled",
-      "kv junk", "fail2ban=running", "JAIL\tsshd\t2\t40\t1\t1.2.3.4 5.6.7.8",
-      `KEY\tdeploy\t${KEY}`, "KEY\troot\tgarbage",
+      "kv junk",
+      "fail2ban=running",
+      "JAIL\tsshd\t2\t40\t1\t1.2.3.4 5.6.7.8",
+      `KEY\tdeploy\t${KEY}`,
+      "KEY\troot\tgarbage",
     ].join("\n");
     const i = parseSystem(out, new Set([FP]));
     expect(i).toMatchObject({ root: true, hostname: "box", timezone: "Europe/Berlin", ntp: true, init: "systemd", fail2ban: "running", mem: 1e9 });

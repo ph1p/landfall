@@ -18,9 +18,17 @@ export function errorHint(error: string) {
   return "";
 }
 
-
 /** Something of a site an SSH tunnel reaches: lf <argv> opens it. priv: its private port, if that is what it opens; path: where. */
-export interface Way { svc: string; label: string; argv: string[]; ports: number[]; domains: string[]; status: string; priv?: number; path?: string }
+export interface Way {
+  svc: string;
+  label: string;
+  argv: string[];
+  ports: number[];
+  domains: string[];
+  status: string;
+  priv?: number;
+  path?: string;
+}
 
 /**
  * What tunnels reach on a site: each service, and each private port under its own name (lf tunnel blog admin).
@@ -34,12 +42,35 @@ export function tunnelWays(n: string, site: SiteStatus): Way[] {
     const rel = cur?.services.find((r) => r.name === x.service);
     const routes = rel?.routes ?? [];
     const priv = Object.entries(rel?.private ?? {});
-    const domains = [...(x.service === main ? m.domains : (rel?.domains ?? [])), ...routes.flatMap((r) => r.domains ?? m.domains.map((d) => `${r.subdomain}.${d}`))];
+    const domains = [
+      ...(x.service === main ? m.domains : (rel?.domains ?? [])),
+      ...routes.flatMap((r) => r.domains ?? m.domains.map((d) => `${r.subdomain}.${d}`)),
+    ];
     const ports = [...new Set([rel?.port, ...routes.map((r) => r.port), ...priv.map(([, p]) => p)].filter((p): p is number => !!p))];
     // Its tunnel opens its routed port, else a private one named like it, else its first private one.
     const key = rel?.port ? undefined : rel?.private?.[x.service] !== undefined ? x.service : priv[0]?.[0];
-    const own: Way = { svc: x.service, label: x.service, argv: ["tunnel", m.name, ...(many ? [x.service] : []), ...sv(n)], ports, domains, status: x.status, priv: key ? rel?.private?.[key] : undefined, path: key ? rel?.paths?.[key] : undefined };
-    const named = priv.filter(([k]) => k !== x.service).map(([k, p]): Way => ({ svc: x.service, label: k, argv: ["tunnel", m.name, k, ...sv(n)], ports: [p], domains: [], status: x.status, priv: p, path: rel?.paths?.[k] }));
+    const own: Way = {
+      svc: x.service,
+      label: x.service,
+      argv: ["tunnel", m.name, ...(many ? [x.service] : []), ...sv(n)],
+      ports,
+      domains,
+      status: x.status,
+      priv: key ? rel?.private?.[key] : undefined,
+      path: key ? rel?.paths?.[key] : undefined,
+    };
+    const named = priv
+      .filter(([k]) => k !== x.service)
+      .map(([k, p]): Way => ({
+        svc: x.service,
+        label: k,
+        argv: ["tunnel", m.name, k, ...sv(n)],
+        ports: [p],
+        domains: [],
+        status: x.status,
+        priv: p,
+        path: rel?.paths?.[k],
+      }));
     return [own, ...named];
   });
 }
@@ -50,7 +81,6 @@ export function StatusDot({ status }: { status: string }) {
   const [cls, word] = DOTS[statusKind(status)];
   return <Dot kind={cls} role="img" aria-label={word} title={status} />;
 }
-
 
 export const REACH_WORD = { ok: "reachable", login: "login refused", down: "unreachable" } as const;
 export const REACH_KIND = { ok: "up", login: "warn", down: "down" } as const;
@@ -63,35 +93,55 @@ export function reachCount(list: ServerEntry[]) {
 }
 /** A faint 0, for an empty count cell. */
 export const Zero = () => <span className="faint">0</span>;
-export const Star = () => <span className="text-warn" title="default server"><StarIcon className="inline-block size-3 -mt-0.5 align-middle fill-current" aria-label="default server" /></span>;
+export const Star = () => (
+  <span className="text-warn" title="default server">
+    <StarIcon className="inline-block size-3 -mt-0.5 align-middle fill-current" aria-label="default server" />
+  </span>
+);
 /** Whether landfall's ssh login to n works, from /api/reach. */
 export function ReachDot({ n, className }: { n: string; className?: string }) {
   const r = S.reach[n];
   if (!r) return <Dot className={className} role="img" aria-label="not checked yet" title={S.reaching ? "Checking…" : "Not checked yet"} />;
   const [cls, word] = [REACH_KIND[r.state as "ok"], REACH_WORD[r.state as "ok"]];
-  const tip = r.state === "ok" ? `Key login works (${r.ms} ms)` : r.state === "login" ? `sshd answers but refuses the login: ${r.detail}` : `Unreachable: ${r.detail}`;
+  const tip =
+    r.state === "ok" ? `Key login works (${r.ms} ms)` : r.state === "login" ? `sshd answers but refuses the login: ${r.detail}` : `Unreachable: ${r.detail}`;
   return <Dot kind={cls} className={className} role="img" aria-label={word} title={tip} />;
 }
 
 /** The server's one-line summary under its name. */
 export function FactsLine({ n }: { n: string }) {
   const f = S.facts[n]?.data;
-  if (!f) return S.facts[n]?.error ? null : (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 h-[18.75px] items-center">{["w-28", "w-16", "w-24", "w-32", "w-20"].map((w) => <Bone key={w} className={w} />)}</div>
-  );
+  if (!f)
+    return S.facts[n]?.error ? null : (
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 h-[18.75px] items-center">
+        {["w-28", "w-16", "w-24", "w-32", "w-20"].map((w) => (
+          <Bone key={w} className={w} />
+        ))}
+      </div>
+    );
   const disk = pct(f.disk.used, f.disk.total);
   const items = [
-    <><b className="text-fg font-medium">{f.os}</b> {f.arch}</>,
+    <>
+      <b className="text-fg font-medium">{f.os}</b> {f.arch}
+    </>,
     <span title={`kernel ${f.kernel}`}>up {duration(f.uptime)}</span>,
     f.cpus ? `${f.cpus} CPU · load ${f.load.split(" ")[0]}` : "",
     f.mem.total ? `RAM ${size(f.mem.total - f.mem.available)} / ${size(f.mem.total)}` : "",
-    f.disk.total ? <span className={cx(disk > 85 && "text-warn")}>disk {disk}% of {size(f.disk.total)}</span> : "",
+    f.disk.total ? (
+      <span className={cx(disk > 85 && "text-warn")}>
+        disk {disk}% of {size(f.disk.total)}
+      </span>
+    ) : (
+      ""
+    ),
     f.docker ? `docker ${f.docker}` : <span className="faint">no docker</span>,
     f.reboot ? <Badge kind="warn">reboot required</Badge> : "",
   ];
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-faint text-sm mt-1.5">
-      {items.filter(Boolean).map((x, i) => <span key={i}>{x}</span>)}
+      {items.filter(Boolean).map((x, i) => (
+        <span key={i}>{x}</span>
+      ))}
     </div>
   );
 }
@@ -103,7 +153,8 @@ export function FactsNote({ n }: { n: string }) {
   if (!sup?.note) return null;
   return (
     <div className={noteClass(sup.level === "eol" || sup.level === "unsupported" ? "bad" : "")}>
-      {sup.note}{f?.can && !f.can.docker ? `. Docker: ${f.why.docker}` : ""}
+      {sup.note}
+      {f?.can && !f.can.docker ? `. Docker: ${f.why.docker}` : ""}
     </div>
   );
 }

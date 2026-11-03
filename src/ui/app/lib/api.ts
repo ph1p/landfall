@@ -9,7 +9,7 @@ import { closeDialog, dialogOpen } from "../ui/dialog";
 let ours = false;
 export function go(sel: string | null, tab = S.tab) {
   const hash = sel ? `#/${encodeURIComponent(sel)}/${tab}` : "#/";
-  if (location.hash !== hash) (ours = true), (location.hash = hash);
+  if (location.hash !== hash) ((ours = true), (location.hash = hash));
   else route();
 }
 export function route() {
@@ -26,8 +26,34 @@ export function route() {
 // ---- loading -------------------------------------------------------------
 
 export type Tab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "users" | "system" | "history" | "settings";
-export const STORE: Record<Tab, StoreName> = { sites: "overview", tunnels: "overview", stats: "stats", traffic: "traffic", traefik: "settings", facts: "facts", updates: "updates", firewall: "firewall", users: "users", system: "system", history: "history", settings: "settings" };
-const URLS: Record<Tab, string> = { sites: "", tunnels: "", stats: "/stats", traffic: "/traffic", traefik: "/config", facts: "/facts", updates: "/updates", firewall: "/firewall", users: "/users", system: "/system", history: "/history", settings: "/config" };
+export const STORE: Record<Tab, StoreName> = {
+  sites: "overview",
+  tunnels: "overview",
+  stats: "stats",
+  traffic: "traffic",
+  traefik: "settings",
+  facts: "facts",
+  updates: "updates",
+  firewall: "firewall",
+  users: "users",
+  system: "system",
+  history: "history",
+  settings: "settings",
+};
+const URLS: Record<Tab, string> = {
+  sites: "",
+  tunnels: "",
+  stats: "/stats",
+  traffic: "/traffic",
+  traefik: "/config",
+  facts: "/facts",
+  updates: "/updates",
+  firewall: "/firewall",
+  users: "/users",
+  system: "/system",
+  history: "/history",
+  settings: "/config",
+};
 // A server's sections and the group each sits in, in the list and as tabs on phones; keys 1-9 switch between them.
 export const SECTIONS: [Tab, string, string][] = [
   ["sites", "Sites", "Apps"],

@@ -37,16 +37,14 @@ export async function guardUndo(server: Server, todo: Step[], force?: boolean) {
         const r = parseRule(unq(add[3]));
         if (add[2]) rules.splice(Number(add[2]) - 1, 0, r);
         else rules = add[1] ? [r, ...rules] : [...rules, r];
-      }
-      else if (/\$SUDO ufw disable/.test(line)) ufw = "inactive";
+      } else if (/\$SUDO ufw disable/.test(line)) ufw = "inactive";
       else if (/\$SUDO ufw --force enable/.test(line)) ufw = "active";
     }
   }
   await guardSsh({ ...fw, ufw }, rules, force);
 }
 
-const runLine = (r: Run) =>
-  `${c.bold(`#${r.n}`.padEnd(5))} ${c.dim(ago(r.time).padEnd(9))} ${c.bold(r.cmd || "?")}  ${c.dim(`${r.actor} · ${r.id}`)}`;
+const runLine = (r: Run) => `${c.bold(`#${r.n}`.padEnd(5))} ${c.dim(ago(r.time).padEnd(9))} ${c.bold(r.cmd || "?")}  ${c.dim(`${r.actor} · ${r.id}`)}`;
 
 export const historyLog = defineCommand({
   name: "history",
@@ -88,7 +86,12 @@ export const historyUndo = defineCommand({
       steps = runs.flatMap((r) => r.steps);
       label = `everything landfall did on ${name}`;
     } else {
-      const run = ref ? findRun(runs, ref) : [...runs].reverse().map((r) => ({ run: r, steps: r.steps })).find((x) => pending(x.run).length);
+      const run = ref
+        ? findRun(runs, ref)
+        : [...runs]
+            .reverse()
+            .map((r) => ({ run: r, steps: r.steps }))
+            .find((x) => pending(x.run).length);
       if (!run) return ok(`nothing to undo on ${name}`);
       ({ steps } = run);
       label = `#${run.run.n} ${run.run.cmd} (${ago(run.run.time)})`;
@@ -116,7 +119,6 @@ export const historyUndo = defineCommand({
     else if (!(await confirm(question, false))) fail("cancelled");
     await undoSteps(server, todo);
     ok(`reverted ${todo.length} change${todo.length > 1 ? "s" : ""} on ${name}`);
-    if (todo.some((x) => x.what.startsWith("created user")))
-      info(c.dim(`lf still logs in to ${name} as that user: lf server rm ${name}, or lf setup again`));
+    if (todo.some((x) => x.what.startsWith("created user"))) info(c.dim(`lf still logs in to ${name} as that user: lf server rm ${name}, or lf setup again`));
   },
 });

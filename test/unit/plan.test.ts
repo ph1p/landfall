@@ -34,7 +34,12 @@ describe("planDeploy", () => {
 
   test("a compose.yaml deploys as it is, layered with the environment's file", () => {
     const cwd = project({ "compose.yaml": "services: {}\n", "compose.staging.yaml": "services: {}\n" });
-    expect(planDeploy(cwd, undefined, {}, {}, "staging")).toMatchObject({ kind: "compose", compose: "compose.yaml", layered: "compose.staging.yaml", port: undefined });
+    expect(planDeploy(cwd, undefined, {}, {}, "staging")).toMatchObject({
+      kind: "compose",
+      compose: "compose.yaml",
+      layered: "compose.staging.yaml",
+      port: undefined,
+    });
   });
 
   test("--image wins over the folder", () => {

@@ -12,5 +12,18 @@ export const statusKind = (status: string): StatusKind =>
 export const STATUS_RANK: Record<StatusKind, number> = { up: 0, done: 1, warn: 2, down: 3 };
 
 /** Services worth showing first: what keeps the server and its sites running. */
-export const KEY_SERVICES = ["docker", "containerd", "ssh", "sshd", "fail2ban", "ufw", "unattended-upgrades", "cron", "crond", "systemd-timesyncd", "chronyd", "chrony"];
+export const KEY_SERVICES = [
+  "docker",
+  "containerd",
+  "ssh",
+  "sshd",
+  "fail2ban",
+  "ufw",
+  "unattended-upgrades",
+  "cron",
+  "crond",
+  "systemd-timesyncd",
+  "chronyd",
+  "chrony",
+];
 export const serviceName = (unit: string) => unit.replace(/\.service$/, "");

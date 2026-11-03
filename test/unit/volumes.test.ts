@@ -32,7 +32,10 @@ describe("volumes", () => {
 
   test("parseVolumes marks the empty volumes", () => {
     const { volumes } = parseVolumes(["vol\tblog_content\tcontent", "vol\tblog_db\tdb", "empty\tblog_content", "empty\tnope"].join("\n"));
-    expect(volumes.map((v) => [v.key, !!v.empty])).toEqual([["content", true], ["db", false]]);
+    expect(volumes.map((v) => [v.key, !!v.empty])).toEqual([
+      ["content", true],
+      ["db", false],
+    ]);
   });
 
   test("seedFolders: data folders the upload left out, not dot folders, node_modules or empty ones", () => {
@@ -42,7 +45,12 @@ describe("volumes", () => {
       fs.writeFileSync(join(dir, f), "x");
     }
     fs.mkdirSync(join(dir, "empty"));
-    const uploaded = [{ path: "src", dir: true, size: 0 }, { path: "src/index.ts", dir: false, size: 1 }, { path: "uploads", dir: true, size: 0 }, { path: "uploads/x.png", dir: false, size: 1 }];
+    const uploaded = [
+      { path: "src", dir: true, size: 0 },
+      { path: "src/index.ts", dir: false, size: 1 },
+      { path: "uploads", dir: true, size: 0 },
+      { path: "uploads/x.png", dir: false, size: 1 },
+    ];
     expect(seedFolders(dir, uploaded)).toEqual(["content"]);
   });
 

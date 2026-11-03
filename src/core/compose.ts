@@ -165,7 +165,8 @@ export const routeDomains = (r: Route, site: string[]) => r.domains ?? site.map(
 export const fixedDomains = (services: Service[]) => services.flatMap((s) => [...(s.domains ?? []), ...(s.routes ?? []).flatMap((r) => r.domains ?? [])]);
 
 /** The subdomain routes of a release under these site domains: they come and go with them. */
-export const subDomains = (services: Service[], site: string[]) => services.flatMap((s) => (s.routes ?? []).filter((r) => r.subdomain).flatMap((r) => routeDomains(r, site)));
+export const subDomains = (services: Service[], site: string[]) =>
+  services.flatMap((s) => (s.routes ?? []).filter((r) => r.subdomain).flatMap((r) => routeDomains(r, site)));
 
 /** Every domain a site answers on now. */
 export function siteDomains(meta: SiteMeta): string[] {
@@ -194,7 +195,16 @@ export const routeKey = (service: string, port: number) => `${service}:${port}`;
 export function routePlan(services: Service[], site: string[]): Router[] {
   return services.flatMap((s) => [
     ...(s.port && !s.own
-      ? [{ key: routeKey(s.name, s.port), service: s.name, port: s.port, domains: s.domains ?? site, ...(isMain(s) && { main: true }), ...(s.allow && { allow: s.allow }) }]
+      ? [
+          {
+            key: routeKey(s.name, s.port),
+            service: s.name,
+            port: s.port,
+            domains: s.domains ?? site,
+            ...(isMain(s) && { main: true }),
+            ...(s.allow && { allow: s.allow }),
+          },
+        ]
       : []),
     ...(s.own
       ? []
@@ -238,11 +248,15 @@ export interface Analysis {
 }
 
 /** Ports that speak something other than HTTP (and 443: TLS inside the container): a plain compose.yaml's database stays off Traefik. */
-const NOT_HTTP = new Set([22, 25, 53, 110, 143, 389, 443, 465, 587, 636, 993, 995, 1025, 1433, 1521, 1883, 2181, 2525, 3306, 3389, 4222, 4369, 5432, 5672, 5900, 6379, 6380, 7687, 8883, 9042, 9092, 11211, 25672, 26257, 27017]);
+const NOT_HTTP = new Set([
+  22, 25, 53, 110, 143, 389, 443, 465, 587, 636, 993, 995, 1025, 1433, 1521, 1883, 2181, 2525, 3306, 3389, 4222, 4369, 5432, 5672, 5900, 6379, 6380, 7687, 8883,
+  9042, 9092, 11211, 25672, 26257, 27017,
+]);
 /** Where web servers usually listen: picks the main service when several or none are built here. */
 const WEB_PORTS = new Set([80, 3000, 4000, 5000, 8000, 8080, 8888]);
 /** Images of tools that sit next to an app (database UIs, mail catchers): never the site itself when something else could be. */
-const SIDE_TOOLS = /(^|\/)(adminer|phpmyadmin|pgadmin4?|mailhog|mailpit|maildev|redis-commander|redisinsight|mongo-express|portainer|dozzle|kafka-ui|swagger-ui)(:|@|$)/;
+const SIDE_TOOLS =
+  /(^|\/)(adminer|phpmyadmin|pgadmin4?|mailhog|mailpit|maildev|redis-commander|redisinsight|mongo-express|portainer|dozzle|kafka-ui|swagger-ui)(:|@|$)/;
 /** One or more DNS labels: admin, api.v2. */
 const SUBDOMAIN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 const PRIVATE_NAME = /^[a-z0-9][a-z0-9_.-]*$/i;
@@ -271,7 +285,12 @@ const toPort = (v: unknown) => {
   return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : undefined;
 };
 /** A service name as a DNS label. */
-const label = (name: string) => name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63) || "service";
+const label = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63) || "service";
 const hasRouter = (labels: Record<string, string>) => Object.keys(labels).some((k) => ROUTER_RULE.test(k));
 const labelsOf = (svc: any): Record<string, string> =>
   Array.isArray(svc?.labels)
@@ -281,12 +300,16 @@ const labelsOf = (svc: any): Record<string, string> =>
 /** The TCP ports a service publishes or exposes, in order; ranges left out. */
 function servicePorts(svc: any): number[] {
   const published = (svc.ports ?? []).filter((p: any) => (p?.protocol ?? "tcp") === "tcp").map((p: any) => p?.target);
-  const exposed = (svc.expose ?? []).map(String).filter((e: string) => !e.endsWith("/udp")).map((e: string) => e.replace(/\/tcp$/, ""));
+  const exposed = (svc.expose ?? [])
+    .map(String)
+    .filter((e: string) => !e.endsWith("/udp"))
+    .map((e: string) => e.replace(/\/tcp$/, ""));
   return [...new Set([...published, ...exposed].map(toPort).filter((n): n is number => n !== undefined))];
 }
 
 /** A compose.yaml with no x-landfall and no traefik labels: true when landfall routes it by its ports. */
-export const isPlain = (config: any) => Object.values<any>(config?.services ?? {}).every((svc) => svc?.["x-landfall"] === undefined && !hasRouter(labelsOf(svc)));
+export const isPlain = (config: any) =>
+  Object.values<any>(config?.services ?? {}).every((svc) => svc?.["x-landfall"] === undefined && !hasRouter(labelsOf(svc)));
 
 /**
  * Route a plain compose.yaml: the built service (else one on a usual web port) gets the site's domains with
@@ -303,11 +326,17 @@ function autoRoute(config: any, services: Service[], notes: string[]) {
   const score = (f: (typeof found)[number]) => (f.s.build ? 4 : 0) + (SIDE_TOOLS.test(raw[f.s.name].image ?? "") ? 0 : 2) + (WEB_PORTS.has(f.ports[0]) ? 1 : 0);
   const main = found.reduce<(typeof found)[number] | undefined>((best, f) => (!best || score(f) > score(best) ? f : best), undefined);
   const tied = found.filter((f) => f !== main && main && score(f) === score(main));
-  if (main && tied.length) notes.push(`${main.s.name} serves the site's domains (first by name of ${[main, ...tied].map((f) => f.s.name).join(", ")}): \`lf init\` writes the routes down to change that`);
+  if (main && tied.length)
+    notes.push(
+      `${main.s.name} serves the site's domains (first by name of ${[main, ...tied].map((f) => f.s.name).join(", ")}): \`lf init\` writes the routes down to change that`,
+    );
   for (const f of found) {
     const isMainOne = f === main;
     if (isMainOne) f.s.port = f.ports[0];
-    const routes = (isMainOne ? f.ports.slice(1) : f.ports).map((port, i) => ({ port, subdomain: isMainOne || i > 0 ? `${label(f.s.name)}-${port}` : label(f.s.name) }));
+    const routes = (isMainOne ? f.ports.slice(1) : f.ports).map((port, i) => ({
+      port,
+      subdomain: isMainOne || i > 0 ? `${label(f.s.name)}-${port}` : label(f.s.name),
+    }));
     if (routes.length) f.s.routes = routes;
   }
   for (const s of services) {
@@ -316,14 +345,17 @@ function autoRoute(config: any, services: Service[], notes: string[]) {
     s.unpublish = true;
     const routedPorts = new Set([s.port, ...(s.routes ?? []).map((r) => r.port)]);
     const kept = (svc.ports as any[]).map((p) => toPort(p?.target)).filter((p) => p !== undefined && !routedPorts.has(p));
-    if (kept.length) notes.push(`${s.name}: ${[...new Set(kept)].join(", ")} not published on the server (not HTTP): reach it with lf tunnel <site> ${s.name} --port ${kept[0]}`);
+    if (kept.length)
+      notes.push(
+        `${s.name}: ${[...new Set(kept)].join(", ")} not published on the server (not HTTP): reach it with lf tunnel <site> ${s.name} --port ${kept[0]}`,
+      );
   }
 }
 
 /** x-landfall.routes: more ports of the service, each on a subdomain or its own domains. */
 function readRoutes(name: string, value: unknown, expand: (d: string) => string, errors: string[]): Route[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value)) return void errors.push(`${name}: x-landfall.routes must be a list, like routes: [{ port: 3001, subdomain: admin }]`), [];
+  if (!Array.isArray(value)) return (void errors.push(`${name}: x-landfall.routes must be a list, like routes: [{ port: 3001, subdomain: admin }]`), []);
   const routes: Route[] = [];
   for (const r of value) {
     const port = toPort(r?.port);
@@ -335,7 +367,9 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
     if (unknown.length) errors.push(`${name}: a route knows port, subdomain, domains and allow, not ${unknown.join(", ")}`);
     const allow = readAllow(`${name}: the route to ${port}`, r.allow, errors);
     if ((r.subdomain === undefined) === (r.domains === undefined)) {
-      errors.push(`${name}: the route to ${port} needs a subdomain (admin: admin.<each site domain>) or domains, not ${r.subdomain === undefined ? "neither" : "both"}`);
+      errors.push(
+        `${name}: the route to ${port} needs a subdomain (admin: admin.<each site domain>) or domains, not ${r.subdomain === undefined ? "neither" : "both"}`,
+      );
       continue;
     }
     if (r.subdomain !== undefined) {
@@ -359,7 +393,8 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
  */
 function readPrivate(name: string, value: unknown, errors: string[]): { ports: Record<string, number>; paths: Record<string, string> } | undefined {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void errors.push(`${name}: x-landfall.private must be a mapping, like private: { admin: 3001 }`), undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return (void errors.push(`${name}: x-landfall.private must be a mapping, like private: { admin: 3001 }`), undefined);
   const out = { ports: {} as Record<string, number>, paths: {} as Record<string, string> };
   for (const [k, v] of Object.entries(value)) {
     const long = !!v && typeof v === "object" && !Array.isArray(v);
@@ -368,9 +403,12 @@ function readPrivate(name: string, value: unknown, errors: string[]): { ports: R
     const extra = long ? Object.keys(v).filter((x) => x !== "port" && x !== "path") : [];
     if (!PRIVATE_NAME.test(k)) errors.push(`${name}: not a name in x-landfall.private: ${k}`);
     else if (port === undefined)
-      errors.push(`${name}: x-landfall.private.${k} must be a port number${long ? " in port:" : ""}, like ${k}: 3001 or ${k}: { port: 3001, path: /${k} }, got ${JSON.stringify(long ? (v as any).port : v)}`);
+      errors.push(
+        `${name}: x-landfall.private.${k} must be a port number${long ? " in port:" : ""}, like ${k}: 3001 or ${k}: { port: 3001, path: /${k} }, got ${JSON.stringify(long ? (v as any).port : v)}`,
+      );
     else if (extra.length) errors.push(`${name}: x-landfall.private.${k} knows port and path, not ${extra.join(", ")}`);
-    else if (path !== undefined && (typeof path !== "string" || !PATH.test(path))) errors.push(`${name}: x-landfall.private.${k}.path must start with /, like /${k}, got ${JSON.stringify(path)}`);
+    else if (path !== undefined && (typeof path !== "string" || !PATH.test(path)))
+      errors.push(`${name}: x-landfall.private.${k}.path must start with /, like /${k}, got ${JSON.stringify(path)}`);
     else {
       out.ports[k] = port;
       if (path) out.paths[k] = path;
@@ -415,7 +453,8 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
       const n = toPort(port);
       if (n !== undefined) s.port = n;
       else if (x.port !== undefined) errors.push(`${name}: x-landfall.port must be a port number, got ${JSON.stringify(x.port)}`);
-      else if (x.domains || (!x.publish && !routes.length && !priv)) errors.push(`${name}: x-landfall needs the port Traefik should send requests to, like x-landfall: { port: 3000 }`);
+      else if (x.domains || (!x.publish && !routes.length && !priv))
+        errors.push(`${name}: x-landfall needs the port Traefik should send requests to, like x-landfall: { port: 3000 }`);
       if (x.domains !== undefined) {
         const list = Array.isArray(x.domains) ? x.domains : [x.domains];
         const ds = list.map((d: unknown) => expand(String(d).trim()));
@@ -451,15 +490,20 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
       const src = String(v.source ?? "");
       if (v.type === "bind" && !v.read_only && (src === dir || src.startsWith(dir + "/"))) {
         const rel = src === dir ? "." : "./" + src.slice(dir.length + 1);
-        errors.push(`${name} writes to ${rel}, which stays behind in the release on the next deploy: use a named volume (e.g. ${name}-data:${v.target}), or mount it read-only (:ro)`);
+        errors.push(
+          `${name} writes to ${rel}, which stays behind in the release on the next deploy: use a named volume (e.g. ${name}-data:${v.target}), or mount it read-only (:ro)`,
+        );
       }
     }
-    if (svc.container_name) warnings.push(`${name} sets container_name ${svc.container_name}: names are global on the server, leave it out unless something needs it`);
+    if (svc.container_name)
+      warnings.push(`${name} sets container_name ${svc.container_name}: names are global on the server, leave it out unless something needs it`);
     services.push(s);
   }
   if (auto) autoRoute(config, services, notes);
   if (!services.some(routed))
-    warnings.push(`no service is routed: it runs without a domain (a worker); ${auto ? "publish or expose an HTTP port, or add " : ""}x-landfall: { port: <port> } on a service routes it through Traefik`);
+    warnings.push(
+      `no service is routed: it runs without a domain (a worker); ${auto ? "publish or expose an HTTP port, or add " : ""}x-landfall: { port: <port> } on a service routes it through Traefik`,
+    );
   const mains = services.filter(isMain);
   if (mains.length > 1) errors.push(`${mains.map((s) => s.name).join(" and ")} both serve the site's domains: give all but one their own x-landfall.domains`);
   const seen = new Map<string, string>();
@@ -605,7 +649,13 @@ export function localCompose(dir: string, file: string): any {
   } catch {}
   const env = { ...dotenv, ...process.env };
   const fill = (v: unknown): unknown =>
-    typeof v === "string" ? interpolate(v, env) : Array.isArray(v) ? v.map(fill) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)])) : v;
+    typeof v === "string"
+      ? interpolate(v, env)
+      : Array.isArray(v)
+        ? v.map(fill)
+        : v && typeof v === "object"
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]))
+          : v;
   const config: any = fill(parseYaml(fs.readFileSync(join(dir, file), "utf8")) ?? {});
   for (const svc of Object.values<any>(config?.services ?? {})) if (Array.isArray(svc?.ports)) svc.ports = svc.ports.flatMap(longPort);
   return config;
@@ -643,12 +693,22 @@ export function findRoute(meta: SiteMeta, name: string): { key: string; domains:
   const all = routePlan(currentRelease(meta)?.services ?? [], meta.domains);
   const want = name.trim().toLowerCase();
   // A service name means its main port: routePlan lists that before the service's routes.
-  const hit = all.find((r) => r.key === want) ?? all.find((r) => r.subdomain === want) ?? all.find((r) => r.domains.includes(want)) ?? all.find((r) => r.service === want);
+  const hit =
+    all.find((r) => r.key === want) ??
+    all.find((r) => r.subdomain === want) ??
+    all.find((r) => r.domains.includes(want)) ??
+    all.find((r) => r.service === want);
   return hit ? { key: hit.key, domains: hit.domains } : { routes: all.map((r) => r.key) };
 }
 
 /** Traefik labels for one router of `s`. */
-export function routeLabels(site: string, s: Service, { port, domains, allow }: Pick<Router, "port" | "domains" | "allow">, proxy: Proxy, login?: Login): Record<string, string> {
+export function routeLabels(
+  site: string,
+  s: Service,
+  { port, domains, allow }: Pick<Router, "port" | "domains" | "allow">,
+  proxy: Proxy,
+  login?: Login,
+): Record<string, string> {
   const r = routerName(site, s, port);
   const out: Record<string, string> = {
     "traefik.enable": "true",
@@ -702,7 +762,10 @@ function traefikLayer(meta: SiteMeta, r: Release, proxy: Proxy): ServicePart[] {
       lines.push("    networks:", ...s.networks.map((n) => `      ${q(n)}: {}`), `      ${PROXY_KEY}: {}`);
       if (s.own) labels["traefik.docker.network"] = proxy.network;
       // A main service with no domains left stays up, unrouted; so do its subdomain routes.
-      else for (const router of plan) if (router.service === s.name && router.domains.length) Object.assign(labels, routeLabels(meta.name, s, router, proxy, routerLogin(meta, s, router.port)));
+      else
+        for (const router of plan)
+          if (router.service === s.name && router.domains.length)
+            Object.assign(labels, routeLabels(meta.name, s, router, proxy, routerLogin(meta, s, router.port)));
     }
     return { name: s.name, build: !!s.build, lines, labels };
   });
@@ -725,7 +788,10 @@ function overrideText(header: string[], meta: SiteMeta, r: Release, parts: Servi
   const secrets = overrideSecrets(meta);
   if (secrets.length) lines.push("secrets:", ...secrets.flatMap((k) => [`  ${q(k)}:`, `    file: ${q(`./${SECRETS_DIR}/${k}`)}`]));
   if (volumes.length)
-    lines.push("volumes:", ...volumes.flatMap((k) => [`  ${q(k)}:`, "    driver_opts:", "      type: none", "      o: bind", `      device: ${q(volumeDir(meta.name, k))}`]));
+    lines.push(
+      "volumes:",
+      ...volumes.flatMap((k) => [`  ${q(k)}:`, "    driver_opts:", "      type: none", "      o: bind", `      device: ${q(volumeDir(meta.name, k))}`]),
+    );
   return lines.join("\n") + "\n";
 }
 
@@ -803,7 +869,10 @@ export function mountOf(item: unknown): { key?: string; path?: string } {
   }
   if (!item || typeof item !== "object") return {};
   const o = item as Record<string, unknown>;
-  return { key: (o.type ?? "volume") === "volume" && typeof o.source === "string" ? o.source : undefined, path: typeof o.target === "string" ? o.target : undefined };
+  return {
+    key: (o.type ?? "volume") === "volume" && typeof o.source === "string" ? o.source : undefined,
+    path: typeof o.target === "string" ? o.target : undefined,
+  };
 }
 
 /** mountOf for an item of a parsed document's volumes list. */
@@ -905,7 +974,11 @@ server {
  * `lf init` on an existing compose file: writes down what auto mode routes as x-landfall, and moves published
  * `ports:` into the local-only override (merged with one that exists). Comments and order stay.
  */
-export function adoptCompose(text: string, override: string | undefined, a: Analysis): { compose: string; override: string; routed: string[]; moved: string[] } {
+export function adoptCompose(
+  text: string,
+  override: string | undefined,
+  a: Analysis,
+): { compose: string; override: string; routed: string[]; moved: string[] } {
   const doc = parseDocument(text);
   const over = override !== undefined ? parseDocument(override) : new Document({ services: {} });
   if (override === undefined) over.commentBefore = " Local only: docker compose merges this file, lf deploy leaves it out.";
@@ -915,7 +988,10 @@ export function adoptCompose(text: string, override: string | undefined, a: Anal
     const svc = doc.getIn(["services", s.name], true);
     if (!isMap(svc)) continue;
     if (a.auto && (s.port || s.routes?.length)) {
-      const x = doc.createNode({ ...(s.port && { port: s.port }), ...(s.routes?.length && { routes: s.routes.map((r) => ({ port: r.port, subdomain: r.subdomain })) }) }) as YAMLMap;
+      const x = doc.createNode({
+        ...(s.port && { port: s.port }),
+        ...(s.routes?.length && { routes: s.routes.map((r) => ({ port: r.port, subdomain: r.subdomain })) }),
+      }) as YAMLMap;
       const routes = x.get("routes", true);
       if (isSeq(routes)) for (const r of routes.items) if (isMap(r)) r.flow = true;
       svc.set("x-landfall", x);
@@ -938,4 +1014,3 @@ export function adoptCompose(text: string, override: string | undefined, a: Anal
   }
   return { compose: doc.toString(), override: over.toString(), routed, moved };
 }
-

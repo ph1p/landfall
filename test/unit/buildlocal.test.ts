@@ -44,7 +44,9 @@ describe("--build-local", () => {
 
   test("a build outside the project, from git, or with build secrets stays on the server", () => {
     expect(() => localBuilds({ services: { a: { build: { context: "/srv/other" } } } }, { ...at, tmp: tmp() })).toThrow(/outside the project/);
-    expect(() => localBuilds({ services: { a: { build: { context: "https://github.com/x/y.git" } } } }, { ...at, tmp: tmp() })).toThrow(/leave out --build-local/);
+    expect(() => localBuilds({ services: { a: { build: { context: "https://github.com/x/y.git" } } } }, { ...at, tmp: tmp() })).toThrow(
+      /leave out --build-local/,
+    );
     expect(() => localBuilds({ services: { a: { build: { context: at.serverDir, secrets: ["npmrc"] } } } }, { ...at, tmp: tmp() })).toThrow(/secrets/);
   });
 });

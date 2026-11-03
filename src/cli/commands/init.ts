@@ -83,8 +83,8 @@ ${
 # x-landfall.port: the port Traefik sends the site's requests to (HTTPS on its domains).
 services:
 ${app}${
-  db
-    ? `  db:
+      db
+        ? `  db:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
@@ -99,17 +99,18 @@ ${app}${
       retries: 10
 
 `
-    : ""
-}${
-  db || volumes.length
-    ? `
+        : ""
+    }${
+      db || volumes.length
+        ? `
 # Survive deploys and rollbacks; \`lf sites rm --volumes\` deletes them.
 volumes:
 ${[...(db ? ["db"] : []), ...volumes.map(volumeName)].map((v) => `  ${v}:\n`).join("")}`
-    : ""
-}`;
+        : ""
+    }`;
     if (worker) delete files["compose.override.yaml"];
-    else files["compose.override.yaml"] = `# Local only: docker compose merges this file, lf deploy leaves it out.
+    else
+      files["compose.override.yaml"] = `# Local only: docker compose merges this file, lf deploy leaves it out.
 services:
   ${svc}:
     ports:
@@ -157,7 +158,6 @@ function adopt(root: string, file: string, a: NonNullable<ReturnType<typeof dete
   for (const w of a.warnings) warn(w);
 }
 
-
 export const eject = defineCommand({
   name: "eject",
   args: "[site]",
@@ -181,7 +181,11 @@ there, and lf deploy goes on as before.`,
     const file = composeFile(root, loadProject(root));
     const { meta, proxy } = await requireSite(server, site, { deployed: "eject" });
     if (!file || !fs.existsSync(join(root, file)))
-      return fail(meta.kind === "compose" ? `no compose file here: run lf eject in the project folder of ${site}` : `${site} runs a compose.yaml landfall generated: write it into this project with lf init first`);
+      return fail(
+        meta.kind === "compose"
+          ? `no compose file here: run lf eject in the project folder of ${site}`
+          : `${site} runs a compose.yaml landfall generated: write it into this project with lf init first`,
+      );
     const release = currentRelease(meta);
     if (!release) return fail(`${site} has no release to eject`);
     const local = Object.keys(localCompose(root, file)?.services ?? {});
@@ -198,8 +202,11 @@ there, and lf deploy goes on as before.`,
     fs.writeFileSync(path, text);
     ok(`wrote ${EJECT_FILE} from release ${release.id} of ${site}`);
     info(`run it:  docker compose -f ${file} -f ${EJECT_FILE} up -d`);
-    info(`your Traefik needs the network ${c.bold(own.network)} (docker network create ${own.network}), the entrypoint ${c.bold(own.entrypoint)} and the certificate resolver ${c.bold(own.resolver)}; --network, --entrypoint and --resolver change them`);
-    if (meta.kind !== "static") info(`the site's .env: lf env --pull .env${meta.volumes?.length ? `; its data: lf volume pull <volume> (${meta.volumes.join(", ")})` : ""}`);
+    info(
+      `your Traefik needs the network ${c.bold(own.network)} (docker network create ${own.network}), the entrypoint ${c.bold(own.entrypoint)} and the certificate resolver ${c.bold(own.resolver)}; --network, --entrypoint and --resolver change them`,
+    );
+    if (meta.kind !== "static")
+      info(`the site's .env: lf env --pull .env${meta.volumes?.length ? `; its data: lf volume pull <volume> (${meta.volumes.join(", ")})` : ""}`);
     if (meta.secrets?.length) info(`its secrets go in ./.secrets: ${meta.secrets.join(", ")}`);
   },
 });

@@ -28,7 +28,16 @@ function printScan(scans: ImageScan[], all: boolean, fixable: boolean) {
     if (!shown.length && !i.hint) continue;
     console.log(`\n${c.bold(i.ref)} ${c.dim(i.os ?? "")}`);
     const top = all ? shown : shown.slice(0, 15);
-    table(top.map((v) => ["  " + COLOR[v.severity](SHORT[v.severity]), v.id, v.pkg, c.dim(v.installed), v.fixed ? `→ ${v.fixed}` : c.dim("no fix yet"), c.dim((v.title ?? "").slice(0, 60))]));
+    table(
+      top.map((v) => [
+        "  " + COLOR[v.severity](SHORT[v.severity]),
+        v.id,
+        v.pkg,
+        c.dim(v.installed),
+        v.fixed ? `→ ${v.fixed}` : c.dim("no fix yet"),
+        c.dim((v.title ?? "").slice(0, 60)),
+      ]),
+    );
     if (top.length < shown.length) console.log(c.dim(`  … ${shown.length - top.length} more (--all)`));
     if (i.hint) console.log(`  ${c.cyan(i.hint)}`);
   }
@@ -45,7 +54,11 @@ export const scanCmd = defineCommand({
     server: serverOpt,
     all: { type: "boolean", desc: "list every vulnerability, not just critical and high" },
     fixable: { type: "boolean", desc: "only those a newer package fixes" },
-    others: { type: "boolean", desc: "also the containers landfall did not deploy, named by compose project or container (--no-others: only traefik and the sites)", default: true },
+    others: {
+      type: "boolean",
+      desc: "also the containers landfall did not deploy, named by compose project or container (--no-others: only traefik and the sites)",
+      default: true,
+    },
     json: { type: "boolean", desc: "machine-readable output" },
     remove: { type: "boolean", desc: "remove Trivy's image and databases from the server instead of scanning" },
   },

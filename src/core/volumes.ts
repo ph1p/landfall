@@ -7,7 +7,6 @@ import { fail } from "./term";
 
 export { HELPER };
 
-
 export interface Volume {
   /** Docker's name: <project>_<key>. */
   name: string;
@@ -45,8 +44,7 @@ export function parseVolumes(out: string): { volumes: Volume[]; backups: Backup[
     if (kind === "vol" && a) {
       vol(a).key = b || a;
       if (d) vol(a).dir = d;
-    }
-    else if (kind === "mnt" && a) {
+    } else if (kind === "mnt" && a) {
       const v = vol(a);
       if (!v.mounts.some((m) => m.service === b && m.path === d)) v.mounts.push({ service: b, path: d });
     } else if (kind === "size" && vols.has(a)) vol(a).size = Number(b);
@@ -116,14 +114,14 @@ done`;
 export const backupName = (key: string, now = new Date(), why = "") =>
   `${key}-${now.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15)}${why ? `-${why}` : ""}.tar.gz`;
 /** A volume's backups, newest first. */
-export const backupsOf = (backups: Backup[], key: string) =>
-  backups.filter((b) => b.file.startsWith(`${key}-`) && STAMP.test(b.file.slice(key.length + 1)));
+export const backupsOf = (backups: Backup[], key: string) => backups.filter((b) => b.file.startsWith(`${key}-`) && STAMP.test(b.file.slice(key.length + 1)));
 
 /** `docker run` that writes the volume's contents as tar.gz to stdout. Read-only: it never changes the volume. */
 export const tarOut = (vol: string) => `docker run --rm -v ${shq(`${vol}:/v:ro`)} ${HELPER} tar czf - -C /v .`;
 
 /** Images whose files are a database's: copied while it writes, the copy may not open. */
-const DB_IMAGES = "postgres|postgis|pgvector|timescale|mysql|mariadb|percona|mongo|redis|valkey|keydb|couchdb|influxdb|clickhouse|neo4j|cassandra|elasticsearch|opensearch";
+const DB_IMAGES =
+  "postgres|postgis|pgvector|timescale|mysql|mariadb|percona|mongo|redis|valkey|keydb|couchdb|influxdb|clickhouse|neo4j|cassandra|elasticsearch|opensearch";
 
 /**
  * Shell that runs `cmd` (status in $rc) with the running database containers that mount the volume (`vol`, a shell

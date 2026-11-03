@@ -1,9 +1,46 @@
 import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
 import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/config";
-import { COMPOSE_FILES, currentRelease, gitLabel, OVERRIDE_FILES, projectName, routed, SECRET_NAME, SECRETS_DIR, secretUsers, SERVICE_PORT, siteDomains, siteMain, type SiteMeta } from "../../core/compose";
+import {
+  COMPOSE_FILES,
+  currentRelease,
+  gitLabel,
+  OVERRIDE_FILES,
+  projectName,
+  routed,
+  SECRET_NAME,
+  SECRETS_DIR,
+  secretUsers,
+  SERVICE_PORT,
+  siteDomains,
+  siteMain,
+  type SiteMeta,
+} from "../../core/compose";
 import { bytes } from "../../core/facts";
-import { adoptSite, changeSite, composeCmd, noSite, envEntries, envView, liveConfig, maskedEnv, overview, mergeEnv, newestFirst, oldReleases, parseEnvPairs, readEnvFile, readSecrets, readSite, removeReleases, removeSite, requireSite, siteDir, siteLogs, validName } from "../../core/remote";
+import {
+  adoptSite,
+  changeSite,
+  composeCmd,
+  noSite,
+  envEntries,
+  envView,
+  liveConfig,
+  maskedEnv,
+  overview,
+  mergeEnv,
+  newestFirst,
+  oldReleases,
+  parseEnvPairs,
+  readEnvFile,
+  readSecrets,
+  readSite,
+  removeReleases,
+  removeSite,
+  requireSite,
+  siteDir,
+  siteLogs,
+  validName,
+} from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson } from "../../core/term";
 import { volumes } from "../../core/volumes";
@@ -80,7 +117,9 @@ export const sitesInfo = defineCommand({
     for (const r of newestFirst(meta)) {
       const mark = r.id === meta.current ? c.green("● ") : "  ";
       const routes = r.services.filter((x) => x.port || x.own).map((x) => `${x.name}${x.port ? ":" + x.port : ""}`);
-      console.log(`${mark}${r.id}  ${c.dim(ago(r.at))}  ${c.dim(r.services.map((x) => x.name).join(", "))}${routes.length ? c.dim(`  → ${routes.join(", ")}`) : ""}`);
+      console.log(
+        `${mark}${r.id}  ${c.dim(ago(r.at))}  ${c.dim(r.services.map((x) => x.name).join(", "))}${routes.length ? c.dim(`  → ${routes.join(", ")}`) : ""}`,
+      );
       if (r.git || r.by) console.log(c.dim(`    ${[gitLabel(r.git), r.by && `by ${r.by}`].filter(Boolean).join("  ")}`));
     }
   },
@@ -168,8 +207,14 @@ stays. Removed releases are gone for rollback: this cannot be undone. Volumes ar
     const gone = oldReleases(meta, { ids, keep });
     if (!gone.length) return info(`${site} has no releases to remove (${meta.current} is live)`);
     const list = gone.map((r) => `${r.id} (${ago(r.at)})`).join(", ");
-    await confirmRemoval(`Delete ${gone.length === 1 ? "release" : `${gone.length} releases`} of ${site} on ${name}: ${list}? Rollback can no longer go to them.`);
-    const done = await removeReleases(server, site, gone.map((r) => r.id));
+    await confirmRemoval(
+      `Delete ${gone.length === 1 ? "release" : `${gone.length} releases`} of ${site} on ${name}: ${list}? Rollback can no longer go to them.`,
+    );
+    const done = await removeReleases(
+      server,
+      site,
+      gone.map((r) => r.id),
+    );
     ok(`removed ${done.length} release${done.length === 1 ? "" : "s"} of ${site}`);
   },
 });
@@ -200,7 +245,17 @@ stops it and forgets it again. The projects you can adopt are listed under \`lf 
     const odd = (e.files ?? "").split(",").filter((f) => f && !defaults.has(f));
     if (odd.length) fail(`${project} was started with ${odd.join(", ")}; rename it to compose.yaml in ${e.dir} (or adopt it after moving it there)`);
     const now = new Date().toISOString();
-    const meta: SiteMeta = { name: site, kind: "compose", domains: e.domains, current: "", releases: [], adopted: e.dir, project, createdAt: now, updatedAt: now };
+    const meta: SiteMeta = {
+      name: site,
+      kind: "compose",
+      domains: e.domains,
+      current: "",
+      releases: [],
+      adopted: e.dir,
+      project,
+      createdAt: now,
+      updatedAt: now,
+    };
     await adoptSite(server, meta);
     ok(`adopted ${project} as ${site} (${e.domains.join(", ")})`);
     console.log(c.dim(`it runs from ${e.dir} as before; lf logs ${site}, lf restart ${site} and lf sites rm ${site} now work`));
@@ -224,7 +279,9 @@ brings them back). An adopted site is stopped and forgotten; its folder stays.`,
     const vols = o.volumes ? (await volumes(server, site)).volumes : undefined;
     const data = vols ? ` and its volumes (${vols.map((v) => v.key).join(", ") || "none"}; each backed up first, lf undo brings them back)` : "";
     await confirmRemoval(
-      m.adopted ? `Stop ${site} (${domains}) on ${name} and forget it${data}? ${m.adopted} stays.` : `Delete ${site} (${domains})${data} from ${name}? Its files and releases cannot be brought back.`,
+      m.adopted
+        ? `Stop ${site} (${domains}) on ${name} and forget it${data}? ${m.adopted} stays.`
+        : `Delete ${site} (${domains})${data} from ${name}? Its files and releases cannot be brought back.`,
       site,
     );
     await removeSite(server, m, { vols });
@@ -236,7 +293,16 @@ brings them back). An adopted site is stopped and forgotten; its folder stays.`,
 /** The site name and the KEY=VALUE pairs of `[name] [KEY=VALUE...]`, over the lines of --dotenv. */
 async function namedPairs(pos: string[], dotenv: string | undefined, oneLine = false) {
   const [n] = pos.filter((p) => !p.includes("="));
-  return { n, set: { ...(dotenv ? await readEnvFile(dotenv) : {}), ...parseEnvPairs(pos.filter((p) => p.includes("=")), oneLine) } };
+  return {
+    n,
+    set: {
+      ...(dotenv ? await readEnvFile(dotenv) : {}),
+      ...parseEnvPairs(
+        pos.filter((p) => p.includes("=")),
+        oneLine,
+      ),
+    },
+  };
 }
 
 export const sitesEnv = defineCommand({
@@ -265,7 +331,12 @@ export const sitesEnv = defineCommand({
         return ok(`wrote ${envEntries(env).length} variables of ${site} to ${o.pull}`);
       }
       if (o.json) return printJson(envView(env, o.reveal));
-      if (o.keys) return void process.stdout.write(envEntries(env).map((e) => e.key + "\n").join(""));
+      if (o.keys)
+        return void process.stdout.write(
+          envEntries(env)
+            .map((e) => e.key + "\n")
+            .join(""),
+        );
       if (!envEntries(env).length) return void process.stdout.write(c.dim("(empty)\n"));
       if (o.reveal) return void process.stdout.write(env);
       process.stdout.write(maskedEnv(env));
@@ -406,12 +477,22 @@ The tunnel stays open until Ctrl-C.`,
     if (!ctr) fail(`${name} of ${site} is not running (lf start ${site})`);
     // A service that is only reached privately (x-landfall: { private: { admin: 3000 } }) opens the private port
     // named like it, else its first one; with its path, if it names one.
-    const key = hidden ? svc! : service && !service.port ? (service.private?.[service.name] !== undefined ? service.name : Object.keys(service.private ?? {})[0]) : undefined;
+    const key = hidden
+      ? svc!
+      : service && !service.port
+        ? service.private?.[service.name] !== undefined
+          ? service.name
+          : Object.keys(service.private ?? {})[0]
+        : undefined;
     const owner = hidden ?? service;
     const port = key ? owner!.private![key] : service?.port;
     const path = key && !o.port ? owner!.paths?.[key] : undefined;
     await tunnelTo(server, ctr!, proxy.network, o.port ?? port, {
-      path, local: o.local, lan: o.lan, what: `${site}${svc ? ` (${svc})` : ""}` });
+      path,
+      local: o.local,
+      lan: o.lan,
+      what: `${site}${svc ? ` (${svc})` : ""}`,
+    });
   },
 });
 
@@ -425,10 +506,7 @@ export const tunnelsList = defineCommand({
     const ts = openTunnels();
     if (o.json) return void printJson(ts);
     if (!ts.length) return info("no tunnels open: lf tunnel <site> opens one");
-    table([
-      ["url", "what", "server", "open", "pid"].map(c.dim),
-      ...ts.map((t) => [c.cyan(t.url), t.what, t.server, ago(t.at), String(t.pid)]),
-    ]);
+    table([["url", "what", "server", "open", "pid"].map(c.dim), ...ts.map((t) => [c.cyan(t.url), t.what, t.server, ago(t.at), String(t.pid)])]);
   },
 });
 
@@ -447,17 +525,27 @@ async function foreignTunnel(server: Server, name: string, svc: string | undefin
 }
 
 /** Tunnel to the container's port: the given one, else the one Traefik routes to. */
-async function tunnelTo(server: Server, ctr: Ctr, network: string, port: string | number | undefined, o: { local?: string; lan?: boolean; path?: string; what: string }) {
+async function tunnelTo(
+  server: Server,
+  ctr: Ctr,
+  network: string,
+  port: string | number | undefined,
+  o: { local?: string; lan?: boolean; path?: string; what: string },
+) {
   // Else the port Traefik routes to, else the one its image exposes (a database's, say).
   const routedTo = Object.entries(ctr.labels).find(([k]) => SERVICE_PORT.test(k))?.[1];
   const found = port ?? routedTo ?? ctr.ports[0];
   if (found === undefined) fail(`which port of ${ctr.name}? pass --port`);
   const to = checkInt(String(found), "--port", 1, 65535);
-  if (port === undefined && routedTo === undefined && ctr.ports.length > 1) info(c.dim(`${ctr.name} also exposes ${ctr.ports.slice(1).join(", ")}: pick one with --port`));
+  if (port === undefined && routedTo === undefined && ctr.ports.length > 1)
+    info(c.dim(`${ctr.name} also exposes ${ctr.ports.slice(1).join(", ")}: pick one with --port`));
   const scheme = portScheme(to);
   await openTunnel(server, ctrAddress(ctr, network), to, {
     ...o,
     scheme,
-    note: scheme === "http" ? `straight to the container: no HTTPS, no login, and the app sees Host: ${o.lan ? "localhost or this machine's address" : "localhost"}` : `straight to the container: point a ${scheme} client at it, with the container's own credentials`,
+    note:
+      scheme === "http"
+        ? `straight to the container: no HTTPS, no login, and the app sees Host: ${o.lan ? "localhost or this machine's address" : "localhost"}`
+        : `straight to the container: point a ${scheme} client at it, with the container's own credentials`,
   });
 }

@@ -1,8 +1,34 @@
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { checkEmail, checkImage, defaults, checkLoginName, DOMAIN, MIN_PASSWORD, expandDomain, loadConfig, updateConfig, patchServer, type Server } from "./config";
+import {
+  checkEmail,
+  checkImage,
+  defaults,
+  checkLoginName,
+  DOMAIN,
+  MIN_PASSWORD,
+  expandDomain,
+  loadConfig,
+  updateConfig,
+  patchServer,
+  type Server,
+} from "./config";
 import { runScript, shq, writeFileCmd } from "./ssh";
-import { DEFAULT_TRAEFIK_IMAGE, DYNAMIC_DIR, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, proxyFile, ROOT, SITES, TLS_FILE, TRAEFIK_DIR, traefikCompose, type Proxy } from "./templates";
+import {
+  DEFAULT_TRAEFIK_IMAGE,
+  DYNAMIC_DIR,
+  NETWORK,
+  PRELUDE,
+  PROXY_CTR,
+  PROXY_FILE,
+  proxyFile,
+  ROOT,
+  SITES,
+  TLS_FILE,
+  TRAEFIK_DIR,
+  traefikCompose,
+  type Proxy,
+} from "./templates";
 import { askSecret, c, fail, info, ok, step, warn } from "./term";
 import { adminLogin } from "./privilege";
 
@@ -121,7 +147,9 @@ ensure_running traefik`,
       http3: t.http3 ? undefined : false,
       dashboard,
     };
-    await updateConfig((cfg) => { patchServer(cfg, name, before, next); });
+    await updateConfig((cfg) => {
+      patchServer(cfg, name, before, next);
+    });
   }
   ok(`traefik running (${describeTraefik(t)}) — HTTPS certificates from Let's Encrypt`);
   if (t.hostNetwork) info(c.dim("host network: ufw now decides who reaches 80/443"));

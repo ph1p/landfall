@@ -7,7 +7,26 @@ import { portScheme, routerPort } from "../../src/core/tunnel";
 import { htpasswd, traefikSettings } from "../../src/core/traefik";
 import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/templates";
-import { adoptCompose, analyze, findRoute, isCidr, generatedCompose, localCompose, routePlan, mainService, nginxConf, overrideYaml, ejectYaml, folderVolumes, routeLabels, ruleHosts, secretUsers, siteDomains, type Release, type SiteMeta } from "../../src/core/compose";
+import {
+  adoptCompose,
+  analyze,
+  findRoute,
+  isCidr,
+  generatedCompose,
+  localCompose,
+  routePlan,
+  mainService,
+  nginxConf,
+  overrideYaml,
+  ejectYaml,
+  folderVolumes,
+  routeLabels,
+  ruleHosts,
+  secretUsers,
+  siteDomains,
+  type Release,
+  type SiteMeta,
+} from "../../src/core/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -33,7 +52,12 @@ describe("templates", () => {
   };
 
   test("labels route all domains over TLS", () => {
-    const l = routeLabels("blog", release.services[0], { port: 3000, domains: meta.domains }, { container: "traefik", network: "web", entrypoint: "websecure", resolver: "le" });
+    const l = routeLabels(
+      "blog",
+      release.services[0],
+      { port: 3000, domains: meta.domains },
+      { container: "traefik", network: "web", entrypoint: "websecure", resolver: "le" },
+    );
     expect(l["traefik.http.routers.blog_web.rule"]).toBe("Host(`a.com`) || Host(`www.a.com`)");
     expect(l["traefik.http.routers.blog_web.tls.certresolver"]).toBe("le");
     expect(l["traefik.http.services.blog_web.loadbalancer.server.port"]).toBe("3000");
@@ -49,7 +73,7 @@ describe("templates", () => {
     expect(y).toContain('"traefik.http.routers.blog_web.tls.certresolver": "acme"');
     expect(y).toContain('"traefik.http.routers.blog_admin.rule": "Host(`admin.a.com`)"');
     expect(y).toMatch(/"db":\n    labels:/);
-    expect(y).toContain("  landfall-proxy:\n    name: \"proxy\"\n    external: true");
+    expect(y).toContain('  landfall-proxy:\n    name: "proxy"\n    external: true');
   });
 
   test("override escapes $ in basic auth", () => {
@@ -61,7 +85,18 @@ describe("templates", () => {
   test("allow and route logins: an address check before the login, a route's own login in place of the site's", () => {
     const r: Release = {
       ...release,
-      services: [{ name: "web", networks: ["default"], port: 3000, allow: ["10.0.0.0/8"], routes: [{ port: 3001, subdomain: "admin", allow: ["203.0.113.7"] }, { port: 3002, subdomain: "hooks" }] }],
+      services: [
+        {
+          name: "web",
+          networks: ["default"],
+          port: 3000,
+          allow: ["10.0.0.0/8"],
+          routes: [
+            { port: 3001, subdomain: "admin", allow: ["203.0.113.7"] },
+            { port: 3002, subdomain: "hooks" },
+          ],
+        },
+      ],
     };
     const m: SiteMeta = { ...meta, releases: [r], auth: ["bob:h1"], routeAuth: { "web:3001": ["ann:h2"], "web:3002": [] } };
     const y = YAML.parse(overrideYaml(m, r)).services.web.labels;
@@ -96,14 +131,30 @@ describe("templates", () => {
 
   test("allow: addresses and CIDR ranges, on a port or a route", () => {
     const dir = tmp();
-    const a = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, allow: "192.168.1.0/24", routes: [{ port: 3001, subdomain: "a", allow: ["::1", "2001:db8::/32"] }] } } } }, dir);
+    const a = analyze(
+      {
+        services: {
+          web: { image: "w", "x-landfall": { port: 3000, allow: "192.168.1.0/24", routes: [{ port: 3001, subdomain: "a", allow: ["::1", "2001:db8::/32"] }] } },
+        },
+      },
+      dir,
+    );
     expect(a.errors).toEqual([]);
     expect(a.services[0]).toMatchObject({ allow: ["192.168.1.0/24"], routes: [{ port: 3001, subdomain: "a", allow: ["::1", "2001:db8::/32"] }] });
     expect(routePlan(a.services, ["x.io"])[0].allow).toEqual(["192.168.1.0/24"]);
-    const bad = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, allow: ["10.0.0.0/33", "example.com"], routes: [{ port: 3001, subdomain: "a", allow: [] }] } } } }, dir);
+    const bad = analyze(
+      {
+        services: {
+          web: { image: "w", "x-landfall": { port: 3000, allow: ["10.0.0.0/33", "example.com"], routes: [{ port: 3001, subdomain: "a", allow: [] }] } },
+        },
+      },
+      dir,
+    );
     expect(bad.errors.join("\n")).toMatch(/not 10\.0\.0\.0\/33, example\.com/);
     expect(bad.errors.join("\n")).toMatch(/allow is empty/);
-    expect(analyze({ services: { w: { image: "w", "x-landfall": { allow: ["1.2.3.4"], routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join()).toMatch(/put allow on its routes/);
+    expect(
+      analyze({ services: { w: { image: "w", "x-landfall": { allow: ["1.2.3.4"], routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join(),
+    ).toMatch(/put allow on its routes/);
     expect([isCidr("1.2.3.4"), isCidr("1.2.3.4/32"), isCidr("fe80::1/64"), isCidr("1.2.3.4/x"), isCidr("1.2.3")]).toEqual([true, true, true, false, false]);
   });
 
@@ -145,7 +196,7 @@ describe("templates", () => {
   test("site domains: the main service's plus each service's own", () => {
     expect(mainService(release)?.name).toBe("web");
     expect(siteDomains(meta)).toEqual(["a.com", "www.a.com", "admin.a.com"]);
-    expect(ruleHosts("Host(`a.x`) || Host(`B.x`, \"c.x\") && PathPrefix(`/`)")).toEqual(["a.x", "b.x", "c.x"]);
+    expect(ruleHosts('Host(`a.x`) || Host(`B.x`, "c.x") && PathPrefix(`/`)')).toEqual(["a.x", "b.x", "c.x"]);
   });
 
   test("generated compose files", () => {
@@ -199,21 +250,41 @@ describe("templates", () => {
     const a = analyze(
       {
         services: {
-          web: { build: { context: dir }, "x-landfall": { port: 3000, routes: [{ port: 3001, subdomain: "admin" }, { port: 9000, domains: ["s3"] }], private: { cms: 3002 } } },
+          web: {
+            build: { context: dir },
+            "x-landfall": {
+              port: 3000,
+              routes: [
+                { port: 3001, subdomain: "admin" },
+                { port: 9000, domains: ["s3"] },
+              ],
+              private: { cms: 3002 },
+            },
+          },
         },
       },
       dir,
       (d) => (d.includes(".") ? d : `${d}.x.io`),
     );
     expect(a.errors).toEqual([]);
-    expect(a.services[0]).toMatchObject({ port: 3000, routes: [{ port: 3001, subdomain: "admin" }, { port: 9000, domains: ["s3.x.io"] }], private: { cms: 3002 } });
+    expect(a.services[0]).toMatchObject({
+      port: 3000,
+      routes: [
+        { port: 3001, subdomain: "admin" },
+        { port: 9000, domains: ["s3.x.io"] },
+      ],
+      private: { cms: 3002 },
+    });
     expect(routePlan(a.services, ["a.com", "b.com"])).toEqual([
       { key: "web:3000", service: "web", port: 3000, domains: ["a.com", "b.com"], main: true },
       { key: "web:3001", service: "web", port: 3001, domains: ["admin.a.com", "admin.b.com"], subdomain: "admin" },
       { key: "web:9000", service: "web", port: 9000, domains: ["s3.x.io"] },
     ]);
     // a port routed and private, or routed twice, is a mistake
-    const bad = analyze({ services: { web: { image: "w", "x-landfall": { port: 3000, routes: [{ port: 3000, subdomain: "a" }], private: { x: 3000 } } } } }, dir);
+    const bad = analyze(
+      { services: { web: { image: "w", "x-landfall": { port: 3000, routes: [{ port: 3000, subdomain: "a" }], private: { x: 3000 } } } } },
+      dir,
+    );
     expect(bad.errors.join("\n")).toMatch(/routed twice/);
     expect(bad.errors.join("\n")).toMatch(/both routed and private/);
     // a private port may name the path its tunnel opens
@@ -227,7 +298,9 @@ describe("templates", () => {
     expect(badPath({ path: "/admin" })).toMatch(/must be a port number in port:/);
     expect(badPath({ port: 3000, url: "/admin" })).toMatch(/knows port and path, not url/);
     // subdomains hang off the main service's domains
-    expect(analyze({ services: { w: { image: "w", "x-landfall": { routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join()).toMatch(/no service serves them/);
+    expect(analyze({ services: { w: { image: "w", "x-landfall": { routes: [{ port: 3001, subdomain: "a" }] } } } }, dir).errors.join()).toMatch(
+      /no service serves them/,
+    );
   });
 
   test("route labels and override: a router per port, published ports reset", () => {
@@ -248,7 +321,13 @@ describe("templates", () => {
     const dir = "/opt/landfall/sites/blog/releases/1";
     const config = {
       services: {
-        web: { build: { context: dir }, ports: [{ target: 3000, published: "3000" }, { target: 3001, published: "3001" }] },
+        web: {
+          build: { context: dir },
+          ports: [
+            { target: 3000, published: "3000" },
+            { target: 3001, published: "3001" },
+          ],
+        },
         db: { image: "postgres", ports: [{ target: 5432, published: "5432" }] },
         mail: { image: "mailpit", expose: ["8025", "1025"] },
       },
@@ -263,7 +342,9 @@ describe("templates", () => {
     ]);
     expect(a.notes.join()).toMatch(/db: 5432 not published/);
     // any x-landfall switches auto mode off
-    expect(analyze({ services: { ...config.services, web: { image: "w", "x-landfall": { port: 3000 } } } }, dir, undefined, { auto: true }).auto).toBeUndefined();
+    expect(
+      analyze({ services: { ...config.services, web: { image: "w", "x-landfall": { port: 3000 } } } }, dir, undefined, { auto: true }).auto,
+    ).toBeUndefined();
   });
 
   test("auto mode: a database UI never wins the site's domains, a real tie is said", () => {
@@ -279,7 +360,10 @@ describe("templates", () => {
   test("local compose file: variables and short ports as docker compose config has them", () => {
     const dir = tmp();
     fs.writeFileSync(join(dir, ".env"), "PORT=4000\n");
-    fs.writeFileSync(join(dir, "compose.yaml"), 'services:\n  web:\n    image: "w:${TAG:-1}"\n    ports: ["127.0.0.1:${PORT}:3000", 8080, "9000-9001:9000-9001/tcp", "53:53/udp"]\n');
+    fs.writeFileSync(
+      join(dir, "compose.yaml"),
+      'services:\n  web:\n    image: "w:${TAG:-1}"\n    ports: ["127.0.0.1:${PORT}:3000", 8080, "9000-9001:9000-9001/tcp", "53:53/udp"]\n',
+    );
     const c = localCompose(dir, "compose.yaml");
     expect(c.services.web.image).toBe("w:1");
     expect(c.services.web.ports).toEqual([

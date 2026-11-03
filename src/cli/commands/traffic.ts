@@ -3,7 +3,19 @@ import { DOMAIN, projectServer } from "../../core/config";
 import { bytes } from "../../core/facts";
 import { ms } from "../../core/format";
 import { overview } from "../../core/remote";
-import { CERT_DAYS_BAD, certs, checkUrl, parseSince, siteTraffic, spanLabel, traffic, type Cert, type Check, type Detail, type Summary } from "../../core/traffic";
+import {
+  CERT_DAYS_BAD,
+  certs,
+  checkUrl,
+  parseSince,
+  siteTraffic,
+  spanLabel,
+  traffic,
+  type Cert,
+  type Check,
+  type Detail,
+  type Summary,
+} from "../../core/traffic";
 import { c, fail, info, table, warn, printJson } from "../../core/term";
 import { siteTrafficView } from "../../core/views";
 
@@ -26,7 +38,14 @@ function sparkline(series: Detail["series"]) {
   return out;
 }
 
-const classCells = (s: Summary) => [num(s.requests), s.classes["4xx"] ? c.yellow(num(s.classes["4xx"])) : c.dim("0"), s.classes["5xx"] ? c.red(num(s.classes["5xx"])) : c.dim("0"), s.requests ? ms(s.p50) : "", s.requests ? ms(s.p95) : "", bytes(s.bytes)];
+const classCells = (s: Summary) => [
+  num(s.requests),
+  s.classes["4xx"] ? c.yellow(num(s.classes["4xx"])) : c.dim("0"),
+  s.classes["5xx"] ? c.red(num(s.classes["5xx"])) : c.dim("0"),
+  s.requests ? ms(s.p50) : "",
+  s.requests ? ms(s.p95) : "",
+  bytes(s.bytes),
+];
 
 function printDetail(d: Detail, what: string) {
   table([["requests", "4xx", "5xx", "p50", "p95", "sent"].map(c.dim), classCells(d)]);
@@ -72,7 +91,9 @@ export const trafficCmd = defineCommand({
     }
     const span = spanLabel(secs);
     if (t.format === "none") {
-      return info(`no requests on ${name} in the last ${span}${t.own ? c.dim(" (or its traefik has no access log: --accesslog=true --accesslog.format=json)") : ""}`);
+      return info(
+        `no requests on ${name} in the last ${span}${t.own ? c.dim(" (or its traefik has no access log: --accesslog=true --accesslog.format=json)") : ""}`,
+      );
     }
     // The container log is capped (lf log-limit): it may not reach back the whole span.
     const short = t.from && new Date(t.from).getTime() - (Date.now() - secs * 1000) > (t.bucket === "hour" ? 3_600_000 : 60_000) * 2;
@@ -135,7 +156,8 @@ export const certsCmd = defineCommand({
         ["domain", "site", "certificate", "expires", "issuer"].map(c.dim),
         ...r.domains.map((d) => [d.domain, c.dim(d.site), certCell(d.cert), d.cert ? d.cert.expires.slice(0, 10) : "", c.dim(d.cert?.issuer ?? "")]),
       ]);
-      for (const d of r.domains.filter((d) => d.error && (!d.cert || d.cert.days < 30))) warn(`${d.domain}: ${d.error!.error}${d.error!.at ? c.dim(` (${new Date(d.error!.at).toLocaleString()})`) : ""}`);
+      for (const d of r.domains.filter((d) => d.error && (!d.cert || d.cert.days < 30)))
+        warn(`${d.domain}: ${d.error!.error}${d.error!.at ? c.dim(` (${new Date(d.error!.at).toLocaleString()})`) : ""}`);
     } else info(`no site domains on ${name}`);
     const used = new Set(r.domains.map((d) => d.cert));
     const rest = r.certs.filter((x) => !used.has(x));
@@ -154,7 +176,8 @@ const isDomain = (s: string) => s.includes(".") && DOMAIN.test(s.toLowerCase());
 export const checkCmd = defineCommand({
   name: "check",
   args: "[site|domain…]",
-  summary: "Request each site over HTTPS from this machine: status, response time and days left on the certificate.\nExits 1 when one fails: use it from cron or CI.",
+  summary:
+    "Request each site over HTTPS from this machine: status, response time and days left on the certificate.\nExits 1 when one fails: use it from cron or CI.",
   options: {
     server: serverOpt,
     resolve: { type: "string", desc: "connect to this ip[:port] instead of what DNS says (test before DNS points here)" },
@@ -172,7 +195,9 @@ export const checkCmd = defineCommand({
       targets = [...targets, ...pick.flatMap((x) => x.domains.filter((d) => !d.startsWith("*.")).map((domain) => ({ domain, site: x.meta.name })))];
       if (!targets.length) return info(`no site on ${name} has a domain`);
     }
-    const res: Check[] = await Promise.all(targets.map(async (t) => ({ ...(await checkUrl(t.domain, { resolve: o.resolve })), ...(t.site && { site: t.site }) })));
+    const res: Check[] = await Promise.all(
+      targets.map(async (t) => ({ ...(await checkUrl(t.domain, { resolve: o.resolve })), ...(t.site && { site: t.site }) })),
+    );
     if (o.json) printJson(res);
     else {
       table([
@@ -183,7 +208,15 @@ export const checkCmd = defineCommand({
           c.dim(r.site ?? ""),
           r.error ? c.red(r.error) : (r.status ?? 0) >= 500 ? c.red(String(r.status)) : String(r.status),
           r.ms === undefined ? "" : r.ms > 1000 ? c.yellow(ms(r.ms)) : ms(r.ms),
-          !r.tls ? "" : !r.tls.valid ? c.red(r.tls.error ?? "not trusted") : r.tls.days < CERT_DAYS_BAD ? c.red(`${r.tls.days} days`) : r.tls.days < 30 ? c.yellow(`${r.tls.days} days`) : c.green(`${r.tls.days} days`),
+          !r.tls
+            ? ""
+            : !r.tls.valid
+              ? c.red(r.tls.error ?? "not trusted")
+              : r.tls.days < CERT_DAYS_BAD
+                ? c.red(`${r.tls.days} days`)
+                : r.tls.days < 30
+                  ? c.yellow(`${r.tls.days} days`)
+                  : c.green(`${r.tls.days} days`),
         ]),
       ]);
     }

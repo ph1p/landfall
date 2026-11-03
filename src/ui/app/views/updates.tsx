@@ -10,9 +10,22 @@ import { can, size } from "./shared";
 
 // ---- updates ---------------------------------------------------------------
 
-const IMG: Record<string, [string, string]> = { current: ["ok", "up to date"], update: ["warn", "newer image"], unknown: ["", "unknown"], pinned: ["", "pinned"], rebuild: ["", "rebuild"], foreign: ["", "not landfall's"], missing: ["bad", "missing"] };
+const IMG: Record<string, [string, string]> = {
+  current: ["ok", "up to date"],
+  update: ["warn", "newer image"],
+  unknown: ["", "unknown"],
+  pinned: ["", "pinned"],
+  rebuild: ["", "rebuild"],
+  foreign: ["", "not landfall's"],
+  missing: ["bad", "missing"],
+};
 
-const SEV: [Severity, string, string][] = [["CRITICAL", "bad", "critical"], ["HIGH", "warn", "high"], ["MEDIUM", "", "medium"], ["LOW", "", "low"]];
+const SEV: [Severity, string, string][] = [
+  ["CRITICAL", "bad", "critical"],
+  ["HIGH", "warn", "high"],
+  ["MEDIUM", "", "medium"],
+  ["LOW", "", "low"],
+];
 // Images whose vulnerabilities are listed.
 const shownScans = new Set<string>();
 // Servers whose scan leaves out the containers landfall did not deploy.
@@ -20,7 +33,8 @@ const onlyOurs = new Set<string>();
 // What Trivy keeps on each server, once asked; servers being asked.
 const trivy = new Map<string, TrivyState>();
 const asking = new Set<string>();
-const loadTrivy = (n: string, sizes = true) => http<TrivyState>(`/api/servers/${encodeURIComponent(n)}/trivy${sizes ? "" : "?sizes=0"}`).then((t) => (trivy.set(n, t), render(), t));
+const loadTrivy = (n: string, sizes = true) =>
+  http<TrivyState>(`/api/servers/${encodeURIComponent(n)}/trivy${sizes ? "" : "?sizes=0"}`).then((t) => (trivy.set(n, t), render(), t));
 // Whether Trivy is there, asked once per server when the page shows: Remove Trivy needs no scan first.
 const peeked = new Set<string>();
 const peekTrivy = (n: string) => !peeked.has(n) && (peeked.add(n), void loadTrivy(n, false).catch(() => peeked.delete(n)));
@@ -28,7 +42,9 @@ const trivySize = (t?: TrivyState) => (t?.cache ? size((t.image ?? 0) + t.cache)
 // Shown as scanning at once: a scan takes a minute or more, and the click must answer now.
 const scan = (n: string, install = false) => {
   const q = [onlyOurs.has(n) && "others=0", install && "install=1"].filter(Boolean).join("&");
-  void fetchInto("scan", n, "/scan" + (q && "?" + q)).then(() => void (install && loadTrivy(n).catch((e) => toast(`could not read Trivy's state: ${errorMessage(e)}`))));
+  void fetchInto("scan", n, "/scan" + (q && "?" + q)).then(
+    () => void (install && loadTrivy(n).catch((e) => toast(`could not read Trivy's state: ${errorMessage(e)}`))),
+  );
   render();
 };
 const there = (t: TrivyState) => t.image !== undefined || t.cache !== undefined;
@@ -36,18 +52,20 @@ const there = (t: TrivyState) => t.image !== undefined || t.cache !== undefined;
 const firstScan = (n: string) => {
   asking.add(n);
   render();
-  loadTrivy(n).then(
-    (t) =>
-      there(t)
-        ? scan(n)
-        : confirmDlg({
-            title: `Install Trivy on ${n}?`,
-            text: "Scanning runs Trivy on the server. It downloads its image (~190 MB) and its vulnerability databases (several GB, in the volume landfall-trivy), and keeps them for the next scans.\nRemove Trivy (or lf scan --remove) deletes them again.",
-            ok: "Install and scan",
-            onOk: () => scan(n, true),
-          }),
-    (e) => toast(errorMessage(e)),
-  ).finally(() => (asking.delete(n), render()));
+  loadTrivy(n)
+    .then(
+      (t) =>
+        there(t)
+          ? scan(n)
+          : confirmDlg({
+              title: `Install Trivy on ${n}?`,
+              text: "Scanning runs Trivy on the server. It downloads its image (~190 MB) and its vulnerability databases (several GB, in the volume landfall-trivy), and keeps them for the next scans.\nRemove Trivy (or lf scan --remove) deletes them again.",
+              ok: "Install and scan",
+              onOk: () => scan(n, true),
+            }),
+      (e) => toast(errorMessage(e)),
+    )
+    .finally(() => (asking.delete(n), render()));
 };
 const removeTrivy = (n: string) =>
   confirmDlg({
@@ -79,55 +97,130 @@ function ScanCard({ n }: { n: string }) {
         <Actions>
           {st.data && (
             <label className="dim text-sm flex items-center gap-1.5" title="lf scan --no-others leaves them out: only the images of traefik and the sites">
-              <input type="checkbox" checked={!onlyOurs.has(n)} disabled={st.loading} onChange={(e) => (e.target.checked ? onlyOurs.delete(n) : onlyOurs.add(n), void scan(n), render())} />
+              <input
+                type="checkbox"
+                checked={!onlyOurs.has(n)}
+                disabled={st.loading}
+                onChange={(e) => (e.target.checked ? onlyOurs.delete(n) : onlyOurs.add(n), void scan(n), render())}
+              />
               Other containers too
             </label>
           )}
-          {st.data && (st.loading ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Scanning…</span> : <Btn cls="sm" on={() => scan(n)}>Scan again</Btn>)}
-          {!st.loading && <Btn cls="sm" title={`lf scan --remove: delete Trivy's image and databases from the server${trivySize(tv) && ` (${trivySize(tv)})`}`} on={() => removeTrivy(n)}>Remove Trivy</Btn>}
+          {st.data &&
+            (st.loading ? (
+              <span role="status" className="dim text-sm flex items-center gap-2">
+                <Spin /> Scanning…
+              </span>
+            ) : (
+              <Btn cls="sm" on={() => scan(n)}>
+                Scan again
+              </Btn>
+            ))}
+          {!st.loading && (
+            <Btn
+              cls="sm"
+              title={`lf scan --remove: delete Trivy's image and databases from the server${trivySize(tv) && ` (${trivySize(tv)})`}`}
+              on={() => removeTrivy(n)}
+            >
+              Remove Trivy
+            </Btn>
+          )}
         </Actions>
       </CardHead>
       {wait ?? (
-        <Table head={<><th>Image</th><th className={HIDE}>Used by</th><th>Found</th><th className={cx(NUM, HIDE)}>Fixable</th><th></th></>}>
+        <Table
+          head={
+            <>
+              <th>Image</th>
+              <th className={HIDE}>Used by</th>
+              <th>Found</th>
+              <th className={cx(NUM, HIDE)}>Fixable</th>
+              <th></th>
+            </>
+          }
+        >
           {st.data!.length ? (
             st.data!.map((i) => {
               const open = shownScans.has(i.id);
               return [
                 <tr key={i.id}>
                   <td>
-                    <span className={MONO}>{i.ref}</span> {i.other && <Badge title="Run by containers landfall did not deploy">not landfall's</Badge>} {i.eol && <Badge kind="bad" title="Its OS no longer gets security fixes">OS end of life</Badge>}
+                    <span className={MONO}>{i.ref}</span> {i.other && <Badge title="Run by containers landfall did not deploy">not landfall's</Badge>}{" "}
+                    {i.eol && (
+                      <Badge kind="bad" title="Its OS no longer gets security fixes">
+                        OS end of life
+                      </Badge>
+                    )}
                     {(i.error || i.hint) && <div className={cx("text-xs mt-1", i.error ? "text-bad" : "text-warn")}>{i.error ?? i.hint}</div>}
                   </td>
                   <td className={cx("dim", HIDE)}>{used(i)}</td>
                   <td>
                     {i.error ? (
-                      <Badge kind="bad" title={i.error}>failed</Badge>
+                      <Badge kind="bad" title={i.error}>
+                        failed
+                      </Badge>
                     ) : i.vulns.length ? (
-                      SEV.filter(([k]) => i.counts[k]).map(([k, kind, label]) => <Badge key={k} kind={kind} className="mr-1">{i.counts[k]} {label}</Badge>)
+                      SEV.filter(([k]) => i.counts[k]).map(([k, kind, label]) => (
+                        <Badge key={k} kind={kind} className="mr-1">
+                          {i.counts[k]} {label}
+                        </Badge>
+                      ))
                     ) : (
                       <Badge kind="ok">none known</Badge>
                     )}
                   </td>
                   <td className={cx(NUM, HIDE)}>{i.error ? "" : i.fixable}</td>
-                  <td className={ACTS}>{i.vulns.length > 0 && <Btn cls="sm ghost" on={() => toggle(i.id)}>{open ? "Hide" : "Show"}</Btn>}</td>
+                  <td className={ACTS}>
+                    {i.vulns.length > 0 && (
+                      <Btn cls="sm ghost" on={() => toggle(i.id)}>
+                        {open ? "Hide" : "Show"}
+                      </Btn>
+                    )}
+                  </td>
                 </tr>,
                 open && (
                   <tr key={`${i.id}-list`}>
                     <td colSpan={5} className="pt-0">
-                      <Table head={<><th>Severity</th><th>CVE</th><th>Package</th><th className={HIDE}>Installed</th><th>Fixed in</th></>}>
+                      <Table
+                        head={
+                          <>
+                            <th>Severity</th>
+                            <th>CVE</th>
+                            <th>Package</th>
+                            <th className={HIDE}>Installed</th>
+                            <th>Fixed in</th>
+                          </>
+                        }
+                      >
                         {i.vulns.slice(0, 300).map((v) => (
                           <tr key={`${v.id} ${v.pkg} ${v.installed}`}>
-                            <td><Badge kind={SEV.find(([k]) => k === v.severity)?.[1] ?? ""}>{v.severity.toLowerCase()}</Badge></td>
-                            <td className={cx(MONO, "whitespace-nowrap")}><a href={`https://avd.aquasec.com/nvd/${v.id.toLowerCase()}`} target="_blank" rel="noreferrer">{v.id}</a></td>
+                            <td>
+                              <Badge kind={SEV.find(([k]) => k === v.severity)?.[1] ?? ""}>{v.severity.toLowerCase()}</Badge>
+                            </td>
+                            <td className={cx(MONO, "whitespace-nowrap")}>
+                              <a href={`https://avd.aquasec.com/nvd/${v.id.toLowerCase()}`} target="_blank" rel="noreferrer">
+                                {v.id}
+                              </a>
+                            </td>
                             <td>
                               <div className={MONO}>{v.pkg}</div>
-                              {v.title && <div className={cx("dim text-xs max-w-[48ch] truncate", HIDE)} title={v.title}>{v.title}</div>}
+                              {v.title && (
+                                <div className={cx("dim text-xs max-w-[48ch] truncate", HIDE)} title={v.title}>
+                                  {v.title}
+                                </div>
+                              )}
                             </td>
                             <td className={cx(MONO, "dim", HIDE)}>{v.installed}</td>
                             <td className={MONO}>{v.fixed?.replaceAll(", ", " ") ?? <span className="faint">no fix yet</span>}</td>
                           </tr>
                         ))}
-                        {i.vulns.length > 300 && <tr><td colSpan={5} className="dim">… {i.vulns.length - 300} more: lf scan --all</td></tr>}
+                        {i.vulns.length > 300 && (
+                          <tr>
+                            <td colSpan={5} className="dim">
+                              … {i.vulns.length - 300} more: lf scan --all
+                            </td>
+                          </tr>
+                        )}
                       </Table>
                     </td>
                   </tr>
@@ -135,7 +228,11 @@ function ScanCard({ n }: { n: string }) {
               ];
             })
           ) : (
-            <tr><td colSpan={5} className="dim">no images to scan</td></tr>
+            <tr>
+              <td colSpan={5} className="dim">
+                no images to scan
+              </td>
+            </tr>
           )}
         </Table>
       )}
@@ -149,7 +246,12 @@ export function updatesBadge(n: string): ReactNode | null {
   if (!d) return null;
   const k = d.packages.updates.length + d.images.filter((i) => i.state === "update").length;
   const sec = d.packages.updates.some((u) => u.security);
-  return k ? <>{" "}<Badge kind={sec ? "warn" : ""}>{k}</Badge></> : null;
+  return k ? (
+    <>
+      {" "}
+      <Badge kind={sec ? "warn" : ""}>{k}</Badge>
+    </>
+  ) : null;
 }
 
 export function refreshUpdates(n: string) {
@@ -165,7 +267,8 @@ const EngineLine = ({ have, latest, old, how }: { have: string; latest?: string;
     <span className="mono">{have}</span>
     {old ? (
       <>
-        {" "}<span className="dim">→</span> <span className="mono">{latest}</span>
+        {" "}
+        <span className="dim">→</span> <span className="mono">{latest}</span>
         {how && <span className="faint"> · {how}</span>}
       </>
     ) : latest ? (
@@ -217,20 +320,46 @@ export function UpdatesView({ n }: { n: string }) {
           <CardHead>
             Packages {head}
             {p.reboot && <Badge kind="warn">reboot required</Badge>}
-            <Sub className={HIDE}>{p.mgr}{p.refreshed ? "" : " · lists not refreshed"}</Sub>
+            <Sub className={HIDE}>
+              {p.mgr}
+              {p.refreshed ? "" : " · lists not refreshed"}
+            </Sub>
             <Actions>
               {pkgOk && (
                 <>
-                  <Btn cls="sm" title="Fetch the newest package lists first (apt update)" on={() => refreshUpdates(n)}>Refresh lists</Btn>
-                  {sec.length > 0 && p.mgr !== "apk" && <Btn cls="sm" on={() => upgrade(["--security"], "security updates", sec.length)}>Security only ({sec.length})</Btn>}
-                  {p.updates.length > 0 && <Btn cls="sm primary" on={() => upgrade([], "all packages", p.updates.length)}>Upgrade all</Btn>}
-                  {p.updates.length > 0 && <Btn cls="sm danger" on={() => upgrade(["--reboot"], "all packages", p.updates.length)}>Upgrade + reboot</Btn>}
+                  <Btn cls="sm" title="Fetch the newest package lists first (apt update)" on={() => refreshUpdates(n)}>
+                    Refresh lists
+                  </Btn>
+                  {sec.length > 0 && p.mgr !== "apk" && (
+                    <Btn cls="sm" on={() => upgrade(["--security"], "security updates", sec.length)}>
+                      Security only ({sec.length})
+                    </Btn>
+                  )}
+                  {p.updates.length > 0 && (
+                    <Btn cls="sm primary" on={() => upgrade([], "all packages", p.updates.length)}>
+                      Upgrade all
+                    </Btn>
+                  )}
+                  {p.updates.length > 0 && (
+                    <Btn cls="sm danger" on={() => upgrade(["--reboot"], "all packages", p.updates.length)}>
+                      Upgrade + reboot
+                    </Btn>
+                  )}
                 </>
               )}
             </Actions>
           </CardHead>
           {shown.length > 0 && (
-            <Table head={<><th>Package</th><th className={HIDE}>Installed</th><th>New</th><th></th></>}>
+            <Table
+              head={
+                <>
+                  <th>Package</th>
+                  <th className={HIDE}>Installed</th>
+                  <th>New</th>
+                  <th></th>
+                </>
+              }
+            >
               {shown.map((u) => (
                 <tr key={u.name}>
                   <td className="mono">{u.name}</td>
@@ -239,7 +368,13 @@ export function UpdatesView({ n }: { n: string }) {
                   <td>{u.security && <Badge kind="warn">security</Badge>}</td>
                 </tr>
               ))}
-              {p.updates.length > shown.length && <tr><td colSpan={4} className="dim">… {p.updates.length - shown.length} more</td></tr>}
+              {p.updates.length > shown.length && (
+                <tr>
+                  <td colSpan={4} className="dim">
+                    … {p.updates.length - shown.length} more
+                  </td>
+                </tr>
+              )}
             </Table>
           )}
           {!pkgOk && <p className="dim">{S.facts[n]?.data?.why?.packages ?? ""}</p>}
@@ -250,15 +385,35 @@ export function UpdatesView({ n }: { n: string }) {
           <Card>
             <CardHead>
               Docker{" "}
-              <Badge kind={!e.docker || e.dockerNote || e.composeNote ? "warn" : "ok"}>{!e.docker ? "not installed" : e.dockerNote || e.composeNote ? "update available" : "up to date"}</Badge>
-              <Actions>{e.composeUpdate && <Btn cls="sm primary" on={() => run(["update", "--compose", ...s, "-y"], { server: n })}>Update compose</Btn>}</Actions>
+              <Badge kind={!e.docker || e.dockerNote || e.composeNote ? "warn" : "ok"}>
+                {!e.docker ? "not installed" : e.dockerNote || e.composeNote ? "update available" : "up to date"}
+              </Badge>
+              <Actions>
+                {e.composeUpdate && (
+                  <Btn cls="sm primary" on={() => run(["update", "--compose", ...s, "-y"], { server: n })}>
+                    Update compose
+                  </Btn>
+                )}
+              </Actions>
             </CardHead>
             {e.docker && (
               <Body>
                 <Kv
                   pairs={[
                     ["Docker", <EngineLine have={e.docker} latest={e.latestDocker} old={e.dockerNote} how={e.dockerHow} />],
-                    ["Compose", e.compose ? <EngineLine have={e.compose} latest={e.latestCompose} old={e.composeNote} how={e.composeHow} /> : <><Badge kind="warn">missing</Badge> <span className="faint"><code>lf setup</code> installs it</span></>],
+                    [
+                      "Compose",
+                      e.compose ? (
+                        <EngineLine have={e.compose} latest={e.latestCompose} old={e.composeNote} how={e.composeHow} />
+                      ) : (
+                        <>
+                          <Badge kind="warn">missing</Badge>{" "}
+                          <span className="faint">
+                            <code>lf setup</code> installs it
+                          </span>
+                        </>
+                      ),
+                    ],
                   ]}
                 />
               </Body>
@@ -268,27 +423,71 @@ export function UpdatesView({ n }: { n: string }) {
             <CardHead>
               Images <Sub>Traefik and sites</Sub>
               <Actions>
-                {!S.scan[n] && images.some((i) => i.id) && (asking.has(n) ? <span role="status" className="dim text-sm flex items-center gap-2"><Spin /> Checking for Trivy…</span> : <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => firstScan(n)}>Scan for vulnerabilities</Btn>)}
-                {!S.scan[n] && trivy.get(n) && there(trivy.get(n)!) && <Btn cls="sm" title="lf scan --remove: delete Trivy's image and databases from the server" on={() => removeTrivy(n)}>Remove Trivy</Btn>}{imgUpdates.length > 0 && <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>Update all ({imgUpdates.length})</Btn>}</Actions>
+                {!S.scan[n] &&
+                  images.some((i) => i.id) &&
+                  (asking.has(n) ? (
+                    <span role="status" className="dim text-sm flex items-center gap-2">
+                      <Spin /> Checking for Trivy…
+                    </span>
+                  ) : (
+                    <Btn cls="sm" title="lf scan: known vulnerabilities in each image (Trivy, on the server)" on={() => firstScan(n)}>
+                      Scan for vulnerabilities
+                    </Btn>
+                  ))}
+                {!S.scan[n] && trivy.get(n) && there(trivy.get(n)!) && (
+                  <Btn cls="sm" title="lf scan --remove: delete Trivy's image and databases from the server" on={() => removeTrivy(n)}>
+                    Remove Trivy
+                  </Btn>
+                )}
+                {imgUpdates.length > 0 && (
+                  <Btn cls="sm primary" on={() => updImg(imgUpdates.map((i) => i.name))}>
+                    Update all ({imgUpdates.length})
+                  </Btn>
+                )}
+              </Actions>
             </CardHead>
-            <Table head={<><th>Name</th><th className={HIDE}>Image</th><th>State</th><th className={HIDE}>Note</th><th></th></>}>
+            <Table
+              head={
+                <>
+                  <th>Name</th>
+                  <th className={HIDE}>Image</th>
+                  <th>State</th>
+                  <th className={HIDE}>Note</th>
+                  <th></th>
+                </>
+              }
+            >
               {images.length ? (
                 images.map((i) => {
                   // Current for its tag, yet a newer version tag is out: say so where the note column is hidden.
-                  const [cls, label] = i.state === "current" && i.newer ? ["", "newer tag"] : IMG[i.state] ?? ["", i.state];
+                  const [cls, label] = i.state === "current" && i.newer ? ["", "newer tag"] : (IMG[i.state] ?? ["", i.state]);
                   const pullable = i.state === "update" || i.state === "unknown";
                   return (
                     <tr key={i.name}>
-                      <td><b>{i.name}</b> <span className="faint">{i.kind}</span></td>
+                      <td>
+                        <b>{i.name}</b> <span className="faint">{i.kind}</span>
+                      </td>
                       <td className={cx("mono dim", HIDE)}>{i.ref || "-"}</td>
-                      <td><Badge kind={cls}>{label}</Badge></td>
+                      <td>
+                        <Badge kind={cls}>{label}</Badge>
+                      </td>
                       <td className={cx("dim", HIDE)}>{i.note ?? ""}</td>
-                      <td className={ACTS}>{pullable && <Btn cls={i.state === "update" ? "sm primary" : "sm"} on={() => updImg([i.name])}>{i.state === "update" ? "Update" : "Pull anyway"}</Btn>}</td>
+                      <td className={ACTS}>
+                        {pullable && (
+                          <Btn cls={i.state === "update" ? "sm primary" : "sm"} on={() => updImg([i.name])}>
+                            {i.state === "update" ? "Update" : "Pull anyway"}
+                          </Btn>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
               ) : (
-                <tr><td colSpan={5} className="dim">no containers</td></tr>
+                <tr>
+                  <td colSpan={5} className="dim">
+                    no containers
+                  </td>
+                </tr>
               )}
             </Table>
           </Card>

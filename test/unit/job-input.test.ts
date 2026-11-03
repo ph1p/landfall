@@ -11,24 +11,34 @@ describe("private job input", () => {
     const encoded = encodeJobInput(args);
     expect(decodeJobInput(encoded)).toEqual(args);
     const bytes = Buffer.from(encoded);
-    async function* chunks() { for (const byte of bytes) yield Buffer.from([byte]); }
+    async function* chunks() {
+      for (const byte of bytes) yield Buffer.from([byte]);
+    }
     expect(await readJobInput(chunks())).toEqual(args);
   });
 
-  test.each(["", "{", "null", "[]", '{"version":2,"argv":["env"]}', '{"version":1,"argv":[]}', '{"version":1,"argv":[1]}'])("rejects malformed input without echoing it: %s", (input) => {
-    expect(() => decodeJobInput(input)).toThrow("invalid dashboard job input");
-  });
+  test.each(["", "{", "null", "[]", '{"version":2,"argv":["env"]}', '{"version":1,"argv":[]}', '{"version":1,"argv":[1]}'])(
+    "rejects malformed input without echoing it: %s",
+    (input) => {
+      expect(() => decodeJobInput(input)).toThrow("invalid dashboard job input");
+    },
+  );
 
   test("bounds both encoding and streamed input", async () => {
     expect(() => encodeJobInput(["x".repeat(MAX_JOB_INPUT)])).toThrow("too large");
-    async function* oversized() { yield Buffer.alloc(MAX_JOB_INPUT); yield Buffer.from("x"); }
+    async function* oversized() {
+      yield Buffer.alloc(MAX_JOB_INPUT);
+      yield Buffer.from("x");
+    }
     await expect(readJobInput(oversized())).rejects.toThrow("invalid dashboard job input");
   });
 
   test("the real startJob child has marker-only argv and receives exact original arguments", () => {
     const args = ["secret", "blog", "KEY=  synthetic\n雪  ", "--password=synthetic"];
     const run = spawnSync(process.execPath, ["--import", "tsx", "test/unit/fixtures/job-worker.ts"], {
-      input: JSON.stringify(args), encoding: "utf8", timeout: 10000,
+      input: JSON.stringify(args),
+      encoding: "utf8",
+      timeout: 10000,
     });
     expect(run.status, run.stderr).toBe(0);
     const result = JSON.parse(run.stdout);
@@ -39,7 +49,8 @@ describe("private job input", () => {
   test("private CLI dispatch matches direct execution, while ordinary stdin still belongs to the command", () => {
     const dir = fs.mkdtempSync(join(tmpdir(), "lf-job-cli-"));
     const env = { ...process.env, LANDFALL_CONFIG_DIR: dir, LANDFALL_SSH_CONFIG: join(dir, "ssh") };
-    const run = (argv: string[], input = "") => spawnSync(process.execPath, ["--import", "tsx", "src/cli/cli.ts", ...argv], { env, input, encoding: "utf8", timeout: 10000 });
+    const run = (argv: string[], input = "") =>
+      spawnSync(process.execPath, ["--import", "tsx", "src/cli/cli.ts", ...argv], { env, input, encoding: "utf8", timeout: 10000 });
     const args = ["config", "--json"];
     const direct = run(args);
     const privateRun = run([JOB_INPUT], encodeJobInput(args));

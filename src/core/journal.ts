@@ -75,7 +75,9 @@ export function laterConflicts(runs: Run[], after: number, steps: Step[]): { run
   const mine = new Set(steps.filter((x) => x.undo && !x.undone).flatMap((x) => [...subjects(x.undo!)]));
   const found: { run: Run; subject: string }[] = [];
   for (const run of runs.filter((r) => r.n > after)) {
-    const hit = pending(run).flatMap((x) => [...subjects(x.undo!)]).find((t) => mine.has(t));
+    const hit = pending(run)
+      .flatMap((x) => [...subjects(x.undo!)])
+      .find((t) => mine.has(t));
     if (hit) found.push({ run, subject: hit });
   }
   return found;
@@ -83,7 +85,9 @@ export function laterConflicts(runs: Run[], after: number, steps: Step[]): { run
 
 export async function readJournal(s: Server): Promise<Run[]> {
   const unreadable = `echo "cannot read ${JOURNAL}: log in as its owner, or with passwordless sudo" >&2; exit 1`;
-  const { stdout } = await runScript(s, `cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null || [ ! -e ${JOURNAL} ] || { ${unreadable}; }`, { capture: true });
+  const { stdout } = await runScript(s, `cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null || [ ! -e ${JOURNAL} ] || { ${unreadable}; }`, {
+    capture: true,
+  });
   return parseJournal(stdout);
 }
 
@@ -133,7 +137,7 @@ undo_step() { # undo_step <line> <undo shell, base64>
 export async function undoSteps(s: Server, steps: Step[]) {
   const todo = steps.filter((x) => x.undo && !x.undone).sort((a, b) => b.line - a.line);
   const used: Server[] = [s];
-  for (let i = 0; i < todo.length; ) {
+  for (let i = 0; i < todo.length;) {
     let j = i;
     while (j < todo.length && todo[j].user === todo[i].user) j++;
     const group = todo.slice(i, j);

@@ -161,8 +161,7 @@ function assessFirewall(p: Probe, w: Wanted): Check {
 export function enableBlocks(p: Probe, tcp: number[]): { blocked: string[]; kept: string[] } {
   const v = p.values;
   const rules = p.rules.map(parseRule);
-  const opened = (l: Listener) =>
-    (l.proto === "tcp" && tcp.includes(l.port)) || (l.proto === "udp" && UFW_DEFAULT_UDP.includes(l.port)) || ruleOpens(rules, l);
+  const opened = (l: Listener) => (l.proto === "tcp" && tcp.includes(l.port)) || (l.proto === "udp" && UFW_DEFAULT_UDP.includes(l.port)) || ruleOpens(rules, l);
   const exposed = (l: Listener) => !isLoopback(l.addr) && !opened(l);
 
   const host = p.listen.filter((l) => l.proc !== "docker-proxy" && exposed(l));
@@ -180,7 +179,15 @@ export function enableBlocks(p: Probe, tcp: number[]): { blocked: string[]; kept
         : []
       : uniqPorts(cut, (l) => `${portName(l)} (docker${isV6(l.addr) ? ", IPv6" : ""})`)),
   ];
-  return { blocked, kept: nft ? [] : uniqPorts(docker.filter((l) => !cut.includes(l)), portName) };
+  return {
+    blocked,
+    kept: nft
+      ? []
+      : uniqPorts(
+          docker.filter((l) => !cut.includes(l)),
+          portName,
+        ),
+  };
 }
 
 export interface Reach {
@@ -230,7 +237,8 @@ function assessDocker(v: Record<string, string>): Check {
   const check = (status: Status, detail = ""): Check => ({ part: "docker", label: "docker", status, detail });
   if (!v.docker) return check("todo", "install docker and compose");
   const docker = v.docker.match(/\d+(\.\d+)+/)?.[0] ?? v.docker;
-  if (v.docker_podman === "1") return check("conflict", `${v.docker} is podman's docker shim; landfall needs Docker Engine (remove podman-docker, then re-run setup)`);
+  if (v.docker_podman === "1")
+    return check("conflict", `${v.docker} is podman's docker shim; landfall needs Docker Engine (remove podman-docker, then re-run setup)`);
   const todo = [v.docker_running === "1" ? "" : "start it", Number(v.compose?.split(".")[0]) >= 2 ? "" : "install compose"].filter(Boolean);
   if (todo.length) return check("todo", `docker ${docker}, ${todo.join(" + ")}`);
   // docker_latest/compose_latest: the newest releases, filled in by setup when it can reach GitHub.
@@ -308,8 +316,7 @@ export function foreignProxy(line = ""): { name: string; proxy?: Proxy; missing:
     network: flag(/--providers\.docker\.network=(\S+)/) ?? (networks.length === 1 ? networks[0] : undefined),
     entrypoint,
     resolver:
-      (entrypoint && flag(new RegExp(`--entrypoints\\.${entrypoint}\\.http\\.tls\\.certresolver=(\\S+)`))) ??
-      flag(/--certificatesresolvers\.([\w-]+)\./),
+      (entrypoint && flag(new RegExp(`--entrypoints\\.${entrypoint}\\.http\\.tls\\.certresolver=(\\S+)`))) ?? flag(/--certificatesresolvers\.([\w-]+)\./),
   };
   const missing = (["network", "entrypoint", "resolver"] as const).filter((k) => !found[k]);
   return { name, proxy: missing.length ? undefined : (found as Proxy), missing };

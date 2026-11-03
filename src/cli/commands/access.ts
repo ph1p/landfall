@@ -10,36 +10,57 @@ import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 import { target } from "./sites";
 import { dnsView } from "../../core/views";
 
-
 /**
  * Domains other sites serve that `site` is about to: asks to move them, and returns what
  * takes them away, to run right before `site` is applied (one host, one router).
  * With `refuse`, fails instead of asking, giving it as the way out.
  */
-export async function claimDomains(server: Server, serverName: string, site: string, domains: string[], proxy: Proxy, refuse?: string): Promise<() => Promise<void>> {
+export async function claimDomains(
+  server: Server,
+  serverName: string,
+  site: string,
+  domains: string[],
+  proxy: Proxy,
+  refuse?: string,
+): Promise<() => Promise<void>> {
   // No domain to claim (--no-domain, a worker): nothing to compare, no need to read every site.
   if (!domains.length) return async () => {};
   const all = await overview(server);
   for (const e of all.others) {
     const both = e.domains.filter((d) => domains.includes(d));
-    if (both.length) warn(`${both.join(", ")} ${both.length > 1 ? "are" : "is"} also routed to ${e.name}${e.dir ? ` (${e.dir})` : ""}, which landfall did not deploy: Traefik sends visitors to only one of them. Remove the labels there to hand ${both.length > 1 ? "them" : "it"} over.`);
+    if (both.length)
+      warn(
+        `${both.join(", ")} ${both.length > 1 ? "are" : "is"} also routed to ${e.name}${e.dir ? ` (${e.dir})` : ""}, which landfall did not deploy: Traefik sends visitors to only one of them. Remove the labels there to hand ${both.length > 1 ? "them" : "it"} over.`,
+      );
   }
   const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && siteDomains(m).some((d) => domains.includes(d)));
   for (const m of others) {
     const taken = siteDomains(m).filter((d) => domains.includes(d));
     const fixed = !siteMain(m) ? taken : taken.filter((d) => !m.domains.includes(d));
     if (fixed.length) {
-      const where = m.adopted ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}` : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
+      const where = m.adopted
+        ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}`
+        : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
       fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
     }
     if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);
     const left = taken.length === m.domains.length ? ` ${m.name} keeps running with no domain.` : "";
-    await confirmRemoval(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${site}?${left}`);
+    await confirmRemoval(
+      `${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${site}?${left}`,
+    );
   }
   return async () => {
     for (const m of others) {
       const moved = m.domains.filter((d) => domains.includes(d));
-      const left = (await changeSite(server, m.name, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))))).domains;
+      const left = (
+        await changeSite(
+          server,
+          m.name,
+          proxy,
+          `moved ${moved.join(", ")} from ${m.name} to ${site}`,
+          (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))),
+        )
+      ).domains;
       updateProjectDomains(serverName, m.name, left);
       info(c.dim(left.length ? `${m.name} keeps ${left.join(", ")}` : `${m.name} serves no domain now`));
     }
@@ -70,7 +91,11 @@ and update .landfall.json of remembered projects.`,
       for (const r of rows) {
         const dnsState = r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");
         const { status, error, tls } = r.https;
-        const h = !status ? c.red(`https ${error}`) : tls && !tls.valid ? c.red(`https ${status}, certificate: ${tls.error}`) : (status < 400 ? c.green : status === 401 ? c.cyan : c.yellow)(`https ${status}`);
+        const h = !status
+          ? c.red(`https ${error}`)
+          : tls && !tls.valid
+            ? c.red(`https ${status}, certificate: ${tls.error}`)
+            : (status < 400 ? c.green : status === 401 ? c.cyan : c.yellow)(`https ${status}`);
         console.log(`${c.cyan(`https://${r.domain}`)}  ${dnsState}  ${h}`);
       }
       if (rows.some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));
@@ -165,7 +190,13 @@ export const auth = defineCommand({
     else if (key && lines?.length === 0 && meta.auth?.length) await confirmRemoval(`Open ${where} without a login? Anyone can use it then.`);
     else if (gone.length) await confirmRemoval(`Remove the login${gone.length > 1 ? "s" : ""} ${gone.join(", ")} from ${where}?`);
 
-    const said = lines?.length ? `login for ${where}: ${now.join(", ")}` : lines ? `${where} is public` : key ? `${where} asks for the site's login again` : `${site} is public again`;
+    const said = lines?.length
+      ? `login for ${where}: ${now.join(", ")}`
+      : lines
+        ? `${where} is public`
+        : key
+          ? `${where} asks for the site's login again`
+          : `${site} is public again`;
     await changeSite(server, site, proxy, said, (m) => {
       if (!key) return void (m.auth = lines);
       const all = { ...m.routeAuth };
@@ -184,7 +215,11 @@ function showLogins(site: string, meta: SiteMeta, key?: string) {
   if (key) {
     const own = meta.routeAuth?.[key];
     if (!own) return void console.log(`${key} of ${site} has no logins of its own: like the site, it ${siteSays}`);
-    return void console.log(own.length ? `${key} of ${site} asks for its own login: ${names(own)}` : `${key} of ${site} is public ${c.dim("(lf auth -r " + key + " --off asks for the site's login again)")}`);
+    return void console.log(
+      own.length
+        ? `${key} of ${site} asks for its own login: ${names(own)}`
+        : `${key} of ${site} is public ${c.dim("(lf auth -r " + key + " --off asks for the site's login again)")}`,
+    );
   }
   console.log(`${site} ${siteSays}${meta.auth?.length ? "" : ` ${c.dim("(add a login with --user)")}`}`);
   for (const [k, own] of Object.entries(meta.routeAuth ?? {})) console.log(`  ${k.padEnd(16)} ${own.length ? `its own login: ${names(own)}` : "public"}`);

@@ -4,11 +4,22 @@ import { Btn, cx, MONO } from "../ui/kit";
 import { secretProps } from "../ui/dialog";
 
 /** What the table changes: one `lf env` with these pairs and -u keys; bad says why it cannot run yet. */
-export interface EnvChange { set: Record<string, string>; unset: string[]; bad?: string }
+export interface EnvChange {
+  set: Record<string, string>;
+  unset: string[];
+  bad?: string;
+}
 export const NO_ENV_CHANGE: EnvChange = { set: {}, unset: [] };
 
 /** value: undefined until revealed. edit: what was typed, undefined while unchanged. */
-interface Row { key: string; length?: number; value?: string; edit?: string; removed?: boolean; added?: boolean }
+interface Row {
+  key: string;
+  length?: number;
+  value?: string;
+  edit?: string;
+  removed?: boolean;
+  added?: boolean;
+}
 
 export const envUrl = (n: string, site: string, reveal: boolean, secrets = false) =>
   `/api/servers/${encodeURIComponent(n)}/${secrets ? "secrets" : "env"}?site=${encodeURIComponent(site)}${reveal ? "&reveal=1" : ""}`;
@@ -39,7 +50,10 @@ export function EnvTable({ n, site, onChange, secrets }: { n: string; site?: str
   const [shown, setShown] = useState(false);
   useEffect(() => {
     if (!site) return setRows([]);
-    http<{ vars: Row[] }>(envUrl(n, site, false, secrets)).then((d) => setRows(d.vars), (e) => setErr(errorMessage(e)));
+    http<{ vars: Row[] }>(envUrl(n, site, false, secrets)).then(
+      (d) => setRows(d.vars),
+      (e) => setErr(errorMessage(e)),
+    );
   }, []);
   const update = (next: Row[]) => {
     setRows(next);
@@ -66,14 +80,23 @@ export function EnvTable({ n, site, onChange, secrets }: { n: string; site?: str
       {rows.map((r, i) => (
         <div key={i} className={cx("flex gap-1.5 items-center", r.removed && "opacity-50 line-through")}>
           {r.added ? (
-            <input aria-label="Name" className={cx(MONO, "flex-[0_1_38%] min-w-0")} value={r.key} placeholder="NAME" autoComplete="off" spellCheck={false}
+            <input
+              aria-label="Name"
+              className={cx(MONO, "flex-[0_1_38%] min-w-0")}
+              value={r.key}
+              placeholder="NAME"
+              autoComplete="off"
+              spellCheck={false}
               onChange={(e) => {
                 // A pasted KEY=VALUE fills both.
                 const [k, ...v] = e.target.value.split("=");
                 patch(i, v.length ? { key: k.trim(), edit: v.join("=") } : { key: e.target.value.trim() });
-              }} />
+              }}
+            />
           ) : (
-            <span className={cx(MONO, "flex-[0_1_38%] min-w-0 truncate")} title={r.key}>{r.key}</span>
+            <span className={cx(MONO, "flex-[0_1_38%] min-w-0 truncate")} title={r.key}>
+              {r.key}
+            </span>
           )}
           <input
             aria-label={`Value of ${r.key || "the new variable"}`}
@@ -84,15 +107,24 @@ export function EnvTable({ n, site, onChange, secrets }: { n: string; site?: str
             placeholder={r.added ? "value" : `hidden, ${r.length ?? r.value?.length ?? 0} ${secrets ? "bytes" : "characters"}; type to replace`}
             onChange={(e) => patch(i, { edit: !r.added && r.value === undefined && !e.target.value ? undefined : e.target.value })}
           />
-          <Btn cls="sm ghost" title={r.removed ? "Keep it" : `Remove ${r.key}`}
-            on={() => (r.added ? update(rows.filter((_, j) => j !== i)) : patch(i, { removed: !r.removed }))}>
+          <Btn
+            cls="sm ghost"
+            title={r.removed ? "Keep it" : `Remove ${r.key}`}
+            on={() => (r.added ? update(rows.filter((_, j) => j !== i)) : patch(i, { removed: !r.removed }))}
+          >
             {r.removed ? "Keep" : "Remove"}
           </Btn>
         </div>
       ))}
       <div className="flex gap-2">
-        <Btn cls="sm" on={() => update([...rows, { key: "", edit: "", added: true }])}>{secrets ? "Add secret" : "Add variable"}</Btn>
-        {!secrets && rows.some((r) => !r.added) && <Btn cls="sm ghost" on={reveal}>{shown ? "Hide values" : "Show values"}</Btn>}
+        <Btn cls="sm" on={() => update([...rows, { key: "", edit: "", added: true }])}>
+          {secrets ? "Add secret" : "Add variable"}
+        </Btn>
+        {!secrets && rows.some((r) => !r.added) && (
+          <Btn cls="sm ghost" on={reveal}>
+            {shown ? "Hide values" : "Show values"}
+          </Btn>
+        )}
       </div>
     </div>
   );

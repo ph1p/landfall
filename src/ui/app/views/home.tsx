@@ -14,15 +14,35 @@ export function HomeView() {
   const d = st.defaults;
   const def = d.default ?? undefined;
   const count = reachCount(list);
-  const stat = (k: keyof typeof count, word: string) => (count[k] ? <span><Dot kind={REACH_KIND[k]} />{count[k]} {word}</span> : null);
-  const status = S.reaching ? <span><Spin className="size-2.5!" /> checking ssh login…</span> : S.reachedAt ? <>{stat("ok", "reachable")}{stat("login", "login refused")}{stat("down", "unreachable")}</> : null;
+  const stat = (k: keyof typeof count, word: string) =>
+    count[k] ? (
+      <span>
+        <Dot kind={REACH_KIND[k]} />
+        {count[k]} {word}
+      </span>
+    ) : null;
+  const status = S.reaching ? (
+    <span>
+      <Spin className="size-2.5!" /> checking ssh login…
+    </span>
+  ) : S.reachedAt ? (
+    <>
+      {stat("ok", "reachable")}
+      {stat("login", "login refused")}
+      {stat("down", "unreachable")}
+    </>
+  ) : null;
   const projects: Remembered[] = st.projects ?? [];
   const recent = projects.slice(0, 6);
   const paths = (l: { path: string; what: string }[]) => (
     <dl className="m-0 text-sm">
       {l.map((x, i) => [
-        <dt key={`t${x.path}`} className={cx("mono wrap-anywhere text-fg", i ? "mt-2" : "mt-0")}>{x.path}</dt>,
-        <dd key={`d${x.path}`} className="mt-px mx-0 mb-0 text-dim">{x.what}</dd>,
+        <dt key={`t${x.path}`} className={cx("mono wrap-anywhere text-fg", i ? "mt-2" : "mt-0")}>
+          {x.path}
+        </dt>,
+        <dd key={`d${x.path}`} className="mt-px mx-0 mb-0 text-dim">
+          {x.what}
+        </dd>,
       ])}
     </dl>
   );
@@ -33,7 +53,12 @@ export function HomeView() {
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-dim text-md mb-5">
         {plural(own.length, "server")}
         {own.length < list.length && <span className="faint">+ {list.length - own.length} from ~/.ssh/config</span>}
-        {status && <><span className="w-px h-3.5 bg-line-strong" />{status}</>}
+        {status && (
+          <>
+            <span className="w-px h-3.5 bg-line-strong" />
+            {status}
+          </>
+        )}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
         {own.map((s) => {
@@ -45,9 +70,15 @@ export function HomeView() {
               className="block text-left px-[18px] py-4 rounded-lg bg-panel border border-line shadow-xs w-full transition-[border-color,box-shadow,transform] hover:bg-panel hover:border-line-strong hover:shadow-lg hover:-translate-y-px"
               onClick={() => go(s.name, "sites")}
             >
-              <div className="font-semibold text-[15px] flex items-center gap-1.5"><ReachDot n={s.name} className="mr-0" />{s.name}{s.isDefault && <Star />}</div>
+              <div className="font-semibold text-[15px] flex items-center gap-1.5">
+                <ReachDot n={s.name} className="mr-0" />
+                {s.name}
+                {s.isDefault && <Star />}
+              </div>
               <div className="text-faint text-sm mt-0.5 overflow-hidden text-ellipsis">{s.target}</div>
-              {r && r.state !== "ok" && <div className={cx("text-xs mt-1", r.state === "login" ? "text-warn" : "text-bad")}>{REACH_WORD[r.state as "login"]}</div>}
+              {r && r.state !== "ok" && (
+                <div className={cx("text-xs mt-1", r.state === "login" ? "text-warn" : "text-bad")}>{REACH_WORD[r.state as "login"]}</div>
+              )}
             </button>
           );
         })}
@@ -60,25 +91,47 @@ export function HomeView() {
         </button>
       </div>
       <p className="faint text-sm mt-2.5">
-        The dot shows whether landfall's ssh login works (hover for why not); nothing else connects until you open a server. Any ~/.ssh/config alias works as a server.
+        The dot shows whether landfall's ssh login works (hover for why not); nothing else connects until you open a server. Any ~/.ssh/config alias works as a
+        server.
       </p>
       <div className={cx(cols, "gap-5 mt-7 mb-5 items-start [&>.card]:mt-0!")}>
         <Card>
           <CardHead>
             Recent deploys {recent.length > 0 && <Badge>{projects.length}</Badge>}
-            <Actions><Btn cls="sm" on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">Choose folder…</Btn></Actions>
+            <Actions>
+              <Btn cls="sm" on={() => folderDialog(st.cwd)} title="Pick a folder, a recent project, or drop one here">
+                Choose folder…
+              </Btn>
+            </Actions>
           </CardHead>
           {recent.length ? (
             <ul className="list-none m-0 p-0">
               {recent.map((r) => (
                 <li key={r.path} className="flex items-center gap-3 px-[18px] py-2.5 border-b border-line last:border-b-0">
                   <div className="flex-1 min-w-0">
-                    <b>{r.name}</b> <span className="dim">→ <a href={`#/${encodeURIComponent(r.server)}`} title={`The sites on ${r.server}`}>{r.server}</a>{r.domains[0] ? ` · ${r.domains[0]}` : " · tunnel only"}</span>
-                    <div className="faint mono text-xs! overflow-hidden text-ellipsis whitespace-nowrap" title={r.path}>{tilde(r.path)} · {ago(r.at)}</div>
+                    <b>{r.name}</b>{" "}
+                    <span className="dim">
+                      →{" "}
+                      <a href={`#/${encodeURIComponent(r.server)}`} title={`The sites on ${r.server}`}>
+                        {r.server}
+                      </a>
+                      {r.domains[0] ? ` · ${r.domains[0]}` : " · tunnel only"}
+                    </span>
+                    <div className="faint mono text-xs! overflow-hidden text-ellipsis whitespace-nowrap" title={r.path}>
+                      {tilde(r.path)} · {ago(r.at)}
+                    </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Btn cls="sm" title="Change the name, server, domains or build before deploying" on={() => deployFrom(r.path)}>Settings</Btn>
-                    <Btn cls="sm primary" title={`Deploy ${tilde(r.path)} again with the same settings (lf deploy)`} on={() => redeploy(r.path, r.server, r.name, r.kind, r.environment)}>Redeploy</Btn>
+                    <Btn cls="sm" title="Change the name, server, domains or build before deploying" on={() => deployFrom(r.path)}>
+                      Settings
+                    </Btn>
+                    <Btn
+                      cls="sm primary"
+                      title={`Deploy ${tilde(r.path)} again with the same settings (lf deploy)`}
+                      on={() => redeploy(r.path, r.server, r.name, r.kind, r.environment)}
+                    >
+                      Redeploy
+                    </Btn>
                   </div>
                 </li>
               ))}
@@ -90,7 +143,11 @@ export function HomeView() {
         <Card>
           <CardHead>
             Defaults <Sub>for every server, unless it sets its own</Sub>
-            <Actions><Btn cls="sm" on={defaultsDialog} title="lf config">Edit</Btn></Actions>
+            <Actions>
+              <Btn cls="sm" on={defaultsDialog} title="lf config">
+                Edit
+              </Btn>
+            </Actions>
           </CardHead>
           <Body>
             <Kv
@@ -106,21 +163,40 @@ export function HomeView() {
         </Card>
       </div>
       <Card>
-        <CardHead>Where landfall puts things <Sub>nothing it installs is hidden</Sub></CardHead>
+        <CardHead>
+          Where landfall puts things <Sub>nothing it installs is hidden</Sub>
+        </CardHead>
         <div className={cols}>
-          <div className="pt-3.5 px-[18px] pb-4"><h3 className={H3}>On this machine</h3>{paths(d.locations.local)}</div>
-          <div className="pt-3.5 px-[18px] pb-4 border-l border-line narrow:border-l-0 narrow:border-t"><h3 className={H3}>On each server</h3>{paths(d.locations.server)}</div>
+          <div className="pt-3.5 px-[18px] pb-4">
+            <h3 className={H3}>On this machine</h3>
+            {paths(d.locations.local)}
+          </div>
+          <div className="pt-3.5 px-[18px] pb-4 border-l border-line narrow:border-l-0 narrow:border-t">
+            <h3 className={H3}>On each server</h3>
+            {paths(d.locations.server)}
+          </div>
         </div>
       </Card>
       <div className="mt-5 px-[18px] py-4 rounded-lg border border-line bg-hover text-md text-dim">
         Everything here runs an <span className="mono">lf</span> command, shown above its output, so you can do the same in a terminal:
         <pre className="mt-2.5 mb-0 font-mono text-[12.5px] leading-[1.7] text-fg whitespace-pre-wrap [&_span]:text-faint">
-          lf deploy ./dist -d blog <span># a folder, Dockerfile project or image, with HTTPS</span>{"\n"}
-          lf ls{def ? "" : " -s <server>"}{"               "}<span># sites, and what else Traefik routes</span>{"\n"}
-          lf logs blog -f{"          "}<span># follow a site's logs</span>{"\n"}
-          lf undo{"                  "}<span># revert the last change</span>{"\n"}
-          lf config{"                "}<span># these defaults, and where landfall puts things</span>{"\n"}
-          lf help{"                  "}<span># every command</span>
+          lf deploy ./dist -d blog <span># a folder, Dockerfile project or image, with HTTPS</span>
+          {"\n"}
+          lf ls{def ? "" : " -s <server>"}
+          {"               "}
+          <span># sites, and what else Traefik routes</span>
+          {"\n"}
+          lf logs blog -f{"          "}
+          <span># follow a site's logs</span>
+          {"\n"}
+          lf undo{"                  "}
+          <span># revert the last change</span>
+          {"\n"}
+          lf config{"                "}
+          <span># these defaults, and where landfall puts things</span>
+          {"\n"}
+          lf help{"                  "}
+          <span># every command</span>
         </pre>
       </div>
     </div>

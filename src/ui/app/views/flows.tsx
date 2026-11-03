@@ -8,8 +8,25 @@ import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Badge, Btn, cx } from "../ui/kit";
 import {
-  dialog, confirmDlg, promptDlg, invalid, openDialog, closeDialog, D, siteNameError, words, domainOk, portError, userError, passwordError,
-  DFORM, DTITLE, DTEXT, DBTNS, type Spec, type Values,
+  dialog,
+  confirmDlg,
+  promptDlg,
+  invalid,
+  openDialog,
+  closeDialog,
+  D,
+  siteNameError,
+  words,
+  domainOk,
+  portError,
+  userError,
+  passwordError,
+  DFORM,
+  DTITLE,
+  DTEXT,
+  DBTNS,
+  type Spec,
+  type Values,
 } from "../ui/dialog";
 import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "./env";
 
@@ -27,7 +44,10 @@ export function setupFlow(args: string[], base = args) {
       }
       const todo = (rep(j).checks ?? []).filter((ch) => ch.status === "todo").length;
       return [
-        { label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)", run: () => run(["setup", ...args, "-y"], { server: args[0], after: securityAfter(args[0]) }) },
+        {
+          label: todo ? `Apply ${plural(todo, "change")}` : "Finish setup (nothing to install)",
+          run: () => run(["setup", ...args, "-y"], { server: args[0], after: securityAfter(args[0]) }),
+        },
         { label: "Change options", run: () => setupWizard(base) },
       ];
     },
@@ -35,8 +55,12 @@ export function setupFlow(args: string[], base = args) {
 }
 
 /** After a job that ends with security advice: a way to its fixes. */
-export const securityAfter = (n: string) => (j: Job): JobAction[] | undefined =>
-  j.info.code === 0 && rep(j).advice?.length ? [{ label: `Security: ${plural(rep(j).advice!.length, "thing")} to look at`, run: () => go(n, "system") }] : undefined;
+export const securityAfter =
+  (n: string) =>
+  (j: Job): JobAction[] | undefined =>
+    j.info.code === 0 && rep(j).advice?.length
+      ? [{ label: `Security: ${plural(rep(j).advice!.length, "thing")} to look at`, run: () => go(n, "system") }]
+      : undefined;
 
 export function setupWizard(base: string[]) {
   const saved = serverNamed(base[0])?.saved ?? ({} as Partial<SavedServer>);
@@ -49,7 +73,10 @@ export function setupWizard(base: string[]) {
         legend: "Traefik (reverse proxy, automatic HTTPS)",
         fields: [
           {
-            name: "traefik", label: "Mode", type: "select", value: saved.hostNetwork ? "host" : "docker",
+            name: "traefik",
+            label: "Mode",
+            type: "select",
+            value: saved.hostNetwork ? "host" : "docker",
             options: [
               { value: "docker", label: "Own Traefik, ports published by Docker" },
               { value: "host", label: "Own Traefik on the host network (real client IPs, ufw guards 80/443)" },
@@ -57,14 +84,48 @@ export function setupWizard(base: string[]) {
             ],
             hint: "If the server already runs a Traefik on 80/443, setup routes sites through it instead.",
           },
-          { name: "email", label: "Let's Encrypt e-mail (optional)", value: saved.email ?? "", when: (v) => v.traefik !== "none", check: (x) => x && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) && "An e-mail address" },
-          { name: "dashboard", label: "Dashboard domain (optional)", value: "", placeholder: "traefik.example.com", mono: true, hint: "Behind basic auth; the password is shown after setup.", when: (v) => v.traefik !== "none", check: (x) => x && !domainOk(x) && "Not a domain" },
-          { name: "http3", label: "HTTP/3 (QUIC on 443/udp)", type: "check", value: saved.http3 !== false, hint: "Browsers that can't use it fall back to HTTP/2.", when: (v) => v.traefik !== "none" },
+          {
+            name: "email",
+            label: "Let's Encrypt e-mail (optional)",
+            value: saved.email ?? "",
+            when: (v) => v.traefik !== "none",
+            check: (x) => x && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) && "An e-mail address",
+          },
+          {
+            name: "dashboard",
+            label: "Dashboard domain (optional)",
+            value: "",
+            placeholder: "traefik.example.com",
+            mono: true,
+            hint: "Behind basic auth; the password is shown after setup.",
+            when: (v) => v.traefik !== "none",
+            check: (x) => x && !domainOk(x) && "Not a domain",
+          },
+          {
+            name: "http3",
+            label: "HTTP/3 (QUIC on 443/udp)",
+            type: "check",
+            value: saved.http3 !== false,
+            hint: "Browsers that can't use it fall back to HTTP/2.",
+            when: (v) => v.traefik !== "none",
+          },
           { name: "image", label: "Image", value: saved.traefikImage ?? S.state.defaultImage, mono: true, when: (v) => v.traefik !== "none" },
         ],
       },
-      { name: "firewall", label: "Enable ufw: deny incoming except ssh, 80 and 443", type: "check", value: true, hint: "Skipped automatically if it would block ports in use." },
-      { name: "harden", label: "Key login only (turn off ssh passwords)", type: "check", value: true, hint: "Skipped automatically if other users still log in with a password." },
+      {
+        name: "firewall",
+        label: "Enable ufw: deny incoming except ssh, 80 and 443",
+        type: "check",
+        value: true,
+        hint: "Skipped automatically if it would block ports in use.",
+      },
+      {
+        name: "harden",
+        label: "Key login only (turn off ssh passwords)",
+        type: "check",
+        value: true,
+        hint: "Skipped automatically if other users still log in with a password.",
+      },
       { name: "user", label: "Deploy user", value: "deploy", hint: "landfall deploys as this user (docker group, your key). Empty keeps the login user." },
     ],
     onOk: (v) => {
@@ -86,7 +147,7 @@ export function setupWizard(base: string[]) {
 }
 
 function passwordFor(args: string[], base: string[]) {
-  const host = args.includes("--host") ? `root@${args[args.indexOf("--host") + 1]}` : serverNamed(args[0])?.target ?? args[0];
+  const host = args.includes("--host") ? `root@${args[args.indexOf("--host") + 1]}` : (serverNamed(args[0])?.target ?? args[0]);
   promptDlg(
     `Password for ${host}`,
     "Used once to install landfall's ssh key (ssh-copy-id). It is not stored; afterwards only the key is used.",
@@ -114,9 +175,18 @@ export function addServer() {
     fields: [
       {
         row: [
-          { name: "name", label: "Name", placeholder: "vps", required: "Give the server a name", preview: (v) => known(v.name.trim()) && "✓ in your ssh config: no address needed" },
           {
-            name: "host", label: "Address (IP or hostname)", placeholder: "203.0.113.7", mono: true,
+            name: "name",
+            label: "Name",
+            placeholder: "vps",
+            required: "Give the server a name",
+            preview: (v) => known(v.name.trim()) && "✓ in your ssh config: no address needed",
+          },
+          {
+            name: "host",
+            label: "Address (IP or hostname)",
+            placeholder: "203.0.113.7",
+            mono: true,
             check: (h, v) => !h && !known(v.name.trim()) && `${v.name.trim()} is not in your ssh config: give its IP or hostname`,
           },
         ],
@@ -126,9 +196,25 @@ export function addServer() {
         legend: "Login",
         when: (v) => String(v.host ?? "").trim(),
         fields: [
-          { row: [{ name: "user", label: "User", placeholder: "root" }, { name: "port", label: "SSH port", type: "number", placeholder: "22", check: portError }] },
-          { name: "key", label: "Private key file (optional)", placeholder: "~/.ssh/id_ed25519", mono: true, hint: "Empty: landfall makes ~/.ssh/landfall_<name> and installs it with the password." },
-          { name: "password", label: "Password (optional)", type: "password", hint: "Used once to install the key, never stored. Empty when the key already works." },
+          {
+            row: [
+              { name: "user", label: "User", placeholder: "root" },
+              { name: "port", label: "SSH port", type: "number", placeholder: "22", check: portError },
+            ],
+          },
+          {
+            name: "key",
+            label: "Private key file (optional)",
+            placeholder: "~/.ssh/id_ed25519",
+            mono: true,
+            hint: "Empty: landfall makes ~/.ssh/landfall_<name> and installs it with the password.",
+          },
+          {
+            name: "password",
+            label: "Password (optional)",
+            type: "password",
+            hint: "Used once to install the key, never stored. Empty when the key already works.",
+          },
         ],
       },
       { name: "setup", label: "Set it up now", hint: "Shows what it would change first.", type: "check", value: true },
@@ -158,10 +244,30 @@ export function defaultsDialog() {
     title: "landfall defaults",
     text: `For every server, unless it sets its own. Saved in ${d.configFile}.`,
     fields: [
-      { name: "default", label: "Default server", type: "select", value: d.default ?? "", options: [{ value: "", label: "none" }, ...S.state.servers.map((s) => ({ value: s.name, label: s.name }))], hint: "Commands in a terminal use it without --server." },
-      { name: "tunnelOnly", label: "New sites get no domain: tunnel only", type: "check", value: d.tunnelOnly, hint: "Nothing is served on the internet until a site gets a domain. A server's Settings can override it." },
+      {
+        name: "default",
+        label: "Default server",
+        type: "select",
+        value: d.default ?? "",
+        options: [{ value: "", label: "none" }, ...S.state.servers.map((s) => ({ value: s.name, label: s.name }))],
+        hint: "Commands in a terminal use it without --server.",
+      },
+      {
+        name: "tunnelOnly",
+        label: "New sites get no domain: tunnel only",
+        type: "check",
+        value: d.tunnelOnly,
+        hint: "Nothing is served on the internet until a site gets a domain. A server's Settings can override it.",
+      },
       { name: "email", label: "Let's Encrypt e-mail (optional)", value: d.email ?? "", hint: "For servers that set none, when landfall installs Traefik." },
-      { name: "keep", label: "Releases to keep for rollback", type: "number", value: String(d.keep), placeholder: "5", check: (k) => k && (!/^\d+$/.test(k) || !Number(k)) && "A whole number from 1 up" },
+      {
+        name: "keep",
+        label: "Releases to keep for rollback",
+        type: "number",
+        value: String(d.keep),
+        placeholder: "5",
+        check: (k) => k && (!/^\d+$/.test(k) || !Number(k)) && "A whole number from 1 up",
+      },
     ],
     after: <WhereList loc={d.locations} />,
     ok: "Save",
@@ -179,14 +285,21 @@ export function defaultsDialog() {
   });
 }
 
-interface Where { path: string; what: string }
+interface Where {
+  path: string;
+  what: string;
+}
 /** Every place landfall writes to, from `lf config`: nothing it installs is hidden. */
 export function WhereList({ loc }: { loc: { local: Where[]; server: Where[] } }) {
   const kv = (list: Where[]) => (
     <dl className="m-0 text-sm">
       {list.map((l) => [
-        <dt key={`t${l.path}`} className="mono wrap-anywhere mt-1.5">{l.path}</dt>,
-        <dd key={`d${l.path}`} className="dim m-0">{l.what}</dd>,
+        <dt key={`t${l.path}`} className="mono wrap-anywhere mt-1.5">
+          {l.path}
+        </dt>,
+        <dd key={`d${l.path}`} className="dim m-0">
+          {l.what}
+        </dd>,
       ])}
     </dl>
   );
@@ -194,7 +307,10 @@ export function WhereList({ loc }: { loc: { local: Where[]; server: Where[] } })
   return (
     <details className="where">
       <summary className="cursor-pointer text-faint text-sm">Where landfall puts things</summary>
-      <h3 className={h3}>On this machine</h3>{kv(loc.local)}<h3 className={h3}>On each server</h3>{kv(loc.server)}
+      <h3 className={h3}>On this machine</h3>
+      {kv(loc.local)}
+      <h3 className={h3}>On each server</h3>
+      {kv(loc.server)}
     </details>
   );
 }
@@ -217,7 +333,9 @@ export function Stack({ d, className }: { d: Detected; className?: string }) {
   return (
     <div className={cx("flex flex-wrap gap-1.5", className)} aria-label="Detected">
       {d.stack.map((t) => (
-        <Badge key={t.label} kind={t.role === "tooling" ? "" : "accent"} className={t.role === "framework" ? "font-semibold" : undefined} title={ROLE[t.role]}>{t.label}</Badge>
+        <Badge key={t.label} kind={t.role === "tooling" ? "" : "accent"} className={t.role === "framework" ? "font-semibold" : undefined} title={ROLE[t.role]}>
+          {t.label}
+        </Badge>
       ))}
     </div>
   );
@@ -225,21 +343,72 @@ export function Stack({ d, className }: { d: Detected; className?: string }) {
 
 /** plan: a compose project's services too (DeployAside shows them on their own). */
 export function Describe({ d, before = true, plan = true }: { d: Detected; before?: boolean; plan?: boolean }) {
-  const built = d.build ? <> · builds with <code>{d.build}</code> first</> : null;
+  const built = d.build ? (
+    <>
+      {" "}
+      · builds with <code>{d.build}</code> first
+    </>
+  ) : null;
   const what: ReactNode =
-    d.kind === "compose" ? <>Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server; {d.analysis?.auto ? "no x-landfall, so its HTTP ports are routed" : "x-landfall picks the routed services"}{plan && <ComposePlan a={d.analysis} />}</>
-    : d.kind === "image" ? <>Docker image <code>{d.project?.image ?? ""}</code> (from .landfall.json)</>
-    : d.kind === "dockerfile" && d.start ? (
+    d.kind === "compose" ? (
       <>
-        {d.runtime} app{d.tool ? ` (${d.tool})` : ""}: built on the server{d.build ? <> with <code>{d.build}</code></> : ""}, started with <code>{d.start}</code> on port {d.port}
-        {d.note && <><br /><span className="text-warn">{d.note}</span></>}
+        Compose project <code>{d.compose ?? "compose.yaml"}</code>: built and started on the server;{" "}
+        {d.analysis?.auto ? "no x-landfall, so its HTTP ports are routed" : "x-landfall picks the routed services"}
+        {plan && <ComposePlan a={d.analysis} />}
       </>
-    )
-    : d.kind === "dockerfile" ? `Dockerfile: built on the server, served on port ${d.port}`
-    : d.dir ? <>Static files from <code>{d.dir === "." ? "./" : d.dir + "/"}</code>{d.tool ? ` (where ${d.tool} builds the site)` : ""}{d.project?.spa ? " (single-page app)" : ""}{built}</>
-    : d.build ? <>Static site, built with <code>{d.build}</code> first</>
-    : <span className="text-warn">No compose.yaml, Dockerfile, index.html or build script here.</span>;
-  return <>{what}{before && d.project?.server ? <> <span className="dim">· deployed before to {d.project.server}{d.project.domains?.length ? ` as ${d.project.domains.join(", ")}` : ""}</span></> : null}</>;
+    ) : d.kind === "image" ? (
+      <>
+        Docker image <code>{d.project?.image ?? ""}</code> (from .landfall.json)
+      </>
+    ) : d.kind === "dockerfile" && d.start ? (
+      <>
+        {d.runtime} app{d.tool ? ` (${d.tool})` : ""}: built on the server
+        {d.build ? (
+          <>
+            {" "}
+            with <code>{d.build}</code>
+          </>
+        ) : (
+          ""
+        )}
+        , started with <code>{d.start}</code> on port {d.port}
+        {d.note && (
+          <>
+            <br />
+            <span className="text-warn">{d.note}</span>
+          </>
+        )}
+      </>
+    ) : d.kind === "dockerfile" ? (
+      `Dockerfile: built on the server, served on port ${d.port}`
+    ) : d.dir ? (
+      <>
+        Static files from <code>{d.dir === "." ? "./" : d.dir + "/"}</code>
+        {d.tool ? ` (where ${d.tool} builds the site)` : ""}
+        {d.project?.spa ? " (single-page app)" : ""}
+        {built}
+      </>
+    ) : d.build ? (
+      <>
+        Static site, built with <code>{d.build}</code> first
+      </>
+    ) : (
+      <span className="text-warn">No compose.yaml, Dockerfile, index.html or build script here.</span>
+    );
+  return (
+    <>
+      {what}
+      {before && d.project?.server ? (
+        <>
+          {" "}
+          <span className="dim">
+            · deployed before to {d.project.server}
+            {d.project.domains?.length ? ` as ${d.project.domains.join(", ")}` : ""}
+          </span>
+        </>
+      ) : null}
+    </>
+  );
 }
 
 /** A compose project's services as a deploy would run them: what each is built from, port to domains, private ports, volumes, problems. */
@@ -253,20 +422,40 @@ function ComposePlan({ a }: { a?: Detected["analysis"] }) {
         const priv = Object.entries(s.private ?? {});
         return (
           <span key={s.name} className="block">
-            <code>{s.name}</code> <span className="dim">{about?.build !== undefined ? `built from ${about.build}` : about?.image ?? ""}</span>
+            <code>{s.name}</code> <span className="dim">{about?.build !== undefined ? `built from ${about.build}` : (about?.image ?? "")}</span>
             {routes.map((r) => (
-              <span key={`${r.port}:${r.domains[0]}`} className="block pl-4"><code>:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span></span>
+              <span key={`${r.port}:${r.domains[0]}`} className="block pl-4">
+                <code>:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span>
+              </span>
             ))}
             {priv.map(([k, p]) => (
-              <span key={k} className="block pl-4"><code>:{p}{s.paths?.[k] ?? ""}</code> <span className="dim">private, <code>lf tunnel … {k}</code></span></span>
+              <span key={k} className="block pl-4">
+                <code>
+                  :{p}
+                  {s.paths?.[k] ?? ""}
+                </code>{" "}
+                <span className="dim">
+                  private, <code>lf tunnel … {k}</code>
+                </span>
+              </span>
             ))}
-            {!routes.length && !priv.length && <span className="block pl-4 dim">{s.own ? "routed by its own traefik labels" : "no port reached from outside"}</span>}
+            {!routes.length && !priv.length && (
+              <span className="block pl-4 dim">{s.own ? "routed by its own traefik labels" : "no port reached from outside"}</span>
+            )}
             {about?.volumes?.length ? <span className="block pl-4 dim">volumes: {about.volumes.join(", ")}</span> : null}
           </span>
         );
       })}
-      {[...(a.errors ?? []), ...(a.warnings ?? [])].map((e: string) => <span key={e} className="block text-warn">{e}</span>)}
-      {a.notes?.map((n: string) => <span key={n} className="block dim">{n}</span>)}
+      {[...(a.errors ?? []), ...(a.warnings ?? [])].map((e: string) => (
+        <span key={e} className="block text-warn">
+          {e}
+        </span>
+      ))}
+      {a.notes?.map((n: string) => (
+        <span key={n} className="block dim">
+          {n}
+        </span>
+      ))}
     </span>
   );
 }
@@ -295,8 +484,18 @@ function DeployAside({ d }: { d: Detected }) {
         <Stack d={d} className="mb-2" />
         <Describe d={d} plan={false} />
       </div>
-      {d.kind === "compose" && d.analysis ? <div><h3 className={ASIDE_HEAD}>Services</h3><ComposePlan a={d.analysis} /></div> : null}
-      {d.images?.length ? <div><h3 className={ASIDE_HEAD}>Images</h3><UsedImages d={d} /></div> : null}
+      {d.kind === "compose" && d.analysis ? (
+        <div>
+          <h3 className={ASIDE_HEAD}>Services</h3>
+          <ComposePlan a={d.analysis} />
+        </div>
+      ) : null}
+      {d.images?.length ? (
+        <div>
+          <h3 className={ASIDE_HEAD}>Images</h3>
+          <UsedImages d={d} />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -315,12 +514,34 @@ export function buildForm(det: Detected) {
   const served = (v: Values) => !(isApp(v) && v.worker);
   const volumes: string[] = det.volumes ?? [];
   const app = [
-    { name: "worker", label: "Background worker: no port, no domain", type: "check" as const, value: !!det.worker, hint: "A bot, a queue consumer, a scheduler: it runs, nothing routes to it." },
-    { name: "port", label: "Port it listens on", type: "number" as const, value: String(det.port ?? 3000), hint: modal ? "The app gets it as PORT." : "", when: (v: Values) => !v.worker, required: "Which port does it listen on?", check: portError },
     {
-      name: "volumes", label: "Folders to keep", value: volumes.join(" "), placeholder: "/app/data", mono: true,
+      name: "worker",
+      label: "Background worker: no port, no domain",
+      type: "check" as const,
+      value: !!det.worker,
+      hint: "A bot, a queue consumer, a scheduler: it runs, nothing routes to it.",
+    },
+    {
+      name: "port",
+      label: "Port it listens on",
+      type: "number" as const,
+      value: String(det.port ?? 3000),
+      hint: modal ? "The app gets it as PORT." : "",
+      when: (v: Values) => !v.worker,
+      required: "Which port does it listen on?",
+      check: portError,
+    },
+    {
+      name: "volumes",
+      label: "Folders to keep",
+      value: volumes.join(" "),
+      placeholder: "/app/data",
+      mono: true,
       hint: "In the container, space separated: their files outlive deploys and rollbacks (a Docker volume each). Empty: none.",
-      check: (x: string) => words(x).filter((d) => !/^\/[\w./-]*\w$/.test(d)).map((d) => `${d} is not a folder like /app/data`)[0],
+      check: (x: string) =>
+        words(x)
+          .filter((d) => !/^\/[\w./-]*\w$/.test(d))
+          .map((d) => `${d} is not a folder like /app/data`)[0],
     },
   ];
   const fields: Spec[] = modal
@@ -329,25 +550,59 @@ export function buildForm(det: Detected) {
           legend: "Build",
           fields: [
             ...(det.node || det.start
-              ? [{ name: "mode", label: "Deploy as", type: "select" as const, value: det.start ? "node" : "static", options: [{ value: "node", label: `${runtime} app (runs on the server)` }, { value: "static", label: "Static files" }] }]
+              ? [
+                  {
+                    name: "mode",
+                    label: "Deploy as",
+                    type: "select" as const,
+                    value: det.start ? "node" : "static",
+                    options: [
+                      { value: "node", label: `${runtime} app (runs on the server)` },
+                      { value: "static", label: "Static files" },
+                    ],
+                  },
+                ]
               : []),
-            { name: "build", label: "Build command", value: det.build ?? "", placeholder: "none", mono: true, hint: `Static files: runs here, before the upload. The ${runtime} app: runs on the server, in its image.` },
             {
-              legend: "Static files", id: "static", when: (v: Values) => !isApp(v),
+              name: "build",
+              label: "Build command",
+              value: det.build ?? "",
+              placeholder: "none",
+              mono: true,
+              hint: `Static files: runs here, before the upload. The ${runtime} app: runs on the server, in its image.`,
+            },
+            {
+              legend: "Static files",
+              id: "static",
+              when: (v: Values) => !isApp(v),
               fields: [
                 {
-                  name: "dir", label: "Folder to publish", value: det.dir ?? ".", placeholder: ".", mono: true,
-                  hint: det.tool && !det.start ? `Detected: ${det.tool} writes the site to ${det.dir}/ (it need not exist before the build).` : "Relative to the project; it needs an index.html after the build.",
+                  name: "dir",
+                  label: "Folder to publish",
+                  value: det.dir ?? ".",
+                  placeholder: ".",
+                  mono: true,
+                  hint:
+                    det.tool && !det.start
+                      ? `Detected: ${det.tool} writes the site to ${det.dir}/ (it need not exist before the build).`
+                      : "Relative to the project; it needs an index.html after the build.",
                   check: (x: string) => (/^[/-]/.test(x) || x.split("/").includes("..")) && "A folder inside the project",
                 },
                 { name: "spa", label: "Single-page app (unknown paths serve index.html)", type: "check" as const, value: !!p?.spa },
               ],
             },
             {
-              legend: `${runtime} app`, id: "node", when: isApp,
+              legend: `${runtime} app`,
+              id: "node",
+              when: isApp,
               fields: [
                 {
-                  name: "start", label: "Start command", value: det.start ?? "", placeholder: "node server.js", mono: true, required: "How does the app start? For example: node server.js",
+                  name: "start",
+                  label: "Start command",
+                  value: det.start ?? "",
+                  placeholder: "node server.js",
+                  mono: true,
+                  required: "How does the app start? For example: node server.js",
                   hint: `${det.start && det.tool ? `Detected: ${det.tool}. ` : ""}landfall writes the Dockerfile (install, build, start); lf init puts it into the project to change it.`,
                 },
                 ...app,
@@ -388,7 +643,12 @@ export function buildForm(det: Detected) {
   return { fields, argv, served };
 }
 
-interface DeployOpts { site?: Redeploy; upload?: boolean; files?: number; name?: string }
+interface DeployOpts {
+  site?: Redeploy;
+  upload?: boolean;
+  files?: number;
+  name?: string;
+}
 /**
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
  * site: an existing site ({ server, name, domains }) this folder redeploys.
@@ -430,8 +690,11 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   };
   dialog({
     title: re ? `Redeploy ${name}` : `Deploy ${name}`,
-    text: (o.upload ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.` : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`)
-      + (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data, and Roll back returns to the current one.` : ""),
+    text:
+      (o.upload
+        ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.`
+        : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`) +
+      (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data, and Roll back returns to the current one.` : ""),
     aside: <DeployAside d={det} />,
     sidebar: true,
     fields: [
@@ -440,78 +703,124 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
         fields: [
           {
             row: [
-              { name: "name", label: "Site name", value: name, required: "Give the site a name", check: siteNameError, hint: re ? "Another name deploys a new site." : "" },
+              {
+                name: "name",
+                label: "Site name",
+                value: name,
+                required: "Give the site a name",
+                check: siteNameError,
+                hint: re ? "Another name deploys a new site." : "",
+              },
               { name: "server", label: "Server", type: "select", options: servers, value: target, required: "Pick a server" },
             ],
           },
         ],
       },
       {
-        legend: "Address", when: served,
+        legend: "Address",
+        when: served,
         fields: [
           {
-            name: "domains", label: "Domains", value: (p?.domains ?? []).join(" "), off: (v) => v.noDomain,
+            name: "domains",
+            label: "Domains",
+            value: (p?.domains ?? []).join(" "),
+            off: (v) => v.noDomain,
             placeholder: keeps ? keeps.join(" ") || "none" : "empty: the address below",
-            hint: mainDomain(target) ? "A bare name like blog is under the main domain, @ is the main domain itself. Others need an A record pointing at the server." : "Own domains need an A record pointing at the server.",
+            hint: mainDomain(target)
+              ? "A bare name like blog is under the main domain, @ is the main domain itself. Others need an A record pointing at the server."
+              : "Own domains need an A record pointing at the server.",
             check: (_, v) => addresses(v)[1],
             preview: (v) => {
               const [out, bad] = addresses(v);
               return bad ? "" : out.length ? `→ ${out.map((d) => `https://${d}`).join("  ")}` : "→ no domain: tunnel only";
             },
           },
-          { name: "noDomain", label: "No domain: reach it through a tunnel only", type: "check", value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target), hint: "Nothing is served on the internet. Give it a domain later with Edit on the site." },
+          {
+            name: "noDomain",
+            label: "No domain: reach it through a tunnel only",
+            type: "check",
+            value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target),
+            hint: "Nothing is served on the internet. Give it a domain later with Edit on the site.",
+          },
         ],
       },
       ...buildFields,
       {
-        legend: "Images", when: builds,
-        fields: [{
-          name: "buildLocal", type: "check" as const, value: !!p?.buildLocal,
-          label: "Build them on this machine, not on the server",
-          hint: "Needs Docker running here. The server only loads and runs them: no CPU, memory or build cache spent there. Remembered. lf deploy --build-local",
-        }],
+        legend: "Images",
+        when: builds,
+        fields: [
+          {
+            name: "buildLocal",
+            type: "check" as const,
+            value: !!p?.buildLocal,
+            label: "Build them on this machine, not on the server",
+            hint: "Needs Docker running here. The server only loads and runs them: no CPU, memory or build cache spent there. Remembered. lf deploy --build-local",
+          },
+        ],
       },
       // A folder left out of the upload, named like a volume: what the volume should hold (lf deploy --fill-volumes).
       ...(seeds.length
-        ? [{
-            legend: "Volumes", when: hasEnv,
-            note: "Volumes keep their data across deploys and rollbacks. Back up, push and pull them in the site's Volumes box.",
-            fields: [{
-              name: "fill", type: "check" as const, value: true,
-              label: `Fill ${seeds.join(", ")} with ${seeds.map((f) => `./${f}`).join(", ")} while empty`,
-              hint: `Left out of the upload. Only an empty volume is filled: data already there stays. lf deploy --fill-volumes`,
-            }],
-          }]
+        ? [
+            {
+              legend: "Volumes",
+              when: hasEnv,
+              note: "Volumes keep their data across deploys and rollbacks. Back up, push and pull them in the site's Volumes box.",
+              fields: [
+                {
+                  name: "fill",
+                  type: "check" as const,
+                  value: true,
+                  label: `Fill ${seeds.join(", ")} with ${seeds.map((f) => `./${f}`).join(", ")} while empty`,
+                  hint: `Left out of the upload. Only an empty volume is filled: data already there stays. lf deploy --fill-volumes`,
+                },
+              ],
+            },
+          ]
         : []),
       ...(required.length
-        ? [{
-            legend: "Environment",
-            note: `What ${[...new Set(required.map((r) => r.from))].join(" and ")} asks for, set in the site's .env on the server. Your local .env is sent only for what is left empty here and the server's lacks.`,
-            fields: required.map((r) => ({
-              name: `env_${r.name}`, label: r.name, type: "password" as const, mono: true,
-              hint: [
-                r.message,
-                has.has(r.name) ? "Empty: keeps the value the server's .env has." : r.local ? "Empty: your local .env's value." : r.optional && "Optional.",
-              ].filter(Boolean).join(". "),
-              check: (x: string, v: Values) =>
-                /[\r\n]/.test(x) ? "One line: put multi-line text in a secret"
-                // Compose would refuse to start without it.
-                : !x && r.strict && !r.local && !has.has(r.name) && sameTarget(v) && (r.message || `${r.from} needs ${r.name}`),
-            })),
-          }]
+        ? [
+            {
+              legend: "Environment",
+              note: `What ${[...new Set(required.map((r) => r.from))].join(" and ")} asks for, set in the site's .env on the server. Your local .env is sent only for what is left empty here and the server's lacks.`,
+              fields: required.map((r) => ({
+                name: `env_${r.name}`,
+                label: r.name,
+                type: "password" as const,
+                mono: true,
+                hint: [
+                  r.message,
+                  has.has(r.name) ? "Empty: keeps the value the server's .env has." : r.local ? "Empty: your local .env's value." : r.optional && "Optional.",
+                ]
+                  .filter(Boolean)
+                  .join(". "),
+                check: (x: string, v: Values) =>
+                  /[\r\n]/.test(x)
+                    ? "One line: put multi-line text in a secret"
+                    : // Compose would refuse to start without it.
+                      !x && r.strict && !r.local && !has.has(r.name) && sameTarget(v) && (r.message || `${r.from} needs ${r.name}`),
+              })),
+            },
+          ]
         : []),
       {
-        legend: "More variables", collapsed: true, when: hasEnv,
+        legend: "More variables",
+        collapsed: true,
+        when: hasEnv,
         note: "Also set in the site's .env, e.g. SPRING_PROFILES_ACTIVE=prod or NODE_ENV=production. Change it later with Edit on the site.",
         fields: [
           {
-            name: "env", type: "custom", value: NO_ENV_CHANGE, check: (x: EnvChange) => x.bad,
+            name: "env",
+            type: "custom",
+            value: NO_ENV_CHANGE,
+            check: (x: EnvChange) => x.bad,
             render: (_: EnvChange, set: (v: EnvChange) => void) => <EnvTable n={target} onChange={set} />,
           },
         ],
       },
       {
-        legend: "Visitor login", note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.", when: served,
+        legend: "Visitor login",
+        note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.",
+        when: served,
         fields: [
           {
             row: [
@@ -529,7 +838,8 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       if (served(v)) {
         const domains = words(v.domains);
         // The server's default would leave it unrouted though the box is unticked.
-        if (!v.noDomain && !domains.length && !p?.domains?.length && !keeping(v) && tunnelOnly(v.server)) return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
+        if (!v.noDomain && !domains.length && !p?.domains?.length && !keeping(v) && tunnelOnly(v.server))
+          return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
         argv.push(...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d])));
       }
       argv.push(...buildArgv(v));
@@ -560,7 +870,10 @@ export const browse = (path?: string) => http<Browse>(`/api/fs${path ? `?path=${
 export function detected(path: string) {
   if (path in S.det) return;
   S.det[path] = null;
-  browse(path).then((x) => ((S.det[path] = x.detected), render()), () => (S.det[path] = false));
+  browse(path).then(
+    (x) => ((S.det[path] = x.detected), render()),
+    () => (S.det[path] = false),
+  );
 }
 
 /** Redeploy a folder with its saved settings (.landfall.json), after saying exactly what runs. */
@@ -569,7 +882,11 @@ export function redeploy(path: string, server: string, name: string, kind?: stri
   confirmDlg({
     title: `Redeploy ${name} to ${server}?`,
     text: `${kind === "static" ? "Runs its build here (if it has one), uploads" : "Uploads"} ${tilde(path)} with its saved settings and makes it the live release. The current release stays for Roll back.`,
-    extra: <code className="block mono text-sm px-3 py-2 rounded-md bg-hover wrap-anywhere">cd {tilde(path)} && lf {argv.join(" ")}</code>,
+    extra: (
+      <code className="block mono text-sm px-3 py-2 rounded-md bg-hover wrap-anywhere">
+        cd {tilde(path)} && lf {argv.join(" ")}
+      </code>
+    ),
     ok: "Redeploy",
     onOk: () => run(argv, { server, cwd: path, after: openAfter }),
   });
@@ -577,13 +894,17 @@ export function redeploy(path: string, server: string, name: string, kind?: stri
 
 /** Detect the project in path, then open the deploy dialog for it. */
 export function deployFrom(path: string) {
-  browse(path).then((x) => deployDialog(x.detected), (e) => toast(errorMessage(e)));
+  browse(path).then(
+    (x) => deployDialog(x.detected),
+    (e) => toast(errorMessage(e)),
+  );
 }
 export const deployHere = () => deployFrom(S.state.cwd);
 
 // ---- picking a folder --------------------------------------------------------
 
-const ROW = "flex gap-2.5 items-baseline border-0 rounded-none shadow-none font-normal border-b border-line last:border-b-0 text-left bg-transparent px-3 py-[7px] min-w-0 hover:bg-hover";
+const ROW =
+  "flex gap-2.5 items-baseline border-0 rounded-none shadow-none font-normal border-b border-line last:border-b-0 text-left bg-transparent px-3 py-[7px] min-w-0 hover:bg-hover";
 const LIST = "grid border border-line rounded-md max-h-[260px] overflow-auto";
 const PICK = "inline text-accent cursor-pointer text-md font-normal";
 
@@ -609,10 +930,13 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
   const crumb = "px-1.5! py-px!";
   return (
     <form method="dialog" className={DFORM} onSubmit={(e) => (e.preventDefault(), deployDialog(b.detected, { site }))}>
-      <h2 id="dlg-title" className={DTITLE}>{site ? `Redeploy ${site.name}` : "Deploy a folder"}</h2>
+      <h2 id="dlg-title" className={DTITLE}>
+        {site ? `Redeploy ${site.name}` : "Deploy a folder"}
+      </h2>
       {site && (
         <div className={DTEXT}>
-          This machine does not know which folder {site.name} on {site.server} was deployed from. Pick it: this machine remembers it, so the next redeploy is one click. Dropped files are not remembered.
+          This machine does not know which folder {site.name} on {site.server} was deployed from. Pick it: this machine remembers it, so the next redeploy is
+          one click. Dropped files are not remembered.
         </div>
       )}
       {recent.length > 0 && (
@@ -622,7 +946,10 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
             {recent.map((r) => (
               <button key={r.path} type="button" className={ROW} title="Deploy again" onClick={() => deployFrom(r.path)}>
                 <b>{r.name}</b>
-                <span className="dim">→ {r.server}{r.domains[0] ? ` · ${r.domains[0]}` : ""}</span>
+                <span className="dim">
+                  → {r.server}
+                  {r.domains[0] ? ` · ${r.domains[0]}` : ""}
+                </span>
                 <span className="faint mono ml-auto overflow-hidden text-ellipsis">{tilde(r.path)}</span>
               </button>
             ))}
@@ -630,24 +957,43 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
         </fieldset>
       )}
       <div className="flex flex-wrap gap-0.5 items-center mono">
-        <Btn cls={cx("ghost sm", crumb)} on={to("/")}>/</Btn>
+        <Btn cls={cx("ghost sm", crumb)} on={to("/")}>
+          /
+        </Btn>
         {parts.map((x, i) => [
-          i > 0 && <span key={`s${i}`} className="faint">/</span>,
-          <Btn key={i} cls={cx("ghost sm", crumb)} on={to("/" + parts.slice(0, i + 1).join("/"))}>{x}</Btn>,
+          i > 0 && (
+            <span key={`s${i}`} className="faint">
+              /
+            </span>
+          ),
+          <Btn key={i} cls={cx("ghost sm", crumb)} on={to("/" + parts.slice(0, i + 1).join("/"))}>
+            {x}
+          </Btn>,
         ])}{" "}
-        <Btn cls={cx("ghost sm", crumb)} on={to(b.home)} title="Home">~</Btn>
+        <Btn cls={cx("ghost sm", crumb)} on={to(b.home)} title="Home">
+          ~
+        </Btn>
       </div>
       <div className={LIST}>
-        {b.parent && <button type="button" className={ROW} onClick={to(b.parent)}>↑ ..</button>}
+        {b.parent && (
+          <button type="button" className={ROW} onClick={to(b.parent)}>
+            ↑ ..
+          </button>
+        )}
         {b.dirs.length ? (
           b.dirs.map((d: string) => (
-            <button key={d} type="button" className={ROW} onClick={to(b.path.replace(/\/$/, "") + "/" + d)}>📁 {d}</button>
+            <button key={d} type="button" className={ROW} onClick={to(b.path.replace(/\/$/, "") + "/" + d)}>
+              📁 {d}
+            </button>
           ))
         ) : (
           <div className={cx(ROW, "faint hover:bg-transparent")}>no subfolders</div>
         )}
       </div>
-      <div className={DETECTED}><Stack d={b.detected} className="mb-2" /><b>{b.detected.name}</b>: <Describe d={b.detected} /></div>
+      <div className={DETECTED}>
+        <Stack d={b.detected} className="mb-2" />
+        <b>{b.detected.name}</b>: <Describe d={b.detected} />
+      </div>
       <div className="border-[1.5px] border-dashed border-line-strong rounded-md p-3.5 text-center text-dim text-md">
         Or drop a folder or .zip anywhere ·{" "}
         <label className={PICK}>
@@ -660,7 +1006,11 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
             webkitdirectory=""
             onChange={(e) => {
               const files = [...(e.target.files ?? [])];
-              upload(files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]), files[0]?.webkitRelativePath.split("/")[0], site);
+              upload(
+                files.filter((f) => !skipped(f.webkitRelativePath)).map((f) => [f, f.webkitRelativePath || f.name]),
+                files[0]?.webkitRelativePath.split("/")[0],
+                site,
+              );
             }}
           />
         </label>{" "}
@@ -679,8 +1029,12 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
         </label>
       </div>
       <div className={DBTNS}>
-        <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-        <Btn type="submit" cls="primary" title="Check its settings, then deploy">Next</Btn>
+        <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>
+          Cancel
+        </Btn>
+        <Btn type="submit" cls="primary" title="Check its settings, then deploy">
+          Next
+        </Btn>
       </div>
     </form>
   );
@@ -697,7 +1051,7 @@ async function droppedFiles(roots: FileSystemEntry[]) {
     if (entry.isFile) out.push([await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej)), prefix + entry.name]);
     else if (entry.isDirectory) {
       const reader = (entry as FileSystemDirectoryEntry).createReader();
-      for (let batch; (batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))).length; ) {
+      for (let batch; (batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))).length;) {
         for (const e of batch) await walk(e, `${prefix}${entry.name}/`);
       }
     }
@@ -709,7 +1063,7 @@ async function droppedFiles(roots: FileSystemEntry[]) {
 async function upload(pairs: Pair[], label = "site", site?: Redeploy) {
   if (!pairs.length) return toast("Nothing to upload");
   const fd = new FormData();
-  for (const [f, path] of pairs) fd.append("file", f), fd.append("path", path);
+  for (const [f, path] of pairs) (fd.append("file", f), fd.append("path", path));
   toast(`Uploading ${plural(pairs.length, "file")}, ${bytes(pairs.reduce((n, [f]) => n + f.size, 0))}…`);
   try {
     const r = await fetch("/api/upload", { method: "POST", body: fd });
@@ -743,6 +1097,9 @@ export function listenForDrops() {
     const label = roots[0]?.name ?? dt.files[0]?.name;
     const files = roots.length ? droppedFiles(roots) : Promise.resolve([...dt.files].map((f): Pair => [f, f.name]));
     const site = D.node ? D.site : undefined;
-    files.then((pairs) => upload(pairs, label, site), (err) => toast(errorMessage(err)));
+    files.then(
+      (pairs) => upload(pairs, label, site),
+      (err) => toast(errorMessage(err)),
+    );
   });
 }

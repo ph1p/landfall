@@ -146,7 +146,11 @@ export function capabilities(f: Facts, rootKey = false): Caps {
   need("packages", setup && admin, setup ? why.admin! : noPkg);
   const noDocker = f.podman
     ? `only podman ${f.podman} here: landfall needs docker${p ? ` (${p.docker})` : ""}`
-    : p ? p.docker : setup ? "no docker (or no access to it): lf setup installs it" : "no docker (or no access to it)";
+    : p
+      ? p.docker
+      : setup
+        ? "no docker (or no access to it): lf setup installs it"
+        : "no docker (or no access to it)";
   const docker = need("docker", !!f.docker, noDocker);
   need("compose", docker && !!f.compose, docker ? "docker has no compose plugin (v2)" : why.docker!);
   need("firewall", !noUfw(f.platform, f.pkg, f.ufw) && admin, noUfw(f.platform, f.pkg, f.ufw) ?? why.admin!);
@@ -226,7 +230,9 @@ const NO_PKG = "no apt, dnf, yum, apk or zypper";
 export function support(id: string, version: string, pkg: string, today = new Date(), platform = ""): Support {
   if (pkg === "none") {
     const p = PLATFORM[platform];
-    return p ? { level: "limited", note: `${p.name}: landfall uses it as it is, without setup or package updates` } : { level: "unsupported", note: `${NO_PKG}: setup cannot install packages` };
+    return p
+      ? { level: "limited", note: `${p.name}: landfall uses it as it is, without setup or package updates` }
+      : { level: "unsupported", note: `${NO_PKG}: setup cannot install packages` };
   }
   const major = version.split(".")[0];
   const minor = version.split(".").slice(0, 2).join(".");

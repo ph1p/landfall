@@ -45,7 +45,11 @@ export type UrlCheck = Dns["domains"][number]["https"];
 export type Browse = View<typeof browse>;
 
 /** An existing site a folder redeploys. */
-export interface Redeploy { server: string; name: string; domains: string[] }
+export interface Redeploy {
+  server: string;
+  name: string;
+  domains: string[];
+}
 
 // ---- a server -------------------------------------------------------------------
 

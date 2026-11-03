@@ -1,14 +1,24 @@
 import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, tildify, writeAtomic, type ProjectConfig } from "./config";
-import { analyze, COMPOSE_FILES, localCompose, routePlan, STATIC_IMAGE, volumeName, wantedVars, type Analysis, type RequiredVar, type SiteKind } from "./compose";
+import {
+  analyze,
+  COMPOSE_FILES,
+  localCompose,
+  routePlan,
+  STATIC_IMAGE,
+  volumeName,
+  wantedVars,
+  type Analysis,
+  type RequiredVar,
+  type SiteKind,
+} from "./compose";
 import { seedFolders, uploadList } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 import { localEnv } from "./remote";
 import { slug } from "./slug";
 import { warn } from "./term";
-
 
 const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
 
@@ -34,7 +44,13 @@ function nodeApp(root: string, start: string | undefined, b: Build): Runtime | u
   // A start command of one's own runs the project as it is: nothing the framework would serve with (standalone, prepare, fix) applies.
   const fw = (s: string): Build => (s === b.start ? b : {});
   return {
-    name: bun ? "Bun" : "Node.js", tool, build: b.build, start, port: 3000, ignore: APP_IGNORE, fix: fw(start).fix,
+    name: bun ? "Bun" : "Node.js",
+    tool,
+    build: b.build,
+    start,
+    port: 3000,
+    ignore: APP_IGNORE,
+    fix: fw(start).fix,
     dockerfile: (o) => nodeDockerfile(root, { tool, bun, standalone: fw(o.start).standalone, prepare: fw(o.start).prepare, ...o }),
   };
 }
@@ -44,7 +60,10 @@ function nodeApp(root: string, start: string | undefined, b: Build): Runtime | u
  * prepare: runs before the build, e.g. to switch SvelteKit to adapter-node.
  * standalone: a second stage takes only Next.js's standalone server (with the few modules it traced), its static files and public/.
  */
-export function nodeDockerfile(cwd: string, o: { tool?: string; bun?: boolean; build?: string; start: string; port: number; standalone?: string; prepare?: string }): string {
+export function nodeDockerfile(
+  cwd: string,
+  o: { tool?: string; bun?: boolean; build?: string; start: string; port: number; standalone?: string; prepare?: string },
+): string {
   const f = files(cwd);
   const bun = o.bun ?? usesBun(f, o.start);
   return [
@@ -93,16 +112,27 @@ export interface Tag {
 
 /** Languages by the files their tools keep, in the order mixed folders name them. */
 const LANGUAGES: [string, string[]][] = [
-  ["Go", ["go.mod"]], ["Rust", ["Cargo.toml"]], ["Java", ["pom.xml", "build.gradle", "build.gradle.kts"]], ["Elixir", ["mix.exs"]],
-  ["PHP", ["composer.json", "index.php", "public/index.php"]], ["Python", ["pyproject.toml", "requirements.txt", "Pipfile", "setup.py", "manage.py"]],
+  ["Go", ["go.mod"]],
+  ["Rust", ["Cargo.toml"]],
+  ["Java", ["pom.xml", "build.gradle", "build.gradle.kts"]],
+  ["Elixir", ["mix.exs"]],
+  ["PHP", ["composer.json", "index.php", "public/index.php"]],
+  ["Python", ["pyproject.toml", "requirements.txt", "Pipfile", "setup.py", "manage.py"]],
   ["Ruby", ["Gemfile"]],
 ];
 
 /** Package managers and build tools by their lockfile or build file. */
 const TOOLING: [string, string[]][] = [
-  ["uv", ["uv.lock"]], ["Poetry", ["poetry.lock"]], ["Pipenv", ["Pipfile"]], ["pip", ["requirements.txt"]],
-  ["Maven", ["pom.xml"]], ["Gradle", ["build.gradle", "build.gradle.kts"]], ["Cargo", ["Cargo.toml"]], ["Bundler", ["Gemfile"]],
-  ["Composer", ["composer.json"]], ["Mix", ["mix.exs"]],
+  ["uv", ["uv.lock"]],
+  ["Poetry", ["poetry.lock"]],
+  ["Pipenv", ["Pipfile"]],
+  ["pip", ["requirements.txt"]],
+  ["Maven", ["pom.xml"]],
+  ["Gradle", ["build.gradle", "build.gradle.kts"]],
+  ["Cargo", ["Cargo.toml"]],
+  ["Bundler", ["Gemfile"]],
+  ["Composer", ["composer.json"]],
+  ["Mix", ["mix.exs"]],
 ];
 
 /**
@@ -265,7 +295,9 @@ function seedsOf(path: string, names: string[], exclude?: string[], project?: Pr
 
 /** A compose file's named volumes, from the services' short syntax as analyzeLocal keeps it (name:/path). */
 const namedVolumes = (a: Detected["analysis"]) =>
-  [...new Set(Object.values(a?.about ?? {}).flatMap((s) => (s.volumes ?? []).filter((v) => v.includes(":")).map((v) => v.split(":")[0])))].filter((v) => /^\w[\w.-]*$/.test(v));
+  [...new Set(Object.values(a?.about ?? {}).flatMap((s) => (s.volumes ?? []).filter((v) => v.includes(":")).map((v) => v.split(":")[0])))].filter((v) =>
+    /^\w[\w.-]*$/.test(v),
+  );
 
 export function detectProject(path: string): Detected {
   const project = loadProject(path);
@@ -289,14 +321,36 @@ export function detectProject(path: string): Detected {
     const images = Object.entries(analysis?.about ?? {}).flatMap(([svc, a]): UsedImage[] =>
       a.build !== undefined ? based(svc, readText(resolve(path, a.build, a.dockerfile ?? "Dockerfile"))) : a.image ? [{ ref: a.image, service: svc }] : [],
     );
-    return { path, name, kind: "compose", compose, analysis, required: wanted([compose]), seeds: seedsOf(path, namedVolumes(analysis), undefined, project), project, stack: appStack(), images };
+    return {
+      path,
+      name,
+      kind: "compose",
+      compose,
+      analysis,
+      required: wanted([compose]),
+      seeds: seedsOf(path, namedVolumes(analysis), undefined, project),
+      project,
+      stack: appStack(),
+      images,
+    };
   }
   const runs = { volumes: project?.volumes, worker: project?.worker, required: wanted() };
-  if (project?.image && !project.static) return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path), images: [{ ref: project.image, service: "app" }] };
+  if (project?.image && !project.static)
+    return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path), images: [{ ref: project.image, service: "app" }] };
   const has = (f: string) => fs.existsSync(join(path, f));
   if (!project?.static && has("Dockerfile")) {
     const seeds = seedsOf(path, (project?.volumes ?? []).map(volumeName), undefined, project);
-    return { path, name, kind: "dockerfile", port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000, ...runs, seeds, project, stack: appStack(), images: based("app", readText(join(path, "Dockerfile"))) };
+    return {
+      path,
+      name,
+      kind: "dockerfile",
+      port: project?.port ?? exposedPort(join(path, "Dockerfile")) ?? 3000,
+      ...runs,
+      seeds,
+      project,
+      stack: appStack(),
+      images: based("app", readText(join(path, "Dockerfile"))),
+    };
   }
   const b = detectBuild(path);
   const found = project?.dir ?? detectStaticDir(path, b);
@@ -311,10 +365,39 @@ export function detectProject(path: string): Detected {
     const port = project?.port ?? app.port;
     // The Dockerfile landfall writes for it.
     const images = based("app", app.dockerfile({ build: project?.build ?? app.build, start, port }));
-    return { path, name, kind: "dockerfile", runtime, tool, start, note, build: project?.build ?? app.build, port, dir, node, ...runs, volumes, seeds, project, stack: detectStack(path, runtime, tool), images };
+    return {
+      path,
+      name,
+      kind: "dockerfile",
+      runtime,
+      tool,
+      start,
+      note,
+      build: project?.build ?? app.build,
+      port,
+      dir,
+      node,
+      ...runs,
+      volumes,
+      seeds,
+      project,
+      stack: detectStack(path, runtime, tool),
+      images,
+    };
   }
   const tool = !project?.dir || project.dir === b.dir ? b.tool : undefined;
-  return { path, name, kind: "static", node, dir, build: project?.build ?? b.build, tool, project, stack: detectStack(path, undefined, tool), images: [{ ref: STATIC_IMAGE, service: "web" }] };
+  return {
+    path,
+    name,
+    kind: "static",
+    node,
+    dir,
+    build: project?.build ?? b.build,
+    tool,
+    project,
+    stack: detectStack(path, undefined, tool),
+    images: [{ ref: STATIC_IMAGE, service: "web" }],
+  };
 }
 
 // ---------------------------------------------------------------- remembered projects
@@ -359,7 +442,9 @@ export function rememberProject(p: Omit<Remembered, "at">) {
   // One entry per folder and environment: staging and production deploy from the same folder.
   const known = readProjects();
   if (!known) return unreadable();
-  saveProjects([{ ...p, path, at: new Date().toISOString() }, ...known.filter((x) => x.path !== path || (x.environment ?? "") !== (p.environment ?? ""))].slice(0, 50));
+  saveProjects(
+    [{ ...p, path, at: new Date().toISOString() }, ...known.filter((x) => x.path !== path || (x.environment ?? "") !== (p.environment ?? ""))].slice(0, 50),
+  );
 }
 
 /** Keep remembered projects and their .landfall.json in step after a site's domains changed on the server. */

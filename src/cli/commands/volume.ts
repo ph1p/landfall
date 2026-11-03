@@ -12,7 +12,21 @@ import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, tab
 import { seedFolders, type Entry } from "../../core/ignore";
 import { detectProject } from "../../core/projects";
 import { onStop } from "../../core/job";
-import { backupName, backupsOf, backupTo, dbPaused, pickVolume, pruneBefore, recreateFrom, STAMP_GLOB, tarIn, tarOut, volumes, whileStopped, type Volume } from "../../core/volumes";
+import {
+  backupName,
+  backupsOf,
+  backupTo,
+  dbPaused,
+  pickVolume,
+  pruneBefore,
+  recreateFrom,
+  STAMP_GLOB,
+  tarIn,
+  tarOut,
+  volumes,
+  whileStopped,
+  type Volume,
+} from "../../core/volumes";
 import { target } from "./sites";
 
 /**
@@ -63,7 +77,8 @@ export const volumeList = defineCommand({
     if (vols.length > inDocker.length) console.log(c.dim(`\nfiles in ${siteDir(site)}/volumes/<volume>`));
     if (inDocker.length) console.log(c.dim(`${vols.length > inDocker.length ? "" : "\n"}in Docker's own storage: ${inDocker.join(", ")}`));
     console.log(c.dim(`\nscheduled backups: ${schedule ?? "none (lf volume backup --schedule daily)"}`));
-    if (lastRun?.failed.length) warn(`the last scheduled backup (${ago(lastRun.time)}) failed for ${lastRun.failed.join(", ")}: see ${siteDir(site)}/backups/backup.log`);
+    if (lastRun?.failed.length)
+      warn(`the last scheduled backup (${ago(lastRun.time)}) failed for ${lastRun.failed.join(", ")}: see ${siteDir(site)}/backups/backup.log`);
     else if (lastRun) console.log(c.dim(`last run ${ago(lastRun.time)}: ok`));
     if (backups.length) {
       console.log(`\n${c.dim(`backups in ${siteDir(site)}/backups:`)}`);
@@ -122,14 +137,19 @@ export const volumeBackupRemove = defineCommand({
   async run(pos, o) {
     const { site, server, rest, found } = await locate(pos, Infinity, o.server);
     if (!rest.length) fail("usage: lf volume backup rm [name] <backup...>");
-    const files = rest.map((f) => found.backups.find((b) => b.file === f || b.file === `${f}.tar.gz`)?.file ?? fail(`${site} has no backup ${f} (lf volumes ${site})`));
+    const files = rest.map(
+      (f) => found.backups.find((b) => b.file === f || b.file === `${f}.tar.gz`)?.file ?? fail(`${site} has no backup ${f} (lf volumes ${site})`),
+    );
     await confirmRemoval(`Delete ${files.length === 1 ? files[0] : `${files.length} backups`} of ${site}? This cannot be undone.`);
     for (const f of files) step(`delete ${f}`);
     // Names come from the listing (backups/ only, no slashes): nothing outside the folder can match.
-    await runScript(server, `${PRELUDE}
+    await runScript(
+      server,
+      `${PRELUDE}
 cd ${shq(`${siteDir(site)}/backups`)}
 rm -f -- ${files.map(shq).join(" ")}
-record ${shq(`deleted backup${files.length > 1 ? "s" : ""} ${files.join(", ")} of ${site}`)}`);
+record ${shq(`deleted backup${files.length > 1 ? "s" : ""} ${files.join(", ")} of ${site}`)}`,
+    );
     ok(`deleted ${plural(files.length, "backup")} of ${site}`);
   },
 });
@@ -192,7 +212,10 @@ export async function scheduleBackups(server: Server, site: string, every: strin
   // A minute of its own per site: not every server's backups at 03:00 sharp.
   const minute = [...site].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 60, 7);
   const [head, tail] = cronSet("@").split(" @ ");
-  const line = every === "off" ? "" : `${EVERY[every](minute)} sh ${dir}/backup.sh ${keep} ${offsite || "-"} >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}${offsite ? `, offsite ${offsite}` : ""}`;
+  const line =
+    every === "off"
+      ? ""
+      : `${EVERY[every](minute)} sh ${dir}/backup.sh ${keep} ${offsite || "-"} >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}${offsite ? `, offsite ${offsite}` : ""}`;
   const host = offsite?.replace(/:.*/, "");
   const { stdout } = await runScript(
     server,
@@ -222,7 +245,9 @@ export async function scheduleBackups(server: Server, site: string, every: strin
   ok(`${site}'s volumes are backed up ${every}, the newest ${keep} of each kept in ${dir}${offsite ? `, mirrored to ${offsite}` : ""}`);
   info(c.dim(`runs: ${dir}/backup.sh from the crontab of ${server.user ?? "the login user"} (log: ${dir}/backup.log)`));
   if (stdout.includes("nologin"))
-    warn(`${server.user ?? "the login user"} on the server cannot log in to ${host} with ssh yet, so the copy fails: run ssh-keygen there and add its .pub to ${host}'s authorized_keys (lf volumes shows when a run failed)`);
+    warn(
+      `${server.user ?? "the login user"} on the server cannot log in to ${host} with ssh yet, so the copy fails: run ssh-keygen there and add its .pub to ${host}'s authorized_keys (lf volumes shows when a run failed)`,
+    );
   if (stdout.includes("nocron")) warn("cron is not running on the server: start it (Alpine: rc-service crond start), or nothing runs");
 }
 
@@ -347,7 +372,8 @@ export async function offerSeed(server: Server, site: string, dir: string, uploa
   for (const v of found.volumes.filter((x) => x.empty && folders.includes(x.key))) {
     const src = `./${relative(process.cwd(), join(dir, v.key)).split(sep).join("/")}`;
     const cmd = `lf volume push ${site} ${v.key} ${src}`;
-    if (fill || (interactive() && (await confirm(`Volume ${v.key} is empty, and ${src} is left out of the upload. Fill the volume with it?${stops(v)}`, true)))) await pushVolume(server, site, v, src, true);
+    if (fill || (interactive() && (await confirm(`Volume ${v.key} is empty, and ${src} is left out of the upload. Fill the volume with it?${stops(v)}`, true))))
+      await pushVolume(server, site, v, src, true);
     else info(`volume ${v.key} is empty; ${src} was not uploaded: fill it with ${c.cyan(cmd)}, or deploy with --fill-volumes`);
   }
 }
@@ -434,7 +460,11 @@ brings it back.
 
   lf volume rm content            unmount it; lf deploy applies that
   lf volume rm content --data     then delete the data on the server`,
-  options: { server: serverOpt, data: { type: "boolean", desc: "also delete the volume on the server (backed up first)" }, service: { type: "string", desc: "compose.yaml: only unmount it from this service" } },
+  options: {
+    server: serverOpt,
+    data: { type: "boolean", desc: "also delete the volume on the server (backed up first)" },
+    service: { type: "string", desc: "compose.yaml: only unmount it from this service" },
+  },
   async run(pos, o) {
     if (!pos.length || pos.length > 2) fail("lf volume rm [name] <volume>");
     const key = pos.at(-1)!;
@@ -442,7 +472,12 @@ brings it back.
     // --data alone works anywhere: a folder that deploys another site only skips the unmount.
     const d = o.data ? here(undefined) : here(site);
     const edited = !!d && (!site || site === d.name) && unmount(d, key, o.service);
-    if (!edited && !o.data) fail(d ? `this folder's project does not mount ${key}` : `no ${PROJECT_FILE} here: run it in the folder that deploys the site, or pass --data to delete an unused volume's data`);
+    if (!edited && !o.data)
+      fail(
+        d
+          ? `this folder's project does not mount ${key}`
+          : `no ${PROJECT_FILE} here: run it in the folder that deploys the site, or pass --data to delete an unused volume's data`,
+      );
     if (!o.data) return redeployHint(c.dim(`; the data stays on the server (lf volume rm ${key} --data deletes it)`));
     if (o.service) fail("--data deletes the whole volume: leave out --service");
     const t = target(site, o.server);

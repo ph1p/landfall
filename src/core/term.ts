@@ -4,7 +4,7 @@ import stringWidth from "string-width";
 
 /** All of stdin, for secrets passed as --*-stdin / `-` instead of on the command line (where `ps` shows them). */
 export const readStdin = async () => {
-  if (process.stdin.isTTY) fail("expected the value on stdin, e.g. printf %s \"$SECRET\" | lf …");
+  if (process.stdin.isTTY) fail('expected the value on stdin, e.g. printf %s "$SECRET" | lf …');
   let out = "";
   for await (const chunk of process.stdin) out += chunk;
   return out;
@@ -103,7 +103,12 @@ export function table(rows: string[][]) {
   // stringWidth ignores ANSI colors.
   const widths = rows[0].map((_, i) => Math.max(...rows.map((r) => stringWidth(r[i] ?? ""))));
   for (const r of rows) {
-    console.log(r.map((cell, i) => cell + " ".repeat(widths[i] - stringWidth(cell))).join("  ").trimEnd());
+    console.log(
+      r
+        .map((cell, i) => cell + " ".repeat(widths[i] - stringWidth(cell)))
+        .join("  ")
+        .trimEnd(),
+    );
   }
 }
 
@@ -121,8 +126,8 @@ export async function askSecret(question: string): Promise<string> {
     return await new Promise<string>((done, reject) => {
       const onData = (buf: Buffer) => {
         for (const ch of buf.toString("utf8")) {
-          if (ch === "\r" || ch === "\n") return stdin.off("data", onData), done(value);
-          if (ch === "\u0003") return stdin.off("data", onData), reject(new CliError("cancelled"));
+          if (ch === "\r" || ch === "\n") return (stdin.off("data", onData), done(value));
+          if (ch === "\u0003") return (stdin.off("data", onData), reject(new CliError("cancelled")));
           if (ch === "\u007f" || ch === "\b") value = value.slice(0, -1);
           else value += ch;
         }
@@ -138,7 +143,9 @@ export async function askSecret(question: string): Promise<string> {
 
 export function openUrl(url: string) {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  spawn(cmd, [url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  spawn(cmd, [url], { stdio: "ignore", detached: true })
+    .on("error", () => {})
+    .unref();
 }
 
 /** A line diff of a file landfall rewrites, changed lines with one line of context. */
@@ -147,12 +154,13 @@ export function showDiff(file: string, before: string, after: string) {
   const b = after.split("\n");
   // Longest common subsequence, from the end: small files only (compose files).
   const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
-  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
   const lines: [" " | "-" | "+", string][] = [];
   let i = 0;
   let j = 0;
   while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && a[i] === b[j]) lines.push([" ", a[i++]]), j++;
+    if (i < a.length && j < b.length && a[i] === b[j]) (lines.push([" ", a[i++]]), j++);
     else if (i < a.length && (j === b.length || lcs[i + 1][j] >= lcs[i][j + 1])) lines.push(["-", a[i++]]);
     else lines.push(["+", b[j++]]);
   }
@@ -166,4 +174,3 @@ export function showDiff(file: string, before: string, after: string) {
     console.log(t === "+" ? c.green(`+ ${l}`) : t === "-" ? c.red(`- ${l}`) : c.dim(`  ${l}`));
   });
 }
-

@@ -51,7 +51,8 @@ async function askTraefik(server: Server, o: TraefikInstall) {
     o.email = typed ? checkEmail(typed) : undefined;
   }
   const domain = mainDomain(server);
-  o.dashboard ??= (await ask(`dashboard domain, behind basic auth (optional${domain ? ", `off` for none" : ""})`, domain ? `traefik.${domain}` : "")) || undefined;
+  o.dashboard ??=
+    (await ask(`dashboard domain, behind basic auth (optional${domain ? ", `off` for none" : ""})`, domain ? `traefik.${domain}` : "")) || undefined;
   if (o.dashboard === "off") o.dashboard = undefined;
 }
 
@@ -167,7 +168,9 @@ dashboard unless given as flags.`,
     if (os.note) (os.level === "eol" || os.level === "unsupported" ? warn : info)(os.note);
     // Setup installs packages; without a package manager there is nothing it can do safely,
     // so only what deploys need (docker, traefik) is worth showing.
-    const refuse = probe.values.pkg === "none" && `setup cannot change this server: ${PLATFORM[probe.values.platform ?? ""]?.name ?? "it has no apt, dnf, yum, apk or zypper"}${existing ? "" : `. Register it with \`lf server add ${name}\``}`;
+    const refuse =
+      probe.values.pkg === "none" &&
+      `setup cannot change this server: ${PLATFORM[probe.values.platform ?? ""]?.name ?? "it has no apt, dnf, yum, apk or zypper"}${existing ? "" : `. Register it with \`lf server add ${name}\``}`;
     const shown = refuse ? checks.filter((ch) => ch.part === "docker" || ch.part === "traefik") : checks;
     printChecks(shown);
     report({ checks: shown.map(({ part, label, status, detail }) => ({ part, label, status, detail })), ...(refuse && { refuse }) });

@@ -181,7 +181,11 @@ export function setIdentityFile(alias: string, key: string): KeyEdit | undefined
   if (!b) return undefined;
   const lines = readConfig(b.file).split("\n");
   const block = lines.slice(b.start + 1, b.end);
-  const ident = (l: string) => l.trim().match(/^identityfile\s*=?\s*(.+)$/i)?.[1].replace(/^"(.*)"$/, "$1");
+  const ident = (l: string) =>
+    l
+      .trim()
+      .match(/^identityfile\s*=?\s*(.+)$/i)?.[1]
+      .replace(/^"(.*)"$/, "$1");
   const removed = block.filter((l) => {
     const f = ident(l);
     // %d, ${HOME} and the like expand only in ssh: such a line is kept, missing or not.
@@ -208,6 +212,9 @@ export function removeHostBlock(alias: string, file = SSH_CONFIG): boolean {
 }
 
 export const hasManagedBlock = (alias: string, file = SSH_CONFIG) =>
-  fs.existsSync(file) && readConfig(file).split("\n").some((l) => isStart(l, alias));
+  fs.existsSync(file) &&
+  readConfig(file)
+    .split("\n")
+    .some((l) => isStart(l, alias));
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
