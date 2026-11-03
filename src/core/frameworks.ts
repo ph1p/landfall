@@ -82,7 +82,7 @@ const BUN_ENTRIES = ["index.ts", "server.ts", "app.ts", "main.ts", "src/index.ts
 /** A Bun project: its lockfile, its config, its types or Elysia; or a start command run with Bun. */
 export function usesBun({ has, pkg }: Files, start = "") {
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-  return ["bun.lock", "bun.lockb", "bunfig.toml"].some(has) || ["@types/bun", "bun-types", "elysia"].some((d) => d in deps) || /^bun@/.test(pkg.packageManager ?? "") || [start, pkg.scripts?.start ?? ""].some((s) => /^bunx?\b/.test(s));
+  return ["bun.lock", "bun.lockb", "bunfig.toml"].some(has) || ["@types/bun", "bun-types", "elysia"].some((d) => d in deps) || (pkg.packageManager ?? "").startsWith("bun@") || [start, pkg.scripts?.start ?? ""].some((s) => /^bunx?\b/.test(s));
 }
 
 /** Whether a start script runs a server, not a dev server, a static file server or `npm run dev`. */
@@ -221,7 +221,7 @@ const FRAMEWORKS: Framework[] = [
         const path = b?.options?.outputPath;
         const base = typeof path === "string" ? path : path?.base;
         // The application builder (Angular 17+) puts the site in browser/ below outputPath, the server in server/.
-        if (typeof path === "string") dir = /:application$/.test(b.builder ?? "") ? `${path}/browser` : path;
+        if (typeof path === "string") dir = (b.builder ?? "").endsWith(":application") ? `${path}/browser` : path;
         else if (base) dir = `${base}/browser`;
         if (base && b?.options?.ssr) return { mode: "SSR", start: `node ${base}/server/server.mjs` };
       } catch {}

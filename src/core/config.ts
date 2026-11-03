@@ -178,14 +178,14 @@ export function resolveServer(name?: string): { name: string; server: Server } {
     else if (names.length === 0) fail("no server given. Use --server <ssh-alias> or `lf server add`");
     else fail(`several servers configured (${names.join(", ")}); pick one with --server or \`lf server use\``);
   }
-  if (!/^[A-Za-z0-9._@:\[\]-]+$/.test(name!) || name!.startsWith("-")) fail(`not a server name: ${name}`);
+  if (!/^[A-Za-z0-9._@:[\]-]+$/.test(name!) || name!.startsWith("-")) fail(`not a server name: ${name}`);
   const server = cfg.servers[name!] ?? { host: name! };
   return { name: name!, server };
 }
 
 /** A name landfall writes into ~/.ssh: a `Host` line and the key file `landfall_<name>`. */
 export const checkAlias = (name: string) => {
-  if (!/^[A-Za-z0-9_@:\[\]][A-Za-z0-9._@:\[\]-]*$/.test(name)) fail(`not a server name: ${name} (letters, digits and . _ - @ : only)`);
+  if (!/^[A-Za-z0-9_@:[\]][A-Za-z0-9._@:[\]-]*$/.test(name)) fail(`not a server name: ${name} (letters, digits and . _ - @ : only)`);
   return name;
 };
 

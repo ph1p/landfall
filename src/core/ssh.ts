@@ -269,7 +269,7 @@ export function reach(s: Server, timeout = 5): Promise<Reach> {
     child.on("error", (e) => (clearTimeout(kill), done("down", e.message)));
     child.on("close", (code) => {
       clearTimeout(kill);
-      const line = err.trim().split("\n").filter((l) => !/^Warning: Permanently added/.test(l)).pop() ?? "";
+      const line = err.trim().split("\n").filter((l) => !l.startsWith("Warning: Permanently added")).pop() ?? "";
       if (code === 0) done("ok", "key login works");
       else if (code === null) done("down", "no answer");
       else if (/resolve|not known|nodename|no address/i.test(line)) done("down", "host name not found");

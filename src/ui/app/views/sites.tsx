@@ -405,7 +405,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
       text: `A named volume keeps a folder of the container across deploys and rollbacks. It goes into ${where} in ${tilde(edit.path)}, plain ${compose ? "Compose" : "landfall settings"}; a redeploy applies it.`,
       fields: [
         ...(compose && edit.services.length > 1 ? [{ name: "service", type: "select" as const, label: "Service", value: edit.services[0], options: edit.services.map((x) => ({ value: x, label: x })) }] : []),
-        { name: "path", label: "Folder in the container", placeholder: "/app/data", mono: true, required: true, check: (x) => (/^\/[\w.\/-]*\w/.test(String(x)) ? undefined : "An absolute folder, like /app/data") },
+        { name: "path", label: "Folder in the container", placeholder: "/app/data", mono: true, required: true, check: (x) => (/^\/[\w./-]*\w/.test(String(x)) ? undefined : "An absolute folder, like /app/data") },
         ...(compose ? [{ name: "as", label: "Volume name", placeholder: "from the folder: /app/data is app-data", mono: true, check: (x: unknown) => (!x || /^\w[\w.-]*$/.test(String(x)) ? undefined : "Letters, digits, ., _ and -") }] : []),
         { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
       ],

@@ -790,7 +790,7 @@ ${volumes.length ? `    volumes:\n${volumes.map((v) => `      - ${q(`${volumeNam
 }
 
 /** A folder in a container: absolute, as `--volume` and `lf volume add` take it. */
-export const CONTAINER_PATH = /^\/[\w.\/-]*\w/;
+export const CONTAINER_PATH = /^\/[\w./-]*\w/;
 /** A named volume's key in compose.yaml. */
 export const VOLUME_KEY = /^\w[\w.-]*$/;
 

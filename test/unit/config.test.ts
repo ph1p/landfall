@@ -197,6 +197,7 @@ describe("global config transactions", () => {
     try {
       const change = serverDomain.run(["a"], { clear: true, "tunnel-only": true }, []);
       // Attach rejection handling before the deferred confirmation is released.
+      // oxlint-disable-next-line vitest/valid-expect -- awaited below, after the confirmation is released
       const refused = expect(change).rejects.toThrow("changed during");
       await waiting;
       await updateConfig((cfg) => { cfg.servers.a.domains = ["new.test"]; });
