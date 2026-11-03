@@ -17,7 +17,26 @@ import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
 import { USER_NAME } from "../../core/users";
 import { trivyState } from "../../core/scan";
-import { configView, defaultsView, savedView, diskView, dnsView, factsView, firewallView, historyBrief, pruneView, scanView, statsView, systemView, trafficView, siteTrafficView, certsView, traefikView, updatesView, usersView } from "../../core/views";
+import {
+  configView,
+  defaultsView,
+  savedView,
+  diskView,
+  dnsView,
+  factsView,
+  firewallView,
+  historyBrief,
+  pruneView,
+  scanView,
+  statsView,
+  systemView,
+  trafficView,
+  siteTrafficView,
+  certsView,
+  traefikView,
+  updatesView,
+  usersView,
+} from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
 import { c, CliError, openUrl } from "../../core/term";
@@ -39,11 +58,14 @@ const UI_DIR = [new URL("./ui/", import.meta.url), new URL("../../../dist/ui/", 
 const TYPES: Record<string, string> = { html: "text/html", css: "text/css", js: "text/javascript", svg: "image/svg+xml", json: "application/json" };
 const assets = new Map(
   UI_DIR
-    ? fs.readdirSync(UI_DIR, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => {
-        const rel = join(e.parentPath, e.name).slice(fileURLToPath(UI_DIR).length).split(sep).join("/");
-        const body = fs.readFileSync(join(e.parentPath, e.name));
-        return [rel === "index.html" ? "/" : `/${rel}`, { body, type: `${TYPES[e.name.split(".").pop()!] ?? "application/octet-stream"}; charset=utf-8` }];
-      })
+    ? fs
+        .readdirSync(UI_DIR, { recursive: true, withFileTypes: true })
+        .filter((e) => e.isFile())
+        .map((e) => {
+          const rel = join(e.parentPath, e.name).slice(fileURLToPath(UI_DIR).length).split(sep).join("/");
+          const body = fs.readFileSync(join(e.parentPath, e.name));
+          return [rel === "index.html" ? "/" : `/${rel}`, { body, type: `${TYPES[e.name.split(".").pop()!] ?? "application/octet-stream"}; charset=utf-8` }];
+        })
     : [],
 );
 const MAX_JOBS = 50;
@@ -167,7 +189,15 @@ export function state() {
     defaultImage: DEFAULT_TRAEFIK_IMAGE,
     ownProxy: OWN_PROXY,
     // The CLI's own input rules, so forms reject what the command would.
-    rules: { loginName: LOGIN_NAME.source, userName: USER_NAME.source, minPassword: MIN_PASSWORD, domain: DOMAIN.source, siteName: SITE_NAME.source, envName: ENV_NAME.source, secretName: SECRET_NAME.source },
+    rules: {
+      loginName: LOGIN_NAME.source,
+      userName: USER_NAME.source,
+      minPassword: MIN_PASSWORD,
+      domain: DOMAIN.source,
+      siteName: SITE_NAME.source,
+      envName: ENV_NAME.source,
+      secretName: SECRET_NAME.source,
+    },
     paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR, journal: JOURNAL, proxy: PROXY_FILE },
     defaults: defaultsView(),
     servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: savedView(cfg.servers[e.name]) })),
@@ -183,7 +213,12 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
 
   // Separate from state: logging in to every server takes seconds, the list should not wait.
   if (what === "reach" && method === "GET") {
-    return json(await reachAll(listServers().map((e) => e.name), new URL(req.url).searchParams.get("fresh") === "1"));
+    return json(
+      await reachAll(
+        listServers().map((e) => e.name),
+        new URL(req.url).searchParams.get("fresh") === "1",
+      ),
+    );
   }
 
   if (what === "servers" && name) {
@@ -231,7 +266,10 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
       return json(await volumes(server, validName(q.get("site") ?? ""), sizes, !sizes));
     }
     if (method === "GET" && sub === "dns") {
-      const domains = (new URL(req.url).searchParams.get("domains") ?? "").split(",").filter((d) => DOMAIN.test(d)).slice(0, 50);
+      const domains = (new URL(req.url).searchParams.get("domains") ?? "")
+        .split(",")
+        .filter((d) => DOMAIN.test(d))
+        .slice(0, 50);
       return json(await dnsView(server, domains));
     }
   }
@@ -440,7 +478,15 @@ function listener(handler: (req: Request) => Promise<Response>) {
         return;
       }
       const body = req.method === "GET" || req.method === "HEAD" ? undefined : (Readable.toWeb(capped(req, limit)) as ReadableStream);
-      r = await handler(new Request(`http://${req.headers.host ?? "127.0.0.1"}${req.url}`, { method: req.method, headers, body, signal: abort.signal, duplex: "half" } as RequestInit));
+      r = await handler(
+        new Request(`http://${req.headers.host ?? "127.0.0.1"}${req.url}`, {
+          method: req.method,
+          headers,
+          body,
+          signal: abort.signal,
+          duplex: "half",
+        } as RequestInit),
+      );
     } catch {
       r = new Response("bad request", { status: 400 });
     }

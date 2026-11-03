@@ -71,7 +71,9 @@ const sshArgs = (s: Server, o: SshOpts = {}) => [...sshOptions(s, o), dest(s)];
 export function closeMux(s: Server): Promise<void> {
   return new Promise((resolve) => {
     const args = [...targetArgs(s), "-o", `ControlPath=${controlDir()}/%C`, "-O", "exit", dest(s)];
-    spawn("ssh", args, { stdio: "ignore" }).on("close", () => resolve()).on("error", () => resolve());
+    spawn("ssh", args, { stdio: "ignore" })
+      .on("close", () => resolve())
+      .on("error", () => resolve());
   });
 }
 
@@ -115,7 +117,11 @@ function waitEnd(key: object) {
   process.stderr.write = origWrite.err;
 }
 
-function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: string; capture?: boolean; silent?: boolean; waitFor?: string }): Promise<RunResult> {
+function spawnP(
+  cmd: string,
+  args: string[],
+  opts: SpawnOptions & { input?: string; capture?: boolean; silent?: boolean; waitFor?: string },
+): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       ...opts,
@@ -148,7 +154,7 @@ function spawnP(cmd: string, args: string[], opts: SpawnOptions & { input?: stri
     child.on("error", (e) => (waitEnd(child), reject(e)));
     child.on("close", (code) => {
       waitEnd(child);
-      if (part) (stderr += part), process.stderr.write(part);
+      if (part) ((stderr += part), process.stderr.write(part));
       resolve({ code: code ?? 1, stdout, stderr });
     });
     if (opts.input !== undefined) child.stdin!.end(opts.input);
@@ -269,7 +275,12 @@ export function reach(s: Server, timeout = 5): Promise<Reach> {
     child.on("error", (e) => (clearTimeout(kill), done("down", e.message)));
     child.on("close", (code) => {
       clearTimeout(kill);
-      const line = err.trim().split("\n").filter((l) => !l.startsWith("Warning: Permanently added")).pop() ?? "";
+      const line =
+        err
+          .trim()
+          .split("\n")
+          .filter((l) => !l.startsWith("Warning: Permanently added"))
+          .pop() ?? "";
       if (code === 0) done("ok", "key login works");
       else if (code === null) done("down", "no answer");
       else if (/resolve|not known|nodename|no address/i.test(line)) done("down", "host name not found");
@@ -288,7 +299,11 @@ export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-logi
   const { code, stderr } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${ROOT}`], { capture: true, silent: true });
   if (code !== 255) return code === 0 ? "ready" : "bare";
   if (/permission denied|too many authentication failures/i.test(stderr)) return "no-login";
-  const why = stderr.trim().split("\n").filter((l) => !/^warning:/i.test(l)).at(-1);
+  const why = stderr
+    .trim()
+    .split("\n")
+    .filter((l) => !/^warning:/i.test(l))
+    .at(-1);
   return fail(`cannot connect to ${s.host}${why ? `: ${why}` : ""}`);
 }
 
@@ -301,11 +316,11 @@ function meter(label: string): Transform {
   return new Transform({
     transform(chunk: Buffer, _, done) {
       n += chunk.length;
-      if (tty && Date.now() - last > 200) (last = Date.now()), show();
+      if (tty && Date.now() - last > 200) ((last = Date.now()), show());
       done(null, chunk);
     },
     flush(done) {
-      if (tty) show(), process.stderr.write("\n");
+      if (tty) (show(), process.stderr.write("\n"));
       done();
     },
   });
@@ -379,7 +394,9 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
   // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.
   const env = { ...process.env, COPYFILE_DISABLE: "1" };
   const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
-  const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], { stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"] });
+  const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], {
+    stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"],
+  });
   const done: Promise<number>[] = [exit(ssh)];
   await new Promise<void>((resolve, reject) => {
     ssh.on("error", reject);
@@ -391,13 +408,15 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
         (f as fs.ReadStream).pipe(meter("sent")).pipe(ssh.stdin!);
         // A read error rejects above: ssh's exit is the whole result.
         done.push(Promise.resolve(0));
-      }
-      else {
+      } else {
         ssh.stdout!.pipe(meter("received")).pipe(f as fs.WriteStream);
         done.push(new Promise((ok) => f.on("close", () => ok(0))));
       }
     } else {
-      const p = spawn(local[0], local.slice(1), { stdio: dir === "up" ? [input === undefined ? "ignore" : "pipe", "pipe", "inherit"] : ["pipe", "inherit", "inherit"], env });
+      const p = spawn(local[0], local.slice(1), {
+        stdio: dir === "up" ? [input === undefined ? "ignore" : "pipe", "pipe", "inherit"] : ["pipe", "inherit", "inherit"],
+        env,
+      });
       p.on("error", reject);
       if (dir === "up" && input !== undefined) p.stdin!.end(input);
       // One end gone: stop the other, or it blocks on its full pipe and never exits.

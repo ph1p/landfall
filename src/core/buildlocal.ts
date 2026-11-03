@@ -50,7 +50,8 @@ export function localBuilds(
       const b = typeof s.build === "string" ? { context: s.build } : s.build;
       const unsupported = ["ssh", "secrets", "additional_contexts", "platforms"].filter((k) => b[k] !== undefined);
       if (unsupported.length) fail(`${service} builds with ${unsupported.join(", ")}: build it on the server (leave out --build-local)`);
-      if (/^[a-z]+:\/\//i.test(b.context ?? "") || (b.context ?? "").startsWith("git@")) fail(`${service} builds from ${b.context}: build it on the server (leave out --build-local)`);
+      if (/^[a-z]+:\/\//i.test(b.context ?? "") || (b.context ?? "").startsWith("git@"))
+        fail(`${service} builds from ${b.context}: build it on the server (leave out --build-local)`);
       const serverContext = b.context ?? o.serverDir;
       const context = here(serverContext, service);
       let dockerfile: string;
@@ -92,7 +93,9 @@ export async function buildLocally(server: Server, builds: LocalBuild[]) {
     }
     step(`sending ${tags.length === 1 ? "the image" : `${tags.length} images`} to ${server.host}`);
     // gzip -1: images are mostly compressed layers already; speed matters more than the last few percent.
-    await sshPipe(server, "gzip -dc | docker load -q >/dev/null", ["sh", "-c", 'docker save "$@" | gzip -1', "sh", ...tags], "up").catch((e) => fail(`sending the images failed: ${e?.message ?? e}`));
+    await sshPipe(server, "gzip -dc | docker load -q >/dev/null", ["sh", "-c", 'docker save "$@" | gzip -1', "sh", ...tags], "up").catch((e) =>
+      fail(`sending the images failed: ${e?.message ?? e}`),
+    );
   } finally {
     off();
     await drop();

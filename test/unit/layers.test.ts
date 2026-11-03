@@ -12,7 +12,11 @@ describe("layers", () => {
     ["src/core", /\/(cli|ui)\//],
     ["src/ui", /\/cli\//],
   ])("%s imports no %s", (dir, bad) => {
-    const hits = files(dir).flatMap((f) => imports(f).filter((s) => s.startsWith(".") && bad.test(s)).map((s) => `${f}: ${s}`));
+    const hits = files(dir).flatMap((f) =>
+      imports(f)
+        .filter((s) => s.startsWith(".") && bad.test(s))
+        .map((s) => `${f}: ${s}`),
+    );
     expect(hits).toEqual([]);
   });
 

@@ -64,10 +64,27 @@ export const systemCmd = defineCommand({
       [c.dim("host name"), i.hostname],
       [c.dim("time zone"), `${i.timezone}${i.ntp === false ? c.yellow(" · clock not synced") : i.ntp ? c.dim(" · synced") : ""}`],
       [c.dim("swap"), swap ? `${bytes(swap)}${c.dim(` (${i.swap.map((s) => s.file).join(", ")})`)}` : c.yellow("none")],
-      [c.dim("docker logs"), !d ? c.dim("no docker") : d.maxSize ? `${d.driver}, ${d.maxSize} × ${d.maxFile ?? 1} per container` : d.driver === "json-file" ? c.yellow(`${d.driver}, unlimited`) : d.driver],
-      [c.dim("services"), i.init === "other" ? c.dim("no systemd or OpenRC") : `${i.services.filter(running).length} running${i.services.some(failed) ? c.red(` · ${i.services.filter(failed).length} failed`) : ""}`],
+      [
+        c.dim("docker logs"),
+        !d
+          ? c.dim("no docker")
+          : d.maxSize
+            ? `${d.driver}, ${d.maxSize} × ${d.maxFile ?? 1} per container`
+            : d.driver === "json-file"
+              ? c.yellow(`${d.driver}, unlimited`)
+              : d.driver,
+      ],
+      [
+        c.dim("services"),
+        i.init === "other"
+          ? c.dim("no systemd or OpenRC")
+          : `${i.services.filter(running).length} running${i.services.some(failed) ? c.red(` · ${i.services.filter(failed).length} failed`) : ""}`,
+      ],
       [c.dim("ssh keys"), `${i.keys.length}`],
-      [c.dim("fail2ban"), i.fail2ban === "running" ? `${i.jails.reduce((n, j) => n + j.banned, 0)} banned now` : c.dim(i.fail2ban === "missing" ? "not installed" : "stopped")],
+      [
+        c.dim("fail2ban"),
+        i.fail2ban === "running" ? `${i.jails.reduce((n, j) => n + j.banned, 0)} banned now` : c.dim(i.fail2ban === "missing" ? "not installed" : "stopped"),
+      ],
     ]);
     if (d?.daemonError) warn(d.daemonError);
     for (const s of i.services.filter(failed)) warn(`${serviceName(s.unit)} failed: lf services logs ${serviceName(s.unit)} -s ${name}`);
@@ -110,7 +127,12 @@ function serviceCommand(verb: "restart" | "start" | "stop") {
       const svc = serviceName(unit);
       if (verb === "stop" && /^sshd?$/.test(svc) && !o.force && !(await confirmRisky(`Stopping ${svc} can lock you out of ${name}. Do it anyway?`)))
         fail(`stopping ${svc} can lock you out (--force to do it anyway)`);
-      if (/^(docker|containerd)$/.test(svc) && verb !== "start" && !(await confirm(`${verb} ${svc} on ${name}? Every site goes down${verb === "stop" ? " until it is started again" : " for a moment"}.`, false))) return;
+      if (
+        /^(docker|containerd)$/.test(svc) &&
+        verb !== "start" &&
+        !(await confirm(`${verb} ${svc} on ${name}? Every site goes down${verb === "stop" ? " until it is started again" : " for a moment"}.`, false))
+      )
+        return;
       const admin = await adminLogin(server, `${verb}ing a service`);
       step(`${verb} ${svc} on ${name}`);
       await serviceAction(admin, verb, unit);
@@ -151,7 +173,12 @@ export const keysList = defineCommand({
     if (!i.keys.length) info(c.dim("no authorized keys found"));
     table([
       ["", "user", "key", "comment"].map(c.dim),
-      ...i.keys.map((k) => [k.mine ? c.green("★") : "", k.user, `${k.type.replace(/^ssh-/, "")} ${c.dim(shortFp(k))}`, `${k.comment || c.dim("(no comment)")}${k.options ? c.dim(` [${k.options}]`) : ""}`]),
+      ...i.keys.map((k) => [
+        k.mine ? c.green("★") : "",
+        k.user,
+        `${k.type.replace(/^ssh-/, "")} ${c.dim(shortFp(k))}`,
+        `${k.comment || c.dim("(no comment)")}${k.options ? c.dim(` [${k.options}]`) : ""}`,
+      ]),
     ]);
     limitedNote(i);
   },
@@ -211,9 +238,14 @@ export const keysRemove = defineCommand({
     const w = which.replace(/^SHA256:/, "");
     const hits = i.keys.filter((k) => (!o.user || k.user === o.user) && (k.comment === which || (w.length >= 6 && k.fingerprint.slice(7).startsWith(w))));
     if (!hits.length) fail(`no key ${which}${o.user ? ` for ${o.user}` : ""} on ${name}: see lf keys`);
-    if (hits.length > 1) fail(`${which} matches ${hits.length} keys (${hits.map((k) => `${k.user} ${shortFp(k)}`).join(", ")}): give more of the fingerprint or --user`);
+    if (hits.length > 1)
+      fail(`${which} matches ${hits.length} keys (${hits.map((k) => `${k.user} ${shortFp(k)}`).join(", ")}): give more of the fingerprint or --user`);
     const k = hits[0];
-    if (k.mine && !o.force && !(await confirmRisky(`${k.comment || shortFp(k)} is the key this machine logs in with: removing it can lock you out. Do it anyway?`)))
+    if (
+      k.mine &&
+      !o.force &&
+      !(await confirmRisky(`${k.comment || shortFp(k)} is the key this machine logs in with: removing it can lock you out. Do it anyway?`))
+    )
       fail("that is the key this machine logs in with (--force to remove it anyway)");
     await confirmRemoval(`Remove key ${k.comment || shortFp(k)} of ${k.user} on ${name}?`);
     const admin = await adminLogin(server, "removing a key");
@@ -357,6 +389,12 @@ export const logLimitCmd = defineCommand({
     const admin = await adminLogin(server, "changing docker's log limit");
     await setDaemon(admin, withLogLimit(d!.daemon, size, files), size ? `docker log limit ${size} × ${files}` : "docker log limit off", restart);
     ok(size ? `docker keeps at most ${size} × ${files} log per container` : "docker log limit removed");
-    info(c.dim(restart ? "new containers get it: redeploy or lf restart sites to apply it to them" : "takes effect when docker restarts (--restart, or a reboot), for containers created after that"));
+    info(
+      c.dim(
+        restart
+          ? "new containers get it: redeploy or lf restart sites to apply it to them"
+          : "takes effect when docker restarts (--restart, or a reboot), for containers created after that",
+      ),
+    );
   },
 });

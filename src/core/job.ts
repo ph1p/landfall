@@ -111,7 +111,7 @@ export function startJob(argv: string[], onChange: () => void, opts: { password?
         const parts = (rest + chunk).split("\n");
         rest = parts.pop()!;
         // A line that never ends must not grow without bound either.
-        if (rest.length > MAX_LINE) parts.push(rest), (rest = "");
+        if (rest.length > MAX_LINE) (parts.push(rest), (rest = ""));
         // Progress output redraws with \r: keep only the final state of each line.
         for (const p of parts) {
           if (p.startsWith(REPORT)) {

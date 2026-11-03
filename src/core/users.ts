@@ -9,7 +9,8 @@ import { fail } from "./term";
 
 /** Debian's NAME_REGEX: what useradd and busybox's adduser both take, and sudoers.d file names allow (no dots). */
 export const USER_NAME = /^[a-z_][a-z0-9_-]{0,31}$/;
-export const checkUserName = (name: string) => USER_NAME.test(name) || fail(`not a user name: ${name} (lowercase letters, digits, _ and -, starting with a letter)`);
+export const checkUserName = (name: string) =>
+  USER_NAME.test(name) || fail(`not a user name: ${name} (lowercase letters, digits, _ and -, starting with a letter)`);
 export function checkPassword(pw: string) {
   if (pw.length < MIN_PASSWORD) fail(`use a password of at least ${MIN_PASSWORD} characters`);
   if (/[\n\r]/.test(pw)) fail("a password cannot have line breaks");
@@ -97,10 +98,13 @@ export function parseUsers(out: string, me = ""): Users {
       login: !/(nologin|false)$/.test(shell),
       me: name === me,
       keep:
-        uid === "0" ? "not root"
-        : name === me ? `landfall logs in as ${name}; that would lock it out`
-        : name === admin ? `${name} is the login that manages users here`
-        : undefined,
+        uid === "0"
+          ? "not root"
+          : name === me
+            ? `landfall logs in as ${name}; that would lock it out`
+            : name === admin
+              ? `${name} is the login that manages users here`
+              : undefined,
     };
   });
   const p = v.sshd_passwords;

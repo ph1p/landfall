@@ -1,7 +1,18 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../../core/config";
 import { adminLogin } from "../../core/privilege";
-import { engineNotes, engineStatus, imageStatus, pkgStatus, updateCompose, updateImages, upgradePackages, type Engine, type ImageStatus, type PkgStatus } from "../../core/updates";
+import {
+  engineNotes,
+  engineStatus,
+  imageStatus,
+  pkgStatus,
+  updateCompose,
+  updateImages,
+  upgradePackages,
+  type Engine,
+  type ImageStatus,
+  type PkgStatus,
+} from "../../core/updates";
 import { c, confirm, fail, info, ok, step, table, warn, printJson } from "../../core/term";
 import { updatesView } from "../../core/views";
 

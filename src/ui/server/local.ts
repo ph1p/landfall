@@ -121,7 +121,7 @@ function unpackedSize(file: string, zip: boolean): number {
     const r = spawnSync("sh", ["-c", `${cat} | head -c ${MAX_UNPACKED + 1} | wc -c`, "sh", file], { encoding: "utf8" });
     return r.error || r.status !== 0 ? undefined : Number(r.stdout.trim());
   };
-  const n = zip ? (count('unzip -p "$1"') || count('tar -xOf "$1"')) : count('tar -xOf "$1"');
+  const n = zip ? count('unzip -p "$1"') || count('tar -xOf "$1"') : count('tar -xOf "$1"');
   if (n === undefined || Number.isNaN(n)) throw new Error(`could not read ${file.split("/").pop()}`);
   return n;
 }

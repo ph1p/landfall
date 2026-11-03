@@ -9,8 +9,18 @@ import { Check, Loader, SlidersHorizontal, Square, X } from "lucide-react";
 
 // ---- jobs ----------------------------------------------------------------
 
-export interface JobInfo { id: string; argv: string[]; server?: string; code?: number | null; report?: Report }
-export interface JobAction { label: string; run: () => void; cls?: string }
+export interface JobInfo {
+  id: string;
+  argv: string[];
+  server?: string;
+  code?: number | null;
+  report?: Report;
+}
+export interface JobAction {
+  label: string;
+  run: () => void;
+  cls?: string;
+}
 export interface Job {
   info: JobInfo;
   /** The last MAX_LINES lines: lines[0] is the job's line number `base`, as the server counts them. */
@@ -24,7 +34,13 @@ export interface Job {
   /** Set while the panel shows this job: new lines go straight into its output. */
   onLines?: () => void;
 }
-export interface RunOpts { server?: string; password?: string; cwd?: string; retry?: string; after?: Job["after"] }
+export interface RunOpts {
+  server?: string;
+  password?: string;
+  cwd?: string;
+  retry?: string;
+  after?: Job["after"];
+}
 
 /**
  * Run `lf <argv>` on the machine running lf ui; output streams into the side panel.
@@ -62,7 +78,7 @@ export function stream(j: Job) {
     const { from, lines, report } = JSON.parse(e.data);
     if (report) j.report = report;
     const at = from - j.base;
-    if (at < 0 || at > j.lines.length) (j.lines = []), (j.base = from);
+    if (at < 0 || at > j.lines.length) ((j.lines = []), (j.base = from));
     else j.lines.length = at;
     for (const l of lines) j.lines.push(l);
     if (j.lines.length > MAX_LINES) j.base += j.lines.splice(0, j.lines.length - MAX_LINES).length;
@@ -93,7 +109,14 @@ function finished(j: Job) {
     j.actions.push({
       label: "Do it anyway (--force)",
       cls: "danger",
-      run: () => confirmDlg({ title: "Override the safety check?", text: why, ok: "Run with --force", danger: true, onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }) }),
+      run: () =>
+        confirmDlg({
+          title: "Override the safety check?",
+          text: why,
+          ok: "Run with --force",
+          danger: true,
+          onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }),
+        }),
     });
   }
   if (rep(j).undoable && info.server && info.code !== null) {
@@ -168,15 +191,42 @@ export function tunnelOptions(n: string, argv: string[], ports: (string | number
   const port: Field =
     ports.length > 1
       ? { name: "port", label: "Container port", type: "select", value: String(ports[0]), options: ports.map((p) => ({ value: String(p), label: String(p) })) }
-      : { name: "port", label: "Container port", type: "number", placeholder: ports[0] ? String(ports[0]) : "the one Traefik routes to, else the one it exposes", value: "", check: portError };
+      : {
+          name: "port",
+          label: "Container port",
+          type: "number",
+          placeholder: ports[0] ? String(ports[0]) : "the one Traefik routes to, else the one it exposes",
+          value: "",
+          check: portError,
+        };
   dialog({
-    title: argv[0] === "traefik" ? "Tunnel to the Traefik dashboard" : `Tunnel to ${argv.slice(1).filter((a, i, l) => a !== "-s" && l[i - 1] !== "-s").join(" · ")}`,
+    title:
+      argv[0] === "traefik"
+        ? "Tunnel to the Traefik dashboard"
+        : `Tunnel to ${argv
+            .slice(1)
+            .filter((a, i, l) => a !== "-s" && l[i - 1] !== "-s")
+            .join(" · ")}`,
     text: `Forwards a port on this machine to it until you close it: lf ${argv.join(" ")}`,
     ok: "Open tunnel",
     fields: [
       ...(argv[0] === "tunnel" ? [port] : []),
-      { name: "local", label: "Local port", type: "number", placeholder: "the container's port, else a free one", value: "", hint: "Fails if something else listens on it.", check: portError },
-      { name: "lan", label: "Reachable from my network too", type: "check", value: false, hint: "Open it from a phone or another device on the same Wi-Fi. Anyone on that network can reach it." },
+      {
+        name: "local",
+        label: "Local port",
+        type: "number",
+        placeholder: "the container's port, else a free one",
+        value: "",
+        hint: "Fails if something else listens on it.",
+        check: portError,
+      },
+      {
+        name: "lan",
+        label: "Reachable from my network too",
+        type: "check",
+        value: false,
+        hint: "Open it from a phone or another device on the same Wi-Fi. Anyone on that network can reach it.",
+      },
     ],
     onOk: (v) => {
       const to = v.port?.trim() ?? "",
@@ -189,22 +239,45 @@ export function tunnelOptions(n: string, argv: string[], ports: (string | number
 // A database's address is for a client, not the browser.
 const TunnelLink = ({ u }: { u: string }) =>
   u.startsWith("http://") ? (
-    <a className="font-mono text-sm" href={u} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{u.replace("http://", "")}</a>
+    <a className="font-mono text-sm" href={u} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>
+      {u.replace("http://", "")}
+    </a>
   ) : (
-    <code className="font-mono text-sm" title="Connect a client to it">{u}</code>
+    <code className="font-mono text-sm" title="Connect a client to it">
+      {u}
+    </code>
   );
 
 /**
  * Open a tunnel with argv, or, when it is open, its address and a way to close it.
  * compact: one button plus the options dialog (which has "on my network" too), for rows that list several.
  */
-export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact }: { n: string; argv: string[]; label?: string; ports?: (string | number)[]; compact?: boolean }) {
+export function TunnelBtn({
+  n,
+  argv,
+  label = "Open tunnel",
+  ports = [],
+  compact,
+}: {
+  n: string;
+  argv: string[];
+  label?: string;
+  ports?: (string | number)[];
+  compact?: boolean;
+}) {
   const j = tunnelFor(n, argv);
   if (!j && compact)
     return (
       <span className="inline-flex items-center">
-        <Btn cls="sm" title={`lf ${argv.join(" ")}: an SSH tunnel to it on localhost, until you close it`} on={() => run(argv, { server: n })}>{label}</Btn>
-        <Btn cls="sm ghost px-[5px]!" title="Tunnel options: container port, local port, on my network" aria-label="Tunnel options" on={() => tunnelOptions(n, argv, ports)}>
+        <Btn cls="sm" title={`lf ${argv.join(" ")}: an SSH tunnel to it on localhost, until you close it`} on={() => run(argv, { server: n })}>
+          {label}
+        </Btn>
+        <Btn
+          cls="sm ghost px-[5px]!"
+          title="Tunnel options: container port, local port, on my network"
+          aria-label="Tunnel options"
+          on={() => tunnelOptions(n, argv, ports)}
+        >
           <SlidersHorizontal className="size-3.5" aria-hidden="true" />
         </Btn>
       </span>
@@ -212,7 +285,9 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact 
   if (!j)
     return (
       <BtnGroup label="Tunnel">
-        <Btn cls="sm" title={`lf ${argv.join(" ")}: until you close it`} on={() => run(argv, { server: n })}>{label}</Btn>
+        <Btn cls="sm" title={`lf ${argv.join(" ")}: until you close it`} on={() => run(argv, { server: n })}>
+          {label}
+        </Btn>
         <Btn
           cls="sm"
           title="Open it for every device on your network too (a phone, a colleague): anyone there reaches it at this machine's address"
@@ -220,7 +295,9 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact 
         >
           On network
         </Btn>
-        <Btn cls="sm" title="Container port, local port, network" on={() => tunnelOptions(n, argv, ports)}>Options</Btn>
+        <Btn cls="sm" title="Container port, local port, network" on={() => tunnelOptions(n, argv, ports)}>
+          Options
+        </Btn>
       </BtnGroup>
     );
   const url = tunnelUrl(j);
@@ -232,12 +309,23 @@ export function TunnelBtn({ n, argv, label = "Open tunnel", ports = [], compact 
         <>
           {" "}
           <span className="tunnel-lan" title="From other devices on your network">
-            {lan.map((u, i) => <span key={u}>{i > 0 && " "}<TunnelLink u={u} /></span>)}
+            {lan.map((u, i) => (
+              <span key={u}>
+                {i > 0 && " "}
+                <TunnelLink u={u} />
+              </span>
+            ))}
           </span>
         </>
       )}{" "}
-      {!compact && <Btn cls="sm ghost" on={() => showJob(j.info.id)}>Output</Btn>}
-      <Btn cls="sm danger" title="Ends the tunnel" on={() => stopJob(j.info.id)}>Close</Btn>
+      {!compact && (
+        <Btn cls="sm ghost" on={() => showJob(j.info.id)}>
+          Output
+        </Btn>
+      )}
+      <Btn cls="sm danger" title="Ends the tunnel" on={() => stopJob(j.info.id)}>
+        Close
+      </Btn>
     </>
   );
 }
@@ -260,7 +348,7 @@ function appendOutput(out: HTMLElement, j: Job) {
   const end = j.base + j.lines.length;
   let shown = Number(out.dataset.n || 0);
   if (shown === end) return;
-  if (shown > end || shown < j.base) (out.textContent = ""), (shown = j.base);
+  if (shown > end || shown < j.base) ((out.textContent = ""), (shown = j.base));
   const frag = document.createDocumentFragment();
   for (const l of j.lines.slice(shown - j.base)) {
     const div = document.createElement("div");
@@ -314,13 +402,19 @@ export function JobPanel() {
   const { info } = j;
   const running = info.code === undefined;
   const status = running ? (
-    <><Spin /> running</>
+    <>
+      <Spin /> running
+    </>
   ) : info.code === null ? (
     <span className="text-dim">stopped</span>
   ) : info.code === 0 ? (
-    <span className="text-ok inline-flex items-center gap-1"><Check className="size-3.5" aria-hidden="true" /> done</span>
+    <span className="text-ok inline-flex items-center gap-1">
+      <Check className="size-3.5" aria-hidden="true" /> done
+    </span>
   ) : (
-    <span className="text-bad inline-flex items-center gap-1"><X className="size-3.5" aria-hidden="true" /> failed (exit {info.code})</span>
+    <span className="text-bad inline-flex items-center gap-1">
+      <X className="size-3.5" aria-hidden="true" /> failed (exit {info.code})
+    </span>
   );
   const others = [...S.jobs.values()].reverse();
   const stop = () => {
@@ -335,21 +429,32 @@ export function JobPanel() {
       className="border-l border-line bg-panel flex flex-col min-w-0 max-[1100px]:fixed max-[1100px]:inset-[56px_0_0_auto] max-[1100px]:w-[min(560px,100vw)] max-[1100px]:z-5 max-[1100px]:shadow-lg max-[760px]:inset-[56px_0_0_0] max-[760px]:w-screen"
     >
       <div className="px-3.5 py-2.5 border-b border-line flex items-center gap-2 min-h-12">
-        <span className="font-mono text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={`lf ${info.argv.join(" ")}`}>$ lf {info.argv.join(" ")}</span>
-        <Btn cls="ghost sm" title="Close (Esc)" aria-label="Close output" on={() => ((S.job = null), render())}><X className="size-4" aria-hidden="true" /></Btn>
+        <span className="font-mono text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={`lf ${info.argv.join(" ")}`}>
+          $ lf {info.argv.join(" ")}
+        </span>
+        <Btn cls="ghost sm" title="Close (Esc)" aria-label="Close output" on={() => ((S.job = null), render())}>
+          <X className="size-4" aria-hidden="true" />
+        </Btn>
       </div>
       <JobOut key={info.id} j={j} />
       <div className="px-3.5 py-2.5 border-t border-line flex gap-1.5 flex-wrap items-center">
         <span className="mr-auto text-md">{status}</span>
-        {running && <Btn cls="danger" title={rep(j).undoable ? "Changes made so far stay" : undefined} on={stop}>Stop</Btn>}
+        {running && (
+          <Btn cls="danger" title={rep(j).undoable ? "Changes made so far stay" : undefined} on={stop}>
+            Stop
+          </Btn>
+        )}
         {(running ? [] : j.actions).map((a, i) => (
-          <Btn key={a.label} cls={a.cls ?? (i === 0 ? "primary" : "")} on={a.run}>{a.label}</Btn>
+          <Btn key={a.label} cls={a.cls ?? (i === 0 ? "primary" : "")} on={a.run}>
+            {a.label}
+          </Btn>
         ))}
       </div>
       {others.length > 1 && (
         <div className="border-t border-line max-h-[28%] overflow-auto p-1">
           {others.map((o) => {
-            const [cls, Ico] = o.info.code === undefined ? ["", Loader] : o.info.code === 0 ? ["text-ok", Check] : o.info.code === null ? ["", Square] : ["text-bad", X];
+            const [cls, Ico] =
+              o.info.code === undefined ? ["", Loader] : o.info.code === 0 ? ["text-ok", Check] : o.info.code === null ? ["", Square] : ["text-bad", X];
             return (
               <button
                 key={o.info.id}

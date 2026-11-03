@@ -51,7 +51,9 @@ export const zero = (): Record<StatusClass, number> => ({ "2xx": 0, "3xx": 0, "4
 export const cls = (status: number) => (CLASSES[Math.floor(status / 100) - 2] ?? null) as StatusClass | null;
 
 export function percentile(hist: Record<string, number>, q: number): number {
-  const ks = Object.keys(hist).map(Number).sort((a, b) => a - b);
+  const ks = Object.keys(hist)
+    .map(Number)
+    .sort((a, b) => a - b);
   const n = ks.reduce((a, k) => a + hist[k], 0);
   let seen = 0;
   for (const k of ks) {
@@ -70,7 +72,8 @@ export function mergeHosts(hosts: HostTraffic[], keys: string[]): Detail {
   const ips = new Map<string, number>();
   const errors = new Map<string, number>();
   const series = new Map(keys.map((at) => [at, zero()]));
-  let requests = 0, bytes = 0;
+  let requests = 0,
+    bytes = 0;
   for (const h of hosts) {
     requests += h.requests;
     bytes += h.bytes;
@@ -106,5 +109,10 @@ export function mergeHosts(hosts: HostTraffic[], keys: string[]): Detail {
 /** One site's (or a host's) requests out of a server's traffic. */
 export function siteTraffic(t: Traffic, site: string): Detail | null {
   const hs = t.hosts.filter((h) => h.site === site || h.host === site);
-  return hs.length ? mergeHosts(hs, t.total.series.map((s) => s.at)) : null;
+  return hs.length
+    ? mergeHosts(
+        hs,
+        t.total.series.map((s) => s.at),
+      )
+    : null;
 }

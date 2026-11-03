@@ -35,10 +35,16 @@ beforeEach(() => {
 function runHere(script: string) {
   const bin = path.join(dir, "fake");
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, "crontab"), `#!/bin/sh\ncase "$1" in -l) cat "${dir}/tab" 2>/dev/null ;; -) cat > "${dir}/tab" ;; *) exit 1 ;; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "crontab"), `#!/bin/sh\ncase "$1" in -l) cat "${dir}/tab" 2>/dev/null ;; -) cat > "${dir}/tab" ;; *) exit 1 ;; esac\n`, {
+    mode: 0o755,
+  });
   const stubs = [`export PATH=${bin}:$PATH`, `record() { printf '%s' "$2" > ${dir}/undo; }`, "pidof() { return 0; }", "pkg_mgr() { echo none; }"].join("\n");
   const s = script.replace(PRELUDE, "").replaceAll("/opt/landfall/sites/", `${dir}/`);
-  return execFileSync("bash", ["-c", `set -euo pipefail\n${stubs}\n${s}`], { input: "", encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+  return execFileSync("bash", ["-c", `set -euo pipefail\n${stubs}\n${s}`], {
+    input: "",
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
 }
 const tab = () => fs.readFileSync(path.join(dir, "tab"), "utf8");
 
@@ -47,7 +53,9 @@ describe("scheduled backups", () => {
     fs.writeFileSync(path.join(dir, "tab"), "0 1 * * * other job\n");
     await scheduleBackups(server, "blog", "daily", 7);
     runHere(scripts[0]);
-    expect(tab()).toMatch(/^0 1 \* \* \* other job\n\d+ 3 \* \* \* sh .*\/blog\/backups\/backup\.sh 7 - >>.*backup\.log 2>&1 # landfall backup blog: daily, keep 7\n$/);
+    expect(tab()).toMatch(
+      /^0 1 \* \* \* other job\n\d+ 3 \* \* \* sh .*\/blog\/backups\/backup\.sh 7 - >>.*backup\.log 2>&1 # landfall backup blog: daily, keep 7\n$/,
+    );
     expect(fs.statSync(path.join(dir, "blog/backups/backup.sh")).mode & 0o777).toBe(0o755);
 
     // Changed: still one line. Then undo goes back to daily, and once more to none.
@@ -99,7 +107,10 @@ describe("scheduled backups", () => {
     const script = backupScript("blog", 2).replace(/^PATH=.*$/m, `PATH="${bin}:$PATH"`);
     fs.writeFileSync(path.join(dir, "backup.sh"), script);
     expect(execFileSync("sh", [path.join(dir, "backup.sh")], { encoding: "utf8" })).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ ok\n$/);
-    const left = fs.readdirSync(dir).filter((f) => f.endsWith(".tar.gz")).sort();
+    const left = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".tar.gz"))
+      .sort();
     const made = left.filter((f) => /^data-\d{8}-\d{6}\.tar\.gz$/.test(f) && !old.includes(f));
     expect(made).toHaveLength(1);
     expect(fs.readFileSync(path.join(dir, made[0]), "utf8")).toBe("archive\n");
@@ -163,7 +174,10 @@ describe("scheduled backups", () => {
     expect(list()).toBe("sched\tdaily, keep 7\n");
     // The last status line of backup.log, not the error lines around it.
     fs.mkdirSync(path.join(dir, "backups"), { recursive: true });
-    fs.writeFileSync(path.join(dir, "backups/backup.log"), "2026-10-01T03:17:00Z ok\n2026-10-02T03:17:00Z backup of blog_db failed\ntar: error\n2026-10-02T03:17:01Z failed: blog_db blog_x\n");
+    fs.writeFileSync(
+      path.join(dir, "backups/backup.log"),
+      "2026-10-01T03:17:00Z ok\n2026-10-02T03:17:00Z backup of blog_db failed\ntar: error\n2026-10-02T03:17:01Z failed: blog_db blog_x\n",
+    );
     expect(list()).toBe("last\t2026-10-02T03:17:01Z failed: blog_db blog_x\nsched\tdaily, keep 7\n");
     expect(parseVolumes(list()).lastRun).toEqual({ time: "2026-10-02T03:17:01Z", failed: ["blog_db", "blog_x"] });
     expect(parseVolumes("last\t2026-10-03T03:17:00Z ok\n").lastRun).toEqual({ time: "2026-10-03T03:17:00Z", failed: [] });

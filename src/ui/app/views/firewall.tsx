@@ -18,10 +18,30 @@ export function FirewallView({ n }: { n: string }) {
   const fwRun = (argv: string[]) => run(argv, { server: n });
   const active = fw.ufw === "active";
   const toggle =
-    fw.ufw === "missing" ? <Btn cls="primary" on={() => fwRun(["firewall", "enable", ...s])}>Install &amp; enable ufw</Btn>
-    : active ? (
-      <Btn cls="danger" on={() => confirmDlg({ title: `Turn the firewall on ${n} off?`, text: "Every listening port becomes reachable from anywhere.", ok: "Turn it off", danger: true, onOk: () => fwRun(["firewall", "disable", ...s, "-y"]) })}>Turn off</Btn>
-    ) : <Btn cls="primary" on={() => fwRun(["firewall", "enable", ...s])}>Turn on</Btn>;
+    fw.ufw === "missing" ? (
+      <Btn cls="primary" on={() => fwRun(["firewall", "enable", ...s])}>
+        Install &amp; enable ufw
+      </Btn>
+    ) : active ? (
+      <Btn
+        cls="danger"
+        on={() =>
+          confirmDlg({
+            title: `Turn the firewall on ${n} off?`,
+            text: "Every listening port becomes reachable from anywhere.",
+            ok: "Turn it off",
+            danger: true,
+            onOk: () => fwRun(["firewall", "disable", ...s, "-y"]),
+          })
+        }
+      >
+        Turn off
+      </Btn>
+    ) : (
+      <Btn cls="primary" on={() => fwRun(["firewall", "enable", ...s])}>
+        Turn on
+      </Btn>
+    );
   const badge = active ? <Badge kind="ok">on</Badge> : fw.ufw === "missing" ? <Badge kind="warn">ufw not installed</Badge> : <Badge kind="bad">off</Badge>;
   const addRule = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -41,53 +61,141 @@ export function FirewallView({ n }: { n: string }) {
       )}
       <Card>
         <CardHead>
-          ufw {badge} <Sub>incoming default: {fw.policy.toLowerCase()} · ssh on {fw.sshPort}{fw.asRoot ? " · as root" : ""}</Sub>
+          ufw {badge}{" "}
+          <Sub>
+            incoming default: {fw.policy.toLowerCase()} · ssh on {fw.sshPort}
+            {fw.asRoot ? " · as root" : ""}
+          </Sub>
           <Actions>{toggle}</Actions>
         </CardHead>
-        <Table head={<><th>#</th><th>Action</th><th>Port</th><th>From</th><th className={HIDE}>Comment</th><th><span className={SR}>Actions</span></th></>}>
-          {fw.rules.length ? fw.rules.map((r, i) => {
-            const num = String(i + 1);
-            const flip = r.action === "deny" || r.action === "reject" ? "allow" : "deny";
-            const kind = r.action === "allow" ? "ok" : r.action === "limit" ? "accent" : "bad";
-            return (
-              <tr key={`${num}${r.spec}`}>
-                <td className="faint">{num}</td>
-                <td>
-                  <Btn cls="ghost sm" title={`Switch to ${flip}`} on={() => confirmDlg({ title: `Switch rule ${num} to ${flip}?`, text: `${r.spec}${r.from ? ` from ${r.from}` : ""}`, ok: `Switch to ${flip}`, danger: flip === "deny", onOk: () => fwRun(["firewall", "update", r.spec, "--action", flip, ...s]) })}>
-                    <Badge kind={kind}>{r.action}{r.out ? " out" : ""}</Badge>
-                  </Btn>
-                </td>
-                <td className={MONO}>{portOf(r) || r.spec}</td>
-                <td>{r.from ? <span className={MONO}>{r.from}</span> : <span className="dim">anywhere</span>}</td>
-                <td className={cx("dim", HIDE)}>{r.comment ?? ""}</td>
-                <td className={ACTS}>
-                  <Btn cls="sm" on={() => editRule(n, num, r)}>Edit</Btn>
-                  <Btn cls="sm danger" on={() => confirmDlg({ title: `Remove rule ${num}?`, text: r.spec, ok: "Remove it", danger: true, onOk: () => fwRun(["firewall", "rm", r.spec, ...s, "-y"]) })}>Remove</Btn>
-                </td>
-              </tr>
-            );
-          }) : <tr><td colSpan={6} className="dim">no rules</td></tr>}
+        <Table
+          head={
+            <>
+              <th>#</th>
+              <th>Action</th>
+              <th>Port</th>
+              <th>From</th>
+              <th className={HIDE}>Comment</th>
+              <th>
+                <span className={SR}>Actions</span>
+              </th>
+            </>
+          }
+        >
+          {fw.rules.length ? (
+            fw.rules.map((r, i) => {
+              const num = String(i + 1);
+              const flip = r.action === "deny" || r.action === "reject" ? "allow" : "deny";
+              const kind = r.action === "allow" ? "ok" : r.action === "limit" ? "accent" : "bad";
+              return (
+                <tr key={`${num}${r.spec}`}>
+                  <td className="faint">{num}</td>
+                  <td>
+                    <Btn
+                      cls="ghost sm"
+                      title={`Switch to ${flip}`}
+                      on={() =>
+                        confirmDlg({
+                          title: `Switch rule ${num} to ${flip}?`,
+                          text: `${r.spec}${r.from ? ` from ${r.from}` : ""}`,
+                          ok: `Switch to ${flip}`,
+                          danger: flip === "deny",
+                          onOk: () => fwRun(["firewall", "update", r.spec, "--action", flip, ...s]),
+                        })
+                      }
+                    >
+                      <Badge kind={kind}>
+                        {r.action}
+                        {r.out ? " out" : ""}
+                      </Badge>
+                    </Btn>
+                  </td>
+                  <td className={MONO}>{portOf(r) || r.spec}</td>
+                  <td>{r.from ? <span className={MONO}>{r.from}</span> : <span className="dim">anywhere</span>}</td>
+                  <td className={cx("dim", HIDE)}>{r.comment ?? ""}</td>
+                  <td className={ACTS}>
+                    <Btn cls="sm" on={() => editRule(n, num, r)}>
+                      Edit
+                    </Btn>
+                    <Btn
+                      cls="sm danger"
+                      on={() =>
+                        confirmDlg({
+                          title: `Remove rule ${num}?`,
+                          text: r.spec,
+                          ok: "Remove it",
+                          danger: true,
+                          onOk: () => fwRun(["firewall", "rm", r.spec, ...s, "-y"]),
+                        })
+                      }
+                    >
+                      Remove
+                    </Btn>
+                  </td>
+                </tr>
+              );
+            })
+          ) : (
+            <tr>
+              <td colSpan={6} className="dim">
+                no rules
+              </td>
+            </tr>
+          )}
         </Table>
         <Body className="border-t border-line">
           <form className="flex gap-2.5 flex-wrap items-end" onSubmit={addRule}>
-            <label className="flex-[1_1_140px]">Port <input name="port" placeholder="5432 or 51820/udp" title="A port, port/proto or a range: 5432, 51820/udp, 6000:6007/tcp" required /></label>
-            <label className="flex-[1_1_140px]">From <input name="from" placeholder="anywhere, or 10.0.0.0/8" /></label>
-            <label className="flex-[0_0_110px]">Action <select name="action"><option value="allow">allow</option><option value="deny">deny</option></select></label>
-            <Btn type="submit" cls="primary">Add rule</Btn>
+            <label className="flex-[1_1_140px]">
+              Port <input name="port" placeholder="5432 or 51820/udp" title="A port, port/proto or a range: 5432, 51820/udp, 6000:6007/tcp" required />
+            </label>
+            <label className="flex-[1_1_140px]">
+              From <input name="from" placeholder="anywhere, or 10.0.0.0/8" />
+            </label>
+            <label className="flex-[0_0_110px]">
+              Action{" "}
+              <select name="action">
+                <option value="allow">allow</option>
+                <option value="deny">deny</option>
+              </select>
+            </label>
+            <Btn type="submit" cls="primary">
+              Add rule
+            </Btn>
           </form>
         </Body>
       </Card>
       <Card>
-        <CardHead>Listening ports <Sub>and whether the internet reaches them</Sub></CardHead>
-        <Table head={<><th>Port</th><th>Process</th><th>Reach</th><th>Why</th></>}>
-          {fw.ports.length ? fw.ports.map((p) => (
-            <tr key={`${p.port}${p.proc}`}>
-              <td className={MONO}>{p.port}</td>
-              <td>{p.proc}</td>
-              <td><Badge kind={REACH[p.state] ?? ""}>{p.state}</Badge></td>
-              <td className="dim">{p.why}</td>
+        <CardHead>
+          Listening ports <Sub>and whether the internet reaches them</Sub>
+        </CardHead>
+        <Table
+          head={
+            <>
+              <th>Port</th>
+              <th>Process</th>
+              <th>Reach</th>
+              <th>Why</th>
+            </>
+          }
+        >
+          {fw.ports.length ? (
+            fw.ports.map((p) => (
+              <tr key={`${p.port}${p.proc}`}>
+                <td className={MONO}>{p.port}</td>
+                <td>{p.proc}</td>
+                <td>
+                  <Badge kind={REACH[p.state] ?? ""}>{p.state}</Badge>
+                </td>
+                <td className="dim">{p.why}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={4} className="dim">
+                nothing listening
+              </td>
             </tr>
-          )) : <tr><td colSpan={4} className="dim">nothing listening</td></tr>}
+          )}
         </Table>
       </Card>
     </>

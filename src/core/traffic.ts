@@ -94,20 +94,47 @@ function siteHosts(out: string): Map<string, string> {
 export function parseTraffic(out: string, secs: number, now = new Date()): Traffic {
   const keys = buckets(secs, now);
   const sites = siteHosts(out);
-  const hosts = new Map<string, Omit<HostTraffic, keyof Summary | "series"> & { codes: Record<string, number>; bytes: number; series: Map<string, Record<StatusClass, number>> }>();
+  const hosts = new Map<
+    string,
+    Omit<HostTraffic, keyof Summary | "series"> & { codes: Record<string, number>; bytes: number; series: Map<string, Record<StatusClass, number>> }
+  >();
   const host = (h: string) => {
     let x = hosts.get(h);
-    if (!x) hosts.set(h, (x = { host: h, ...(siteOf(sites, h) && { site: siteOf(sites, h) }), codes: {}, bytes: 0, hist: {}, paths: [], ips: [], errors: [], series: new Map() }));
+    if (!x)
+      hosts.set(
+        h,
+        (x = {
+          host: h,
+          ...(siteOf(sites, h) && { site: siteOf(sites, h) }),
+          codes: {},
+          bytes: 0,
+          hist: {},
+          paths: [],
+          ips: [],
+          errors: [],
+          series: new Map(),
+        }),
+      );
     return x;
   };
-  const t: Traffic = { at: now.toISOString(), since: secs, bucket: bucketLen(secs) === 16 ? "minute" : "hour", proxy: true, own: false, format: "none", total: mergeHosts([], keys), sites: [], hosts: [] };
+  const t: Traffic = {
+    at: now.toISOString(),
+    since: secs,
+    bucket: bucketLen(secs) === 16 ? "minute" : "hour",
+    proxy: true,
+    own: false,
+    format: "none",
+    total: mergeHosts([], keys),
+    sites: [],
+    hosts: [],
+  };
   for (const line of out.split("\n")) {
     const f = line.split("\t");
     if (f[0] === "NOPROXY") t.proxy = false;
     else if (f[0] === "OWN") t.own = true;
     else if (f[0] === "N") {
       t.format = Number(f[1]) ? "json" : Number(f[2]) ? "common" : "none";
-      if (f[3]) (t.from = f[3]), (t.to = f[4]);
+      if (f[3]) ((t.from = f[3]), (t.to = f[4]));
     } else if (f[0] === "C") {
       const x = host(f[1]);
       x.codes[f[2]] = (x.codes[f[2]] ?? 0) + Number(f[3]);
@@ -135,11 +162,21 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
         if (c) classes[c] += n;
       }
       const requests = Object.values(x.codes).reduce((a, b) => a + b, 0);
-      return { ...x, requests, classes, p50: percentile(x.hist, 0.5), p95: percentile(x.hist, 0.95), series: keys.map((at) => ({ at, ...(x.series.get(at) ?? zero()) })) };
+      return {
+        ...x,
+        requests,
+        classes,
+        p50: percentile(x.hist, 0.5),
+        p95: percentile(x.hist, 0.95),
+        series: keys.map((at) => ({ at, ...(x.series.get(at) ?? zero()) })),
+      };
     })
     .sort((a, b) => b.requests - a.requests);
   t.total = mergeHosts(t.hosts, keys);
-  const bySite = Map.groupBy(t.hosts.filter((h) => h.site), (h) => h.site!);
+  const bySite = Map.groupBy(
+    t.hosts.filter((h) => h.site),
+    (h) => h.site!,
+  );
   t.sites = [...bySite]
     .map(([site, hs]) => {
       const { paths, ips, errors, series, ...sum } = mergeHosts(hs, keys);
@@ -232,7 +269,8 @@ export function parseCertError(raw: string): CertError | null {
     } catch {}
   }
   if (!domains.length) domains = (/domains \[([^\]]*)\]/.exec(line)?.[1] ?? "").split(/[\s,]+/).filter(Boolean);
-  const error = /error="((?:[^"\\]|\\.)*)"/.exec(line)?.[1]?.replace(/\\"/g, '"') ?? /msg="((?:[^"\\]|\\.)*)"/.exec(line)?.[1] ?? line.replace(/^\S+\s+(ERR\s+)?/, "");
+  const error =
+    /error="((?:[^"\\]|\\.)*)"/.exec(line)?.[1]?.replace(/\\"/g, '"') ?? /msg="((?:[^"\\]|\\.)*)"/.exec(line)?.[1] ?? line.replace(/^\S+\s+(ERR\s+)?/, "");
   return domains.length || error ? { ...(at && { at }), domains, error: error.trim() } : null;
 }
 
@@ -262,7 +300,8 @@ export function readCert(b64: string, source: Cert["source"], path?: string, now
 }
 
 /** Whether a certificate name covers a host: exact, or a wildcard for exactly one label. */
-export const covers = (name: string, host: string) => name === host || (name.startsWith("*.") && host.slice(host.indexOf(".") + 1) === name.slice(2) && host.indexOf(".") > 0);
+export const covers = (name: string, host: string) =>
+  name === host || (name.startsWith("*.") && host.slice(host.indexOf(".") + 1) === name.slice(2) && host.indexOf(".") > 0);
 
 export function parseCerts(out: string, now = new Date()): Certs {
   const r: Certs = { at: now.toISOString(), proxy: true, acme: [], denied: [], certs: [], errors: [], domains: [] };
@@ -319,11 +358,25 @@ export const CERT_DAYS_BAD = 7;
  */
 export function checkUrl(domain: string, o: { resolve?: string; timeout?: number } = {}): Promise<Check> {
   // ip, ip:port, [ipv6]:port; a bare IPv6 address has more than one colon.
-  const [addr, port] = !o.resolve ? [] : /^[^:]*(:[^:]*)?$|^\[/.test(o.resolve) ? (/^\[?([^\]]+?)\]?(?::(\d+))?$/.exec(o.resolve)?.slice(1) ?? []) : [o.resolve];
+  const [addr, port] = !o.resolve
+    ? []
+    : /^[^:]*(:[^:]*)?$|^\[/.test(o.resolve)
+      ? (/^\[?([^\]]+?)\]?(?::(\d+))?$/.exec(o.resolve)?.slice(1) ?? [])
+      : [o.resolve];
   const start = performance.now();
   return new Promise((done) => {
     const req = https.request(
-      { host: addr || domain, port: Number(port) || 443, servername: domain, path: "/", method: "GET", headers: { host: domain, "user-agent": "landfall-check" }, rejectUnauthorized: false, agent: false, timeout: o.timeout ?? 10_000 },
+      {
+        host: addr || domain,
+        port: Number(port) || 443,
+        servername: domain,
+        path: "/",
+        method: "GET",
+        headers: { host: domain, "user-agent": "landfall-check" },
+        rejectUnauthorized: false,
+        agent: false,
+        timeout: o.timeout ?? 10_000,
+      },
       (res) => {
         const ms = Math.round(performance.now() - start);
         const sock = res.socket as import("node:tls").TLSSocket;

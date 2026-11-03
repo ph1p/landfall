@@ -19,20 +19,62 @@ describe("command registry", () => {
 
 describe("job display masking", () => {
   test.each([
-    [["deploy", "--env", "KEY=synthetic-hidden"], ["deploy", "--env", "KEY=***"]],
-    [["deploy", "--env=KEY=synthetic-hidden"], ["deploy", "--env=KEY=***"]],
-    [["deploy", "--env=synthetic-hidden"], ["deploy", "--env=***"]],
-    [["deploy", "-eKEY=synthetic-hidden"], ["deploy", "-eKEY=***"]],
-    [["deploy", "-yeKEY=synthetic-hidden"], ["deploy", "-yeKEY=***"]],
-    [["deploy", "--dotenv=.env", "-e", "KEY=synthetic-hidden"], ["deploy", "--dotenv=.env", "-e", "KEY=***"]],
-    [["sites", "secret", "blog", "KEY=synthetic-hidden\n雪"], ["sites", "secret", "blog", "KEY=***"]],
-    [["sites", "env", "blog", "KEY=synthetic-hidden=a"], ["sites", "env", "blog", "KEY=***"]],
-    [["env", "blog", "KEY="], ["env", "blog", "KEY=***"]],
-    [["auth", "blog", "--password=synthetic-hidden"], ["auth", "blog", "--password=***"]],
-    [["sites", "auth", "blog", "-p", "synthetic-hidden"], ["sites", "auth", "blog", "-p", "***"]],
-    [["users", "password", "bob", "-ypsynthetic-hidden"], ["users", "password", "bob", "-yp***"]],
-    [["auth", "blog", "--password="], ["auth", "blog", "--password=***"]],
-    [["deploy", "--auth-password", "synthetic-hidden\r\n"], ["deploy", "--auth-password", "***"]],
+    [
+      ["deploy", "--env", "KEY=synthetic-hidden"],
+      ["deploy", "--env", "KEY=***"],
+    ],
+    [
+      ["deploy", "--env=KEY=synthetic-hidden"],
+      ["deploy", "--env=KEY=***"],
+    ],
+    [
+      ["deploy", "--env=synthetic-hidden"],
+      ["deploy", "--env=***"],
+    ],
+    [
+      ["deploy", "-eKEY=synthetic-hidden"],
+      ["deploy", "-eKEY=***"],
+    ],
+    [
+      ["deploy", "-yeKEY=synthetic-hidden"],
+      ["deploy", "-yeKEY=***"],
+    ],
+    [
+      ["deploy", "--dotenv=.env", "-e", "KEY=synthetic-hidden"],
+      ["deploy", "--dotenv=.env", "-e", "KEY=***"],
+    ],
+    [
+      ["sites", "secret", "blog", "KEY=synthetic-hidden\n雪"],
+      ["sites", "secret", "blog", "KEY=***"],
+    ],
+    [
+      ["sites", "env", "blog", "KEY=synthetic-hidden=a"],
+      ["sites", "env", "blog", "KEY=***"],
+    ],
+    [
+      ["env", "blog", "KEY="],
+      ["env", "blog", "KEY=***"],
+    ],
+    [
+      ["auth", "blog", "--password=synthetic-hidden"],
+      ["auth", "blog", "--password=***"],
+    ],
+    [
+      ["sites", "auth", "blog", "-p", "synthetic-hidden"],
+      ["sites", "auth", "blog", "-p", "***"],
+    ],
+    [
+      ["users", "password", "bob", "-ypsynthetic-hidden"],
+      ["users", "password", "bob", "-yp***"],
+    ],
+    [
+      ["auth", "blog", "--password="],
+      ["auth", "blog", "--password=***"],
+    ],
+    [
+      ["deploy", "--auth-password", "synthetic-hidden\r\n"],
+      ["deploy", "--auth-password", "***"],
+    ],
   ])("masks supported syntax %j", (argv, expected) => {
     const before = [...argv];
     expect(maskJobArgs(argv)).toEqual(expected);
@@ -66,7 +108,11 @@ describe("job display masking", () => {
   });
 
   test("rejects UI command stdin but keeps file and remote passthrough semantics", () => {
-    for (const args of [["env", "blog", "--dotenv", "-"], ["deploy", "--dotenv=-"], ["users", "passwd", "bob", "--password-stdin"]]) {
+    for (const args of [
+      ["env", "blog", "--dotenv", "-"],
+      ["deploy", "--dotenv=-"],
+      ["users", "passwd", "bob", "--password-stdin"],
+    ]) {
       expect(() => validateJobArgs(args)).toThrow("cannot read command stdin");
     }
     expect(() => validateJobArgs(["deploy", "--dotenv=.env", "--env=KEY=synthetic"])).not.toThrow();

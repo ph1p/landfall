@@ -2,7 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Btn, cx } from "./kit";
 import { ChevronDown, Ellipsis } from "lucide-react";
 
-export interface MenuItem { label: string; run: () => void; cls?: string; title?: string; hint?: string }
+export interface MenuItem {
+  label: string;
+  run: () => void;
+  cls?: string;
+  title?: string;
+  hint?: string;
+}
 type Item = MenuItem | "-" | false | null | undefined | "";
 
 // "⋯" menus: one floating list at a time, placed next to the button that opened it.
@@ -33,7 +39,13 @@ export function MenuBtn({ items, title = "More actions", cls = "sm", dots }: { i
   return (
     <Btn cls={cls} title={title} aria-haspopup="menu" aria-expanded="false" aria-label={title} on={(e) => openMenu(e.currentTarget, list)}>
       {/* Where a row is short of room: only "⋯", the title says what it is. */}
-      {dots ? <Ellipsis aria-hidden="true" className="size-4" /> : <>More <ChevronDown aria-hidden="true" className="inline-block size-3.5 -mt-px ml-0.5 align-middle text-faint" /></>}
+      {dots ? (
+        <Ellipsis aria-hidden="true" className="size-4" />
+      ) : (
+        <>
+          More <ChevronDown aria-hidden="true" className="inline-block size-3.5 -mt-px ml-0.5 align-middle text-faint" />
+        </>
+      )}
     </Btn>
   );
 }

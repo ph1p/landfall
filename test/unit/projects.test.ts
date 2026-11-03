@@ -25,12 +25,17 @@ describe("folders and access", () => {
 
   test("the images a deploy pulls", () => {
     // Own stages and scratch are no images; ARG defaults fill the FROM.
-    expect(baseImages("ARG NODE=24\nFROM node:${NODE}-slim AS build\nFROM build AS test\nfrom --platform=linux/amd64 nginx:alpine\nFROM scratch\nFROM node:24-slim")).toEqual(["node:24-slim", "nginx:alpine"]);
+    expect(
+      baseImages("ARG NODE=24\nFROM node:${NODE}-slim AS build\nFROM build AS test\nfrom --platform=linux/amd64 nginx:alpine\nFROM scratch\nFROM node:24-slim"),
+    ).toEqual(["node:24-slim", "nginx:alpine"]);
     const d = tmp();
     fs.mkdirSync(join(d, "web"));
     fs.writeFileSync(join(d, "web/Web.Dockerfile"), "FROM python:3.13-slim\n");
     fs.writeFileSync(join(d, "compose.yaml"), "services:\n  web:\n    build: { context: web, dockerfile: Web.Dockerfile }\n  db:\n    image: postgres:17\n");
-    expect(detectProject(d).images).toEqual([{ ref: "python:3.13-slim", service: "web", base: true }, { ref: "postgres:17", service: "db" }]);
+    expect(detectProject(d).images).toEqual([
+      { ref: "python:3.13-slim", service: "web", base: true },
+      { ref: "postgres:17", service: "db" },
+    ]);
     const s = tmp();
     fs.writeFileSync(join(s, "index.html"), "");
     expect(detectProject(s).images).toEqual([{ ref: "nginx:alpine", service: "web" }]);
@@ -77,7 +82,8 @@ describe("folders and access", () => {
   });
   test("the publish folder comes from the site generator, before its first build", () => {
     const d = tmp();
-    const pkg = (deps: Record<string, string>, scripts: Record<string, string> = { build: "x" }) => fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts, devDependencies: deps }));
+    const pkg = (deps: Record<string, string>, scripts: Record<string, string> = { build: "x" }) =>
+      fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts, devDependencies: deps }));
     fs.writeFileSync(join(d, "index.html"), "<script type=module src=/main.js>");
     pkg({ vite: "7" });
     expect(detectStaticDir(d)).toBe("dist");
@@ -127,7 +133,9 @@ describe("folders and access", () => {
     expect(detectBuild(d)).toEqual({ tool: "Next.js (output: 'standalone')", build: "npm run build", start: "node server.js", standalone: ".next" });
     const img = detectApp(d)!.dockerfile({ build: "npm run build", start: "node server.js", port: 3000 });
     expect(img).toContain("FROM node:24-slim AS build\n");
-    expect(img).toContain("RUN npm run build\n\nFROM node:24-slim\nWORKDIR /app\nCOPY --from=build /app/.next/standalone ./\nCOPY --from=build /app/.next/static ./.next/static\nCOPY --from=build /app/public ./public\n");
+    expect(img).toContain(
+      "RUN npm run build\n\nFROM node:24-slim\nWORKDIR /app\nCOPY --from=build /app/.next/standalone ./\nCOPY --from=build /app/.next/static ./.next/static\nCOPY --from=build /app/public ./public\n",
+    );
     expect(img).toMatch(/HOSTNAME=0\.0\.0\.0 PORT=3000\nEXPOSE 3000\nCMD node server\.js\n$/);
     // a start command of one's own runs in the whole project
     expect(detectApp(d, "npm start")!.dockerfile({ start: "npm start", port: 3000 })).not.toContain("COPY --from=build");
@@ -220,7 +228,9 @@ describe("folders and access", () => {
     fs.writeFileSync(join(d, ".nvmrc"), "v22.11.0\n");
     const f = nodeDockerfile(d, { tool: "Next.js", build: "pnpm build", start: "./node_modules/.bin/next start", port: 3000 });
     expect(f).toContain("FROM node:22-slim\n");
-    expect(f).toContain("RUN corepack enable || (npm install -g corepack && corepack enable)\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install --frozen-lockfile\nCOPY . .\nRUN pnpm build\n");
+    expect(f).toContain(
+      "RUN corepack enable || (npm install -g corepack && corepack enable)\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install --frozen-lockfile\nCOPY . .\nRUN pnpm build\n",
+    );
     expect(f).toMatch(/ENV NODE_ENV=production .*PORT=3000\nEXPOSE 3000\nCMD \.\/node_modules\/\.bin\/next start\n$/);
     // install scripts need the whole project; no lockfile, no npm ci
     fs.rmSync(join(d, "pnpm-lock.yaml"));
@@ -232,7 +242,16 @@ describe("folders and access", () => {
 
   test("Node.js version and package manager from package.json", () => {
     expect(["", ">=18", "^24.1", "24.x", "lts"].map(nodeMajor)).toEqual([undefined, "24", "24", "24", undefined]);
-    expect([">=25", "^22.12.0", "20.x || 22.x", ">=20 <23", "22.4.1", "~26.1", "18 - 20", "^18"].map(nodeMajor)).toEqual(["26", "22", "22", "22", "22", "26", "20", "18"]);
+    expect([">=25", "^22.12.0", "20.x || 22.x", ">=20 <23", "22.4.1", "~26.1", "18 - 20", "^18"].map(nodeMajor)).toEqual([
+      "26",
+      "22",
+      "22",
+      "22",
+      "22",
+      "26",
+      "20",
+      "18",
+    ]);
     const d = tmp();
     fs.writeFileSync(join(d, "package.json"), JSON.stringify({ engines: { node: ">=25" }, packageManager: "pnpm@10.4.1+sha512.abc" }));
     const f = nodeDockerfile(d, { start: "node server.js", port: 3000 });
@@ -292,10 +311,15 @@ describe("folders and access", () => {
   test("Deno", () => {
     const d = tmp();
     // Fresh 2: its build writes the server to _fresh/
-    fs.writeFileSync(join(d, "deno.json"), JSON.stringify({ tasks: { dev: "vite", build: "vite build", start: "deno serve -A _fresh/server.js" }, imports: { fresh: "jsr:@fresh/core@^2" } }));
+    fs.writeFileSync(
+      join(d, "deno.json"),
+      JSON.stringify({ tasks: { dev: "vite", build: "vite build", start: "deno serve -A _fresh/server.js" }, imports: { fresh: "jsr:@fresh/core@^2" } }),
+    );
     const fresh = detectApp(d)!;
     expect(fresh).toMatchObject({ name: "Deno", tool: "Fresh", build: "deno task build", start: "deno serve -A --port $PORT _fresh/server.js", port: 8000 });
-    expect(fresh.dockerfile({ build: fresh.build, start: fresh.start, port: 8000 })).toContain("FROM denoland/deno:2\nWORKDIR /app\nCOPY . .\nRUN deno install\nRUN deno task build\n");
+    expect(fresh.dockerfile({ build: fresh.build, start: fresh.start, port: 8000 })).toContain(
+      "FROM denoland/deno:2\nWORKDIR /app\nCOPY . .\nRUN deno install\nRUN deno task build\n",
+    );
     // a start task that watches is for developing: the entry runs instead
     fs.writeFileSync(join(d, "deno.json"), JSON.stringify({ tasks: { start: "deno run --watch -A main.ts" }, imports: { hono: "jsr:@hono/hono@^4" } }));
     fs.writeFileSync(join(d, "main.ts"), "Deno.serve(() => new Response('hi'))");
@@ -334,18 +358,30 @@ describe("folders and access", () => {
     expect(rust).toMatchObject({ name: "Rust", start: "srv" });
     expect(rust.file).toContain("cp target/release/srv /out/");
 
-    const spring = app({ "pom.xml": "<parent><artifactId>spring-boot-starter-parent</artifactId></parent><properties><java.version>17</java.version></properties>" });
+    const spring = app({
+      "pom.xml": "<parent><artifactId>spring-boot-starter-parent</artifactId></parent><properties><java.version>17</java.version></properties>",
+    });
     expect(spring).toMatchObject({ name: "Java", tool: "Spring Boot (Maven)", start: "java -jar app.jar", build: "mvn -B -DskipTests package" });
     expect(spring.file).toContain("FROM maven:3-eclipse-temurin-17 AS build");
     expect(spring.file).toContain("FROM eclipse-temurin:17-jre");
-    const ktor = app({ "build.gradle.kts": 'plugins { kotlin("jvm") }\ndependencies { implementation("io.ktor:ktor-server-netty") }\nkotlin { jvmToolchain(22) }', gradlew: "" });
+    const ktor = app({
+      "build.gradle.kts": 'plugins { kotlin("jvm") }\ndependencies { implementation("io.ktor:ktor-server-netty") }\nkotlin { jvmToolchain(22) }',
+      gradlew: "",
+    });
     expect(ktor).toMatchObject({ name: "Kotlin", build: "./gradlew --no-daemon buildFatJar" });
     expect(ktor.file).toContain("FROM eclipse-temurin:25-jdk AS build");
     expect(app({ "build.gradle": "apply plugin: 'com.android.application'" }).name).toBeUndefined();
 
-    expect(app({ "Api.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"><TargetFramework>net9.0</TargetFramework></Project>' })).toMatchObject({ name: ".NET", start: "dotnet Api.dll" });
+    expect(app({ "Api.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"><TargetFramework>net9.0</TargetFramework></Project>' })).toMatchObject({
+      name: ".NET",
+      start: "dotnet Api.dll",
+    });
     expect(app({ Gemfile: "gem 'rails'\n", "config/application.rb": "" })).toMatchObject({ name: "Ruby", secret: "RAILS_MASTER_KEY" });
-    expect(app({ "composer.json": '{"require":{"laravel/framework":"11"}}', "public/index.php": "", artisan: "" })).toMatchObject({ name: "PHP", port: 80, secret: "APP_KEY" });
+    expect(app({ "composer.json": '{"require":{"laravel/framework":"11"}}', "public/index.php": "", artisan: "" })).toMatchObject({
+      name: "PHP",
+      port: 80,
+      secret: "APP_KEY",
+    });
     expect(app({ "mix.exs": ":phoenix" }).name).toBe("Elixir");
     // a Procfile names the start command
     expect(app({ "requirements.txt": "", Procfile: "web: python -m srv --port $PORT\n" }).start).toBe("python -m srv --port $PORT");
@@ -354,7 +390,11 @@ describe("folders and access", () => {
     fs.writeFileSync(join(bot, "requirements.txt"), "discord.py\n");
     expect(detectApp(bot, "python bot.py")).toMatchObject({ name: "Python", start: "python bot.py" });
     // Rails 8 on SQLite: storage/ outlives deploys and the database is prepared on start
-    const rails = app({ Gemfile: "gem 'rails'\ngem 'sqlite3'\n", "config/application.rb": "", "config/database.yml": "production:\n  database: storage/production.sqlite3\n" });
+    const rails = app({
+      Gemfile: "gem 'rails'\ngem 'sqlite3'\n",
+      "config/application.rb": "",
+      "config/database.yml": "production:\n  database: storage/production.sqlite3\n",
+    });
     expect(rails).toMatchObject({ volumes: ["/app/storage"], start: expect.stringMatching(/^bundle exec rails db:prepare && /) });
   });
 

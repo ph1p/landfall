@@ -110,7 +110,12 @@ export function kvLine(line: string): [string, string] | undefined {
 }
 /** Every `key=value` line of KV's output as one record; other lines are skipped. */
 export const kvRecord = (out: string): Record<string, string> =>
-  Object.fromEntries(out.split("\n").map(kvLine).filter((kv) => kv !== undefined));
+  Object.fromEntries(
+    out
+      .split("\n")
+      .map(kvLine)
+      .filter((kv) => kv !== undefined),
+  );
 
 export const PRELUDE = String.raw`
 # useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.
@@ -595,7 +600,7 @@ ${o.http3 ? '      - "443:443/udp"\n' : ""}`
       - ./letsencrypt:/letsencrypt
       - ./dynamic:/etc/traefik/dynamic:ro
 ${o.hostNetwork ? "" : `    networks:\n      - ${NETWORK}\n`}${labels.length ? `    labels:\n${labels.map((l) => `      - ${yamlStr(l)}`).join("\n")}\n` : ""}${
-  // Host mode still reaches sites by their IP on the web network (providers.docker.network).
-  o.hostNetwork ? "" : `networks:\n  ${NETWORK}:\n    external: true\n`
-}`;
+    // Host mode still reaches sites by their IP on the web network (providers.docker.network).
+    o.hostNetwork ? "" : `networks:\n  ${NETWORK}:\n    external: true\n`
+  }`;
 }

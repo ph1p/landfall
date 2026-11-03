@@ -48,7 +48,11 @@ export function compile(line: string): Rule | undefined {
   return { re: new RegExp(`^${anchored ? "" : "(?:.*/)?"}${re}$`), neg, dir };
 }
 
-export const parseIgnore = (text: string) => text.split("\n").map(compile).filter((r): r is Rule => !!r);
+export const parseIgnore = (text: string) =>
+  text
+    .split("\n")
+    .map(compile)
+    .filter((r): r is Rule => !!r);
 
 /** The last rule that matches decides: true (ignored), false (re-included by `!`), undefined (no rule matches). */
 export function matches(rules: Rule[], path: string, isDir: boolean): boolean | undefined {
@@ -126,7 +130,10 @@ export function uploadSize(list: Entry[], top = 3) {
     by.set(head, (by.get(head) ?? 0) + e.size);
   }
   const files = list.filter((e) => !e.dir).length;
-  const largest = [...by].sort((a, b) => b[1] - a[1]).slice(0, top).filter(([, n]) => n > 0);
+  const largest = [...by]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, top)
+    .filter(([, n]) => n > 0);
   return { total, files, largest };
 }
 

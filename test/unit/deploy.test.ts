@@ -31,9 +31,17 @@ describe("env", () => {
   });
   test("entries, masked view and json", () => {
     const text = "# c\nexport A=1\n\nURL=a=b\n";
-    expect(envEntries(text)).toEqual([{ key: "A", value: "1" }, { key: "URL", value: "a=b" }]);
+    expect(envEntries(text)).toEqual([
+      { key: "A", value: "1" },
+      { key: "URL", value: "a=b" },
+    ]);
     expect(maskedEnv(text)).toBe("A=•••••••• (1)\nURL=•••••••• (3)\n");
-    expect(envView(text)).toEqual({ vars: [{ key: "A", length: 1 }, { key: "URL", length: 3 }] });
+    expect(envView(text)).toEqual({
+      vars: [
+        { key: "A", length: 1 },
+        { key: "URL", length: 3 },
+      ],
+    });
     expect(envView(text, true).vars[1]).toEqual({ key: "URL", value: "a=b" });
   });
 });
@@ -46,7 +54,13 @@ describe("environments", () => {
     saveProject(d, { name: "shop", server: "vps", domains: ["shop.com"], port: 3000 }, "");
     expect(loadProject(d, "staging")).toEqual({ name: "shop-staging", server: "vps", domains: [], port: 3000 });
     saveProject(d, { name: "shop-staging", server: "test", domains: ["staging.shop.com"], port: 3000 }, "staging");
-    expect(read(d)).toEqual({ name: "shop", server: "vps", domains: ["shop.com"], port: 3000, environments: { staging: { server: "test", domains: ["staging.shop.com"] } } });
+    expect(read(d)).toEqual({
+      name: "shop",
+      server: "vps",
+      domains: ["shop.com"],
+      port: 3000,
+      environments: { staging: { server: "test", domains: ["staging.shop.com"] } },
+    });
     expect(loadProject(d, "staging")).toMatchObject({ name: "shop-staging", server: "test", domains: ["staging.shop.com"] });
     // The project's own deploy rewrites its settings and keeps the environments.
     saveProject(d, { name: "shop", server: "vps", domains: ["www.shop.com"] }, "");
@@ -106,7 +120,10 @@ describe("deploy helpers", () => {
 describe("main domains", () => {
   test("picks the base domain most routed hosts share", () => {
     const hosts = ["example.dev", "www.example.dev", "kcal.example.dev", "kcal.example.dev", "example.net", "www.example.net", "mail.example.dev"];
-    expect(guessDomains(hosts)).toEqual([{ domain: "example.dev", hosts: 4 }, { domain: "example.net", hosts: 2 }]);
+    expect(guessDomains(hosts)).toEqual([
+      { domain: "example.dev", hosts: 4 },
+      { domain: "example.net", hosts: 2 },
+    ]);
   });
   test("needs two hosts and skips free wildcard DNS", () => {
     expect(guessDomains(["blog.example.com"])).toEqual([]);
@@ -133,12 +150,18 @@ describe("externals", () => {
       [
         { name: "korro-korro-1", labels: { ...p, "traefik.http.routers.k.rule": "Host(`korro.app`) || Host(`www.korro.app`, `KORRO.app`)" } },
         { name: "korro-pg-1", labels: p },
-        { name: "mail", labels: { "traefik.http.routers.m.rule": "Host(`mail.x.dev`)", "traefik.http.routers.m-http.rule": "Host(`mail.x.dev`) && PathPrefix(`/`)" } },
+        {
+          name: "mail",
+          labels: { "traefik.http.routers.m.rule": "Host(`mail.x.dev`)", "traefik.http.routers.m-http.rule": "Host(`mail.x.dev`) && PathPrefix(`/`)" },
+        },
         { name: "landfall-blog", labels: { "landfall.managed": "true", "traefik.http.routers.b.rule": "Host(`blog.dev`)" } },
         { name: "off", labels: { "traefik.enable": "false", "traefik.http.routers.o.rule": "Host(`o.dev`)" } },
         { name: "traefik", labels: { "traefik.http.routers.d.rule": "Host(`traefik.x.dev`)" } },
       ],
-      new Map([["korro-korro-1", "Up 2 hours"], ["mail", "Exited (1)"]]),
+      new Map([
+        ["korro-korro-1", "Up 2 hours"],
+        ["mail", "Exited (1)"],
+      ]),
       "traefik",
     );
     expect(out).toEqual([
@@ -219,7 +242,21 @@ describe("upload filtering", () => {
     put(".gitignore", "dist/\nlogs/\n");
     const rules = { exclude: ["data/"], include: ["node_modules"] };
     const paths = (o = {}) => uploadList(root, { rules, ...o }).map((e) => e.path);
-    expect(paths()).toEqual([".gitignore", "dist", "dist/app.js", "index.html", "logs", "logs/a.log", "node_modules", "node_modules/a", "node_modules/a/index.js", "sub", "sub/.gitignore", "sub/keep.txt", "sub/x.tmp"]);
+    expect(paths()).toEqual([
+      ".gitignore",
+      "dist",
+      "dist/app.js",
+      "index.html",
+      "logs",
+      "logs/a.log",
+      "node_modules",
+      "node_modules/a",
+      "node_modules/a/index.js",
+      "sub",
+      "sub/.gitignore",
+      "sub/keep.txt",
+      "sub/x.tmp",
+    ]);
     expect(paths({ gitignore: true })).not.toContain("dist");
     expect(paths({ gitignore: true })).not.toContain("sub/x.tmp");
     expect(paths({ gitignore: true })).toContain("sub/keep.txt");
@@ -229,7 +266,16 @@ describe("upload filtering", () => {
     // include beats .landfall.json's exclude, the defaults and .gitignore.
     const own = (rules: object) => uploadList(root, { gitignore: true, rules }).map((e) => e.path);
     expect(own({ exclude: ["index.html", "sub/"] })).toEqual([".gitignore", "data", "data/big.bin"]);
-    expect(own({ exclude: ["sub/", "/data"], include: ["dist/", ".env", "node_modules"] })).toEqual([".env", ".gitignore", "dist", "dist/app.js", "index.html", "node_modules", "node_modules/a", "node_modules/a/index.js"]);
+    expect(own({ exclude: ["sub/", "/data"], include: ["dist/", ".env", "node_modules"] })).toEqual([
+      ".env",
+      ".gitignore",
+      "dist",
+      "dist/app.js",
+      "index.html",
+      "node_modules",
+      "node_modules/a",
+      "node_modules/a/index.js",
+    ]);
     // A folder left out is not looked into: a file in it does not come back alone.
     expect(own({ include: ["logs/a.log"] })).not.toContain("logs/a.log");
     const size = uploadSize(uploadList(root, { exclude: ["sub"] }));
@@ -239,7 +285,8 @@ describe("upload filtering", () => {
 });
 
 test("the variables a compose file requires", () => {
-  const vars = requiredVars(`# \${IN_COMMENT:?no}
+  const vars = requiredVars(
+    `# \${IN_COMMENT:?no}
 services:
   a:
     environment:
@@ -248,7 +295,9 @@ services:
       KEEP: $\${ESCAPED:?no}
       DEF: \${DEF:-x}
     image: x:\${PW:?again}
-`, "compose.yaml");
+`,
+    "compose.yaml",
+  );
   expect(vars).toEqual([
     { name: "PW", from: "compose.yaml", message: "set PW", strict: true },
     { name: "OPT", from: "compose.yaml", message: undefined, strict: false },
@@ -260,7 +309,8 @@ services:
 });
 
 test("the variables an example .env lists", () => {
-  const vars = exampleVars(`# Stripe's secret key
+  const vars = exampleVars(
+    `# Stripe's secret key
 STRIPE_KEY=
 export PORT=3000
 # DEBUG=1
@@ -268,7 +318,9 @@ QUOTED="a # b"
 EMPTY= # left for you
 
 STRIPE_KEY=again
-`, ".env.example");
+`,
+    ".env.example",
+  );
   expect(vars).toEqual([
     { name: "STRIPE_KEY", from: ".env.example", message: "Stripe's secret key", strict: false, optional: true },
     { name: "PORT", from: ".env.example", message: undefined, strict: false, optional: true, example: "3000" },
@@ -285,7 +337,7 @@ test("what a deploy wants in the .env", () => {
   // An app, Dockerfile or image reads the .env: the example counts.
   expect(wantedVars(dir).map((v) => v.name)).toEqual(["API_KEY", "PW"]);
   // A compose project only with an env_file; its own requirement wins.
-  fs.writeFileSync(join(dir, "compose.yaml"), "services:\n  a:\n    image: x\n    environment: { PW: \"${PW:?set PW}\" }\n");
+  fs.writeFileSync(join(dir, "compose.yaml"), 'services:\n  a:\n    image: x\n    environment: { PW: "${PW:?set PW}" }\n');
   expect(wantedVars(dir, ["compose.yaml"])).toEqual([{ name: "PW", from: "compose.yaml", message: "set PW", strict: true }]);
   fs.appendFileSync(join(dir, "compose.yaml"), "    env_file: .env\n");
   expect(wantedVars(dir, ["compose.yaml"]).map((v) => `${v.name}:${v.from}`)).toEqual(["PW:compose.yaml", "API_KEY:.env.sample"]);

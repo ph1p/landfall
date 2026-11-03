@@ -17,7 +17,10 @@ export const securityCmd = defineCommand({
     table([
       [c.dim("ssh login"), s.passwordLogin === undefined ? c.dim("unknown") : s.passwordLogin ? c.red("passwords and keys") : c.green("keys only")],
       [c.dim("root login"), s.rootLogin === undefined ? c.dim("unknown") : s.rootLogin === "yes" ? c.yellow("yes") : s.rootLogin === "no" ? "no" : "key only"],
-      [c.dim("firewall"), s.firewall === undefined ? c.dim("unknown") : s.firewall === "active" ? c.green("on") : c.yellow(s.firewall === "missing" ? "no ufw" : "off")],
+      [
+        c.dim("firewall"),
+        s.firewall === undefined ? c.dim("unknown") : s.firewall === "active" ? c.green("on") : c.yellow(s.firewall === "missing" ? "no ufw" : "off"),
+      ],
       [c.dim("fail2ban"), i.fail2ban === "running" ? c.green("running") : c.yellow(i.fail2ban === "missing" ? "not installed" : "stopped")],
       [c.dim("auto updates"), s.autoUpdates === undefined ? c.dim("unknown") : s.autoUpdates ? c.green("on") : c.yellow("off")],
       [c.dim("reboot"), s.reboot ? c.yellow("pending") : "not needed"],

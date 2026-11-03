@@ -6,7 +6,6 @@ import { diskUsage, stats, type DiskUsage, type Stats } from "../../core/stats";
 import { ROOT } from "../../core/templates";
 import { c, fail, table, printJson } from "../../core/term";
 
-
 /** A 10-cell bar, yellow from 70%, red from 90%. */
 function bar(p: number) {
   const n = Math.max(0, Math.min(10, Math.round(p / 10)));
@@ -25,8 +24,15 @@ function printStats(name: string, s: Stats, site?: string) {
     const rows: string[][] = [
       ["cpu", bar(s.cpu), `${s.cpu}%`, c.dim(`${s.cpus} cores · load ${s.load.join(" ")}`)],
       ["memory", bar(pct(memUsed, s.mem.total)), `${pct(memUsed, s.mem.total)}%`, c.dim(`${bytes(memUsed)} / ${bytes(s.mem.total)}`)],
-      ...(s.mem.swapTotal ? [["swap", bar(pct(swapUsed, s.mem.swapTotal)), `${pct(swapUsed, s.mem.swapTotal)}%`, c.dim(`${bytes(swapUsed)} / ${bytes(s.mem.swapTotal)}`)]] : []),
-      ...s.disks.map((d) => [`disk ${d.mount}`, bar(pct(d.used, d.total)), `${pct(d.used, d.total)}%`, c.dim(`${bytes(d.used)} / ${bytes(d.total)}, ${bytes(d.available)} free`)]),
+      ...(s.mem.swapTotal
+        ? [["swap", bar(pct(swapUsed, s.mem.swapTotal)), `${pct(swapUsed, s.mem.swapTotal)}%`, c.dim(`${bytes(swapUsed)} / ${bytes(s.mem.swapTotal)}`)]]
+        : []),
+      ...s.disks.map((d) => [
+        `disk ${d.mount}`,
+        bar(pct(d.used, d.total)),
+        `${pct(d.used, d.total)}%`,
+        c.dim(`${bytes(d.used)} / ${bytes(d.total)}, ${bytes(d.available)} free`),
+      ]),
       ...s.net.map((n) => [`net ${n.iface}`, "", "", `↓ ${rate(n.rx)}  ↑ ${rate(n.tx)}`]),
     ];
     console.log(c.bold(name) + c.dim(` · up ${duration(s.uptime)}`));
@@ -85,7 +91,14 @@ export const statsCmd = defineCommand({
 
 function printDisk(name: string, d: DiskUsage) {
   console.log(c.bold(name));
-  table(d.disks.map((x) => [c.dim(x.mount), bar(pct(x.used, x.total)), `${pct(x.used, x.total)}%`, c.dim(`${bytes(x.used)} / ${bytes(x.total)}, ${bytes(x.available)} free`)]));
+  table(
+    d.disks.map((x) => [
+      c.dim(x.mount),
+      bar(pct(x.used, x.total)),
+      `${pct(x.used, x.total)}%`,
+      c.dim(`${bytes(x.used)} / ${bytes(x.total)}, ${bytes(x.available)} free`),
+    ]),
+  );
   if (d.docker && d.dockerDf.length) {
     console.log(`\n${c.bold("Docker")}`);
     table([

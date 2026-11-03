@@ -39,13 +39,18 @@ describe("security", () => {
 
   test("Synology: points to DSM's own firewall and bans", () => {
     const l = advise(parseSystem(out("platform=synology", "pkg=none", "ufw=missing", "fail2ban=missing")), { name: "nas", loginUser: "deploy" });
-    expect(l.map((a) => [a.id, a.level, a.fix])).toEqual([["firewall", "info", undefined], ["fail2ban", "info", undefined]]);
+    expect(l.map((a) => [a.id, a.level, a.fix])).toEqual([
+      ["firewall", "info", undefined],
+      ["fail2ban", "info", undefined],
+    ]);
     expect(l[0].why).toContain("Control Panel → Security → Firewall");
     expect(l[1].why).toContain("Auto Block");
   });
 
   test("a hardened server has nothing to fix", () => {
-    expect(ids(out("sshd_passwordauthentication=no", "sshd_kbdinteractiveauthentication=no", "pkg=apt-get", "ufw=active", "fail2ban=running", "auto_updates=on"))).toEqual([]);
+    expect(
+      ids(out("sshd_passwordauthentication=no", "sshd_kbdinteractiveauthentication=no", "pkg=apt-get", "ufw=active", "fail2ban=running", "auto_updates=on")),
+    ).toEqual([]);
   });
 
   test("password login: keys only, unless someone would be locked out", () => {

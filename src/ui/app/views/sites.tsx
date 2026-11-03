@@ -55,7 +55,11 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
       <Card>
         <Empty title="Not set up for landfall yet">
           <p>Setup installs Docker and Traefik, a deploy user and (if you want) a firewall. It shows what it would change first.</p>
-          <p><Btn cls="primary" on={() => setupFlow([n])}>Check &amp; set up</Btn></p>
+          <p>
+            <Btn cls="primary" on={() => setupFlow([n])}>
+              Check &amp; set up
+            </Btn>
+          </p>
         </Empty>
       </Card>
     );
@@ -66,7 +70,12 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
         <Card>
           <Empty title="No sites yet">
             <p>Deploy a folder with a compose.yaml, a Dockerfile, static files, or an image. It gets HTTPS automatically.</p>
-            <p><Btn cls="primary" on={() => folderDialog(S.state.cwd)}>Choose a folder…</Btn> <span className="dim">or drop one here</span></p>
+            <p>
+              <Btn cls="primary" on={() => folderDialog(S.state.cwd)}>
+                Choose a folder…
+              </Btn>{" "}
+              <span className="dim">or drop one here</span>
+            </p>
             <p className="faint mono">lf deploy ./dist -d example.com -s {n}</p>
           </Empty>
         </Card>
@@ -77,8 +86,22 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
   return (
     <>
       <Card>
-        <Table head={<><th>Site</th><th className={HIDE}>Domains</th><th className={HIDE}>Kind</th><th className={HIDE}>Deployed</th><th className={HIDE}><span className={SR}>Actions</span></th></>}>
-          {o.sites.map((site) => <SiteRows key={site.meta.name} n={n} site={site} />)}
+        <Table
+          head={
+            <>
+              <th>Site</th>
+              <th className={HIDE}>Domains</th>
+              <th className={HIDE}>Kind</th>
+              <th className={HIDE}>Deployed</th>
+              <th className={HIDE}>
+                <span className={SR}>Actions</span>
+              </th>
+            </>
+          }
+        >
+          {o.sites.map((site) => (
+            <SiteRows key={site.meta.name} n={n} site={site} />
+          ))}
         </Table>
       </Card>
       <ErrorsCard n={n} />
@@ -108,7 +131,16 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       text: m.adopted
         ? `Runs docker compose down in ${m.adopted}; its files and volumes stay.`
         : "Stops it and removes its files and releases. Its named volumes (databases, uploads) stay unless you delete them too.\nIts files and releases cannot be brought back.",
-      fields: m.adopted ? [] : [{ name: "volumes", type: "check", label: "Also delete its volumes", hint: "Databases, uploads: all its data. Each is backed up to the site's backups folder first; lf undo brings them back. lf sites rm --volumes" }],
+      fields: m.adopted
+        ? []
+        : [
+            {
+              name: "volumes",
+              type: "check",
+              label: "Also delete its volumes",
+              hint: "Databases, uploads: all its data. Each is backed up to the site's backups folder first; lf undo brings them back. lf sites rm --volumes",
+            },
+          ],
       ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
       danger: true,
       typeToConfirm: m.adopted ? "" : name,
@@ -125,10 +157,19 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       text: `Writes compose.traefik.yaml into ${tilde(proj!.path)}: the Traefik labels, network and project name of its running release, to run it with docker compose behind your own Traefik. Nothing changes on ${n}; an existing compose.traefik.yaml is overwritten.`,
       fields: [
         { name: "network", label: "Docker network your Traefik watches", placeholder: as("network"), mono: true },
-        { row: [{ name: "entrypoint", label: "HTTPS entrypoint", placeholder: as("entrypoint"), mono: true }, { name: "resolver", label: "Certificate resolver", placeholder: as("resolver"), mono: true }] },
+        {
+          row: [
+            { name: "entrypoint", label: "HTTPS entrypoint", placeholder: as("entrypoint"), mono: true },
+            { name: "resolver", label: "Certificate resolver", placeholder: as("resolver"), mono: true },
+          ],
+        },
       ],
       ok: "Write it",
-      onOk: (v) => run(["eject", name, ...sv(n), "-y", ...(["network", "entrypoint", "resolver"] as const).flatMap((k) => (v[k] ? [`--${k}`, String(v[k]).trim()] : []))], { server: n, cwd: proj!.path }),
+      onOk: (v) =>
+        run(
+          ["eject", name, ...sv(n), "-y", ...(["network", "entrypoint", "resolver"] as const).flatMap((k) => (v[k] ? [`--${k}`, String(v[k]).trim()] : []))],
+          { server: n, cwd: proj!.path },
+        ),
     });
   };
   const many = services.length > 1;
@@ -142,44 +183,113 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         { label: "Logs", hint: `lf logs ${name} ${x.service}`, run: () => run(["logs", name, x.service, ...sv(n), "-f"]) },
         { label: "Restart", hint: "lf restart", run: () => run(["restart", name, x.service, ...sv(n)]) },
         isUp(x.status)
-          ? { label: "Stop", hint: "lf stop", run: () => confirmDlg({ title: `Stop ${x.service} of ${name}?`, text: "It stays stopped until you start it again.", ok: "Stop it", danger: true, onOk: () => run(["stop", name, x.service, ...sv(n)]) }) }
+          ? {
+              label: "Stop",
+              hint: "lf stop",
+              run: () =>
+                confirmDlg({
+                  title: `Stop ${x.service} of ${name}?`,
+                  text: "It stays stopped until you start it again.",
+                  ok: "Stop it",
+                  danger: true,
+                  onOk: () => run(["stop", name, x.service, ...sv(n)]),
+                }),
+            }
           : { label: "Start", hint: "lf start", run: () => run(["start", name, x.service, ...sv(n)]) },
       ]}
     />
   );
   const edit = () => siteSettings(n, site);
-  const stop = () => confirmDlg({ title: `Stop ${name}?`, text: `${domains.join(", ") || "The site"} stops answering until you start it again.`, ok: "Stop it", danger: true, onOk: () => run(["stop", name, ...sv(n)]) });
+  const stop = () =>
+    confirmDlg({
+      title: `Stop ${name}?`,
+      text: `${domains.join(", ") || "The site"} stops answering until you start it again.`,
+      ok: "Stop it",
+      danger: true,
+      onOk: () => run(["stop", name, ...sv(n)]),
+    });
   // The everyday actions sit in the row, each titled with the command it runs; the rest is under More.
   const acts = (
     <div className="inline-flex flex-wrap items-center justify-end gap-1.5 [&>button]:ml-0!">
       {deploys ? (
-        <Btn cls="sm primary" title={`Build and upload ${tilde(proj.path)} again, then switch to it (lf deploy)`} on={() => redeploy(proj.path, n, name, proj.kind, proj.environment)}><Icon name="deploy" />Redeploy</Btn>
+        <Btn
+          cls="sm primary"
+          title={`Build and upload ${tilde(proj.path)} again, then switch to it (lf deploy)`}
+          on={() => redeploy(proj.path, n, name, proj.kind, proj.environment)}
+        >
+          <Icon name="deploy" />
+          Redeploy
+        </Btn>
       ) : m.adopted || m.kind === "image" ? null : (
-        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains })}><Icon name="deploy" />Redeploy</Btn>
+        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains })}>
+          <Icon name="deploy" />
+          Redeploy
+        </Btn>
       )}
-      {(main || managed || deploys) && <Btn cls="sm" title="Domains, login, environment and how it builds (lf domains, lf auth, lf env, lf deploy)" on={edit}><Icon name="edit" />Edit</Btn>}
+      {(main || managed || deploys) && (
+        <Btn cls="sm" title="Domains, login, environment and how it builds (lf domains, lf auth, lf env, lf deploy)" on={edit}>
+          <Icon name="edit" />
+          Edit
+        </Btn>
+      )}
       <BtnGroup label={`Containers of ${name}`}>
-        <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}><Icon name="logs" /><span className={TIGHT}>Logs</span></Btn>
-        <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}><Icon name="restart" /><span className={TIGHT}>Restart</span></Btn>
-        {up
-          ? <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}><Icon name="stop" /><span className={TIGHT}>Stop</span></Btn>
-          : <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}><Icon name="start" /><span className={TIGHT}>Start</span></Btn>}
+        <Btn cls="sm" title={`Follow the logs of all its services (lf logs ${name} -f)`} on={() => run(["logs", name, ...sv(n), "-f"])}>
+          <Icon name="logs" />
+          <span className={TIGHT}>Logs</span>
+        </Btn>
+        <Btn cls="sm" title={`Restart its containers, a moment offline (lf restart ${name})`} on={() => run(["restart", name, ...sv(n)])}>
+          <Icon name="restart" />
+          <span className={TIGHT}>Restart</span>
+        </Btn>
+        {up ? (
+          <Btn cls="sm hover:text-bad" title={`Stop its containers (lf stop ${name})`} on={stop}>
+            <Icon name="stop" />
+            <span className={TIGHT}>Stop</span>
+          </Btn>
+        ) : (
+          <Btn cls="sm" title={`Start its containers (lf start ${name})`} on={() => run(["start", name, ...sv(n)])}>
+            <Icon name="start" />
+            <span className={TIGHT}>Start</span>
+          </Btn>
+        )}
       </BtnGroup>
       <MenuBtn
         title={`More for ${name}`}
         cls="sm ghost"
         dots
         items={[
-          managed && older.length > 0 && {
-            label: "Roll back",
-            hint: "lf rollback",
-            title: `To ${older[0].id} (${ago(older[0].at)})`,
-            run: () => confirmDlg({ title: `Roll back ${name}?`, text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`, ok: "Roll back", onOk: () => run(["rollback", name, ...sv(n), "-y"]) }),
-          },
+          managed &&
+            older.length > 0 && {
+              label: "Roll back",
+              hint: "lf rollback",
+              title: `To ${older[0].id} (${ago(older[0].at)})`,
+              run: () =>
+                confirmDlg({
+                  title: `Roll back ${name}?`,
+                  text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`,
+                  ok: "Roll back",
+                  onOk: () => run(["rollback", name, ...sv(n), "-y"]),
+                }),
+            },
           "-",
-          domains.length > 0 && { label: "Check now", hint: "lf check", title: `Request ${domains.join(", ")} over HTTPS from this machine: status, time, certificate`, run: () => run(["check", name, ...sv(n)], { server: n }) },
-          { label: "Stats", hint: `lf stats ${name}`, title: "CPU, memory and network of its containers right now", run: () => run(["stats", name, ...sv(n)], { server: n }) },
-          { label: "Traffic", hint: `lf traffic ${name}`, title: "Its requests, errors, busiest paths and clients", run: () => ((S.focus[n] = name), go(n, "traffic")) },
+          domains.length > 0 && {
+            label: "Check now",
+            hint: "lf check",
+            title: `Request ${domains.join(", ")} over HTTPS from this machine: status, time, certificate`,
+            run: () => run(["check", name, ...sv(n)], { server: n }),
+          },
+          {
+            label: "Stats",
+            hint: `lf stats ${name}`,
+            title: "CPU, memory and network of its containers right now",
+            run: () => run(["stats", name, ...sv(n)], { server: n }),
+          },
+          {
+            label: "Traffic",
+            hint: `lf traffic ${name}`,
+            title: "Its requests, errors, busiest paths and clients",
+            run: () => ((S.focus[n] = name), go(n, "traffic")),
+          },
           "-",
           ...(ways.length > 1 ? ways : ways.slice(0, 1)).map((w) => ({
             label: ways.length > 1 ? `Tunnel to ${w.label}` : "Open via tunnel",
@@ -188,7 +298,13 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
             run: () => run(w.argv, { server: n }),
           })),
           "-",
-          deploys && m.kind === "compose" && { label: "Eject…", hint: "lf eject", title: `Write its Traefik labels into ${tilde(proj.path)}, to run it behind your own Traefik`, run: eject },
+          deploys &&
+            m.kind === "compose" && {
+              label: "Eject…",
+              hint: "lf eject",
+              title: `Write its Traefik labels into ${tilde(proj.path)}, to run it behind your own Traefik`,
+              run: eject,
+            },
           { label: m.adopted ? `Forget ${name}` : `Delete ${name}`, cls: "danger", hint: "lf sites rm", run: deleteSite },
         ]}
       />
@@ -205,10 +321,18 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <div className={ROW}>
           <StatusDot status={x.status} />
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-baseline gap-x-2"><b>{x.service}</b><span className="faint text-sm">{x.status.toLowerCase()}</span></div>
-            {own?.domains.length ? <div className="faint text-sm truncate">{own.domains.join(" · ")}</div>
-            : own?.priv ? <div className="faint text-sm mono">:{own.priv}{own.path ?? ""} private</div>
-            : null}
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <b>{x.service}</b>
+              <span className="faint text-sm">{x.status.toLowerCase()}</span>
+            </div>
+            {own?.domains.length ? (
+              <div className="faint text-sm truncate">{own.domains.join(" · ")}</div>
+            ) : own?.priv ? (
+              <div className="faint text-sm mono">
+                :{own.priv}
+                {own.path ?? ""} private
+              </div>
+            ) : null}
           </div>
           <span className={SIDE}>
             {own && live && <TunnelBtn n={n} argv={own.argv} ports={own.ports} label="Tunnel" compact />}
@@ -218,9 +342,21 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         {/* Private ports it names (lf tunnel blog admin), under it. */}
         {named.map((w) => (
           <div key={w.label} className={cx(ROW, "pt-0 pl-9")}>
-            <span className="faint" aria-hidden="true">↳</span>
-            <span className="min-w-0 flex-1 truncate">{w.label} <span className="faint text-sm mono">:{w.priv}{w.path ?? ""} private</span></span>
-            {live && <span className={SIDE}><TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact /></span>}
+            <span className="faint" aria-hidden="true">
+              ↳
+            </span>
+            <span className="min-w-0 flex-1 truncate">
+              {w.label}{" "}
+              <span className="faint text-sm mono">
+                :{w.priv}
+                {w.path ?? ""} private
+              </span>
+            </span>
+            {live && (
+              <span className={SIDE}>
+                <TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact />
+              </span>
+            )}
           </div>
         ))}
       </li>
@@ -233,17 +369,34 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const relRows = rels.map((r) => (
     <li key={r.id} className={ROW}>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2"><span className="mono">{r.id}</span>{r.id === m.current && <Badge kind="ok">live</Badge>}</div>
+        <div className="flex items-center gap-2">
+          <span className="mono">{r.id}</span>
+          {r.id === m.current && <Badge kind="ok">live</Badge>}
+        </div>
         <div className="faint text-sm truncate">
           {ago(r.at)}
           {r.services && ` · ${r.services.map((x) => x.name).join(", ")}`}
-          {r.git && <span className="mono" title={r.by ? `deployed by ${r.by}` : undefined}> · {r.git.commit.slice(0, 7)}{r.git.branch ? ` ${r.git.branch}` : ""}{r.git.dirty ? "*" : ""}</span>}
+          {r.git && (
+            <span className="mono" title={r.by ? `deployed by ${r.by}` : undefined}>
+              {" "}
+              · {r.git.commit.slice(0, 7)}
+              {r.git.branch ? ` ${r.git.branch}` : ""}
+              {r.git.dirty ? "*" : ""}
+            </span>
+          )}
         </div>
       </div>
       {r.id !== m.current && managed && (
         <Btn
           cls="sm shrink-0"
-          on={() => confirmDlg({ title: `Switch ${name} to ${r.id}?`, text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`, ok: "Switch", onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]) })}
+          on={() =>
+            confirmDlg({
+              title: `Switch ${name} to ${r.id}?`,
+              text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`,
+              ok: "Switch",
+              onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]),
+            })
+          }
         >
           Switch to this
         </Btn>
@@ -252,7 +405,15 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <Btn
           cls="sm ghost shrink-0"
           title="lf release rm: delete its folder and images"
-          on={() => confirmDlg({ title: `Delete release ${r.id} of ${name}?`, text: `Its folder and the images built for it go: Roll back can no longer return to it.\nThis cannot be undone.`, ok: "Delete", danger: true, onOk: () => run(["release", "rm", name, r.id, ...sv(n), "-y"]) })}
+          on={() =>
+            confirmDlg({
+              title: `Delete release ${r.id} of ${name}?`,
+              text: `Its folder and the images built for it go: Roll back can no longer return to it.\nThis cannot be undone.`,
+              ok: "Delete",
+              danger: true,
+              onOk: () => run(["release", "rm", name, r.id, ...sv(n), "-y"]),
+            })
+          }
         >
           Delete
         </Btn>
@@ -261,13 +422,32 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   ));
   const stale = byDate.filter((r) => r.id !== m.current);
   const facts: [string, ReactNode][] = [];
-  facts.push(["Kind", <>{kind}{main || !managed ? "" : <> <span className="dim">· domains set in compose.yaml</span></>}</>]);
-  if (managed) facts.push(["Login", m.auth?.length ? `${m.auth.map((a: string) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
+  facts.push([
+    "Kind",
+    <>
+      {kind}
+      {main || !managed ? (
+        ""
+      ) : (
+        <>
+          {" "}
+          <span className="dim">· domains set in compose.yaml</span>
+        </>
+      )}
+    </>,
+  ]);
+  if (managed)
+    facts.push(["Login", m.auth?.length ? `${m.auth.map((a: string) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
   if (!m.adopted)
     facts.push([
       "Source",
-      proj ? <><span className="mono">{tilde(proj.path)}</span> <span className="dim">· redeploy runs there</span></>
-      : <span className="dim">not deployed from this machine{m.kind === "image" ? "" : " (or the folder moved): Redeploy picks the folder"}</span>,
+      proj ? (
+        <>
+          <span className="mono">{tilde(proj.path)}</span> <span className="dim">· redeploy runs there</span>
+        </>
+      ) : (
+        <span className="dim">not deployed from this machine{m.kind === "image" ? "" : " (or the folder moved): Redeploy picks the folder"}</span>
+      ),
     ]);
   facts.push(["Created", `${ago(m.createdAt)} · updated ${ago(m.updatedAt)}`]);
   const detail = (
@@ -277,26 +457,51 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           <Panel title="Services" count={services.length}>
             {services.length ? <ul className={LIST}>{svcRows}</ul> : <p className="m-0 px-3 py-2.5 dim">none running</p>}
           </Panel>
-          <SiteVolumes n={n} name={name} dir={proj?.path} edit={deploys && proj.kind !== "static" ? { path: proj.path, kind: proj.kind, environment: proj.environment, services: services.map((x) => x.service) } : undefined} />
+          <SiteVolumes
+            n={n}
+            name={name}
+            dir={proj?.path}
+            edit={
+              deploys && proj.kind !== "static"
+                ? { path: proj.path, kind: proj.kind, environment: proj.environment, services: services.map((x) => x.service) }
+                : undefined
+            }
+          />
           {m.releases.length > 0 && (
             <Panel
               title="Releases"
               count={m.releases.length}
-              aside={managed && stale.length > 1 && (
-                <Btn
-                  cls="sm ghost"
-                  title="lf release rm: delete every release but the live one"
-                  on={() => confirmDlg({ title: `Delete ${stale.length} old releases of ${name}?`, text: `All but the live one (${m.current}) go, with the images built for them: Roll back has nothing left to return to.\nThis cannot be undone.`, ok: "Delete", danger: true, onOk: () => run(["release", "rm", name, ...sv(n), "-y"]) })}
-                >
-                  Delete old
-                </Btn>
-              )}
+              aside={
+                managed &&
+                stale.length > 1 && (
+                  <Btn
+                    cls="sm ghost"
+                    title="lf release rm: delete every release but the live one"
+                    on={() =>
+                      confirmDlg({
+                        title: `Delete ${stale.length} old releases of ${name}?`,
+                        text: `All but the live one (${m.current}) go, with the images built for them: Roll back has nothing left to return to.\nThis cannot be undone.`,
+                        ok: "Delete",
+                        danger: true,
+                        onOk: () => run(["release", "rm", name, ...sv(n), "-y"]),
+                      })
+                    }
+                  >
+                    Delete old
+                  </Btn>
+                )
+              }
             >
               <ul className={LIST}>
                 {relRows}
                 {byDate.length > RELEASES + 1 && (
                   <li>
-                    <button type="button" className={MORE} aria-expanded={allRel} onClick={() => (allRel ? S.open.delete(relKey) : S.open.add(relKey), render())}>
+                    <button
+                      type="button"
+                      className={MORE}
+                      aria-expanded={allRel}
+                      onClick={() => (allRel ? S.open.delete(relKey) : S.open.add(relKey), render())}
+                    >
                       {allRel ? "Show fewer" : `Show ${byDate.length - rels.length} older`}
                     </button>
                   </li>
@@ -307,15 +512,34 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         </div>
         <div className="flex min-w-0 flex-col gap-3">
           {det !== undefined && (
-            <Panel title="Build" aside={det && <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>Edit</Btn>}>
+            <Panel
+              title="Build"
+              aside={
+                det && (
+                  <Btn cls="sm ghost" title="Change how it builds: lf deploy --build --start" on={edit}>
+                    Edit
+                  </Btn>
+                )
+              }
+            >
               <div className="px-3 py-2.5 text-sm">
-                {det ? <><Stack d={det} className="mb-2" /><Describe d={det} before={false} /></>
-                : <span className="faint">{det === false ? "cannot read its folder" : "reading its folder…"}</span>}
+                {det ? (
+                  <>
+                    <Stack d={det} className="mb-2" />
+                    <Describe d={det} before={false} />
+                  </>
+                ) : (
+                  <span className="faint">{det === false ? "cannot read its folder" : "reading its folder…"}</span>
+                )}
               </div>
             </Panel>
           )}
-          <Panel title="Details"><Kv className="px-3 py-2.5" pairs={facts} /></Panel>
-          <Panel title={`On ${n}`}><SiteFiles m={m} /></Panel>
+          <Panel title="Details">
+            <Kv className="px-3 py-2.5" pairs={facts} />
+          </Panel>
+          <Panel title={`On ${n}`}>
+            <SiteFiles m={m} />
+          </Panel>
         </div>
       </div>
     </div>
@@ -324,12 +548,19 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const reach = ways.length > 1 ? ways.filter((w) => tunnelFor(n, w.argv) || ((w.priv || w.label === main) && !w.domains.length && isUp(w.status))) : [];
   const where = (
     <>
-      {domains.length ? domains.map((d: string) => <DomainChip key={d} n={n} d={d} />)
-      : main && !many ? <span className={CHIP}><span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} /></span>
-      : null}
+      {domains.length ? (
+        domains.map((d: string) => <DomainChip key={d} n={n} d={d} />)
+      ) : main && !many ? (
+        <span className={CHIP}>
+          <span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} />
+        </span>
+      ) : null}
       {reach.map((w) => (
         <span key={w.label} className={cx(CHIP, "gap-1.5")}>
-          <span className="faint" title={w.priv ? `private port ${w.priv}: never routed, reached by tunnel only` : undefined}>{w.label}{w.priv ? " · private" : w.domains.length ? "" : " · no domain"}</span>
+          <span className="faint" title={w.priv ? `private port ${w.priv}: never routed, reached by tunnel only` : undefined}>
+            {w.label}
+            {w.priv ? " · private" : w.domains.length ? "" : " · no domain"}
+          </span>
           <TunnelBtn n={n} argv={w.argv} ports={w.ports} label="Tunnel" compact />
         </span>
       ))}
@@ -347,21 +578,36 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               aria-expanded={open}
               onClick={(e) => (e.stopPropagation(), toggle())}
             >
-              <b>{name}</b> {open ? <ChevronDown className="size-3.5 text-faint" aria-hidden="true" /> : <ChevronRight className="size-3.5 text-faint" aria-hidden="true" />}
+              <b>{name}</b>{" "}
+              {open ? <ChevronDown className="size-3.5 text-faint" aria-hidden="true" /> : <ChevronRight className="size-3.5 text-faint" aria-hidden="true" />}
             </button>
-            {!!m.auth?.length && <span className="ml-1 text-dim" title="password protected" role="img" aria-label="password protected"><Lock className="size-3" aria-hidden="true" /></span>}
+            {!!m.auth?.length && (
+              <span className="ml-1 text-dim" title="password protected" role="img" aria-label="password protected">
+                <Lock className="size-3" aria-hidden="true" />
+              </span>
+            )}
           </div>
           <div className={cx(CHIPS, SHOW, "mt-1")}>{where}</div>
           {/* On a phone the actions go under the name: in their own narrow column they stack one per line. */}
           <div className={cx(SHOW, "mt-2 [&>div]:justify-start!")}>{acts}</div>
         </td>
-        <td className={HIDE}><div className={CHIPS}>{where}</div></td>
+        <td className={HIDE}>
+          <div className={CHIPS}>{where}</div>
+        </td>
         <td className={HIDE}>
           <Badge title={services.map((x) => x.service).join(", ")}>{kind}</Badge>
-          {many && (() => {
-            const up = services.filter((x) => isUp(x.status)).length;
-            return <span className={cx("block mt-1 text-sm", up < services.length ? "text-warn" : "faint")} title={services.map((x) => `${x.service}: ${x.status.toLowerCase()}`).join("\n")}>{up < services.length ? `${up} of ${services.length} up` : `${services.length} services`}</span>;
-          })()}
+          {many &&
+            (() => {
+              const up = services.filter((x) => isUp(x.status)).length;
+              return (
+                <span
+                  className={cx("block mt-1 text-sm", up < services.length ? "text-warn" : "faint")}
+                  title={services.map((x) => `${x.service}: ${x.status.toLowerCase()}`).join("\n")}
+                >
+                  {up < services.length ? `${up} of ${services.length} up` : `${services.length} services`}
+                </span>
+              );
+            })()}
         </td>
         <td className={cx(HIDE, "dim")}>{cur ? ago(cur.at) : ""}</td>
         {/* One line: wrapped, the ⋯ menu would sit alone under the buttons. */}
@@ -379,7 +625,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
 }
 
 /** The project folder this machine deploys the site from: where lf volume add/rm edit its compose.yaml or .landfall.json. */
-interface VolumeEdit { path: string; kind: string; environment?: string; services: string[] }
+interface VolumeEdit {
+  path: string;
+  kind: string;
+  environment?: string;
+  services: string[];
+}
 
 /** The site's Docker volumes and their backups (lf volumes), read when the row opens. */
 function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: string; edit?: VolumeEdit }) {
@@ -393,29 +644,67 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
       (e) => setErr(errorMessage(e)),
     );
   useEffect(() => void load(), [n, name]);
-  const box = (body: ReactNode, aside: ReactNode = addBtn) => <Panel title="Volumes" count={d?.volumes.length || undefined} aside={aside}>{body}</Panel>;
+  const box = (body: ReactNode, aside: ReactNode = addBtn) => (
+    <Panel title="Volumes" count={d?.volumes.length || undefined} aside={aside}>
+      {body}
+    </Panel>
+  );
   const compose = edit?.kind === "compose";
   const env = edit?.environment ? ["-E", edit.environment] : [];
   const where = compose ? "compose.yaml" : ".landfall.json";
   // Edits the project folder, then (if asked) redeploys from it so the server follows and reads the volumes again.
-  const then = (deploy: boolean, next = load) => ifOk(() => deploy && edit && run(["deploy", "-y", ...sv(n), ...env], { server: n, cwd: edit.path, after: ifOk(next) }));
-  const add = edit && (() =>
-    dialog({
-      title: `Keep a folder of ${name}`,
-      text: `A named volume keeps a folder of the container across deploys and rollbacks. It goes into ${where} in ${tilde(edit.path)}, plain ${compose ? "Compose" : "landfall settings"}; a redeploy applies it.`,
-      fields: [
-        ...(compose && edit.services.length > 1 ? [{ name: "service", type: "select" as const, label: "Service", value: edit.services[0], options: edit.services.map((x) => ({ value: x, label: x })) }] : []),
-        { name: "path", label: "Folder in the container", placeholder: "/app/data", mono: true, required: true, check: (x) => (/^\/[\w./-]*\w/.test(String(x)) ? undefined : "An absolute folder, like /app/data") },
-        ...(compose ? [{ name: "as", label: "Volume name", placeholder: "from the folder: /app/data is app-data", mono: true, check: (x: unknown) => (!x || /^\w[\w.-]*$/.test(String(x)) ? undefined : "Letters, digits, ., _ and -") }] : []),
-        { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
-      ],
-      ok: "Add volume",
-      onOk: (v) => {
-        const spec = compose && v.service ? `${v.service}:${v.path}` : String(v.path);
-        run(["volume", "add", spec, ...(v.as ? ["--as", String(v.as)] : []), ...env], { server: n, cwd: edit.path, after: then(!!v.deploy) });
-      },
-    }));
-  const addBtn = add && <Btn cls="sm ghost" title={`Keep a folder of the container across deploys (lf volume add, in ${tilde(edit!.path)})`} on={add}>Add…</Btn>;
+  const then = (deploy: boolean, next = load) =>
+    ifOk(() => deploy && edit && run(["deploy", "-y", ...sv(n), ...env], { server: n, cwd: edit.path, after: ifOk(next) }));
+  const add =
+    edit &&
+    (() =>
+      dialog({
+        title: `Keep a folder of ${name}`,
+        text: `A named volume keeps a folder of the container across deploys and rollbacks. It goes into ${where} in ${tilde(edit.path)}, plain ${compose ? "Compose" : "landfall settings"}; a redeploy applies it.`,
+        fields: [
+          ...(compose && edit.services.length > 1
+            ? [
+                {
+                  name: "service",
+                  type: "select" as const,
+                  label: "Service",
+                  value: edit.services[0],
+                  options: edit.services.map((x) => ({ value: x, label: x })),
+                },
+              ]
+            : []),
+          {
+            name: "path",
+            label: "Folder in the container",
+            placeholder: "/app/data",
+            mono: true,
+            required: true,
+            check: (x) => (/^\/[\w./-]*\w/.test(String(x)) ? undefined : "An absolute folder, like /app/data"),
+          },
+          ...(compose
+            ? [
+                {
+                  name: "as",
+                  label: "Volume name",
+                  placeholder: "from the folder: /app/data is app-data",
+                  mono: true,
+                  check: (x: unknown) => (!x || /^\w[\w.-]*$/.test(String(x)) ? undefined : "Letters, digits, ., _ and -"),
+                },
+              ]
+            : []),
+          { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
+        ],
+        ok: "Add volume",
+        onOk: (v) => {
+          const spec = compose && v.service ? `${v.service}:${v.path}` : String(v.path);
+          run(["volume", "add", spec, ...(v.as ? ["--as", String(v.as)] : []), ...env], { server: n, cwd: edit.path, after: then(!!v.deploy) });
+        },
+      }));
+  const addBtn = add && (
+    <Btn cls="sm ghost" title={`Keep a folder of the container across deploys (lf volume add, in ${tilde(edit!.path)})`} on={add}>
+      Add…
+    </Btn>
+  );
   if (err) return box(<p className="m-0 px-3 py-2.5 text-bad">{err}</p>);
   if (!d) return box(<p className="m-0 px-3 py-2.5 faint">reading its volumes…</p>);
   if (!d.volumes.length) return box(<p className="m-0 px-3 py-2.5 dim">none{add && ": Add… keeps a folder, like uploads or a database, across deploys"}</p>);
@@ -425,7 +714,15 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
     dialog({
       title: `Restore ${key} of ${name}?`,
       text: "Replaces its contents with the backup; the services using it stop meanwhile. The current contents are backed up first: lf undo puts them back.",
-      fields: [{ name: "file", type: "select", label: "Backup", value: list[0].file, options: list.map((b) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })) }],
+      fields: [
+        {
+          name: "file",
+          type: "select",
+          label: "Backup",
+          value: list[0].file,
+          options: list.map((b) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })),
+        },
+      ],
       ok: "Restore",
       danger: true,
       onOk: (v) => run(["volume", "restore", name, key, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
@@ -434,7 +731,15 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
     dialog({
       title: `Delete a backup of ${key}?`,
       text: "Deletes the file from the site's backups folder. This cannot be undone.",
-      fields: [{ name: "file", type: "select", label: "Backup", value: list.at(-1)!.file, options: list.map((b) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })) }],
+      fields: [
+        {
+          name: "file",
+          type: "select",
+          label: "Backup",
+          value: list.at(-1)!.file,
+          options: list.map((b) => ({ value: b.file, label: `${b.file} · ${size(b.size)} · ${ago(b.time)}` })),
+        },
+      ],
       ok: "Delete",
       danger: true,
       onOk: (v) => run(["volume", "backup", "rm", name, v.file, ...sv(n), "-y"], { after: ifOk(load) }),
@@ -463,31 +768,67 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
       title: `Scheduled backups of ${name}`,
       text: "Every volume, from the login user's crontab on the server (backups/backup.sh). lf undo puts back the schedule before.",
       fields: [
-        { name: "every", type: "select", label: "Every", value: /^(\w+),/.exec(d.schedule ?? "")?.[1] ?? "daily", options: ["hourly", "daily", "weekly", "off"].map((x) => ({ value: x, label: x })) },
+        {
+          name: "every",
+          type: "select",
+          label: "Every",
+          value: /^(\w+),/.exec(d.schedule ?? "")?.[1] ?? "daily",
+          options: ["hourly", "daily", "weekly", "off"].map((x) => ({ value: x, label: x })),
+        },
         { name: "keep", label: "Keep per volume", value: /keep (\d+)/.exec(d.schedule ?? "")?.[1] ?? "7" },
-        { name: "offsite", label: "Also copy to (optional)", value: /offsite (\S+)/.exec(d.schedule ?? "")?.[1] ?? "", mono: true, hint: "[user@]host:path: rsync over ssh mirrors the backups there. The server's login user needs an ssh key that host accepts." },
+        {
+          name: "offsite",
+          label: "Also copy to (optional)",
+          value: /offsite (\S+)/.exec(d.schedule ?? "")?.[1] ?? "",
+          mono: true,
+          hint: "[user@]host:path: rsync over ssh mirrors the backups there. The server's login user needs an ssh key that host accepts.",
+        },
       ],
       ok: "Save",
-      onOk: (v) => run(["volume", "backup", name, "--schedule", v.every, ...(v.every === "off" ? [] : ["--keep", v.keep, ...(v.offsite.trim() ? ["--offsite", v.offsite.trim()] : [])]), ...sv(n)], { after: ifOk(load) }),
+      onOk: (v) =>
+        run(
+          [
+            "volume",
+            "backup",
+            name,
+            "--schedule",
+            v.every,
+            ...(v.every === "off" ? [] : ["--keep", v.keep, ...(v.offsite.trim() ? ["--offsite", v.offsite.trim()] : [])]),
+            ...sv(n),
+          ],
+          { after: ifOk(load) },
+        ),
     });
   // Unmount from the project; the data stays unless asked, and goes only once the redeploy freed it.
-  const remove = edit && ((v: Volumes["volumes"][number]) =>
-    dialog({
-      title: `Remove ${v.key} from ${name}?`,
-      text: `Takes its mounts out of ${where} in ${tilde(edit.path)}; a redeploy applies it. Its data stays on the server, listed as unused, unless you delete it too.`,
-      fields: [
-        { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
-        { name: "data", type: "check", label: "Then delete its data on the server", value: false, off: (x) => !x.deploy, hint: "Backed up to the site's backups folder first: lf undo brings it back." },
-      ],
-      ok: "Remove",
-      danger: true,
-      onOk: (x) =>
-        run(["volume", "rm", v.key, ...env], {
-          server: n,
-          cwd: edit.path,
-          after: then(!!x.deploy, x.data ? () => run(["volume", "rm", name, v.key, "--data", ...sv(n), "-y", ...env], { server: n, cwd: edit.path, after: ifOk(load) }) : undefined),
-        }),
-    }));
+  const remove =
+    edit &&
+    ((v: Volumes["volumes"][number]) =>
+      dialog({
+        title: `Remove ${v.key} from ${name}?`,
+        text: `Takes its mounts out of ${where} in ${tilde(edit.path)}; a redeploy applies it. Its data stays on the server, listed as unused, unless you delete it too.`,
+        fields: [
+          { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
+          {
+            name: "data",
+            type: "check",
+            label: "Then delete its data on the server",
+            value: false,
+            off: (x) => !x.deploy,
+            hint: "Backed up to the site's backups folder first: lf undo brings it back.",
+          },
+        ],
+        ok: "Remove",
+        danger: true,
+        onOk: (x) =>
+          run(["volume", "rm", v.key, ...env], {
+            server: n,
+            cwd: edit.path,
+            after: then(
+              !!x.deploy,
+              x.data ? () => run(["volume", "rm", name, v.key, "--data", ...sv(n), "-y", ...env], { server: n, cwd: edit.path, after: ifOk(load) }) : undefined,
+            ),
+          }),
+      }));
   // No container mounts it: left over from a removed mount or an old release.
   const drop = (v: Volumes["volumes"][number]) =>
     confirmDlg({
@@ -501,8 +842,14 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
   const timer = (
     <>
       <span className="faint text-sm">{d.schedule ? `backups ${d.schedule}` : "no scheduled backups"}</span>
-      {d.lastRun?.failed.length ? <Badge kind="bad" title="backups/backup.log on the server">last backup failed: {d.lastRun.failed.join(", ")}</Badge> : null}
-      <Btn cls="sm ghost" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>Schedule…</Btn>
+      {d.lastRun?.failed.length ? (
+        <Badge kind="bad" title="backups/backup.log on the server">
+          last backup failed: {d.lastRun.failed.join(", ")}
+        </Badge>
+      ) : null}
+      <Btn cls="sm ghost" title={`Back up every volume on a timer (lf volume backup ${name} --schedule daily)`} on={schedule}>
+        Schedule…
+      </Btn>
       {addBtn}
     </>
   );
@@ -515,29 +862,79 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <b>{v.key}</b>
-                {v.empty ? <span className="text-warn text-sm" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>empty</span> : v.size !== undefined && <span className="dim text-sm">{size(v.size)}</span>}
-                {!v.mounts.length && <span className="text-warn text-sm" title={`No container mounts it: Delete… removes it (lf volume rm ${name} ${v.key} --data)`}>unused</span>}
-                <span className="faint text-sm">{baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}</span>
+                {v.empty ? (
+                  <span className="text-warn text-sm" title={`No files yet: fill it with Push… (lf volume push ${name} ${v.key} <folder>)`}>
+                    empty
+                  </span>
+                ) : (
+                  v.size !== undefined && <span className="dim text-sm">{size(v.size)}</span>
+                )}
+                {!v.mounts.length && (
+                  <span className="text-warn text-sm" title={`No container mounts it: Delete… removes it (lf volume rm ${name} ${v.key} --data)`}>
+                    unused
+                  </span>
+                )}
+                <span className="faint text-sm">
+                  {baks.length ? `${baks.length} backup${baks.length === 1 ? "" : "s"}, newest ${ago(baks[0].time)}` : "no backups"}
+                </span>
               </div>
               {v.mounts.length > 0 && <div className="faint text-sm mono truncate">{v.mounts.map((x) => `${x.service}:${x.path}`).join(" · ")}</div>}
-              {v.dir && <div className="faint text-sm mono truncate" title="Its files on the server, in the site's folder">{v.dir}</div>}
+              {v.dir && (
+                <div className="faint text-sm mono truncate" title="Its files on the server, in the site's folder">
+                  {v.dir}
+                </div>
+              )}
             </div>
             {/* An empty volume wants filling; a full one backing up. The rest is under More. */}
             <span className={SIDE}>
-              {v.empty
-                ? <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>Push…</Btn>
-                : <Btn cls="sm" title={`Save it as a .tar.gz in the site's backups folder; the services keep running, a database using it pauses while it is copied (lf volume backup ${name} ${v.key})`} on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}>Back up</Btn>}
+              {v.empty ? (
+                <Btn cls="sm" title={`Replace its contents with a folder from this machine (lf volume push ${name} ${v.key})`} on={() => push(v)}>
+                  Push…
+                </Btn>
+              ) : (
+                <Btn
+                  cls="sm"
+                  title={`Save it as a .tar.gz in the site's backups folder; the services keep running, a database using it pauses while it is copied (lf volume backup ${name} ${v.key})`}
+                  on={() => run(["volume", "backup", name, v.key, ...sv(n)], { after: ifOk(load) })}
+                >
+                  Back up
+                </Btn>
+              )}
               <MenuBtn
                 title={`More for volume ${v.key}`}
                 cls="sm ghost"
                 items={[
-                  baks.length > 0 && { label: "Restore…", hint: "lf volume restore", title: "Replace its contents with a backup", run: () => restore(v.key, baks) },
+                  baks.length > 0 && {
+                    label: "Restore…",
+                    hint: "lf volume restore",
+                    title: "Replace its contents with a backup",
+                    run: () => restore(v.key, baks),
+                  },
                   !v.empty && { label: "Push…", hint: "lf volume push", title: "Replace its contents with a folder from this machine", run: () => push(v) },
                   !v.empty && { label: "Pull…", hint: "lf volume pull", title: "Unpack it into a folder on this machine", run: () => pull(v) },
                   "-",
-                  baks.length > 0 && { label: "Delete a backup…", hint: "lf volume backup rm", title: "Delete one of its backups (oldest preselected)", cls: "danger", run: () => forget(v.key, baks) },
-                  remove && v.mounts.length > 0 && { label: "Remove…", hint: "lf volume rm", title: `Unmount it in ${where}, optionally delete its data`, cls: "danger", run: () => remove(v) },
-                  !v.mounts.length && { label: "Delete…", hint: "lf volume rm --data", title: "Delete the unused volume (backed up first)", cls: "danger", run: () => drop(v) },
+                  baks.length > 0 && {
+                    label: "Delete a backup…",
+                    hint: "lf volume backup rm",
+                    title: "Delete one of its backups (oldest preselected)",
+                    cls: "danger",
+                    run: () => forget(v.key, baks),
+                  },
+                  remove &&
+                    v.mounts.length > 0 && {
+                      label: "Remove…",
+                      hint: "lf volume rm",
+                      title: `Unmount it in ${where}, optionally delete its data`,
+                      cls: "danger",
+                      run: () => remove(v),
+                    },
+                  !v.mounts.length && {
+                    label: "Delete…",
+                    hint: "lf volume rm --data",
+                    title: "Delete the unused volume (backed up first)",
+                    cls: "danger",
+                    run: () => drop(v),
+                  },
                 ]}
               />
             </span>
@@ -554,10 +951,20 @@ function SiteFiles({ m }: { m: SiteMeta }) {
   const box = "px-3 py-2.5 text-sm flex flex-col gap-1.5 min-w-0";
   // Paths and commands break anywhere: inside the table, a line that cannot wrap widens every row on a phone.
   const line = cx(MONO, "block break-all");
-  if (m.adopted) return <div className={box}><span className={line}>{m.adopted}</span><span className="dim">its own folder; project <span className="mono">{m.project ?? m.name}</span></span></div>;
+  if (m.adopted)
+    return (
+      <div className={box}>
+        <span className={line}>{m.adopted}</span>
+        <span className="dim">
+          its own folder; project <span className="mono">{m.project ?? m.name}</span>
+        </span>
+      </div>
+    );
   return (
     <div className={box}>
-      <span className={line} title={`${dir}/current is releases/${m.current}`}>{dir}/current <span className="dim">→ releases/{m.current}</span></span>
+      <span className={line} title={`${dir}/current is releases/${m.current}`}>
+        {dir}/current <span className="dim">→ releases/{m.current}</span>
+      </span>
       <span className="faint">compose.yaml · compose.override.yaml (landfall's) · .env (mode 600)</span>
       <span className="faint">run it by hand:</span>
       <code className={cx(line, "rounded-sm bg-hover px-2 py-1")}>cd {dir}/current &amp;&amp; docker compose ps</code>
@@ -567,23 +974,61 @@ function SiteFiles({ m }: { m: SiteMeta }) {
 
 function OthersCard({ n, o }: { n: string; o: Overview }) {
   if (!o.others?.length) return null;
-  const links = (e: External) => e.domains.map((d: string) => <span key={d} className={CHIP}><a href={`https://${d}`} target="_blank" rel="noopener">{d}</a></span>);
+  const links = (e: External) =>
+    e.domains.map((d: string) => (
+      <span key={d} className={CHIP}>
+        <a href={`https://${d}`} target="_blank" rel="noopener">
+          {d}
+        </a>
+      </span>
+    ));
   return (
     <Card>
-      <CardHead>Not deployed by landfall <Badge>{o.others.length}</Badge></CardHead>
-      <Lede>Containers your Traefik routes, e.g. your own compose projects. Adopting one lists it as a site with logs, restart and stop; it keeps running from its folder.</Lede>
-      <Table head={<><th>Name</th><th className={HIDE}>Domains</th><th className={HIDE}>Folder</th><th><span className={SR}>Actions</span></th></>}>
+      <CardHead>
+        Not deployed by landfall <Badge>{o.others.length}</Badge>
+      </CardHead>
+      <Lede>
+        Containers your Traefik routes, e.g. your own compose projects. Adopting one lists it as a site with logs, restart and stop; it keeps running from its
+        folder.
+      </Lede>
+      <Table
+        head={
+          <>
+            <th>Name</th>
+            <th className={HIDE}>Domains</th>
+            <th className={HIDE}>Folder</th>
+            <th>
+              <span className={SR}>Actions</span>
+            </th>
+          </>
+        }
+      >
         {o.others.map((e) => (
           <tr key={e.name}>
             <td>
-              <div className={NAME}><StatusDot status={e.status} /><b>{e.name}</b>&nbsp;<span className="faint">{e.status.toLowerCase()}</span></div>
+              <div className={NAME}>
+                <StatusDot status={e.status} />
+                <b>{e.name}</b>&nbsp;<span className="faint">{e.status.toLowerCase()}</span>
+              </div>
               <div className={cx(CHIPS, SHOW, "mt-1")}>{links(e)}</div>
             </td>
-            <td className={HIDE}><div className={CHIPS}>{links(e)}</div></td>
+            <td className={HIDE}>
+              <div className={CHIPS}>{links(e)}</div>
+            </td>
             <td className={cx(HIDE, MONO, "dim")}>{e.dir ?? e.containers.join(", ")}</td>
             <td className={ACTS}>
-              <Btn cls="sm" title="lf tunnel: an SSH tunnel straight to the container, until you stop it" on={() => run(["tunnel", e.name, ...sv(n)], { server: n })}>Tunnel</Btn>
-              {e.dir && <Btn cls="sm" title="lf adopt" on={() => adoptDialog(n, e)}>Adopt</Btn>}
+              <Btn
+                cls="sm"
+                title="lf tunnel: an SSH tunnel straight to the container, until you stop it"
+                on={() => run(["tunnel", e.name, ...sv(n)], { server: n })}
+              >
+                Tunnel
+              </Btn>
+              {e.dir && (
+                <Btn cls="sm" title="lf adopt" on={() => adoptDialog(n, e)}>
+                  Adopt
+                </Btn>
+              )}
             </td>
           </tr>
         ))}
@@ -596,7 +1041,18 @@ function adoptDialog(n: string, e: External) {
   dialog({
     title: `Adopt ${e.name}?`,
     text: `${e.name} keeps running from ${e.dir} with its own files and Traefik labels. landfall lists it as a site with logs, restart, stop and start; it does not deploy it or change its domains.`,
-    fields: [{ name: "name", label: "Site name", value: e.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, ""), required: true, check: siteNameError }],
+    fields: [
+      {
+        name: "name",
+        label: "Site name",
+        value: e.name
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, "-")
+          .replace(/^-+/, ""),
+        required: true,
+        check: siteNameError,
+      },
+    ],
     ok: "Adopt",
     onOk: (v) => run(["adopt", e.name, ...sv(n), "--name", v.name.trim()], { server: n }),
   });

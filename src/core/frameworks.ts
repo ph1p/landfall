@@ -65,15 +65,66 @@ const ownStart = (c: Ctx, server: string) => (c.scripts.start ? c.run("start") :
 
 /** Packages that make a package.json a server of its own: HTTP, WebSocket and realtime servers. */
 const SERVERS = [
-  "express", "fastify", "koa", "hono", "@hono/node-server", "@nestjs/core", "h3", "@adonisjs/core", "polka", "restify", "@hapi/hapi", "elysia",
-  "@apollo/server", "graphql-yoga", "@feathersjs/feathers", "ws", "socket.io", "uWebSockets.js", "@hocuspocus/server", "y-websocket", "colyseus", "peer",
+  "express",
+  "fastify",
+  "koa",
+  "hono",
+  "@hono/node-server",
+  "@nestjs/core",
+  "h3",
+  "@adonisjs/core",
+  "polka",
+  "restify",
+  "@hapi/hapi",
+  "elysia",
+  "@apollo/server",
+  "graphql-yoga",
+  "@feathersjs/feathers",
+  "ws",
+  "socket.io",
+  "uWebSockets.js",
+  "@hocuspocus/server",
+  "y-websocket",
+  "colyseus",
+  "peer",
 ];
 
 /** Commands that serve files while developing, or a desktop or mobile app: a start script with one is no server. */
 const DEV_TOOLS = new Set([
-  "vite", "react-scripts", "parcel", "webpack", "webpack-dev-server", "vue-cli-service", "ng", "serve", "http-server", "live-server", "lite-server",
-  "browser-sync", "gatsby", "docusaurus", "eleventy", "astro", "hugo", "expo", "react-native", "electron", "electron-forge", "storybook",
-  "start-storybook", "tauri", "snowpack", "nuxt", "ember", "next", "hexo", "vuepress", "vitepress", "quasar", "ionic", "slidev",
+  "vite",
+  "react-scripts",
+  "parcel",
+  "webpack",
+  "webpack-dev-server",
+  "vue-cli-service",
+  "ng",
+  "serve",
+  "http-server",
+  "live-server",
+  "lite-server",
+  "browser-sync",
+  "gatsby",
+  "docusaurus",
+  "eleventy",
+  "astro",
+  "hugo",
+  "expo",
+  "react-native",
+  "electron",
+  "electron-forge",
+  "storybook",
+  "start-storybook",
+  "tauri",
+  "snowpack",
+  "nuxt",
+  "ember",
+  "next",
+  "hexo",
+  "vuepress",
+  "vitepress",
+  "quasar",
+  "ionic",
+  "slidev",
 ]);
 
 const NODE_ENTRIES = ["server.js", "server.mjs", "index.js", "index.mjs", "app.js", "main.js"];
@@ -82,25 +133,38 @@ const BUN_ENTRIES = ["index.ts", "server.ts", "app.ts", "main.ts", "src/index.ts
 /** A Bun project: its lockfile, its config, its types or Elysia; or a start command run with Bun. */
 export function usesBun({ has, pkg }: Files, start = "") {
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-  return ["bun.lock", "bun.lockb", "bunfig.toml"].some(has) || ["@types/bun", "bun-types", "elysia"].some((d) => d in deps) || (pkg.packageManager ?? "").startsWith("bun@") || [start, pkg.scripts?.start ?? ""].some((s) => /^bunx?\b/.test(s));
+  return (
+    ["bun.lock", "bun.lockb", "bunfig.toml"].some(has) ||
+    ["@types/bun", "bun-types", "elysia"].some((d) => d in deps) ||
+    (pkg.packageManager ?? "").startsWith("bun@") ||
+    [start, pkg.scripts?.start ?? ""].some((s) => /^bunx?\b/.test(s))
+  );
 }
 
 /** Whether a start script runs a server, not a dev server, a static file server or `npm run dev`. */
 function startsServer(script: string) {
   return script.split(/&&|\|\||;/).every((part) => {
-    const words = part.trim().split(/\s+/).filter((w) => !/^\w+=/.test(w) && !["npx", "cross-env", "env", "bunx", "pnpx", "dotenv", "--"].includes(w));
+    const words = part
+      .trim()
+      .split(/\s+/)
+      .filter((w) => !/^\w+=/.test(w) && !["npx", "cross-env", "env", "bunx", "pnpx", "dotenv", "--"].includes(w));
     return !DEV_TOOLS.has(words[0] ?? "") && !/\bdev\b/.test(part);
   });
 }
 
 /** The folder a docs generator's build script names (vitepress build docs), else the project. */
-const docsRoot = (c: Ctx, cli: string) => (c.build && c.scripts.build?.match(new RegExp(`\\b${cli}\\s+build\\s+([^\\s-]\\S*)`))?.[1].replace(/^\.\/|\/$/g, "")) || ".";
+const docsRoot = (c: Ctx, cli: string) =>
+  (c.build && c.scripts.build?.match(new RegExp(`\\b${cli}\\s+build\\s+([^\\s-]\\S*)`))?.[1].replace(/^\.\/|\/$/g, "")) || ".";
 
 /** Site generators that only write files: by a dependency (and a build script), their output folder. */
 const SITES: [name: string, deps: string[], dir: string | ((c: Ctx) => string)][] = [
   ["Gatsby", ["gatsby"], "public"],
   ["Docusaurus", ["@docusaurus/core"], "build"],
-  ["Eleventy", ["@11ty/eleventy"], (c) => setting(c.first([".eleventy.js", "eleventy.config.js", "eleventy.config.mjs", "eleventy.config.cjs"]), "output") ?? "_site"],
+  [
+    "Eleventy",
+    ["@11ty/eleventy"],
+    (c) => setting(c.first([".eleventy.js", "eleventy.config.js", "eleventy.config.mjs", "eleventy.config.cjs"]), "output") ?? "_site",
+  ],
   ["Create React App", ["react-scripts"], "build"],
   ["VitePress", ["vitepress"], (c) => below(docsRoot(c, "vitepress"), ".vitepress/dist")],
   ["VuePress", ["vuepress"], (c) => below(docsRoot(c, "vuepress"), ".vuepress/dist")],
@@ -119,12 +183,32 @@ const SITES: [name: string, deps: string[], dir: string | ((c: Ctx) => string)][
 /** Generators outside Node.js: by a file of theirs, the folder they write and the command that builds it. */
 const GENERATORS: Framework[] = [
   { name: "Hugo", files: ["hugo.toml", "hugo.yaml", "hugo.json"], serve: () => ({ dir: "public", build: "hugo --minify" }) },
-  { name: "Jekyll", files: ["_config.yml"], serve: (c) => (c.read("Gemfile").includes("jekyll") ? { dir: "_site", build: "bundle exec jekyll build" } : undefined) },
+  {
+    name: "Jekyll",
+    files: ["_config.yml"],
+    serve: (c) => (c.read("Gemfile").includes("jekyll") ? { dir: "_site", build: "bundle exec jekyll build" } : undefined),
+  },
   { name: "MkDocs", files: ["mkdocs.yml"], serve: (c) => ({ dir: setting(c.read("mkdocs.yml"), "site_dir") ?? "site", build: "mkdocs build" }) },
-  { name: "Zola", files: ["zola.toml", "config.toml"], serve: (c) => (c.has("zola.toml") || (c.has("templates") && /^base_url\s*=/m.test(c.read("config.toml"))) ? { dir: "public", build: "zola build" } : undefined) },
+  {
+    name: "Zola",
+    files: ["zola.toml", "config.toml"],
+    serve: (c) =>
+      c.has("zola.toml") || (c.has("templates") && /^base_url\s*=/m.test(c.read("config.toml"))) ? { dir: "public", build: "zola build" } : undefined,
+  },
   { name: "mdBook", files: ["book.toml"], serve: (c) => ({ dir: setting(c.read("book.toml"), "build-dir") ?? "book", build: "mdbook build" }) },
-  { name: "Pelican", files: ["pelicanconf.py"], serve: (c) => ({ dir: "output", build: `pelican ${setting(c.read("pelicanconf.py"), "PATH") ?? "content"} -s ${c.has("publishconf.py") ? "publishconf.py" : "pelicanconf.py"}` }) },
-  { name: "Lume", files: ["_config.ts", "_config.js"], serve: (c) => (isLume(c) ? { dir: setting(c.first(["_config.ts", "_config.js"]), "dest") ?? "_site", build: "deno task build" } : undefined) },
+  {
+    name: "Pelican",
+    files: ["pelicanconf.py"],
+    serve: (c) => ({
+      dir: "output",
+      build: `pelican ${setting(c.read("pelicanconf.py"), "PATH") ?? "content"} -s ${c.has("publishconf.py") ? "publishconf.py" : "pelicanconf.py"}`,
+    }),
+  },
+  {
+    name: "Lume",
+    files: ["_config.ts", "_config.js"],
+    serve: (c) => (isLume(c) ? { dir: setting(c.first(["_config.ts", "_config.js"]), "dest") ?? "_site", build: "deno task build" } : undefined),
+  },
 ];
 
 /**
@@ -139,7 +223,8 @@ const FRAMEWORKS: Framework[] = [
       const conf = c.config("next.config").text;
       const output = conf.match(/\boutput\s*:\s*["'`](\w+)["'`]/)?.[1];
       if (output === "export") return { mode: "output: 'export'", dir: setting(conf, "distDir") ?? "out" };
-      if (output === "standalone") return { mode: "output: 'standalone'", start: `${c.bun ? "bun" : "node"} server.js`, standalone: setting(conf, "distDir") ?? ".next" };
+      if (output === "standalone")
+        return { mode: "output: 'standalone'", start: `${c.bun ? "bun" : "node"} server.js`, standalone: setting(conf, "distDir") ?? ".next" };
       // A start script that runs a file of its own (`node server.ts`) is a custom server: it serves Next.js itself.
       const own = c.scripts.start?.trim();
       if (own && !/^next\s+start\b/.test(own)) return { mode: "custom server", start: /^(node|bun)\s+[\w./-]+$/.test(own) ? own : c.run("start") };
@@ -156,12 +241,19 @@ const FRAMEWORKS: Framework[] = [
       return { start: `${preset === "bun" ? "bun" : "node"} ${NITRO}` };
     },
   },
-  { name: "TanStack Start", deps: ["@tanstack/react-start", "@tanstack/solid-start", "@tanstack/start"], serve: (c) => ({ start: ownStart(c, `node ${NITRO}`) }) },
+  {
+    name: "TanStack Start",
+    deps: ["@tanstack/react-start", "@tanstack/solid-start", "@tanstack/start"],
+    serve: (c) => ({ start: ownStart(c, `node ${NITRO}`) }),
+  },
   { name: "SolidStart", deps: ["@solidjs/start"], serve: (c) => ({ start: ownStart(c, `node ${NITRO}`) }) },
   {
     name: "Analog",
     deps: ["@analogjs/platform"],
-    serve: (c) => (/\bstatic\s*:\s*true\b/.test(c.config("vite.config").text) ? { mode: "static", dir: "dist/analog/public" } : { start: "node dist/analog/server/index.mjs" }),
+    serve: (c) =>
+      /\bstatic\s*:\s*true\b/.test(c.config("vite.config").text)
+        ? { mode: "static", dir: "dist/analog/public" }
+        : { start: "node dist/analog/server/index.mjs" },
   },
   {
     name: "React Router",
@@ -204,11 +296,18 @@ const FRAMEWORKS: Framework[] = [
     deps: ["@builder.io/qwik-city"],
     serve: (c) => {
       // The adapter in adapters/<name>/ decides: static files, or a server entry that build.server writes to server/.
-      for (const [a, mode] of [["express", "Express"], ["node-server", "Node"], ["fastify", "Fastify"]]) {
+      for (const [a, mode] of [
+        ["express", "Express"],
+        ["node-server", "Node"],
+        ["fastify", "Fastify"],
+      ]) {
         if (c.has(`adapters/${a}`)) return { mode, start: `node server/entry.${a}` };
       }
       if (c.has("adapters/static")) return { mode: "static", dir: "dist" };
-      return { start: "node server/entry.express", fix: `Qwik City needs an adapter to run on a server: ${c.run("qwik add")} (pick Node.js Express Server, or Static Site)` };
+      return {
+        start: "node server/entry.express",
+        fix: `Qwik City needs an adapter to run on a server: ${c.run("qwik add")} (pick Node.js Express Server, or Static Site)`,
+      };
     },
   },
   {
@@ -234,7 +333,8 @@ const FRAMEWORKS: Framework[] = [
     // A server of its own: its entry file, or a start script that runs no dev server.
     serve: (c) => {
       if (c.entry) return { start: `${c.bun ? "bun" : "node"} ${c.entry}` };
-      if (c.scripts.start && (SERVERS.some(c.dep) || startsServer(c.scripts.start))) return { start: c.scripts["start:prod"] ? c.run("start:prod") : c.run("start") };
+      if (c.scripts.start && (SERVERS.some(c.dep) || startsServer(c.scripts.start)))
+        return { start: c.scripts["start:prod"] ? c.run("start:prod") : c.run("start") };
     },
   },
   ...SITES.map(([name, deps, dir]): Framework => ({ name, deps, serve: (c) => (c.build ? { dir: typeof dir === "string" ? dir : dir(c) } : undefined) })),
@@ -252,7 +352,10 @@ function context(cwd: string): Ctx {
   const entries = bun ? [pkg.module, pkg.main, ...BUN_ENTRIES, ...NODE_ENTRIES] : [pkg.main, ...NODE_ENTRIES];
   const entry = scripts.start ? undefined : entries.find((e) => e && f.has(e) && (SERVERS.some(dep) || (bun && /\bBun\.serve\b/.test(f.read(e)))));
   return Object.assign(f, {
-    scripts, dep, bun, entry,
+    scripts,
+    dep,
+    bun,
+    entry,
     run: pm.run,
     add: pm.add,
     build: scripts.build ? pm.run("build") : undefined,

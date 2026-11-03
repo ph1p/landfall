@@ -109,7 +109,8 @@ export async function updateConfig(mutate: (cfg: Config) => unknown, timeout = 5
       break;
     } catch (e: any) {
       if (e.code !== "EEXIST") throw e;
-      if (Date.now() >= until) fail(`local config is locked: ${lock}. Check that no landfall writer is active before removing an abandoned lock; config was not saved.`);
+      if (Date.now() >= until)
+        fail(`local config is locked: ${lock}. Check that no landfall writer is active before removing an abandoned lock; config was not saved.`);
       await delay(25);
     }
   }
@@ -127,7 +128,9 @@ export async function updateConfig(mutate: (cfg: Config) => unknown, timeout = 5
   } finally {
     // A manually removed/replaced lock is no longer ours to release.
     let stillOurs = false;
-    try { stillOurs = fs.readFileSync(join(lock, "owner.json"), "utf8") === owner; } catch {}
+    try {
+      stillOurs = fs.readFileSync(join(lock, "owner.json"), "utf8") === owner;
+    } catch {}
     if (stillOurs) fs.rmSync(lock, { recursive: true, force: true });
   }
 }
@@ -135,7 +138,8 @@ export async function updateConfig(mutate: (cfg: Config) => unknown, timeout = 5
 /** Commit only fields changed by a long operation; refuse overlapping edits or a removed entry. */
 export function patchServer(cfg: Config, name: string, before: Server | undefined, next: Server): Server {
   const current = cfg.servers[name];
-  const conflict = () => fail(`local configuration for ${name} changed during this command; not saved. Review it before retrying; remote work was not reverted.`);
+  const conflict = () =>
+    fail(`local configuration for ${name} changed during this command; not saved. Review it before retrying; remote work was not reverted.`);
   if (before && !current) conflict();
   if (!before && current && !isDeepStrictEqual(current, next)) conflict();
   const merged = { ...current } as Server;
@@ -221,7 +225,8 @@ export const checkImage = (image: string) => (IMAGE.test(image) ? image : fail(`
 /** A whole number from a flag or .landfall.json, within [min, max]; fails otherwise. */
 export function checkInt(v: unknown, what: string, min: number, max = Number.MAX_SAFE_INTEGER): number {
   const n = typeof v === "number" ? v : /^\s*\d+\s*$/.test(String(v)) ? Number(v) : NaN;
-  if (!Number.isInteger(n) || n < min || n > max) fail(`${what} must be a whole number from ${min}${max < Number.MAX_SAFE_INTEGER ? ` to ${max}` : " up"}, got ${v}`);
+  if (!Number.isInteger(n) || n < min || n > max)
+    fail(`${what} must be a whole number from ${min}${max < Number.MAX_SAFE_INTEGER ? ` to ${max}` : " up"}, got ${v}`);
   return n;
 }
 

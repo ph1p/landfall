@@ -64,7 +64,9 @@ export function pruneSummary(p: PrunePlan, failed: { what: string }[] = []): str
     n("volume", vols) > 0 && `${n("volume", vols)} volumes`,
     n("backups", p.leftovers?.length ?? 0) > 0 && `the backups of ${n("backups", p.leftovers?.length ?? 0)} removed sites`,
     p.logs && `container logs and the journal beyond ${JOURNAL_KEEP}`,
-  ].filter(Boolean).join(", ");
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 /** At most what the plan frees: image sizes count layers they share, and the journal keeps JOURNAL_KEEP. */

@@ -22,7 +22,13 @@ function Root() {
   });
   return (
     <>
-      {fatal ? <Empty title="lf ui"><p>{fatal}</p></Empty> : <App />}
+      {fatal ? (
+        <Empty title="lf ui">
+          <p>{fatal}</p>
+        </Empty>
+      ) : (
+        <App />
+      )}
       <MenuHost />
       <DialogHost />
       <ToastHost />

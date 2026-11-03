@@ -18,7 +18,10 @@ export const traefikSetup = defineCommand({
     image: { type: "string", desc: `traefik image, remembered (default: ${DEFAULT_TRAEFIK_IMAGE})` },
     "host-network": { type: "boolean", desc: "run on the host network: real client IPs, ufw applies; remembered (--no-host-network)" },
     http3: { type: "boolean", desc: "HTTP/3 over QUIC on 443/udp, on by default; remembered (--no-http3 turns it off)" },
-    dashboard: { type: "string", desc: "serve the traefik dashboard on this domain (basic auth), remembered; `traefik` = traefik.<main domain>, `off` removes it" },
+    dashboard: {
+      type: "string",
+      desc: "serve the traefik dashboard on this domain (basic auth), remembered; `traefik` = traefik.<main domain>, `off` removes it",
+    },
     "dashboard-user": { type: "string", desc: "dashboard user", default: DEFAULT_USER },
     "dashboard-password": { type: "string", desc: "dashboard password (default: generated)" },
     force: { type: "boolean", desc: "overwrite a docker-compose.yml that was edited by hand" },
@@ -92,7 +95,10 @@ With a Traefik of your own (lf traefik use), landfall only stops routing sites t
     const st = await traefikState(server);
     if (st.proxy) {
       if (!(await confirm(`Stop routing sites on ${name} through your traefik ${st.proxy}? It keeps running.`, false))) fail("cancelled");
-      await runScript(server, `${PRELUDE}\nu=$(saved ${PROXY_FILE})\n_as ${ROOT} rm -f ${PROXY_FILE}\nrecord ${shq(`sites stop using traefik ${st.proxy}`)} "$u"`);
+      await runScript(
+        server,
+        `${PRELUDE}\nu=$(saved ${PROXY_FILE})\n_as ${ROOT} rm -f ${PROXY_FILE}\nrecord ${shq(`sites stop using traefik ${st.proxy}`)} "$u"`,
+      );
       ok(`landfall no longer uses ${st.proxy}; it keeps running and keeps routing the sites until they are redeployed`);
       return info(c.dim("lf traefik setup installs landfall's own traefik"));
     }
@@ -133,7 +139,11 @@ export const traefikLogs = defineCommand({
     // Requests outnumber everything else: take the last lines from a larger window once they are dropped.
     const n = checkInt(o.tail, "--tail", 1);
     const drop = `awk '!/^\\{.*"DownstreamStatus":/ { print; fflush() }'`;
-    return sshExec(server, [o.follow ? `docker logs --tail ${n} -f ${PROXY_CTR} 2>&1 | ${drop}` : `docker logs --tail ${Math.max(n * 50, 5000)} ${PROXY_CTR} 2>&1 | ${drop} | tail -n ${n}`]);
+    return sshExec(server, [
+      o.follow
+        ? `docker logs --tail ${n} -f ${PROXY_CTR} 2>&1 | ${drop}`
+        : `docker logs --tail ${Math.max(n * 50, 5000)} ${PROXY_CTR} 2>&1 | ${drop} | tail -n ${n}`,
+    ]);
   },
 });
 

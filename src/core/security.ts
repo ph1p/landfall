@@ -37,7 +37,11 @@ export const passwordOnly = (passwordUsers: string[], keyUsers: string[], exempt
   passwordUsers.filter((u) => u !== "root" && !exempt.includes(u) && !keyUsers.includes(u));
 
 export const lockedOut = (i: SystemInfo, loginUser: string) =>
-  passwordOnly(i.security.passwordUsers ?? [], i.keys.map((k) => k.user), [loginUser]);
+  passwordOnly(
+    i.security.passwordUsers ?? [],
+    i.keys.map((k) => k.user),
+    [loginUser],
+  );
 
 /** lockedOut, read with two shell checks instead of the whole system check. `admin`: root or sudo. */
 export async function lockedOutOn(admin: Server, loginUser: string) {

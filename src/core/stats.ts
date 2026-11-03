@@ -141,13 +141,21 @@ export function parseStats(out: string, now = new Date()): Stats {
     at: now.toISOString(),
     uptime: Math.round(t[1] || 0),
     cpus,
-    load: (v.load ?? "").split(/\s+/).map((n) => Number(n) || 0).concat([0, 0, 0]).slice(0, 3) as Stats["load"],
+    load: (v.load ?? "")
+      .split(/\s+/)
+      .map((n) => Number(n) || 0)
+      .concat([0, 0, 0])
+      .slice(0, 3) as Stats["load"],
     cpu: dTotal > 0 ? pct((100 * (dTotal - dIdle)) / dTotal) : 0,
     mem: { total: memTotal, available: memAvail, swapTotal, swapFree },
     disks,
     net: [...net[1]]
       .filter(([iface]) => !VIRTUAL.test(iface) && net[0].has(iface))
-      .map(([iface, [rx, tx]]) => ({ iface, rx: Math.max(0, Math.round((rx - net[0].get(iface)![0]) / secs)), tx: Math.max(0, Math.round((tx - net[0].get(iface)![1]) / secs)) })),
+      .map(([iface, [rx, tx]]) => ({
+        iface,
+        rx: Math.max(0, Math.round((rx - net[0].get(iface)![0]) / secs)),
+        tx: Math.max(0, Math.round((tx - net[0].get(iface)![1]) / secs)),
+      })),
     // Ticks of one process against the ticks one core had in the same time.
     procs: procs
       .map((p) => ({ pid: p.pid, name: p.name, cpu: dTotal > 0 ? pct((100 * p.ticks * cpus) / dTotal) : 0, rss: p.rss * page }))
@@ -246,7 +254,8 @@ export function parseDisk(out: string): DiskUsage {
     const f = line.split("\t");
     if (f[0] === "DISK") d.disks.push({ mount: f[1], total: +f[2] * 1024, used: +f[3] * 1024, available: +f[4] * 1024 });
     else if (f[0] === "SITE") d.sites.push({ name: f[1], size: (+f[2] || 0) * 1024, releasesSize: (+f[3] || 0) * 1024, releases: +f[4] || 0 });
-    else if (f[0] === "DF") d.dockerDf.push({ type: f[1], count: +f[2] || 0, active: +f[3] || 0, size: parseSize(f[4] ?? ""), reclaimable: parseSize((f[5] ?? "").split(" ")[0]) });
+    else if (f[0] === "DF")
+      d.dockerDf.push({ type: f[1], count: +f[2] || 0, active: +f[3] || 0, size: parseSize(f[4] ?? ""), reclaimable: parseSize((f[5] ?? "").split(" ")[0]) });
     else if (f[0] === "VOL") d.volumes.push({ name: f[1], links: +f[2] || 0, size: parseSize(f[3] ?? "") });
     else if (f[0] === "LOG") d.logs.push({ container: f[1], ...(f[2] && { size: +f[2] * 1024 }) });
   }

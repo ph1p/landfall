@@ -3,7 +3,11 @@ import { Btn } from "./kit";
 
 // One live region in the top layer, so it shows (and is announced) above an open dialog too.
 // action: {label, run} adds a button, e.g. to open the job a toast is about.
-interface Toast { msg: string; action?: { label: string; run: () => void }; n: number }
+interface Toast {
+  msg: string;
+  action?: { label: string; run: () => void };
+  n: number;
+}
 let show: (t: Toast) => void = () => {};
 let n = 0;
 export function toast(msg: string, action?: Toast["action"]) {
@@ -46,12 +50,17 @@ export function ToastHost() {
       >
         {t?.msg}
         {t?.action && (
-          <Btn cls="sm ml-2.5 bg-transparent shadow-none border-[color-mix(in_srgb,var(--bg)_40%,transparent)] text-inherit" on={() => (hide(), t.action!.run())}>
+          <Btn
+            cls="sm ml-2.5 bg-transparent shadow-none border-[color-mix(in_srgb,var(--bg)_40%,transparent)] text-inherit"
+            on={() => (hide(), t.action!.run())}
+          >
             {t.action.label}
           </Btn>
         )}
       </div>
-      <div className="sr-only" role="status">{live}</div>
+      <div className="sr-only" role="status">
+        {live}
+      </div>
     </>
   );
 }

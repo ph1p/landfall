@@ -32,7 +32,11 @@ export async function findContainer(s: Server, filters: string[]): Promise<Ctr |
   const line = stdout.trim();
   if (!line) return undefined;
   const [name, mode, nets, labels, args, exposed] = line.split("\t").map((x) => JSON.parse(x));
-  const ips = Object.fromEntries(Object.entries<any>(nets ?? {}).map(([n, v]) => [n, v?.IPAddress]).filter(([, ip]) => ip));
+  const ips = Object.fromEntries(
+    Object.entries<any>(nets ?? {})
+      .map(([n, v]) => [n, v?.IPAddress])
+      .filter(([, ip]) => ip),
+  );
   const ports = Object.keys(exposed ?? {})
     .map((p) => p.match(/^(\d+)\/tcp$/)?.[1])
     .filter((p): p is string => !!p)
@@ -61,7 +65,9 @@ export function routerPort(traefik: Ctr, router: string): { port: number; tls: b
       return m ? [[m[1].toLowerCase(), Number(m[2])] as const] : [];
     }),
   );
-  const eps = label("entrypoints")?.split(",").map((e) => e.trim().toLowerCase()) ?? [...addrs.keys()];
+  const eps = label("entrypoints")
+    ?.split(",")
+    .map((e) => e.trim().toLowerCase()) ?? [...addrs.keys()];
   const tls = label("tls") === "true" || !!label("tls.certresolver");
   const ports = eps.map((e) => addrs.get(e)).filter((p): p is number => p !== undefined);
   const port = ports.find((p) => (p === 443) === tls) ?? ports[0];
@@ -69,7 +75,21 @@ export function routerPort(traefik: Ctr, router: string): { port: number; tls: b
 }
 
 /** Well-known ports that speak something other than HTTP: the scheme a client connects with. */
-const SCHEMES: Record<number, string> = { 25: "smtp", 110: "pop3", 143: "imap", 465: "smtps", 587: "smtp", 993: "imaps", 995: "pop3s", 3306: "mysql", 5432: "postgresql", 5672: "amqp", 6379: "redis", 11211: "memcached", 27017: "mongodb" };
+const SCHEMES: Record<number, string> = {
+  25: "smtp",
+  110: "pop3",
+  143: "imap",
+  465: "smtps",
+  587: "smtp",
+  993: "imaps",
+  995: "pop3s",
+  3306: "mysql",
+  5432: "postgresql",
+  5672: "amqp",
+  6379: "redis",
+  11211: "memcached",
+  27017: "mongodb",
+};
 export const portScheme = (port: number) => SCHEMES[port] ?? "http";
 
 /** `preferred` if nothing listens on it at `host`, else any free port. */
@@ -107,7 +127,15 @@ function hostProxy(port: number, to: number, as: AsHost, host: string) {
   const client = as.tls ? https : http;
   const srv = http.createServer((req, res) => {
     const up = client.request(
-      { host: "127.0.0.1", port: to, servername: as.name, rejectUnauthorized: false, method: req.method, path: req.url, headers: { ...req.headers, host: as.name } },
+      {
+        host: "127.0.0.1",
+        port: to,
+        servername: as.name,
+        rejectUnauthorized: false,
+        method: req.method,
+        path: req.url,
+        headers: { ...req.headers, host: as.name },
+      },
       (r) => (res.writeHead(r.statusCode ?? 502, r.headers), r.pipe(res)),
     );
     up.on("error", (e) => (res.headersSent ? res.destroy() : res.writeHead(502).end(`${as.name}: ${e.message}\n`)));

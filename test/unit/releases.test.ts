@@ -2,8 +2,7 @@ import { describe, expect, test } from "vitest";
 import { readSiteLine, type SiteMeta } from "../../src/core/compose";
 import { oldReleases } from "../../src/core/remote";
 
-const site = (current: string, ids: string[]) =>
-  ({ name: "blog", current, releases: ids.map((id) => ({ id, at: id, services: [] })) }) as unknown as SiteMeta;
+const site = (current: string, ids: string[]) => ({ name: "blog", current, releases: ids.map((id) => ({ id, at: id, services: [] })) }) as unknown as SiteMeta;
 const ids = (m: SiteMeta, o?: Parameters<typeof oldReleases>[1]) => oldReleases(m, o).map((r) => r.id);
 
 describe("releases lf release rm deletes", () => {

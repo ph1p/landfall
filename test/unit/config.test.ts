@@ -26,10 +26,26 @@ const write = (value: unknown) => fs.writeFileSync(CONFIG_PATH, JSON.stringify(v
 
 function message(child: ChildProcess, expected: string) {
   return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { cleanup(); child.kill(); reject(new Error(`worker timed out waiting for ${expected}`)); }, 10000);
-    const onMessage = (m: unknown) => { if (m === expected) { cleanup(); resolve(); } };
-    const onExit = (code: number | null) => { cleanup(); reject(new Error(`worker exited ${code} before ${expected}`)); };
-    const cleanup = () => { clearTimeout(timer); child.off("message", onMessage); child.off("exit", onExit); };
+    const timer = setTimeout(() => {
+      cleanup();
+      child.kill();
+      reject(new Error(`worker timed out waiting for ${expected}`));
+    }, 10000);
+    const onMessage = (m: unknown) => {
+      if (m === expected) {
+        cleanup();
+        resolve();
+      }
+    };
+    const onExit = (code: number | null) => {
+      cleanup();
+      reject(new Error(`worker exited ${code} before ${expected}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+    };
     child.on("message", onMessage);
     child.once("exit", onExit);
   });
@@ -37,7 +53,8 @@ function message(child: ChildProcess, expected: string) {
 
 async function worker(mode: string, name = "") {
   const child = fork("test/unit/fixtures/config-worker.ts", [mode, name], {
-    execArgv: ["--import", "tsx"], env: { ...process.env, LANDFALL_CONFIG_DIR: dir },
+    execArgv: ["--import", "tsx"],
+    env: { ...process.env, LANDFALL_CONFIG_DIR: dir },
     stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
   await message(child, "ready");
@@ -47,7 +64,9 @@ async function worker(mode: string, name = "") {
 describe("global config transactions", () => {
   test("creates private config and updates defaults atomically", async () => {
     await useServer("a");
-    await updateConfig((cfg) => { cfg.defaults = { keep: 3 }; });
+    await updateConfig((cfg) => {
+      cfg.defaults = { keep: 3 };
+    });
     expect(loadConfig()).toEqual({ default: "a", servers: { a: { host: "a" } }, defaults: { keep: 3 } });
     expect(fs.statSync(CONFIG_PATH).mode & 0o777).toBe(0o600);
     await forgetServer("a");
@@ -57,9 +76,21 @@ describe("global config transactions", () => {
 
   test("exceptions, invalid JSON and async callbacks never replace config or strand owned locks", async () => {
     write({ servers: {} });
-    await expect(updateConfig(() => { throw new Error("fixture"); })).rejects.toThrow("fixture");
-    await expect(updateConfig(async (cfg) => { cfg.default = "wrong"; })).rejects.toThrow("synchronous");
-    await expect(updateConfig(async () => { throw new Error("rejected async fixture"); })).rejects.toThrow("synchronous");
+    await expect(
+      updateConfig(() => {
+        throw new Error("fixture");
+      }),
+    ).rejects.toThrow("fixture");
+    await expect(
+      updateConfig(async (cfg) => {
+        cfg.default = "wrong";
+      }),
+    ).rejects.toThrow("synchronous");
+    await expect(
+      updateConfig(async () => {
+        throw new Error("rejected async fixture");
+      }),
+    ).rejects.toThrow("synchronous");
     expect(loadConfig()).toEqual({ servers: {} });
     fs.writeFileSync(CONFIG_PATH, "{broken");
     await expect(updateConfig(() => {})).rejects.toThrow("cannot read");
@@ -102,11 +133,13 @@ describe("global config transactions", () => {
     const children: ChildProcess[] = [];
     try {
       for (let i = 0; i < 8; i++) children.push(await worker("add", `server-${i}`));
-      await Promise.all(children.map((child) => {
-        const done = message(child, "done");
-        child.send("go");
-        return done;
-      }));
+      await Promise.all(
+        children.map((child) => {
+          const done = message(child, "done");
+          child.send("go");
+          return done;
+        }),
+      );
       expect(Object.keys(loadConfig().servers).sort()).toEqual(Array.from({ length: 8 }, (_, i) => `server-${i}`));
     } finally {
       children.forEach((child) => child.kill());
@@ -128,7 +161,8 @@ describe("global config transactions", () => {
       await Promise.all([heldDone, done]);
       expect(loadConfig()).toEqual({ servers: { after: { host: "after" } }, defaults: { keep: 7 } });
     } finally {
-      holder.kill(); writer.kill();
+      holder.kill();
+      writer.kill();
     }
   });
 
@@ -145,7 +179,8 @@ describe("global config transactions", () => {
       cfg.default ??= "a";
     });
     expect(loadConfig()).toEqual({
-      servers: { a: { host: "a", domains: ["a.test"], port: 2222, email: "other@example.com" }, b: { host: "b" } }, default: "b",
+      servers: { a: { host: "a", domains: ["a.test"], port: 2222, email: "other@example.com" }, b: { host: "b" } },
+      default: "b",
     });
   });
 
@@ -169,15 +204,23 @@ describe("global config transactions", () => {
       await config.run([], { default: "a", keep: "4", json: true }, []);
       expect(loadConfig()).toEqual({ servers: { a: { host: "a" } }, default: "a", defaults: { keep: 4 } });
     } finally {
-      output.mockRestore(); errors.mockRestore();
+      output.mockRestore();
+      errors.mockRestore();
     }
   });
 
   test("server add rebases its actual delayed authentication commit", async () => {
     let resume!: (key: string | undefined) => void;
     let entered!: () => void;
-    const waiting = new Promise<void>((resolve) => { entered = resolve; });
-    vi.mocked(ensureKeyLogin).mockImplementationOnce(() => { entered(); return new Promise((resolve) => { resume = resolve; }); });
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.mocked(ensureKeyLogin).mockImplementationOnce(() => {
+      entered();
+      return new Promise((resolve) => {
+        resume = resolve;
+      });
+    });
     const add = serverAdd.run(["a"], { "ssh-config": false }, []);
     await waiting;
     await useServer("b");
@@ -190,9 +233,14 @@ describe("global config transactions", () => {
     write({ servers: { a: { host: "a", domains: ["old.test"] } }, default: "a" });
     let resume!: () => void;
     let entered!: () => void;
-    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     const confirmation = vi.spyOn(term, "confirmRemoval").mockImplementationOnce(() => {
-      entered(); return new Promise<void>((resolve) => { resume = resolve; });
+      entered();
+      return new Promise<void>((resolve) => {
+        resume = resolve;
+      });
     });
     try {
       const change = serverDomain.run(["a"], { clear: true, "tunnel-only": true }, []);
@@ -200,7 +248,9 @@ describe("global config transactions", () => {
       // oxlint-disable-next-line vitest/valid-expect -- awaited below, after the confirmation is released
       const refused = expect(change).rejects.toThrow("changed during");
       await waiting;
-      await updateConfig((cfg) => { cfg.servers.a.domains = ["new.test"]; });
+      await updateConfig((cfg) => {
+        cfg.servers.a.domains = ["new.test"];
+      });
       resume();
       await refused;
       expect(loadConfig().servers.a).toEqual({ host: "a", domains: ["new.test"] });

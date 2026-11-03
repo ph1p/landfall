@@ -7,7 +7,6 @@ import { canLogin, dest, targetArgs } from "./ssh";
 import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, readStdin, report, step, warn } from "./term";
 
-
 let askpass: string | undefined;
 
 /**

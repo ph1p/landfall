@@ -100,8 +100,18 @@ export interface Field {
   mono?: boolean;
 }
 /** collapsed: a section that opens on click (open unless true). */
-export interface Group { legend: string; fields: Spec[]; collapsed?: boolean; note?: string; id?: string; when?: (values: Values) => unknown }
-export interface Row { row: Field[]; when?: (values: Values) => unknown }
+export interface Group {
+  legend: string;
+  fields: Spec[];
+  collapsed?: boolean;
+  note?: string;
+  id?: string;
+  when?: (values: Values) => unknown;
+}
+export interface Row {
+  row: Field[];
+  when?: (values: Values) => unknown;
+}
 export type Spec = Field | Group | Row;
 export interface DialogSpec {
   title: string;
@@ -142,7 +152,8 @@ export const portError = (x: string) => x && !(/^\d+$/.test(x) && +x >= 1 && +x 
 /** For a field's check: what is wrong with a login's user or password (lf newLogin's rules). */
 export const userError = (user: string) => !new RegExp(S.state.rules.loginName).test(user) && "Only letters, digits and . _ @ -";
 /** For a field's check: an SSH public key line (the .pub file), or nothing. */
-export const keyError = (k: string) => k && !/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(k.split("\n")[0]) && "That does not look like a public key (the .pub file)";
+export const keyError = (k: string) =>
+  k && !/^(\S+\s+)?(ssh-|ecdsa-|sk-)\S+ AAAA/.test(k.split("\n")[0]) && "That does not look like a public key (the .pub file)";
 export const passwordError = (pw: string) => pw.length < S.state.rules.minPassword && `The password needs at least ${S.state.rules.minPassword} characters`;
 
 /**
@@ -177,7 +188,9 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
   const { title, text = "", fields = [], ok = "OK", danger = false, onOk, extra, after, typeToConfirm = "", sidebar = false, aside } = spec;
   const specs = flat(fields);
   const form = useRef<HTMLFormElement>(null);
-  const [values, setValues] = useState<Values>(() => Object.fromEntries(specs.map(({ f }) => [f.name, f.type === "check" ? !!f.value : f.type === "custom" ? f.value : String(f.value ?? "")])));
+  const [values, setValues] = useState<Values>(() =>
+    Object.fromEntries(specs.map(({ f }) => [f.name, f.type === "check" ? !!f.value : f.type === "custom" ? f.value : String(f.value ?? "")])),
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formErr, setFormErr] = useState("");
   const [typed, setTyped] = useState("");
@@ -242,7 +255,9 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
   useEffect(() => {
     const f = form.current!;
     // A dangerous confirm starts on Cancel, so a stray Enter does not delete anything.
-    const first = [...f.querySelectorAll<HTMLElement>("input:not([type=checkbox]), textarea, select")].find((x) => !(x as HTMLInputElement).disabled && !x.closest("details:not([open])"));
+    const first = [...f.querySelectorAll<HTMLElement>("input:not([type=checkbox]), textarea, select")].find(
+      (x) => !(x as HTMLInputElement).disabled && !x.closest("details:not([open])"),
+    );
     focusInDialog(first ?? f.querySelector<HTMLElement>(danger ? "#dlg-cancel" : "button[type=submit]"));
   }, []);
 
@@ -264,8 +279,16 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     const hint = f.hint && <div className={HINT}>{f.hint}</div>;
     const below = (
       <>
-        {line && <div className={cx(HINT, "text-dim! font-mono wrap-anywhere")} id={`${id}-p`} aria-live="polite">{line}</div>}
-        {error && <div className="field-err text-bad text-sm font-[450] mt-1" id={`${id}-e`}>{error}</div>}
+        {line && (
+          <div className={cx(HINT, "text-dim! font-mono wrap-anywhere")} id={`${id}-p`} aria-live="polite">
+            {line}
+          </div>
+        )}
+        {error && (
+          <div className="field-err text-bad text-sm font-[450] mt-1" id={`${id}-e`}>
+            {error}
+          </div>
+        )}
       </>
     );
     const str = String(values[f.name]);
@@ -274,7 +297,11 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
       return (
         <label key={f.name} className="flex gap-2 items-start text-fg text-md font-normal">
           <input type="checkbox" {...attrs} className="w-auto mt-[3px]" checked={!!values[f.name]} onChange={(e) => set(f, e.target.checked)} />
-          <span>{f.label}{hint}{below}</span>
+          <span>
+            {f.label}
+            {hint}
+            {below}
+          </span>
         </label>
       );
     if (f.type === "custom")
@@ -291,21 +318,49 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     if (f.type === "select")
       control = (
         <select {...attrs} value={str} onChange={onChange}>
-          {f.options!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {f.options!.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
       );
     else if (f.type === "password") control = <input {...attrs} {...secretProps} value={str} placeholder={f.placeholder} onChange={onChange} />;
-    else if (f.type === "textarea") control = <textarea {...attrs} className={mono} value={str} placeholder={f.placeholder} spellCheck={false} onChange={onChange} />;
+    else if (f.type === "textarea")
+      control = <textarea {...attrs} className={mono} value={str} placeholder={f.placeholder} spellCheck={false} onChange={onChange} />;
     else
       control = (
-        <input {...attrs} className={mono} inputMode={f.type === "number" ? "numeric" : undefined} type="text" value={str} placeholder={f.placeholder} autoComplete="off" autoCapitalize="off" spellCheck={false} onChange={onChange} />
+        <input
+          {...attrs}
+          className={mono}
+          inputMode={f.type === "number" ? "numeric" : undefined}
+          type="text"
+          value={str}
+          placeholder={f.placeholder}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          onChange={onChange}
+        />
       );
-    return <label key={f.name}>{f.label}{control}{hint}{below}</label>;
+    return (
+      <label key={f.name}>
+        {f.label}
+        {control}
+        {hint}
+        {below}
+      </label>
+    );
   };
   const group = (s: Spec, i: number): ReactNode => {
     if (s.when && !s.when(values)) return null;
     // Tops in line: a hint or error under one field must not push the others' inputs down.
-    if ("row" in s) return <div key={i} className="flex gap-2.5 flex-wrap items-start [&>label]:flex-[1_1_140px]">{s.row.map(field)}</div>;
+    if ("row" in s)
+      return (
+        <div key={i} className="flex gap-2.5 flex-wrap items-start [&>label]:flex-[1_1_140px]">
+          {s.row.map(field)}
+        </div>
+      );
     if (!("fields" in s)) return field(s);
     const inner = s.fields.map(group);
     if (s.collapsed !== undefined)
@@ -325,20 +380,40 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
           {inner}
         </div>
       );
-    return <fieldset key={i} data-group={s.id}><legend>{s.legend}</legend>{inner}</fieldset>;
+    return (
+      <fieldset key={i} data-group={s.id}>
+        <legend>{s.legend}</legend>
+        {inner}
+      </fieldset>
+    );
   };
 
   const confirmField = typeToConfirm && (
     <label>
       Type <b className="mono">{typeToConfirm}</b> to confirm
-      <input id="dlg-confirm" autoComplete="off" spellCheck={false} autoCapitalize="off" value={typed} onChange={(e) => (setTyped(e.target.value), setFormErr(""))} />
+      <input
+        id="dlg-confirm"
+        autoComplete="off"
+        spellCheck={false}
+        autoCapitalize="off"
+        value={typed}
+        onChange={(e) => (setTyped(e.target.value), setFormErr(""))}
+      />
     </label>
   );
-  const errLine = formErr && <div className={cx(noteClass("bad"), "m-0")} id="dlg-err" role="alert">{formErr}</div>;
+  const errLine = formErr && (
+    <div className={cx(noteClass("bad"), "m-0")} id="dlg-err" role="alert">
+      {formErr}
+    </div>
+  );
   const buttons = (
     <>
-      <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>Cancel</Btn>
-      <Btn type="submit" cls={danger ? "danger solid" : "primary"} disabled={submitOff}>{ok}</Btn>
+      <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>
+        Cancel
+      </Btn>
+      <Btn type="submit" cls={danger ? "danger solid" : "primary"} disabled={submitOff}>
+        {ok}
+      </Btn>
     </>
   );
   const formProps = {
@@ -362,7 +437,12 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
       // At the bottom the last section counts, however short it is.
       if (p.scrollTop + p.clientHeight >= p.scrollHeight - 4) return setActive(els.length - 1);
       const top = p.getBoundingClientRect().top + 32;
-      setActive(Math.max(0, els.findLastIndex((x) => x.getBoundingClientRect().top <= top)));
+      setActive(
+        Math.max(
+          0,
+          els.findLastIndex((x) => x.getBoundingClientRect().top <= top),
+        ),
+      );
     };
     const jump = (i: number) => {
       setActive(i);
@@ -371,7 +451,9 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     return (
       <form {...formProps} className="flex flex-col min-h-0 flex-1 max-sm:overflow-y-auto overscroll-contain">
         <header className="px-6 pt-[22px] pb-4 grid gap-3 border-b border-line">
-          <h2 id="dlg-title" className={DTITLE}>{title}</h2>
+          <h2 id="dlg-title" className={DTITLE}>
+            {title}
+          </h2>
           {text && <div className={DTEXT}>{text}</div>}
           {extra}
         </header>
@@ -398,7 +480,9 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
             {sections.map((s, i) => (
               <section key={s.legend} data-group={s.id} aria-labelledby={`sec-${i}`} className="grid gap-3.5 scroll-mt-5">
                 <div>
-                  <h3 id={`sec-${i}`} className="m-0 text-md font-semibold">{s.legend}</h3>
+                  <h3 id={`sec-${i}`} className="m-0 text-md font-semibold">
+                    {s.legend}
+                  </h3>
                   {s.note && <div className={HINT}>{s.note}</div>}
                 </div>
                 {s.fields.map(group)}
@@ -408,7 +492,10 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
             {confirmField}
           </div>
           {aside && (
-            <aside aria-label="About" className="max-sm:px-6 max-sm:pt-5 max-sm:border-b sm:w-80 lg:w-96 shrink-0 sm:border-l border-line sm:overflow-y-auto overscroll-contain sm:p-5 grid content-start gap-5 text-md max-sm:order-first">
+            <aside
+              aria-label="About"
+              className="max-sm:px-6 max-sm:pt-5 max-sm:border-b sm:w-80 lg:w-96 shrink-0 sm:border-l border-line sm:overflow-y-auto overscroll-contain sm:p-5 grid content-start gap-5 text-md max-sm:order-first"
+            >
               {aside}
             </aside>
           )}
@@ -421,7 +508,9 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
 
   return (
     <form {...formProps} className={DFORM}>
-      <h2 id="dlg-title" className={DTITLE}>{title}</h2>
+      <h2 id="dlg-title" className={DTITLE}>
+        {title}
+      </h2>
       {text && <div className={DTEXT}>{text}</div>}
       {extra}
       {fields.map(group)}

@@ -1,7 +1,22 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
 import { TRIVY, TRIVY_CACHE } from "../../core/scan";
-import { checkDomain, checkEmail, DOMAIN, editList, forgetServer, loadConfig, mainDomain, withPrimary, resolveServer, updateConfig, patchServer, tildify, useServer, type Server } from "../../core/config";
+import {
+  checkDomain,
+  checkEmail,
+  DOMAIN,
+  editList,
+  forgetServer,
+  loadConfig,
+  mainDomain,
+  withPrimary,
+  resolveServer,
+  updateConfig,
+  patchServer,
+  tildify,
+  useServer,
+  type Server,
+} from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
@@ -166,11 +181,18 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     const [ov, st, runs] = await Promise.all([overview(server), traefikState(server), readJournal(server)]);
     if (st.compose === "foreign") fail(`${TRAEFIK_DIR}/docker-compose.yml was not written by landfall: move it out of ${ROOT} first`);
     // Whatever lives under ROOT goes with it; undoing it step by step could trip over what is already gone.
-    const steps = o["keep-setup"] ? [] : runs.filter((r) => SETUP_RUN.test(r.cmd)).flatMap(pending).filter((x) => !x.undo!.includes(ROOT));
+    const steps = o["keep-setup"]
+      ? []
+      : runs
+          .filter((r) => SETUP_RUN.test(r.cmd))
+          .flatMap(pending)
+          .filter((x) => !x.undo!.includes(ROOT));
 
     step(`uninstall landfall from ${c.bold(name)}`);
     for (const x of ov.sites) {
-      const what = x.meta.adopted ? `forget ${x.meta.name} (keeps running from ${x.meta.adopted})` : `delete ${x.meta.name} (${x.domains.join(", ") || "no domains"})`;
+      const what = x.meta.adopted
+        ? `forget ${x.meta.name} (keeps running from ${x.meta.adopted})`
+        : `delete ${x.meta.name} (${x.domains.join(", ") || "no domains"})`;
       console.error(`  ${c.red("-")} ${what}${o.volumes && !x.meta.adopted ? " and its volumes" : ""}`);
     }
     if (st.compose) console.error(`  ${c.red("-")} stop and remove traefik and its certificates`);
@@ -290,7 +312,9 @@ and the Host block in ~/.ssh/config. Nothing connects to the server.`,
     row("login", `${s.ssh.user}@${s.ssh.hostname}:${s.ssh.port}`);
     for (const k of s.ssh.keys) row("key", k.exists ? k.file : `${k.file} ${c.dim("(missing)")}`);
     if (s.ssh.block) {
-      console.log(`\n${c.bold("ssh config")} ${c.dim(`${s.ssh.block.file}:${s.ssh.block.line}${s.ssh.block.managed ? ", written by landfall" : ", your own"}`)}`);
+      console.log(
+        `\n${c.bold("ssh config")} ${c.dim(`${s.ssh.block.file}:${s.ssh.block.line}${s.ssh.block.managed ? ", written by landfall" : ", your own"}`)}`,
+      );
       for (const l of s.ssh.block.text.split("\n")) console.log(`  ${l}`);
     } else console.log(`\n${c.bold("ssh config")} ${c.dim("no Host block; ssh uses its defaults")}`);
   },
@@ -342,7 +366,8 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
       const missing = rm.filter((d) => !server.domains?.includes(d));
       if (missing.length) warn(`${missing.join(", ")} is not a main domain of ${name}`);
       const dropped = (server.domains ?? []).filter((d) => !next!.includes(d));
-      if (dropped.length) await confirmRemoval(`Remove the main domain${dropped.length > 1 ? "s" : ""} ${dropped.join(", ")} of ${name}? Sites keep their domains.`);
+      if (dropped.length)
+        await confirmRemoval(`Remove the main domain${dropped.length > 1 ? "s" : ""} ${dropped.join(", ")} of ${name}? Sites keep their domains.`);
     }
     if (changing || tunnelOnly !== undefined) {
       const saved = await updateConfig((fresh) => {
@@ -363,11 +388,19 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
       server.tunnelOnly = saved.servers[name].tunnelOnly;
     }
     if (tunnelOnly !== undefined) {
-      ok(tunnelOnly ? `new sites on ${c.bold(name)} get no domain: reach them with lf tunnel, or deploy with -d` : `new sites on ${c.bold(name)} get a domain again`);
+      ok(
+        tunnelOnly
+          ? `new sites on ${c.bold(name)} get no domain: reach them with lf tunnel, or deploy with -d`
+          : `new sites on ${c.bold(name)} get a domain again`,
+      );
       if (!changing) return;
     }
     if (next) {
-      ok(next.length ? `main domains of ${c.bold(name)}: ${next.map((d, i) => (i ? d : c.bold(d))).join(", ")}${next.length > 1 ? c.dim(" (first = primary)") : ""}` : `${name} has no main domain`);
+      ok(
+        next.length
+          ? `main domains of ${c.bold(name)}: ${next.map((d, i) => (i ? d : c.bold(d))).join(", ")}${next.length > 1 ? c.dim(" (first = primary)") : ""}`
+          : `${name} has no main domain`,
+      );
       if (!next.length) return;
     }
     const domains = server.domains ?? [];

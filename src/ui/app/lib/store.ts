@@ -3,36 +3,40 @@ import type { Job } from "./jobs";
 import type * as T from "./types";
 
 /** One server's slot in a store: loading, then { data } or { error }; data stays while it reloads. */
-export interface Slot<T = unknown> { data?: T; error?: string; loading?: boolean }
+export interface Slot<T = unknown> {
+  data?: T;
+  error?: string;
+  loading?: boolean;
+}
 type Store<T> = Record<string, Slot<T>>;
 
 export const S = {
   state: null as unknown as T.State, // /api/state, loaded before the first render
   sel: null as string | null, // selected server name
   tab: "sites",
-  overview: {} as Store<T.Overview>,     // name -> {data} | {error} | {loading}
+  overview: {} as Store<T.Overview>, // name -> {data} | {error} | {loading}
   firewall: {} as Store<T.Firewall>,
   det: {} as Record<string, T.Detected | null | false>, // project folder -> what /api/fs detected there (null while reading, false if it failed)
-  system: {} as Store<T.SystemInfo>,       // name -> {data: lf system --json}
-  users: {} as Store<T.Users>,        // name -> {data: lf users --json}
+  system: {} as Store<T.SystemInfo>, // name -> {data: lf system --json}
+  users: {} as Store<T.Users>, // name -> {data: lf users --json}
   history: {} as Store<T.Run[]>,
   updates: {} as Record<string, Slot<T.Updates> & { refreshing?: boolean }>,
   facts: {} as Store<T.Facts>,
-  stats: {} as Store<T.Stats>,        // name -> {data: lf stats --json}; reloads every few seconds while the tab is open
+  stats: {} as Store<T.Stats>, // name -> {data: lf stats --json}; reloads every few seconds while the tab is open
   statsLog: {} as Record<string, { cpu: number; mem: number }[]>, // the last samples, for the sparklines
-  scan: {} as Store<T.ImageScan[]>,       // name -> {data: lf scan --json}, only on request: a scan takes a while
-  disk: {} as Store<T.DiskUsage>,         // name -> {data: lf disk --json}, only on request: du takes a while
-  settings: {} as Store<T.Config>,     // name -> {data: lf server config --json + dns of the main domain}
-  dns: {} as Store<T.Dns>,          // name -> {data: {ips, domains: [{domain, ips, ok, https: lf check}]}}; checked again each minute
-  traffic: {} as Store<T.Traffic>,      // name -> {data: lf traffic --json --since S.since}
-  since: "24h",              // the Traffic tab's range
+  scan: {} as Store<T.ImageScan[]>, // name -> {data: lf scan --json}, only on request: a scan takes a while
+  disk: {} as Store<T.DiskUsage>, // name -> {data: lf disk --json}, only on request: du takes a while
+  settings: {} as Store<T.Config>, // name -> {data: lf server config --json + dns of the main domain}
+  dns: {} as Store<T.Dns>, // name -> {data: {ips, domains: [{domain, ips, ok, https: lf check}]}}; checked again each minute
+  traffic: {} as Store<T.Traffic>, // name -> {data: lf traffic --json --since S.since}
+  since: "24h", // the Traffic tab's range
   focus: {} as Record<string, string | undefined>, // name -> the site the Traffic tab shows alone (lf traffic <site>)
-  errs: {} as Store<T.Traffic>,         // name -> {data: lf traffic --json --since 24h}, for the sites' errors card
-  certs: {} as Store<T.Certs>,        // name -> {data: lf certs --json}
+  errs: {} as Store<T.Traffic>, // name -> {data: lf traffic --json --since 24h}, for the sites' errors card
+  certs: {} as Store<T.Certs>, // name -> {data: lf certs --json}
   proxy: {} as Store<T.TraefikStatus>, // name -> {data: lf traefik status --json}, for the Traefik tab
-  open: new Set<string>(),   // expanded site rows
+  open: new Set<string>(), // expanded site rows
   allSvcs: {} as Record<string, boolean>, // servers whose System tab lists every service
-  filter: "",                // server list filter
+  filter: "", // server list filter
   reach: {} as Record<string, T.Reach>, // from /api/reach
   reaching: false,
   reachedAt: null as Date | null, // when the last check finished

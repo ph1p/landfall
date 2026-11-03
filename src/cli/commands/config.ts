@@ -59,7 +59,10 @@ A server's own setting wins over these (lf server config shows which applies):
     row("new sites", `${v.tunnelOnly ? "no domain, tunnel only" : "get a domain"}${own("tunnelOnly")}`);
     row("e-mail", v.email ?? c.dim("none"));
     row("keep", `${v.keep} releases${own("keep")}`);
-    for (const [title, list] of [["on this machine", v.locations.local], ["on each server", v.locations.server]] as const) {
+    for (const [title, list] of [
+      ["on this machine", v.locations.local],
+      ["on each server", v.locations.server],
+    ] as const) {
       console.log(`\n${c.bold(title)}`);
       const w = Math.max(...list.map((l) => l.path.length));
       for (const l of list) console.log(`  ${l.path.padEnd(w)}  ${c.dim(l.what)}`);

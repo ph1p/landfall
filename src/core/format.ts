@@ -3,7 +3,7 @@
 export const bytes = (n: number) => {
   const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
-  while (n >= 1024 && i < u.length - 1) (n /= 1024), i++;
+  while (n >= 1024 && i < u.length - 1) ((n /= 1024), i++);
   return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
 };
 

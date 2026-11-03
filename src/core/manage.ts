@@ -42,7 +42,6 @@ ${LOG_SIZES}
 printf 'JOURNAL\t%s\n' "${JOURNAL_USAGE}"
 `;
 
-
 export function parsePrunePlan(out: string, all = false): PrunePlan {
   const plan: PrunePlan = { docker: true, all, images: [], buildCache: 0, networks: [] };
   const logs = () => (plan.logs ??= { root: false, size: 0, journal: 0 });
@@ -94,7 +93,15 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
     plan.leftovers = leftovers;
   }
   for (const img of byId.values()) {
-    img.keep = used.has(img.id) ? "used" : img.tags.some((t) => release.has(t)) ? "release" : undo.has(img.id) ? "undo" : img.tags.length && !all ? "tagged" : undefined;
+    img.keep = used.has(img.id)
+      ? "used"
+      : img.tags.some((t) => release.has(t))
+        ? "release"
+        : undo.has(img.id)
+          ? "undo"
+          : img.tags.length && !all
+            ? "tagged"
+            : undefined;
     plan.images.push(img);
   }
   plan.images.sort((a, b) => b.size - a.size);
@@ -121,7 +128,8 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
   const refs = imgs.flatMap((i) => (i.tags.length ? i.tags : [i.id]));
   // A failure keeps docker's last error line, without its "Error response from daemon: " prefix.
   const why = String.raw`"$(printf %s "$e" | tail -n 1 | sed 's/^Error response from daemon: //' | tr '	' ' ')"`;
-  const tryRm = (cmd: string, what: string, name: string) => `e=$(${cmd} 2>&1 >/dev/null) || printf 'FAILED\\t%s\\t%s\\t%s\\n' ${shq(what)} ${shq(name)} ${why}`;
+  const tryRm = (cmd: string, what: string, name: string) =>
+    `e=$(${cmd} 2>&1 >/dev/null) || printf 'FAILED\\t%s\\t%s\\t%s\\n' ${shq(what)} ${shq(name)} ${why}`;
   const rm = (what: string, r: string) => tryRm(`docker ${what} rm ${shq(r)}`, what, r);
   const script = [
     PRELUDE,
@@ -142,10 +150,13 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
     "exit 0",
   ].join("\n");
   const { stdout } = await runScript(s, script, { capture: true });
-  const failed = stdout.split("\n").filter((l) => l.startsWith("FAILED\t")).map((l) => {
-    const [, what, name, why] = l.split("\t");
-    return { what, name, ...(why && { why }) };
-  });
+  const failed = stdout
+    .split("\n")
+    .filter((l) => l.startsWith("FAILED\t"))
+    .map((l) => {
+      const [, what, name, why] = l.split("\t");
+      return { what, name, ...(why && { why }) };
+    });
   return { failed };
 }
 
@@ -153,7 +164,10 @@ const RUNNING = `docker ps --format '{{.Names}}' 2>/dev/null || sudo -n docker p
 
 export async function running(s: Server): Promise<string[]> {
   const { stdout } = await runScript(s, RUNNING, { capture: true });
-  return stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  return stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
 export const REBOOT = String.raw`

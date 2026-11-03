@@ -10,12 +10,76 @@ import pkg from "../../package.json";
 
 function help() {
   const groups: [string, string[]][] = [
-    ["Servers", ["setup", "server add", "server list", "server info", "stats", "disk", "prune", "reboot", "server config", "server domain", "server use", "server rm", "server uninstall", "ssh", "keygen"]],
-    ["System", ["system", "services", "services restart", "services start", "services stop", "services logs", "keys", "keys add", "keys rm", "bans", "unban", "swap", "hostname", "timezone", "log-limit", "security", "harden"]],
+    [
+      "Servers",
+      [
+        "setup",
+        "server add",
+        "server list",
+        "server info",
+        "stats",
+        "disk",
+        "prune",
+        "reboot",
+        "server config",
+        "server domain",
+        "server use",
+        "server rm",
+        "server uninstall",
+        "ssh",
+        "keygen",
+      ],
+    ],
+    [
+      "System",
+      [
+        "system",
+        "services",
+        "services restart",
+        "services start",
+        "services stop",
+        "services logs",
+        "keys",
+        "keys add",
+        "keys rm",
+        "bans",
+        "unban",
+        "swap",
+        "hostname",
+        "timezone",
+        "log-limit",
+        "security",
+        "harden",
+      ],
+    ],
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
     ["Traefik", ["traefik setup", "traefik use", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
-    ["Sites", ["init", "deploy", "sites list", "sites info", "domains", "auth", "open", "tunnel", "tunnels", "logs", "env", "secret", "rollback", "release rm", "restart", "stop", "start", "sites rm", "adopt", "eject"]],
+    [
+      "Sites",
+      [
+        "init",
+        "deploy",
+        "sites list",
+        "sites info",
+        "domains",
+        "auth",
+        "open",
+        "tunnel",
+        "tunnels",
+        "logs",
+        "env",
+        "secret",
+        "rollback",
+        "release rm",
+        "restart",
+        "stop",
+        "start",
+        "sites rm",
+        "adopt",
+        "eject",
+      ],
+    ],
     ["Volumes", ["volumes", "volume add", "volume rm", "volume backup", "volume backup rm", "volume pull", "volume push", "volume restore"]],
     ["Monitoring", ["traffic", "certs", "check"]],
     ["Updates", ["updates", "update", "scan"]],
@@ -98,8 +162,7 @@ async function run(argv: string[]): Promise<number> {
       console.error(`${c.red("error:")} ${e.message}`);
       // A safety check refused: the web UI offers to run it again with --force.
       if (/--force\b/.test(e.message)) report({ force: e.message });
-    }
-    else console.error(e);
+    } else console.error(e);
     return 1;
   }
 }

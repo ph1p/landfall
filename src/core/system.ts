@@ -206,8 +206,20 @@ function localFingerprints(s: Server): Set<string> {
 export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
   const v = kvRecord(out);
   const info: SystemInfo = {
-    root: false, user: "", hostname: "", timezone: "", time: "", init: "other", swap: [], diskFree: 0, mem: 0,
-    services: [], fail2ban: "missing", jails: [], keys: [], security: { reboot: false },
+    root: false,
+    user: "",
+    hostname: "",
+    timezone: "",
+    time: "",
+    init: "other",
+    swap: [],
+    diskFree: 0,
+    mem: 0,
+    services: [],
+    fail2ban: "missing",
+    jails: [],
+    keys: [],
+    security: { reboot: false },
   };
   const enabled = new Map<string, string>();
   let daemon: string | undefined;
@@ -217,7 +229,8 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     else if (f[0] === "DAEMON") daemon = f.slice(1).join("\t");
     else if (f[0] === "SVC" && f[1]) info.services.push({ unit: f[1], load: f[2], active: f[3], sub: f[4], description: f.slice(5).join("\t") });
     else if (f[0] === "UF" && f[1]) enabled.set(f[1], f[2]);
-    else if (f[0] === "JAIL") info.jails.push({ name: f[1], banned: +f[2] || 0, total: +f[3] || 0, failed: +f[4] || 0, ips: (f[5] ?? "").split(/\s+/).filter(Boolean) });
+    else if (f[0] === "JAIL")
+      info.jails.push({ name: f[1], banned: +f[2] || 0, total: +f[3] || 0, failed: +f[4] || 0, ips: (f[5] ?? "").split(/\s+/).filter(Boolean) });
     else if (f[0] === "KEY") {
       const k = parseKeyLine(f.slice(2).join("\t"));
       if (k) info.keys.push({ user: f[1], ...k, ...(mine.has(k.fingerprint) ? { mine: true } : {}) });

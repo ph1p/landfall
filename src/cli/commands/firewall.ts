@@ -112,7 +112,9 @@ export const firewallStatus = defineCommand({
     step(`firewall on ${name}: ${state}${fw.ufw === "active" ? c.dim(` · incoming default ${fw.policy.toLowerCase()}`) : ""}`);
     console.log(`\n${c.bold("Rules")}`);
     if (!fw.rules.length) info(c.dim("none"));
-    table(fw.rules.map((r, i) => [`  ${i + 1}`, r.action === "allow" || r.action === "limit" ? c.green(r.action) : c.red(r.action), r.spec.replace(/^\S+\s+/, "")]));
+    table(
+      fw.rules.map((r, i) => [`  ${i + 1}`, r.action === "allow" || r.action === "limit" ? c.green(r.action) : c.red(r.action), r.spec.replace(/^\S+\s+/, "")]),
+    );
     console.log(`\n${c.bold("Listening ports")}`);
     const color = { open: c.green, limited: c.yellow, blocked: c.red, local: c.dim };
     table(fw.ports.map((p) => [`  ${p.port}`, p.proc, color[p.state](p.why)]));
@@ -178,7 +180,11 @@ export const firewallRemove = defineCommand({
     const { name, server } = resolveServer(o.server);
     const fw = await firewallState(server);
     const { rule, n } = pick(fw, which);
-    await guardSsh(fw, fw.rules.filter((r) => r !== rule), o.force);
+    await guardSsh(
+      fw,
+      fw.rules.filter((r) => r !== rule),
+      o.force,
+    );
     await confirmRemoval(`Remove rule ${n} (${rule.spec}) on ${name}?`);
     await runScript(fw.login, `${PRELUDE}\n${NEEDS_UFW}\n${deleteRule(rule, position(fw, n))}`);
     ok(`removed rule ${n}: ${rule.spec}`);
