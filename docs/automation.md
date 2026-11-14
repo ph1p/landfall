@@ -77,9 +77,18 @@ Isolate a run from the user's setup with `LANDFALL_CONFIG_DIR` (landfall's confi
 | what did landfall change? | `lf history --json` |
 | what can the server do? | `lf server info --json` (OS support, login, init system, Docker) |
 
-## What cannot be undone
+## Read-only agent preflight
 
-Most changes revert with `lf undo`. These do not, so confirm them with the user before running them:
+Run these commands in sequence to verify a server before making changes.
+
+```sh
+lf server info -s <server> --json           # check OS and environment
+lf ls -s <server> --json                    # list all sites on the server
+lf sites info <site> -s <server> --json     # check site details and state
+lf check <site> -s <server> --json          # verify the site is healthy and reachable
+```
+
+A failing health check stops the preflight. It does not authorize a deployment, restart or rollback.
 
 - `lf sites rm` (the site; its volumes stay, or with `--volumes` are backed up first and can be restored)
 - `lf release rm`, `lf prune` (all variants), `lf volume backup rm`
