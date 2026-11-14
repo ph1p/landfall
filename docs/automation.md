@@ -90,6 +90,10 @@ lf check <site> -s <server> --json          # verify the site is healthy and rea
 
 A failing health check stops the preflight. It does not authorize a deployment, restart or rollback.
 
+## What cannot be undone
+
+Most changes revert with `lf undo`. These do not, so confirm them with the user before running them:
+
 - `lf sites rm` (the site; its volumes stay, or with `--volumes` are backed up first and can be restored)
 - `lf release rm`, `lf prune` (all variants), `lf volume backup rm`
 - `lf update --packages` / `--security` (package upgrades), `lf reboot`
