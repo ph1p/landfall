@@ -1,16 +1,18 @@
 # Agent Handoff Checklist
 
-Use this checklist when delegating tasks to a coding agent working on Landfall.
+Use this checklist when delegating tasks to a coding agent. This ensures clear communication, safety, and quality control within the Landfall project.
 
-## 1. Definition
-- [ ] **Goal & Acceptance Criteria:** Clearly define the objective and what constitutes a successful completion.
-- [ ] **Scope of Change:** Specify the exact files allowed to be modified.
+## 1. Task Definition
+- [ ] **Agree on Goal:** Clearly define the objective and expected outcome.
+- [ ] **Define Acceptance Criteria:** Specify exactly what constitutes a successful task (e.g., "The command `lf --help` shows the new group").
+- [ ] **Scope Constraints:** Explicitly list the allowed files for modification.
 
 ## 2. Execution
-- [ ] **Relevant Checks:** Run all required tests and linting commands as specified in `AGENTS.md`.
-- [ ] **Scratch Space:** Ensure all temporary helper files or scratchpad data are written to `/tmp` and not committed.
+- [ ] **File Bounds:** Ensure the agent only modifies files within the agreed scope.
+- [ ] **Use `/tmp` for Helpers:** All temporary scratch files or helper scripts created during the task must be placed in `/tmp`.
+- [ ] **Run Relevant Checks:** Execute all necessary tests and linters as specified in `AGENTS.md` (e.g., `pnpm test`, `pnpm lint`).
 
 ## 3. Review & Handoff
-- [ ] **Diff Inspection:** Thoroughly review the generated diff for correctness, adherence to project conventions, and unintended side effects.
-- [ ] **CI/Build Validation:** Verify that the changes pass all CI checks (linting, typechecking, tests) before proposing a merge or release.
-- [ ] **No Secret Leaks:** Confirm that no secrets, credentials, or sensitive environment variables are present in the code or logs.
+- [ ] **Diff Inspection:** Manually review the code changes (the diff) to ensure they align with the goal and follow project conventions.
+- [ ] **CI/Testing Verification:** Verify that all automated tests pass and linting is clean.
+- [ ] **Final Review:** Before merging or releasing, perform a final check of the changes against the initial acceptance criteria.
