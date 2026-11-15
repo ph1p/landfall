@@ -33,6 +33,15 @@ This page is the contract for running `lf` without a person at the keyboard. For
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `bans`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `history` |
+| local CLI | `version` (also `--version` and `-v`) |
+
+Read the installed CLI version without connecting to a server:
+
+```sh
+lf version --json                          # returns {"version":"<installed version>"}
+```
+
+`lf --version --json` and `lf -v --json` return the same object. Without `--json`, all three forms print only the version string.
 
 The web UI reads the very same JSON, so its shape is stable within a release. `lf env --json` hides values
 unless you add `--reveal`. `lf secret --json` never contains secret values.

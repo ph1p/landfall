@@ -128,7 +128,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (argv[0] === "-v" || argv[0] === "--version" || argv[0] === "version") {
-    if (process.argv.includes("--json")) {
+    if (argv.includes("--json")) {
       console.log(JSON.stringify({ version: pkg.version }));
     } else {
       console.log(pkg.version);
