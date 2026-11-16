@@ -10,10 +10,10 @@ Every command, every local and remote file landfall uses, and its environment va
 
 | command | what it does |
 |---|---|
-| `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, deploy user, ssh hardening and Traefik. Idempotent. Installs fail2ban only where ssh passwords stay on (`--no-harden`). No ufw where the cloud provider's firewall is always in front, unless `--firewall`. |
+| `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, deploy user, ssh hardening and Traefik. Idempotent. Installs fail2ban only where ssh passwords stay on (`--no-harden`). No ufw where the cloud provider's firewall is always in front, unless `--firewall`. `--cloud <provider>` sets the provider where detection is wrong. |
 | `lf setup <name> --check` | Reports what is set up and what setup would change. Changes nothing. |
 | `lf setup <name> --key-only` | Only installs landfall's ssh key. |
-| `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
+| `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--cloud provider] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
 | `lf server list [--all] [--check] [--json]` | Lists registered servers. `--all` adds every ssh alias except git hosts (github.com, `gitlab.*`, `User git` …). `--check` tries a key login to each: `ok`, `login` (sshd refuses the key) or `down`. Alias: `servers`. |
 | `lf server info [name] [--json]` | Shows OS and release support, kernel, uptime, CPU, RAM, disk, addresses and containers. Alias: `info`. |
 | `lf stats [site] [-w] [--interval s] [--json]` | Shows live CPU, memory, swap, disks, network, the busiest processes and each container's CPU, memory, network and restarts. With a site, only its containers. `-w` refreshes until Ctrl-C. Alias: `server stats`. |

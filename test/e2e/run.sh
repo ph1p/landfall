@@ -32,7 +32,8 @@ needs() {
     domains | traefik | remove) echo image ;;
     # main's traefik setup is the later run that keeps undo from reverting setup's traefik.
     undo) echo static dockerfile main firewall ;;
-    ui) echo dockerfile image domains ;;
+    # security leaves fail2ban installed and stopped: the advice whose fix button ui presses.
+    ui) echo dockerfile image domains security ;;
   esac
 }
 ONLY=" "
@@ -697,6 +698,8 @@ HOME="$WORK/home" lf keys add --generate -u alice -s box </dev/null >"$WORK/gen.
 [ "$(ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes -o IdentitiesOnly=yes -i "$WORK/home/.ssh/box_alice" -p "$SSH_PORT" alice@127.0.0.1 id -un)" = alice ] \
   || die "alice logs in with the new key"; pass "keys add --generate: alice logs in with the new key"
 { ! lf setup box --no-firewall --check 2>&1 | has "would lose"; } || die "setup --check: alice has a key now"; pass "setup --check agrees: alice has a key"
+{ lf setup box --check --cloud aws 2>&1 | has "AWS security group is in front"; } || die "setup --cloud aws leaves ufw to the provider"
+{ ! lf setup box --check --cloud none 2>&1 | has "is in front"; } || die "setup --cloud none"; pass "setup --cloud sets the provider"
 lf harden ssh -s box -y >"$WORK/harden.log" 2>&1 || { cat "$WORK/harden.log"; die "harden ssh"; }
 { lf security -s box --json | has '"passwordLogin": false'; } || die "harden ssh turns passwords off"
 { ! lf security -s box --json | has '"password-login"'; } || die "no password advice after harden"; pass "harden ssh: keys only"

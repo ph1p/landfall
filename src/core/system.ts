@@ -7,6 +7,7 @@ import { effectiveSsh } from "./sshconfig";
 import { CLOUD, KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
 import { KEY_SERVICES, serviceName } from "./status";
 import { fail } from "./term";
+import { cloudFor } from "./facts";
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
 const SYSTEM = String.raw`
@@ -288,7 +289,9 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
 
 export async function system(s: Server): Promise<SystemInfo> {
   const { stdout } = await runScript(s, SYSTEM, { capture: true });
-  return parseSystem(stdout, localFingerprints(s));
+  const info = parseSystem(stdout, localFingerprints(s));
+  if (s.cloud) info.security.cloud = cloudFor(s) || undefined;
+  return info;
 }
 
 /** Read as root when the login has no sudo but root's key works: other users' keys and the bans need it. */

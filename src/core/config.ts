@@ -32,6 +32,8 @@ export interface Server {
   tunnelOnly?: boolean;
   /** The sudo user that bootstrapped the server when root couldn't log in: re-runs and admin tasks use it. */
   admin?: string;
+  /** The cloud provider, where the user set it: an id from facts.ts CLOUDS, or "none". Unset: detected on the server. */
+  cloud?: string;
   /** Traefik dashboard, remembered so re-running traefik setup keeps it. */
   dashboard?: { host: string; user: string; htpasswd: string };
 }

@@ -7,6 +7,8 @@ import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { CLOUD, KV, kvRecord, OS_RELEASE, PRELUDE } from "./templates";
 import { fail } from "./term";
+import { CLOUDS, type Cloud } from "./clouds";
+export type { Cloud } from "./clouds";
 
 /** What a server runs on: distro, hardware, addresses. Read-only. */
 const FACTS = String.raw`
@@ -132,7 +134,8 @@ export function parseFacts(out: string, today = new Date()): Facts {
 
 export async function facts(s: Server): Promise<Facts> {
   const { stdout } = await runScript(s, PRELUDE + FACTS, { capture: true });
-  return parseFacts(stdout);
+  const f = parseFacts(stdout);
+  return s.cloud ? { ...f, cloud: cloudOf(cloudFor(s)) } : f;
 }
 
 /**
@@ -231,30 +234,17 @@ export const PLATFORM: Record<string, { name: string; docker: string; firewall?:
 };
 const NO_PKG = "no apt, dnf, yum, apk or zypper";
 
-export interface Cloud {
-  id: string;
-  name: string;
-  /** The provider's firewall, where every server sits behind one that is closed until a port is opened. */
-  firewall?: string;
-}
-/**
- * Providers the probe recognises (templates.ts CLOUD). With `firewall`, ufw would only repeat the provider's
- * rules, so setup leaves it out. The others offer a firewall too, but a server has none until someone adds it.
- */
-const CLOUDS: Record<string, Omit<Cloud, "id">> = {
-  aws: { name: "AWS", firewall: "security group" },
-  gcp: { name: "Google Cloud", firewall: "VPC firewall" },
-  azure: { name: "Azure", firewall: "network security group" },
-  oracle: { name: "Oracle Cloud", firewall: "security list" },
-  alibaba: { name: "Alibaba Cloud", firewall: "security group" },
-  hetzner: { name: "Hetzner" },
-  digitalocean: { name: "DigitalOcean" },
-  vultr: { name: "Vultr" },
-  linode: { name: "Akamai (Linode)" },
-  scaleway: { name: "Scaleway" },
-  upcloud: { name: "UpCloud" },
-};
 export const cloudOf = (id = ""): Cloud | undefined => (CLOUDS[id] ? { id, ...CLOUDS[id] } : undefined);
+export const CLOUD_IDS = Object.keys(CLOUDS);
+/** --cloud: a provider id or "none" to remember, undefined for "auto" (detect again). */
+export function checkCloud(value: string): string | undefined {
+  const v = value.trim().toLowerCase();
+  if (v === "auto") return undefined;
+  if (v !== "none" && !CLOUDS[v]) fail(`unknown provider: ${value} (${CLOUD_IDS.join(", ")}, none or auto)`);
+  return v;
+}
+/** The provider's id: what the user set for the server wins over what the probe found. "" for none. */
+export const cloudFor = (s: { cloud?: string } | undefined, detected = ""): string => (s?.cloud === "none" ? "" : (s?.cloud ?? detected));
 /** "AWS security group": the firewall in front of the server, if its provider always has one. */
 export const cloudFirewall = (id?: string): string | undefined => {
   const cl = cloudOf(id);

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from "../lib/store";
 import { bytes } from "../../../core/format";
 import { slug } from "../../../core/slug";
+import { CLOUDS } from "../../../core/clouds";
 import type { Browse, Detected, Redeploy, Remembered, SavedServer } from "../lib/types";
 import { go, load, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
@@ -120,6 +121,18 @@ export function setupWizard(base: string[]) {
         hint: "Skipped automatically if it would block ports in use, or if the provider's firewall is always in front (AWS, Google Cloud, Azure, …).",
       },
       {
+        name: "cloud",
+        label: "Provider",
+        type: "select",
+        value: saved.cloud ?? "auto",
+        options: [
+          { value: "auto", label: "Detect automatically" },
+          ...Object.entries(CLOUDS).map(([value, cl]) => ({ value, label: cl.firewall ? `${cl.name} (${cl.firewall} always in front: no ufw)` : cl.name })),
+          { value: "none", label: "None of these (own hardware, another provider)" },
+        ],
+        hint: "Set it only where detection is wrong. landfall remembers it for this server.",
+      },
+      {
         name: "harden",
         label: "Key login only (turn off ssh passwords)",
         type: "check",
@@ -139,6 +152,8 @@ export function setupWizard(base: string[]) {
         f.push(v.http3 ? "--http3" : "--no-http3");
       }
       if (!v.firewall) f.push("--no-firewall");
+      // "auto" also forgets a provider set earlier.
+      if (v.cloud !== "auto" || saved.cloud) f.push(`--cloud=${v.cloud}`);
       if (!v.harden) f.push("--no-harden");
       f.push(`--deploy-user=${v.user.trim()}`);
       setupFlow([...base, ...f], base);

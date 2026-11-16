@@ -134,6 +134,20 @@ lf setup vps --firewall     # install and enable ufw anyway
 lf firewall enable -s vps   # or later
 ```
 
+Set the provider yourself where landfall reads it wrong or not at all. landfall remembers it for the server.
+`lf security` and `lf server info` use it too.
+
+```sh
+lf setup vps --cloud aws         # treat it as AWS: no ufw
+lf setup vps --cloud none        # no provider: ufw as usual
+lf setup vps --cloud auto        # forget the setting and detect again
+lf server add vps --cloud aws    # the same, without running setup
+```
+
+In the web UI, the setup dialog has the same choice as "Provider".
+
+The names are `aws`, `gcp`, `azure`, `oracle`, `alibaba`, `hetzner`, `digitalocean`, `vultr`, `linode`, `scaleway` and `upcloud`.
+
 ### What setup leaves on the server
 
 landfall keeps its own footprint small:

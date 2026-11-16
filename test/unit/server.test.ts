@@ -9,7 +9,7 @@ import { journalCmd } from "../../src/cli/cmd";
 import { findRun, laterConflicts, parseJournal, pending, removedUsers, stillNeeded } from "../../src/core/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/core/inventory";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
-import { capabilities, cloudFirewall, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
+import { capabilities, checkCloud, cloudFirewall, cloudFor, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/core/stats";
 import { parsePrunePlan } from "../../src/core/manage";
 import { JOURNAL_KEEP_BYTES, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/reclaim";
@@ -424,6 +424,12 @@ describe("server facts", () => {
     expect(cloudFirewall("gcp")).toBe("Google Cloud VPC firewall");
     expect(cloudFirewall("hetzner")).toBeUndefined();
     expect(cloudFirewall(undefined)).toBeUndefined();
+    // What the user set for the server wins over the probe; "none" means no provider.
+    expect(cloudFor({ cloud: "aws" }, "hetzner")).toBe("aws");
+    expect(cloudFor({ cloud: "none" }, "aws")).toBe("");
+    expect(cloudFor({}, "gcp")).toBe("gcp");
+    expect(cloudFor(undefined)).toBe("");
+    expect([checkCloud("AWS"), checkCloud("none"), checkCloud("auto")]).toEqual(["aws", "none", undefined]);
   });
   test("the probe reads the provider from the hardware strings", () => {
     const dir = fs.mkdtempSync(join(tmpdir(), "lf-dmi-"));

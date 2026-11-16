@@ -5,7 +5,7 @@ import { securityNotes } from "../../core/security";
 import { canLogin, runScript } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../../core/inventory";
-import { cloudFirewall, cloudOf, PLATFORM, support } from "../../core/facts";
+import { checkCloud, cloudFirewall, cloudFor, cloudOf, PLATFORM, support } from "../../core/facts";
 import { ensureKey, ensureKeyLogin, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../../core/templates";
 import { latestCompose, latestDocker } from "../../core/updates";
@@ -97,6 +97,7 @@ dashboard unless given as flags.`,
     email: { type: "string", desc: "contact e-mail for the Let's Encrypt account (optional)" },
     harden: { type: "boolean", desc: "disable ssh password auth (--no-harden to skip)", default: true },
     firewall: { type: "boolean", desc: "enable ufw (--no-firewall to skip); skipped by default behind a provider firewall (AWS, Google Cloud, Azure, …)" },
+    cloud: { type: "string", desc: "the provider, if detection is wrong: aws, gcp, azure, hetzner, … none, or auto to detect again; remembered" },
     traefik: { type: "boolean", desc: "install traefik (--no-traefik to skip)", default: true },
     "ssh-config": { type: "boolean", desc: "write Host block to ~/.ssh/config (--no-ssh-config)", default: true },
     staging: { type: "boolean", desc: "Let's Encrypt staging CA, remembered (--no-staging to switch back)" },
@@ -114,6 +115,8 @@ dashboard unless given as flags.`,
     if (!name) fail("usage: lf setup <name> [--host <ip>]");
     const cfg = loadConfig();
     const existing = cfg.servers[name];
+    // --cloud auto forgets what was set; without --cloud the remembered provider stays.
+    const cloudSet = o.cloud === undefined ? existing?.cloud : checkCloud(o.cloud);
     // Never shadow a Host entry the user wrote themselves (e.g. `Host vps`).
     const isOwnAlias = sshAliases().includes(name) && !hasManagedBlock(name);
 
@@ -146,7 +149,8 @@ dashboard unless given as flags.`,
     // The port sshd listens on, which differs from eff.port behind port forwarding.
     const sshPort = Number(probe.values.ssh_port) || eff.port;
     // Behind a provider firewall ufw only repeats its rules: left out unless asked for.
-    const front = cloudFirewall(probe.values.cloud);
+    const cloud = cloudOf(cloudFor({ cloud: cloudSet }, probe.values.cloud));
+    const front = cloudFirewall(cloud?.id);
     const firewall: boolean = o.firewall ?? !front;
     const checks = assess(probe, {
       sshPort,
@@ -170,8 +174,8 @@ dashboard unless given as flags.`,
     const ownTraefik = traefik && !traefik.proxy && traefik.status !== "conflict" && traefik.status !== "off";
     if (ownTraefik) traefik.detail += c.dim(` · ${describeTraefik(traefikSettings(existing ?? login, tOpts))}`);
     const os = support(probe.values.os_id ?? "", probe.values.os_version ?? "", probe.values.pkg ?? "none", undefined, probe.values.platform);
-    const cloud = cloudOf(probe.values.cloud);
-    info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}${cloud ? c.dim(` · ${cloud.name}`) : ""}`);
+    const provider = cloud ? ` · ${cloud.name}${cloudSet ? " (set)" : ""}` : cloudSet ? " · no provider (set)" : "";
+    info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}${c.dim(provider)}`);
     if (os.note) (os.level === "eol" || os.level === "unsupported" ? warn : info)(os.note);
     // Setup installs packages; without a package manager there is nothing it can do safely,
     // so only what deploys need (docker, traefik) is worth showing.
@@ -231,6 +235,8 @@ dashboard unless given as flags.`,
     next("ssh config + landfall config");
     const entry = serverEntry(name, target, keyPath, { existing, sshConfig: o["ssh-config"], ownAlias: isOwnAlias, port: o.port, keyGiven: !!o.key });
     if (domain) entry.domains = withPrimary(entry.domains, domain);
+    if (cloudSet) entry.cloud = cloudSet;
+    else delete entry.cloud;
     if (eff.user !== "root" && effectiveSsh(target).user !== eff.user) entry.admin = eff.user;
     await updateConfig((fresh) => {
       patchServer(fresh, name, existing, entry);

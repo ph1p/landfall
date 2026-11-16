@@ -21,7 +21,7 @@ import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
 import { pct } from "../../core/format";
-import { bytes, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
+import { bytes, checkCloud, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
 import { traefikState } from "../../core/traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
@@ -53,11 +53,13 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     "ssh-config": { type: "boolean", desc: "write Host <name> to ~/.ssh/config (--no-ssh-config)", default: true },
     email: { type: "string", desc: "contact e-mail for the Let's Encrypt account (optional)" },
     domain: { type: "string", desc: "main domain: sites default to <site>.<domain>" },
+    cloud: { type: "string", desc: "the provider, if detection is wrong: aws, gcp, azure, hetzner, … none, or auto to detect again" },
     default: { type: "boolean", desc: "make it the default server" },
   },
   async run([name], o) {
     if (!name) fail("usage: lf server add <name> [--host ...]");
     const domain = o.domain && checkDomain(o.domain);
+    const cloud = o.cloud === undefined ? undefined : (checkCloud(o.cloud) ?? "");
     const cfg = loadConfig();
     const existing = cfg.servers[name];
     const ownAlias = sshAliases().includes(name) && !hasManagedBlock(name);
@@ -74,6 +76,8 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     if (!entry.port) delete entry.port;
     if (o.email) entry.email = checkEmail(o.email);
     if (domain) entry.domains = withPrimary(entry.domains, domain);
+    if (cloud) entry.cloud = cloud;
+    else if (cloud === "") delete entry.cloud;
     const saved = await updateConfig((fresh) => {
       patchServer(fresh, name, existing, entry);
       if (o.default || !fresh.default) fresh.default = name;
