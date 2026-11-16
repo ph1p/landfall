@@ -57,6 +57,26 @@ if [ -f /etc/synoinfo.conf ]; then
 elif [ "$ID" = steamos ]; then PRETTY_NAME="SteamOS $VERSION_ID"; kv platform steamos
 fi`;
 
+/**
+ * Prints `cloud=<id>` where the hypervisor's DMI strings name the provider (facts.ts CLOUDS has the ids).
+ * The files are world-readable and local: no metadata request, nothing to install.
+ */
+export const CLOUD = String.raw`dmi=$(cd /sys/class/dmi/id 2>/dev/null && cat sys_vendor product_name bios_vendor bios_version chassis_asset_tag 2>/dev/null | tr '\n' ' ') || true
+case "$dmi" in
+  *OracleCloud*) kv cloud oracle ;;
+  *"Amazon EC2"*|*amazon*) kv cloud aws ;;
+  *"Google Compute Engine"*) kv cloud gcp ;;
+  # Azure's chassis tag: Hyper-V anywhere else is "Microsoft Corporation" too.
+  *7783-7084-3265-9085-8269-3286-77*) kv cloud azure ;;
+  *"Alibaba Cloud"*) kv cloud alibaba ;;
+  *Hetzner*) kv cloud hetzner ;;
+  *DigitalOcean*) kv cloud digitalocean ;;
+  *Vultr*) kv cloud vultr ;;
+  *Linode*|*Akamai*) kv cloud linode ;;
+  *Scaleway*) kv cloud scaleway ;;
+  *UpCloud*) kv cloud upcloud ;;
+esac`;
+
 /** True when installed updates wait for a reboot: Debian's flag file, or needs-restarting on RHEL-likes (exit 1). */
 export const REBOOT_NEEDED = String.raw`reboot_needed() { [ -f /var/run/reboot-required ] && return 0; command -v needs-restarting >/dev/null 2>&1 || return 1; needs-restarting -r >/dev/null 2>&1; [ $? = 1 ]; }`;
 
@@ -142,7 +162,8 @@ pkg_has() {
 pkg_install() {
   log "installing $*"
   case "$(pkg_mgr)" in
-    apt-get) $SUDO apt-get update -q >&2 && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" >&2 ;;
+    # clean: apt-get keeps every downloaded .deb in /var/cache/apt/archives.
+    apt-get) $SUDO apt-get update -q >&2 && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" >&2 && { $SUDO apt-get clean || true; } ;;
     dnf) $SUDO dnf install -y "$@" >&2 ;;
     yum) $SUDO yum install -y "$@" >&2 ;;
     apk) $SUDO apk add --no-cache "$@" >&2 ;;
@@ -352,11 +373,20 @@ if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
   echo "setup needs root or passwordless sudo for $(id -un) (try: lf setup <name> --user root)" >&2
   exit 1
 fi
-missing=""; for p in $(base_pkgs); do pkg_has "$p" || missing="$missing $p"; done
+# ufw only where setup turns it on: behind a provider's firewall, or with --no-firewall, it would sit there unused.
+# fail2ban only where ssh passwords stay on: with keys only there is nothing to guess (lf harden fail2ban adds it).
+keys_only=0; if [ "$HARDEN" = 1 ] || [ "$(sshd_passwords)" = no ]; then keys_only=1; fi
+missing=""; for p in $(base_pkgs); do
+  if [ "$p" = ufw ] && [ "$FIREWALL" != 1 ]; then continue; fi
+  if [ "$p" = fail2ban ] && [ "$keys_only" = 1 ]; then continue; fi
+  pkg_has "$p" || missing="$missing $p"
+done
 if [ -n "$missing" ]; then
   log "installing base packages:$missing"
   pkg_install $missing
-  { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || log "could not start fail2ban (systemctl status fail2ban)"
+  case " $missing " in *" fail2ban "*)
+    { svc enable fail2ban && svc start fail2ban; } >/dev/null 2>&1 || log "could not start fail2ban (systemctl status fail2ban)" ;;
+  esac
   record "installed packages$missing"
 fi
 
@@ -371,6 +401,8 @@ if ! command -v docker >/dev/null 2>&1; then
       && $SUDO dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin >&2 ;;
     *) curl -fsSL https://get.docker.com | $SUDO sh >&2 ;;
   esac
+  # Docker's script installs with apt-get itself and leaves its .debs in the cache.
+  [ "$(pkg_mgr)" != apt-get ] || $SUDO apt-get clean || true
   record "installed docker"
 fi
 $SUDO systemctl enable --now docker >/dev/null 2>&1 || $SUDO service docker start >/dev/null 2>&1 || true
@@ -452,6 +484,7 @@ ${OS_RELEASE}
 kv os "$PRETTY_NAME"
 kv os_id "$ID"
 kv os_version "$VERSION_ID"
+${CLOUD}
 kv sudo "$(yn S true)"
 kv pkg "$(pkg_mgr)"
 missing=""; for p in $(base_pkgs); do pkg_has "$p" || missing="$missing $p"; done

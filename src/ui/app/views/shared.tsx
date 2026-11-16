@@ -124,6 +124,7 @@ export function FactsLine({ n }: { n: string }) {
     <>
       <b className="text-fg font-medium">{f.os}</b> {f.arch}
     </>,
+    f.cloud ? <span title={f.cloud.firewall ? `${f.cloud.firewall} in front` : undefined}>{f.cloud.name}</span> : "",
     <span title={`kernel ${f.kernel}`}>up {duration(f.uptime)}</span>,
     f.cpus ? `${f.cpus} CPU · load ${f.load.split(" ")[0]}` : "",
     f.mem.total ? `RAM ${size(f.mem.total - f.mem.available)} / ${size(f.mem.total)}` : "",

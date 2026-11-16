@@ -5,7 +5,7 @@ import { guessDomains, type Server } from "./config";
 import { runScript } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
-import { KV, kvRecord, OS_RELEASE, PRELUDE } from "./templates";
+import { CLOUD, KV, kvRecord, OS_RELEASE, PRELUDE } from "./templates";
 import { fail } from "./term";
 
 /** What a server runs on: distro, hardware, addresses. Read-only. */
@@ -17,6 +17,7 @@ kv os "$PRETTY_NAME"
 kv id "$ID"
 kv version "$VERSION_ID"
 kv like "$ID_LIKE"
+${CLOUD}
 kv arch "$(uname -m)"
 kv kernel "$(uname -r)"
 kv uptime "$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"
@@ -79,6 +80,8 @@ export interface Facts {
   podman: string;
   /** synology, steamos, or empty for a plain distro. */
   platform: string;
+  /** The provider the server runs at, where its hardware strings name one (CLOUDS). */
+  cloud?: Cloud;
   init: "systemd" | "openrc" | "other";
   /** The ssh login, and whether it is root or has passwordless sudo. */
   user: string;
@@ -114,6 +117,7 @@ export function parseFacts(out: string, today = new Date()): Facts {
     compose: v.compose ?? "",
     podman: v.podman ?? "",
     platform: v.platform ?? "",
+    cloud: cloudOf(v.cloud),
     init: (["systemd", "openrc"].includes(v.init) ? v.init : "other") as Facts["init"],
     user: v.user ?? "",
     admin: v.admin === "1",
@@ -226,6 +230,36 @@ export const PLATFORM: Record<string, { name: string; docker: string; firewall?:
   steamos: { name: "SteamOS resets the system on every OS update", docker: "install Docker in your home directory" },
 };
 const NO_PKG = "no apt, dnf, yum, apk or zypper";
+
+export interface Cloud {
+  id: string;
+  name: string;
+  /** The provider's firewall, where every server sits behind one that is closed until a port is opened. */
+  firewall?: string;
+}
+/**
+ * Providers the probe recognises (templates.ts CLOUD). With `firewall`, ufw would only repeat the provider's
+ * rules, so setup leaves it out. The others offer a firewall too, but a server has none until someone adds it.
+ */
+const CLOUDS: Record<string, Omit<Cloud, "id">> = {
+  aws: { name: "AWS", firewall: "security group" },
+  gcp: { name: "Google Cloud", firewall: "VPC firewall" },
+  azure: { name: "Azure", firewall: "network security group" },
+  oracle: { name: "Oracle Cloud", firewall: "security list" },
+  alibaba: { name: "Alibaba Cloud", firewall: "security group" },
+  hetzner: { name: "Hetzner" },
+  digitalocean: { name: "DigitalOcean" },
+  vultr: { name: "Vultr" },
+  linode: { name: "Akamai (Linode)" },
+  scaleway: { name: "Scaleway" },
+  upcloud: { name: "UpCloud" },
+};
+export const cloudOf = (id = ""): Cloud | undefined => (CLOUDS[id] ? { id, ...CLOUDS[id] } : undefined);
+/** "AWS security group": the firewall in front of the server, if its provider always has one. */
+export const cloudFirewall = (id?: string): string | undefined => {
+  const cl = cloudOf(id);
+  return cl?.firewall && `${cl.name} ${cl.firewall}`;
+};
 
 export function support(id: string, version: string, pkg: string, today = new Date(), platform = ""): Support {
   if (pkg === "none") {

@@ -117,7 +117,7 @@ export function setupWizard(base: string[]) {
         label: "Enable ufw: deny incoming except ssh, 80 and 443",
         type: "check",
         value: true,
-        hint: "Skipped automatically if it would block ports in use.",
+        hint: "Skipped automatically if it would block ports in use, or if the provider's firewall is always in front (AWS, Google Cloud, Azure, …).",
       },
       {
         name: "harden",

@@ -268,6 +268,7 @@ export const serverInfo = defineCommand({
     const rows: [string, string][] = [
       ["os", `${f.os}${f.pkg !== "none" ? c.dim(` · ${f.pkg}`) : ""}`],
       ["kernel", `${f.kernel} ${f.arch}`],
+      ...(f.cloud ? [["provider", `${f.cloud.name}${f.cloud.firewall ? c.dim(` · ${f.cloud.firewall} in front`) : ""}`] as [string, string]] : []),
       ["uptime", `${duration(f.uptime)}${f.reboot ? c.yellow(" · reboot required") : ""}`],
       ["cpu", `${f.cpus} cores, load ${f.load}`],
       ["memory", `${bytes(memUsed)} / ${bytes(f.mem.total)}${share(memUsed, f.mem.total)}`],

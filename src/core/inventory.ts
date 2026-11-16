@@ -73,6 +73,8 @@ export interface Wanted {
   loginUser: string;
   deployUser: string;
   firewall: boolean;
+  /** Why the firewall is off without the user saying so: the provider's own is in front ("AWS security group"). */
+  cloudFirewall?: string;
   harden: boolean;
   traefik: boolean;
 }
@@ -154,7 +156,10 @@ function assessFirewall(p: Probe, w: Wanted): Check {
   const check = (status: Status, detail: string): Check => ({ part: "firewall", label: "firewall", status, detail });
   const { blocked, kept } = enableBlocks(p, [w.sshPort, 80, 443]);
   if (blocked.length) return check("conflict", `enabling ufw would block ${blocked.join(", ")}`);
-  return check("todo", `enable ufw (ssh/80/443)${kept.length ? `; docker keeps ${kept.join(" ")} open` : ""}`);
+  return check(
+    "todo",
+    `${p.values.ufw === "missing" ? "install and " : ""}enable ufw (ssh/80/443)${kept.length ? `; docker keeps ${kept.join(" ")} open` : ""}`,
+  );
 }
 
 /** What turning ufw on would cut off, when `tcp` ports get an allow rule first; `kept` = container ports docker keeps open. */
@@ -252,12 +257,18 @@ export function assess(p: Probe, w: Wanted): Check[] {
   const check = (part: Part, label: string, status: Status, detail = ""): Check => ({ part, label, status, detail });
   const checks: Check[] = [];
 
-  const missing = v.pkgs_missing ?? "";
+  // ufw is only installed where setup turns it on, fail2ban only where ssh passwords stay on.
+  const others = passwordOnly(words(v.password_users), words(v.key_users), [w.loginUser, w.deployUser]);
+  const lockout = others.length > 0 && v.password_auth !== "no";
+  const keysOnly = v.hardened === "1" || v.password_auth === "no" || (w.harden && !lockout);
+  const missing = words(v.pkgs_missing)
+    .filter((p) => (w.firewall || p !== "ufw") && (!keysOnly || p !== "fail2ban"))
+    .join(" ");
   checks.push(
     v.pkg === "none"
       ? check("packages", "base packages", "done", "no supported package manager, skipped")
-      : missing.trim()
-        ? check("packages", "base packages", "todo", `install ${missing.trim()}`)
+      : missing
+        ? check("packages", "base packages", "todo", `install ${missing}`)
         : check("packages", "base packages", "done"),
   );
 
@@ -278,17 +289,18 @@ export function assess(p: Probe, w: Wanted): Check[] {
     }
   }
 
-  if (!w.firewall) checks.push(check("firewall", "firewall", "off"));
-  else if (v.ufw === "missing") checks.push(check("firewall", "firewall", "done", "ufw not available, skipped"));
+  if (!w.firewall)
+    checks.push(check("firewall", "firewall", "off", w.cloudFirewall ? `the ${w.cloudFirewall} is in front: open 80 and 443 there (--firewall adds ufw)` : ""));
+  // Missing, and setup does not install it here (dnf, yum, zypper).
+  else if (v.ufw === "missing" && !missing.split(" ").includes("ufw")) checks.push(check("firewall", "firewall", "done", "ufw not available, skipped"));
   else if (v.ufw === "active") checks.push(check("firewall", "firewall", "done", "ufw active (landfall only adds ssh/80/443)"));
   else checks.push(assessFirewall(p, w));
 
   if (!w.harden) checks.push(check("harden", "ssh hardening", "off"));
   else if (v.hardened === "1") checks.push(check("harden", "ssh hardening", "done"));
   else {
-    const others = passwordOnly(words(v.password_users), words(v.key_users), [w.loginUser, w.deployUser]);
     checks.push(
-      others.length && v.password_auth !== "no"
+      lockout
         ? check("harden", "ssh hardening", "conflict", `${others.join(", ")} would lose ssh password login`)
         : check("harden", "ssh hardening", "todo", "keys only"),
     );
@@ -361,7 +373,7 @@ export function printChecks(checks: Check[]) {
   const mark: Record<Status, string> = { done: c.green("✓"), todo: c.cyan("→"), conflict: c.yellow("!"), off: c.dim("-") };
   const w = Math.max(...checks.map((ch) => ch.label.length));
   for (const ch of checks) {
-    const detail = ch.status === "off" ? c.dim("disabled") : ch.status === "conflict" ? c.yellow(ch.detail) : c.dim(ch.detail);
+    const detail = ch.status === "off" ? c.dim(ch.detail || "disabled") : ch.status === "conflict" ? c.yellow(ch.detail) : c.dim(ch.detail);
     info(`${mark[ch.status]} ${ch.label.padEnd(w)}  ${detail}`);
   }
 }

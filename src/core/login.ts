@@ -2,9 +2,9 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { checkAlias, checkInt, configDir, envVar, expandHome, tildify, writeAtomic, type Server } from "./config";
+import { checkAlias, checkInt, configDir, envVar, expandHome, patchServer, tildify, updateConfig, writeAtomic, type Server } from "./config";
 import { canLogin, dest, targetArgs } from "./ssh";
-import { effectiveKey, effectiveSsh, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
+import { effectiveKey, effectiveSsh, hasManagedBlock, setIdentityFile, SSH_CONFIG, upsertHostBlock } from "./sshconfig";
 import { c, fail, info, ok, readStdin, report, step, warn } from "./term";
 
 let askpass: string | undefined;
@@ -158,4 +158,20 @@ export function serverEntry(
     if (o.ownAlias) info(c.dim(`kept your own ~/.ssh/config entry for ${name}; lf logs in as ${entry.user ?? eff.user}`));
   }
   return entry;
+}
+
+/**
+ * Makes landfall log in to a configured server as another user: in its own Host block when that names the
+ * login, else in the server's entry (which wins over ~/.ssh/config).
+ */
+export async function switchLogin(name: string, server: Server, user: string) {
+  const eff = effectiveSsh(server);
+  const key = effectiveKey(server);
+  const next: Server = { ...server };
+  if (!server.user && key && hasManagedBlock(server.host)) upsertHostBlock({ alias: server.host, hostname: eff.hostname, user, port: eff.port, key });
+  else next.user = user;
+  if (next.admin === user) delete next.admin;
+  await updateConfig((cfg) => {
+    if (cfg.servers[name]) patchServer(cfg, name, server, next);
+  });
 }

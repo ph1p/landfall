@@ -6,17 +6,17 @@ import { describe, expect, test } from "vitest";
 import { ruleArgs, specArgs } from "../../src/cli/commands/firewall";
 import { guardSsh, type FirewallState } from "../../src/core/firewall";
 import { journalCmd } from "../../src/cli/cmd";
-import { findRun, laterConflicts, parseJournal, pending } from "../../src/core/journal";
+import { findRun, laterConflicts, parseJournal, pending, removedUsers, stillNeeded } from "../../src/core/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/core/inventory";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
-import { capabilities, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
+import { capabilities, cloudFirewall, isPublic4, noUfw, parseFacts, pickIp, sslipDomain, support } from "../../src/core/facts";
 import { parseDisk, parseSize, parseStats } from "../../src/core/stats";
 import { parsePrunePlan } from "../../src/core/manage";
 import { JOURNAL_KEEP_BYTES, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/reclaim";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/users";
 import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/updates";
-import { PRELUDE } from "../../src/core/templates";
+import { BOOTSTRAP, CLOUD, PRELUDE, PROBE } from "../../src/core/templates";
 import { statusKind } from "../../src/core/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -65,7 +65,7 @@ describe("ssh config", () => {
 describe("server inventory", () => {
   const want = { sshPort: 22, loginUser: "root", deployUser: "deploy", firewall: true, harden: true, traefik: true };
   const fresh = [
-    "pkgs_missing= fail2ban",
+    "pkgs_missing= rsync fail2ban",
     "docker=",
     "user=0",
     "ufw=inactive",
@@ -87,6 +87,24 @@ describe("server inventory", () => {
       harden: "todo",
       traefik: "todo",
     });
+  });
+
+  test("behind a provider firewall: no ufw, unless asked for", () => {
+    const aws = parseProbe([fresh.replace("ufw=inactive", "ufw=missing").replace("fail2ban", "ufw fail2ban"), "cloud=aws"].join("\n"));
+    const off = assess(aws, { ...want, firewall: false, cloudFirewall: "AWS security group" });
+    expect(off.find((c) => c.part === "firewall")).toMatchObject({ status: "off", detail: expect.stringContaining("AWS security group") });
+    // Keys only after this setup: no fail2ban.
+    expect(off.find((c) => c.part === "packages")).toMatchObject({ status: "todo", detail: "install rsync" });
+    const on = assess(aws, want);
+    expect(on.find((c) => c.part === "firewall")).toMatchObject({ status: "todo", detail: "install and enable ufw (ssh/80/443)" });
+    expect(on.find((c) => c.part === "packages")!.detail).toBe("install rsync ufw");
+    // Passwords stay on: fail2ban is worth its place.
+    expect(assess(aws, { ...want, harden: false }).find((c) => c.part === "packages")!.detail).toBe("install rsync ufw fail2ban");
+    const others = parseProbe(fresh.replace("password_users=root ", "password_users=root alice "));
+    expect(assess(others, want).find((c) => c.part === "packages")!.detail).toBe("install rsync fail2ban");
+    // dnf: setup does not install ufw, so there is nothing to turn on.
+    const dnf = parseProbe(fresh.replace("ufw=inactive", "ufw=missing"));
+    expect(assess(dnf, want).find((c) => c.part === "firewall")).toMatchObject({ status: "done", detail: "ufw not available, skipped" });
   });
 
   test("docker: compose, running state and podman's shim", () => {
@@ -350,6 +368,33 @@ describe("journal", () => {
     expect(laterConflicts(runs, 1, runs[0].steps).map((x) => [x.run.n, x.subject])).toEqual([[3, "/opt/landfall/sites/blog"]]);
     expect(laterConflicts(runs, 2, runs[1].steps)).toEqual([]);
   });
+
+  test("a user is not removed under the runs it made", () => {
+    const by = (user: string, run: string, what: string, undo: string) =>
+      ["2026-10-01T10:00:00Z", run, "me@mac", user, `cmd ${run}`, "do", what, b64(undo)].join("\t");
+    const runs = parseJournal(
+      [
+        by("root", "a", "created user deploy", "user_del deploy"),
+        by("root", "a", "hardened sshd", "restore_file x /etc/ssh/sshd_config.d/00-landfall.conf"),
+        by("deploy", "a", "installed traefik", "rm -rf /opt/landfall/traefik"),
+        by("deploy", "b", "deployed blog", "rm -rf /opt/landfall/sites/blog/releases/1"),
+        by("root", "c", "ufw allow 7000", "ufw delete allow 7000"),
+      ].join("\n"),
+    );
+    expect(removedUsers(runs[0].steps)).toEqual(["deploy"]);
+    expect(removedUsers(runs[1].steps)).toEqual([]);
+    // Setup alone: the deploy made as deploy would stay. Root's firewall rule does not need the user.
+    expect(stillNeeded(runs, runs[0].steps).map((x) => [x.user, x.runs.map((r) => r.n)])).toEqual([["deploy", [2]]]);
+    // Only the user step: setup's own traefik step was made as deploy too.
+    expect(stillNeeded(runs, [runs[0].steps[0]])[0].runs.map((r) => r.n)).toEqual([1, 2]);
+    expect(
+      stillNeeded(
+        runs,
+        runs.flatMap((r) => r.steps),
+      ),
+    ).toEqual([]);
+    expect(stillNeeded(runs, runs[2].steps)).toEqual([]);
+  });
 });
 
 test("journalCmd keeps flags but not defaults or secrets", () => {
@@ -369,6 +414,37 @@ describe("server facts", () => {
     expect(f).toMatchObject({ os: "Ubuntu 24.04.5 LTS", arch: "aarch64", uptime: 90062, pkg: "apt-get", reboot: true, support: { level: "ok" } });
     expect(f.mem).toEqual({ total: 8000000 * 1024, available: 2000000 * 1024 });
     expect(f.disk.used).toBe(40 * 1024);
+  });
+  test("cloud provider, and whether its firewall is always in front", () => {
+    const f = (cloud: string) => parseFacts(`os=Ubuntu\nid=ubuntu\nversion=24.04\npkg=apt-get\ncloud=${cloud}\n`, day).cloud;
+    expect(f("aws")).toEqual({ id: "aws", name: "AWS", firewall: "security group" });
+    expect(f("hetzner")).toMatchObject({ id: "hetzner", name: "Hetzner" });
+    expect(f("hetzner")!.firewall).toBeUndefined();
+    expect(f("")).toBeUndefined();
+    expect(cloudFirewall("gcp")).toBe("Google Cloud VPC firewall");
+    expect(cloudFirewall("hetzner")).toBeUndefined();
+    expect(cloudFirewall(undefined)).toBeUndefined();
+  });
+  test("the probe reads the provider from the hardware strings", () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), "lf-dmi-"));
+    const detect = (files: Record<string, string>) => {
+      for (const f of fs.readdirSync(dir)) fs.rmSync(join(dir, f));
+      for (const [k, v] of Object.entries(files)) fs.writeFileSync(join(dir, k), `${v}\n`);
+      const r = spawnSync("bash", ["-c", `set -euo pipefail\nkv() { printf '%s=%s\\n' "$1" "$2"; }\n${CLOUD.replace("/sys/class/dmi/id", dir)}`]);
+      expect(r.status).toBe(0);
+      return r.stdout.toString().trim();
+    };
+    expect(detect({ sys_vendor: "Amazon EC2", product_name: "t3.micro" })).toBe("cloud=aws");
+    expect(detect({ sys_vendor: "Xen", bios_version: "4.11.amazon" })).toBe("cloud=aws");
+    expect(detect({ sys_vendor: "Google", product_name: "Google Compute Engine" })).toBe("cloud=gcp");
+    expect(detect({ sys_vendor: "Microsoft Corporation", chassis_asset_tag: "7783-7084-3265-9085-8269-3286-77" })).toBe("cloud=azure");
+    expect(detect({ sys_vendor: "QEMU", chassis_asset_tag: "OracleCloud.com" })).toBe("cloud=oracle");
+    expect(detect({ sys_vendor: "Hetzner", product_name: "vServer" })).toBe("cloud=hetzner");
+    // Hyper-V at home is not Azure, and a box without DMI (a container, a Pi) is nothing.
+    expect(detect({ sys_vendor: "Microsoft Corporation", product_name: "Virtual Machine" })).toBe("");
+    expect(detect({})).toBe("");
+    fs.rmSync(dir, { recursive: true });
+    for (const s of [PROBE, BOOTSTRAP]) expect(spawnSync("bash", ["-n", "-c", PRELUDE + s]).status).toBe(0);
   });
   test("end of life", () => {
     expect(support("ubuntu", "20.04", "apt-get", day).level).toBe("eol");

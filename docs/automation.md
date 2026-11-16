@@ -75,7 +75,7 @@ Isolate a run from the user's setup with `LANDFALL_CONFIG_DIR` (landfall's confi
 | what is pending? | `lf updates --json`, `lf scan --json` |
 | what would prune remove? | `lf prune --dry-run --json` |
 | what did landfall change? | `lf history --json` |
-| what can the server do? | `lf server info --json` (OS support, login, init system, Docker) |
+| what can the server do? | `lf server info --json` (OS support, cloud provider as `cloud`, login, init system, Docker) |
 
 ## What cannot be undone
 

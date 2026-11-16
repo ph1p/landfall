@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { checkAlias, type Server } from "./config";
-import { PLATFORM } from "./facts";
+import { cloudFirewall, PLATFORM } from "./facts";
 import { keygen } from "./login";
 import { runScript } from "./ssh";
 import { effectiveSsh } from "./sshconfig";
@@ -72,7 +72,16 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
     });
   }
   // Without root ufw and fail2ban cannot be asked: say nothing rather than guess.
-  if (s.firewall === "inactive" || (s.firewall === "missing" && installs)) {
+  // A provider firewall that is always in front does ufw's job: no warning for leaving ufw off.
+  const front = cloudFirewall(s.cloud);
+  if (front && (s.firewall === "inactive" || s.firewall === "missing")) {
+    out.push({
+      id: "firewall",
+      level: "info",
+      title: `Firewall: the ${front}`,
+      why: `It is in front of this server and closed until you open a port there. Let in only ssh, 80 and 443. ufw is not needed on top.`,
+    });
+  } else if (s.firewall === "inactive" || (s.firewall === "missing" && installs)) {
     out.push({
       id: "firewall",
       level: "warn",
@@ -88,7 +97,9 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
       why: own?.firewall ? `${own.firewall}. Let in only ssh, 80 and 443.` : "Use firewalld or your provider's firewall to let in only ssh, 80 and 443.",
     });
   }
-  if (i.root && i.fail2ban !== "running" && (i.fail2ban === "stopped" || installs)) {
+  // Keys only and no fail2ban: nothing to guess, nothing to ban. lf harden fail2ban still installs it.
+  const wanted = i.fail2ban === "stopped" || (installs && s.passwordLogin);
+  if (i.root && i.fail2ban !== "running" && wanted) {
     out.push({
       id: "fail2ban",
       level: s.passwordLogin ? "warn" : "info",

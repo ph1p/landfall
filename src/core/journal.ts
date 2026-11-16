@@ -83,6 +83,25 @@ export function laterConflicts(runs: Run[], after: number, steps: Step[]): { run
   return found;
 }
 
+/** The users that undoing these steps removes ("created user deploy"). */
+export function removedUsers(steps: Step[]): string[] {
+  const names = steps
+    .filter((x) => x.undo && !x.undone)
+    .flatMap((x) => [...x.undo!.matchAll(/\b(?:user_del|userdel(?: -r)?) ([A-Za-z_][\w.-]*)/g)].map((m) => m[1]));
+  return [...new Set(names)];
+}
+
+/**
+ * Runs that stay although the user who made them goes: their sites would run on without an owner, nobody
+ * could undo them, and landfall could no longer log in.
+ */
+export function stillNeeded(runs: Run[], steps: Step[]): { user: string; runs: Run[] }[] {
+  const going = new Set(steps.map((x) => x.line));
+  return removedUsers(steps)
+    .map((user) => ({ user, runs: runs.filter((r) => pending(r).some((x) => x.user === user && !going.has(x.line))) }))
+    .filter((x) => x.runs.length);
+}
+
 export async function readJournal(s: Server): Promise<Run[]> {
   const unreadable = `echo "cannot read ${JOURNAL}: log in as its owner, or with passwordless sudo" >&2; exit 1`;
   const { stdout } = await runScript(s, `cat ${JOURNAL} 2>/dev/null || sudo -n cat ${JOURNAL} 2>/dev/null || [ ! -e ${JOURNAL} ] || { ${unreadable}; }`, {
@@ -136,19 +155,31 @@ undo_step() { # undo_step <line> <undo shell, base64>
 /** Reverts steps newest first, each as the user that made it; stops at the first that fails. */
 export async function undoSteps(s: Server, steps: Step[]) {
   const todo = steps.filter((x) => x.undo && !x.undone).sort((a, b) => b.line - a.line);
-  const used: Server[] = [s];
+  const groups: { group: Step[]; login: Server; sudo?: boolean }[] = [];
+  // Every login is settled before the first step: a missing one must not leave the server half undone.
   for (let i = 0; i < todo.length;) {
     let j = i;
     while (j < todo.length && todo[j].user === todo[i].user) j++;
     const group = todo.slice(i, j);
+    let at = await loginFor(s, todo[i].user);
+    // Nobody removes the account they are logged in with: userdel refuses while its session runs.
+    const self = removedUsers(group).find((u) => u === effectiveSsh(at.login).user);
+    if (self) {
+      const other = await rootLogin(s);
+      if (!other) return fail(`cannot remove ${self} while logged in as ${self}: this needs root's or the admin's key login`);
+      at = other.user === "root" ? { login: other } : { login: other, sudo: true };
+    }
+    groups.push({ group, ...at });
+    i = j;
+  }
+  const used: Server[] = [s];
+  for (const { group, login, sudo } of groups) {
     const calls = group.map((x) => `undo_step ${x.line} ${shq(Buffer.from(x.undo!).toString("base64"))}`);
-    const { login, sudo } = await loginFor(s, todo[i].user);
     // userdel refuses while landfall is still logged in as that user through a lingering ssh mux. Only then:
     // a fresh session would lose groups (docker) that an earlier undo already took away.
     if (group.some((x) => /userdel|user_del/.test(x.undo!))) await Promise.all(used.map(closeMux));
     await runScript(login, [PRELUDE, UNDO_STEP, ...calls].join("\n"), { sudo });
     used.push(login);
-    i = j;
   }
   return todo.length;
 }

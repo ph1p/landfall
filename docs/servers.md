@@ -11,9 +11,12 @@ lf setup vps --host 203.0.113.7
 ```
 
 1. Creates `~/.ssh/landfall_vps` and installs it with `ssh-copy-id`. You type the root password once.
-2. Installs Docker, rsync, ufw (allowing ssh, 80 and 443, plus 443/udp for HTTP/3), fail2ban and unattended-upgrades.
-   That is on apt (Ubuntu, Debian). Alpine gets ufw but no fail2ban; dnf, yum and zypper systems get Docker and
+2. Installs Docker, rsync, ufw (allowing ssh, 80 and 443, plus 443/udp for HTTP/3) and unattended-upgrades.
+   That is on apt (Ubuntu, Debian). Alpine gets ufw; dnf, yum and zypper systems get Docker and
    rsync, since their base repositories have no ufw or fail2ban.
+   fail2ban is installed on apt only where ssh passwords stay on (`--no-harden`). With keys only there is nothing to guess.
+   `lf harden fail2ban` installs it later.
+   On AWS, Google Cloud, Azure, Oracle Cloud and Alibaba Cloud it leaves ufw out: see [Cloud providers](#cloud-providers).
 3. Creates the user `deploy` in the docker group and disables ssh password login. Root keeps key-only access.
 4. Writes `Host vps` to `~/.ssh/config`, creating the file if needed. `ssh vps` now logs in as `deploy`.
 5. Starts Traefik, which gets Let's Encrypt certificates for every site.
@@ -68,6 +71,7 @@ remembered from the first run (`--dashboard-user` and `--email` are checked befo
 | `--host-network` | run Traefik on the host network (remembered), see [Traefik](traefik.md) |
 | `--no-http3` | Traefik without HTTP/3 on 443/udp (remembered), see [Traefik](traefik.md) |
 | `--no-firewall` / `--no-harden` / `--no-traefik` / `--no-ssh-config` | skip a step |
+| `--firewall` | install and enable ufw even behind a provider firewall |
 | `--check` / `--key-only` / `--force` | report only / install only the key / apply despite conflicts |
 
 On a first Traefik install, setup asks for the image, host network, e-mail and dashboard in a terminal. `-y`
@@ -106,6 +110,41 @@ deleted) and shrinks the systemd journal to its newest 100M; it needs root or pa
 `--volumes` deletes volumes no container mounts (stopped ones count), except those of a site that still exists:
 `lf sites rm` keeps a site's volumes, and they go here once the site is gone. Their data cannot be brought back,
 so it asks you to type the server name (`-y` skips that).
+
+### Cloud providers
+
+landfall reads the provider from the server's hardware strings (`/sys/class/dmi/id`). It sends no request and
+installs nothing for that. `lf setup` and `lf server info` show the provider.
+
+| provider | firewall in front | setup |
+|---|---|---|
+| AWS (EC2, Lightsail) | security group | no ufw |
+| Google Cloud | VPC firewall | no ufw |
+| Azure | network security group | no ufw |
+| Oracle Cloud | security list | no ufw |
+| Alibaba Cloud | security group | no ufw |
+| Hetzner, DigitalOcean, Vultr, Akamai (Linode), Scaleway, UpCloud | only if you add one | ufw as usual |
+
+Where the provider's firewall is always in front, it is closed until you open a port. ufw would repeat its rules,
+so setup does not install it. Open 80 and 443 (and 443/udp for HTTP/3) in the provider's console: landfall cannot
+do that from the server.
+
+```sh
+lf setup vps --firewall     # install and enable ufw anyway
+lf firewall enable -s vps   # or later
+```
+
+### What setup leaves on the server
+
+landfall keeps its own footprint small:
+
+- No agent and no landfall binary. `/opt/landfall` holds plain files: Compose projects, Traefik, the journal, a README.
+- Packages: Docker, rsync, curl and ca-certificates, plus ufw, fail2ban and unattended-upgrades where they apply.
+  ufw is only installed where setup turns it on. fail2ban is only installed where ssh passwords stay on.
+- On apt, landfall empties the package cache (`apt-get clean`) after it installs something.
+- A deploy keeps the newest 5 releases of a site (`--keep`), removes untagged images and trims the build cache.
+- File backups made for `lf undo` are capped at 10 per file.
+- `lf prune` shows and frees what is left: unused images, build cache, old logs.
 
 ### NAS, Steam Deck and other systems without a package manager
 

@@ -921,6 +921,10 @@ docker exec "$NAME" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall/sites
 # The deploy user is gone now, so look at the journal directly.
 { docker exec "$NAME" grep -q "$(printf '\tundo\t')" /opt/landfall/journal.log; } || die "journal kept"
 pass "undo --all leaves the server as it was, journal kept"
+# landfall logged in as deploy: it switched to the login that removed the user.
+has "lf now logs in to box as" "$WORK/undo.log" || { cat "$WORK/undo.log"; die "undo --all switches the login"; }
+{ lf history -s box 2>/dev/null | has "created user deploy"; } || die "lf still reaches the server after undo --all"
+pass "undo --all removes the deploy user and logs in as root from then on"
 fi
 
 if want uninstall; then echo "== uninstall"

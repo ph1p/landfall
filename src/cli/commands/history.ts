@@ -1,7 +1,10 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer, type Server } from "../../core/config";
 import { parseRule, type Rule } from "../../core/inventory";
-import { findRun, laterConflicts, pending, readJournal, undoSteps, type Run, type Step } from "../../core/journal";
+import { findRun, laterConflicts, pending, readJournal, removedUsers, stillNeeded, undoSteps, type Run, type Step } from "../../core/journal";
+import { switchLogin } from "../../core/login";
+import { rootLogin } from "../../core/privilege";
+import { effectiveSsh } from "../../core/sshconfig";
 import { JOURNAL } from "../../core/templates";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn, printJson } from "../../core/term";
 import { firewallState, guardSsh } from "../../core/firewall";
@@ -75,7 +78,10 @@ export const historyUndo = defineCommand({
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "everything landfall did that can be reverted" },
-    force: { type: "boolean", desc: "even if it leaves ufw on without an ssh rule, or a later run changed the same site or file" },
+    force: {
+      type: "boolean",
+      desc: "even if it leaves ufw on without an ssh rule, a later run changed the same site or file, or it removes a user that later runs need",
+    },
   },
   async run([ref], o) {
     const { name, server } = resolveServer(o.server);
@@ -113,12 +119,32 @@ export const historyUndo = defineCommand({
     for (const x of [...todo].reverse()) console.error(`  ${c.cyan("↺")} ${x.what}`);
     const stays = steps.filter((x) => !x.undo && !x.reverts);
     for (const x of stays) console.error(`  ${c.dim(`· ${x.what} stays (not reversible)`)}`);
+    // Removing the deploy user under its own sites: they would run on without an owner, and lf could not log in.
+    const needed = o.force ? [] : stillNeeded(runs, todo);
+    if (needed.length) {
+      const [{ user, runs: left }] = needed;
+      fail(
+        `this removes the user ${user}, but ${left.length === 1 ? "a run" : `${left.length} runs`} made as ${user} would stay: ` +
+          `${left
+            .slice(-5)
+            .map((r) => `#${r.n} ${r.cmd}`)
+            .join(", ")}. Undo those first (newest first), undo everything with --all, or pass --force`,
+      );
+    }
     await guardUndo(server, todo, o.force);
     const question = `Revert ${todo.length} change${todo.length > 1 ? "s" : ""} on ${name}?`;
     if (o.all) await confirmRemoval(question, name);
     else if (!(await confirm(question, false))) fail("cancelled");
     await undoSteps(server, todo);
     ok(`reverted ${todo.length} change${todo.length > 1 ? "s" : ""} on ${name}`);
-    if (todo.some((x) => x.what.startsWith("created user"))) info(c.dim(`lf still logs in to ${name} as that user: lf server rm ${name}, or lf setup again`));
+    // The login landfall used is gone with the user: carry on as the one that just removed it.
+    const me = effectiveSsh(server).user;
+    if (removedUsers(todo).includes(me)) {
+      const other = await rootLogin(server);
+      if (other?.user) {
+        await switchLogin(name, server, other.user);
+        info(`${me} is gone: lf now logs in to ${name} as ${c.bold(other.user)} (lf setup ${name} brings the deploy user back)`);
+      } else warn(`${me} is gone and no other login works: lf server rm ${name}, or lf setup ${name} --user <login>`);
+    }
   },
 });

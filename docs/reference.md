@@ -10,7 +10,7 @@ Every command, every local and remote file landfall uses, and its environment va
 
 | command | what it does |
 |---|---|
-| `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, fail2ban, deploy user, ssh hardening and Traefik. Idempotent. |
+| `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, deploy user, ssh hardening and Traefik. Idempotent. Installs fail2ban only where ssh passwords stay on (`--no-harden`). No ufw where the cloud provider's firewall is always in front, unless `--firewall`. |
 | `lf setup <name> --check` | Reports what is set up and what setup would change. Changes nothing. |
 | `lf setup <name> --key-only` | Only installs landfall's ssh key. |
 | `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
@@ -186,7 +186,7 @@ optional.
 /etc/ssh/sshd_config.d/00-landfall.conf   ssh hardening from `lf setup`
 ```
 
-`lf setup` also installs Docker with the compose plugin, rsync, ufw, fail2ban and unattended-upgrades, and creates the
+`lf setup` also installs Docker with the compose plugin, rsync, ufw (only where setup turns it on), fail2ban (only where ssh passwords stay on) and unattended-upgrades, and creates the
 `deploy` user (group docker). Before changing a file, landfall keeps a backup next to it as
 `.<file>.landfall-<run>` (the newest 10). `lf config` and the web UI's *Overview* list all of these places.
 

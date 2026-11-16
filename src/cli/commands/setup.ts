@@ -5,7 +5,7 @@ import { securityNotes } from "../../core/security";
 import { canLogin, runScript } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../../core/inventory";
-import { PLATFORM, support } from "../../core/facts";
+import { cloudFirewall, cloudOf, PLATFORM, support } from "../../core/facts";
 import { ensureKey, ensureKeyLogin, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../../core/templates";
 import { latestCompose, latestDocker } from "../../core/updates";
@@ -69,7 +69,7 @@ export const setup = defineCommand({
 
 Turns a fresh box into a deploy target (safe to re-run):
   1. create a dedicated SSH key (~/.ssh/landfall_<name>) and install it (asks for the password once)
-  2. install Docker, rsync, firewall (ufw: ssh/80/443), fail2ban, unattended-upgrades
+  2. install Docker, rsync, firewall (ufw: ssh/80/443), unattended-upgrades; fail2ban only if ssh passwords stay on (--no-harden)
   3. create a deploy user with docker access, disable SSH password login
   4. write \`Host <name>\` to ~/.ssh/config so \`ssh <name>\` just works
   5. install Traefik with automatic Let's Encrypt certificates
@@ -79,7 +79,9 @@ Works on existing ssh aliases too: \`lf setup vps\`.
 Before changing anything, setup inspects the server and only does what is
 missing. Steps that would break services already running there are skipped:
   - firewall, if enabling ufw would block public TCP/UDP ports in use
-    (host services, or container ports when Docker's NAT doesn't skip ufw)
+    (host services, or container ports when Docker's NAT doesn't skip ufw),
+    or if the provider's firewall is always in front (AWS, Google Cloud, Azure,
+    Oracle, Alibaba): then ufw is not installed at all (--firewall adds it)
   - ssh hardening, if other users still log in with a password
   - traefik, if ports 80/443 or the name are taken by something else;
     a Traefik already running there is used instead (lf traefik use)
@@ -94,7 +96,7 @@ dashboard unless given as flags.`,
     "deploy-user": { type: "string", desc: "user landfall deploys as (empty = keep login user)", default: "deploy" },
     email: { type: "string", desc: "contact e-mail for the Let's Encrypt account (optional)" },
     harden: { type: "boolean", desc: "disable ssh password auth (--no-harden to skip)", default: true },
-    firewall: { type: "boolean", desc: "enable ufw (--no-firewall to skip)", default: true },
+    firewall: { type: "boolean", desc: "enable ufw (--no-firewall to skip); skipped by default behind a provider firewall (AWS, Google Cloud, Azure, …)" },
     traefik: { type: "boolean", desc: "install traefik (--no-traefik to skip)", default: true },
     "ssh-config": { type: "boolean", desc: "write Host block to ~/.ssh/config (--no-ssh-config)", default: true },
     staging: { type: "boolean", desc: "Let's Encrypt staging CA, remembered (--no-staging to switch back)" },
@@ -143,11 +145,15 @@ dashboard unless given as flags.`,
     Object.assign(probe.values, { docker_latest: dockerLatest ?? "", compose_latest: composeLatest ?? "" });
     // The port sshd listens on, which differs from eff.port behind port forwarding.
     const sshPort = Number(probe.values.ssh_port) || eff.port;
+    // Behind a provider firewall ufw only repeats its rules: left out unless asked for.
+    const front = cloudFirewall(probe.values.cloud);
+    const firewall: boolean = o.firewall ?? !front;
     const checks = assess(probe, {
       sshPort,
       loginUser: eff.user,
       deployUser,
-      firewall: o.firewall,
+      firewall,
+      cloudFirewall: o.firewall === undefined ? front : undefined,
       harden: o.harden,
       traefik: o.traefik,
     });
@@ -164,7 +170,8 @@ dashboard unless given as flags.`,
     const ownTraefik = traefik && !traefik.proxy && traefik.status !== "conflict" && traefik.status !== "off";
     if (ownTraefik) traefik.detail += c.dim(` · ${describeTraefik(traefikSettings(existing ?? login, tOpts))}`);
     const os = support(probe.values.os_id ?? "", probe.values.os_version ?? "", probe.values.pkg ?? "none", undefined, probe.values.platform);
-    info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}`);
+    const cloud = cloudOf(probe.values.cloud);
+    info(`os: ${probe.values.os ?? "unknown"}${probe.values.pkg ? c.dim(` · ${probe.values.pkg}`) : ""}${cloud ? c.dim(` · ${cloud.name}`) : ""}`);
     if (os.note) (os.level === "eol" || os.level === "unsupported" ? warn : info)(os.note);
     // Setup installs packages; without a package manager there is nothing it can do safely,
     // so only what deploys need (docker, traefik) is worth showing.
@@ -246,6 +253,10 @@ dashboard unless given as flags.`,
       console.log(`\n${c.green("Done.")} Point a domain's A record at ${c.bold(eff.hostname)}, then:\n`);
       console.log(`  lf deploy ./dist --domain example.com --server ${name}\n`);
     }
+    if (front && !firewall)
+      info(
+        `open 80 and 443 (tcp${(tOpts.http3 ?? existing?.http3) !== false ? ", and 443/udp for HTTP/3" : ""}) in the ${front}: landfall cannot do that from the server`,
+      );
     await securityNotes(name, entry, login);
   },
 });

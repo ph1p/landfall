@@ -4,7 +4,7 @@ import { expandHome, type Server } from "./config";
 import { runScript, shq } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
-import { KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
+import { CLOUD, KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
 import { KEY_SERVICES, serviceName } from "./status";
 import { fail } from "./term";
 
@@ -18,6 +18,7 @@ ${SEC_CHECKS}
 kv root "$R"
 kv user "$(id -un)"
 [ -f /etc/synoinfo.conf ] && kv platform synology
+${CLOUD}
 kv hostname "$(hostname 2>/dev/null || cat /etc/hostname)"
 tz=$(timedatectl show -p Timezone --value 2>/dev/null)
 [ -n "$tz" ] || tz=$(cat /etc/timezone 2>/dev/null)
@@ -127,6 +128,8 @@ export interface Security {
   reboot: boolean;
   /** synology: a system that brings its own firewall and login bans (facts.ts PLATFORM). */
   platform?: string;
+  /** aws, gcp, …: the provider, where the server's hardware strings name one (facts.ts CLOUDS). */
+  cloud?: string;
 }
 
 export interface SystemInfo {
@@ -260,6 +263,7 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     autoUpdates: v.auto_updates ? v.auto_updates === "on" : undefined,
     reboot: v.reboot === "1",
     platform: v.platform || undefined,
+    cloud: v.cloud || undefined,
   };
   if (v.platform === "synology") info.managed = "DSM keeps this itself: change it in Control Panel (Regional Options, Info Center, Container Manager)";
   if (v.log_driver !== undefined) {

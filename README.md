@@ -23,7 +23,8 @@ You need Node.js 22.4+ plus `ssh`, `ssh-copy-id` and `tar` on your machine (`rsy
 
 The server needs a login as root or as a user with passwordless sudo. landfall installs Docker itself:
 
-- **Ubuntu and Debian** get the full setup: Docker, ufw, fail2ban and unattended-upgrades.
+- **Ubuntu and Debian** get the full setup: Docker, ufw and unattended-upgrades. fail2ban only where ssh passwords stay on.
+  Behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall, setup leaves ufw out.
 - **Fedora, RHEL-likes, Alpine and SUSE** (dnf, yum, apk, zypper) get Docker and rsync; their base repositories
   lack some of the rest.
 - **Systems without a package manager** (Synology DSM, SteamOS) can be deployed to when Docker is already there.

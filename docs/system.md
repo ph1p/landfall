@@ -68,6 +68,8 @@ not: the journal keeps no hashes. Passwords reach the server on the script's std
 
 ```sh
 lf security                       # ssh passwords, root login, firewall, fail2ban, automatic updates, pending reboot
+                                  # behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall, ufw being off is not a warning
+                                  # with keys only, a missing fail2ban is not a warning
 lf harden                         # all of: ssh (keys only), fail2ban, updates; or name the parts
 lf harden ssh                     # asks first; refuses while a user logs in with a password only (--force)
 lf keys add --generate -u anna    # new pair at ~/.ssh/<server>_anna, its public key on the server

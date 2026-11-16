@@ -53,6 +53,13 @@ describe("security", () => {
     ).toEqual([]);
   });
 
+  test("keys only: missing fail2ban is not worth a hint, a stopped one is", () => {
+    const keys = (f2b: string) =>
+      ids(out("sshd_passwordauthentication=no", "sshd_kbdinteractiveauthentication=no", "pkg=apt-get", "ufw=active", `fail2ban=${f2b}`, "auto_updates=on"));
+    expect(keys("missing")).toEqual([]);
+    expect(keys("stopped")).toEqual(["fail2ban"]);
+  });
+
   test("password login: keys only, unless someone would be locked out", () => {
     const open = out("sshd_passwordauthentication=yes", "fail2ban=running", "ufw=active", "password_users=root alice deploy");
     const [a] = advise(parseSystem(open), { name: "web", loginUser: "deploy" });
@@ -77,6 +84,17 @@ describe("security", () => {
       ["reboot", "info"],
     ]);
     expect(l.find((a) => a.id === "firewall")!.fix!.argv).toEqual(["firewall", "enable", "-s", "web"]);
+  });
+
+  test("behind a provider firewall, ufw being off is no warning", () => {
+    const aws = (ufw: string) => advise(parseSystem(out("cloud=aws", "pkg=apt-get", `ufw=${ufw}`, "fail2ban=running")), { name: "web", loginUser: "deploy" });
+    for (const ufw of ["missing", "inactive"]) {
+      expect(aws(ufw).find((a) => a.id === "firewall")).toMatchObject({ level: "info", title: "Firewall: the AWS security group" });
+    }
+    expect(aws("active").find((a) => a.id === "firewall")).toBeUndefined();
+    // Hetzner's firewall is optional, so ufw still counts there.
+    const hetzner = advise(parseSystem(out("cloud=hetzner", "pkg=apt-get", "ufw=inactive", "fail2ban=running")), { name: "web", loginUser: "deploy" });
+    expect(hetzner.find((a) => a.id === "firewall")!.level).toBe("warn");
   });
 
   test("no ufw where landfall cannot install it: a hint, no fix", () => {
