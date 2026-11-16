@@ -393,11 +393,13 @@ function java(f: Files): Runtime | undefined {
     dropwizard: "Dropwizard",
   }).find(([k]) => conf.includes(k))?.[1];
   const found = Number(
-    (conf.match(/<(?:java\.version|maven\.compiler\.release|maven\.compiler\.target|release)>\s*(?:1\.)?(\d+)/) ??
+    (
+      conf.match(/<(?:java\.version|maven\.compiler\.release|maven\.compiler\.target|release)>\s*(?:1\.)?(\d+)/) ??
       conf.match(/JavaLanguageVersion\.of\(\s*(\d+)/) ??
       conf.match(/jvmToolchain\(\s*(\d+)/) ??
       conf.match(/JavaVersion\.VERSION_(?:1_)?(\d+)/) ??
-      conf.match(/(?:source|target)Compatibility\s*=\s*['"]?(?:1\.)?(\d+)/))?.[1] ?? 21,
+      conf.match(/(?:source|target)Compatibility\s*=\s*['"]?(?:1\.)?(\d+)/)
+    )?.[1] ?? 21,
   );
   const version = JAVA.find((v) => v >= found) ?? JAVA.at(-1)!;
   const wrapper = maven ? f.has("mvnw") : f.has("gradlew");
