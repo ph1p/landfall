@@ -54,7 +54,7 @@ export function EnvTable({ n, site, onChange, secrets }: { n: string; site?: str
       (d) => setRows(d.vars),
       (e) => setErr(errorMessage(e)),
     );
-  }, []);
+  }, [n, site, secrets]);
   const update = (next: Row[]) => {
     setRows(next);
     onChange(change(next, secrets));

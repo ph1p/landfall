@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
@@ -637,13 +637,14 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
   const [d, setD] = useState<Volumes | null>(null);
   const [err, setErr] = useState("");
   // The list first, then the sizes: du reads every file, which takes a while on a big database.
-  const url = (sizes: 0 | 1) => `/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}&sizes=${sizes}`;
-  const load = () =>
-    http<Volumes>(url(0)).then(
+  const load = useCallback(() => {
+    const url = (sizes: 0 | 1) => `/api/servers/${encodeURIComponent(n)}/volumes?site=${encodeURIComponent(name)}&sizes=${sizes}`;
+    return http<Volumes>(url(0)).then(
       (x) => (setD(x), setErr(""), http<Volumes>(url(1)).then(setD, () => {})),
       (e) => setErr(errorMessage(e)),
     );
-  useEffect(() => void load(), [n, name]);
+  }, [n, name]);
+  useEffect(() => void load(), [load]);
   const box = (body: ReactNode, aside: ReactNode = addBtn) => (
     <Panel title="Volumes" count={d?.volumes.length || undefined} aside={aside}>
       {body}

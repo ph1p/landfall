@@ -259,7 +259,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
       (x) => !(x as HTMLInputElement).disabled && !x.closest("details:not([open])"),
     );
     focusInDialog(first ?? f.querySelector<HTMLElement>(danger ? "#dlg-cancel" : "button[type=submit]"));
-  }, []);
+  }, [danger]);
 
   const field = (f: Field): ReactNode => {
     const x = specs.find((s) => s.f.name === f.name)!;
