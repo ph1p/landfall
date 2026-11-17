@@ -554,11 +554,27 @@ function View({ n, ov }: { n: string; ov: Slot<Overview> }) {
   }
   // Every tab waits for the facts too: they decide which tabs this server has, so none shows and then vanishes.
   if (!o || !connected(n)) return <Placeholder>connecting to {n}…</Placeholder>;
+  // Docker did not answer: the lists below are empty, not known.
+  const docker = o.docker && (
+    <Note kind="bad">
+      Docker on {n} does not answer, so its containers are not listed: <span className="mono">{o.docker}</span>
+    </Note>
+  );
   switch (S.tab) {
     case "sites":
-      return <SitesView n={n} o={o} />;
+      return (
+        <>
+          {docker}
+          <SitesView n={n} o={o} />
+        </>
+      );
     case "tunnels":
-      return <TunnelsView n={n} o={o} />;
+      return (
+        <>
+          {docker}
+          <TunnelsView n={n} o={o} />
+        </>
+      );
     case "stats":
       return <StatsView n={n} />;
     case "traffic":

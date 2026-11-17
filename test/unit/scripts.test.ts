@@ -5,14 +5,15 @@ import { OWN_PROXY } from "../../src/core/templates";
 
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
+const reply = { stdout: "20260101120000\n" };
 vi.mock("../../src/core/ssh", async (orig) => ({
   ...(await orig<typeof import("../../src/core/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     scripts.push(script);
-    return { code: 0, stdout: "20260101120000\n", stderr: "" };
+    return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
-const { applySite, discardRelease, lockSite } = await import("../../src/core/remote");
+const { applySite, discardRelease, lockSite, overview } = await import("../../src/core/remote");
 
 const server = { host: "example.com" } as any;
 const release = (id: string) => ({ id, at: "", services: [{ name: "web", networks: ["default"], build: true, port: 8000 }] });
@@ -34,7 +35,10 @@ const at = (script: string, needle: string, from = 0) => {
   return i;
 };
 
-beforeEach(() => void (scripts.length = 0));
+beforeEach(() => {
+  scripts.length = 0;
+  reply.stdout = "20260101120000\n";
+});
 
 describe("deploy scripts", () => {
   test("a redeploy builds with the new .env aside, journals, then switches; a failed start goes back", async () => {
@@ -71,5 +75,14 @@ describe("deploy scripts", () => {
     expect(scripts[0]).toContain("mkdir '/opt/landfall/sites/.blog.deploying'");
     await lock.unlock();
     expect(scripts[1]).toBe("rm -rf '/opt/landfall/sites/.blog.deploying'");
+  });
+  test("the overview says why Docker does not answer, instead of listing no container", async () => {
+    reply.stdout = "READY\t1\nTRAEFIK\t\ttraefik\t\nDOCKER\tpermission denied while trying to connect to the docker API\n";
+    const o = await overview(server);
+    parses(scripts[0]);
+    expect(scripts[0]).toContain("printf 'DOCKER\\t%s\\n'");
+    expect(o).toMatchObject({ ready: true, unrouted: [], docker: "permission denied while trying to connect to the docker API" });
+    reply.stdout = "READY\t1\nCTR\tweb\tUp 1 second\t\t\tnginx:alpine\t80/tcp\n";
+    expect((await overview(server)).docker).toBeUndefined();
   });
 });

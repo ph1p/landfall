@@ -67,10 +67,13 @@ function sshOptions(s: Server, o: SshOpts = {}): string[] {
 
 const sshArgs = (s: Server, o: SshOpts = {}) => [...sshOptions(s, o), dest(s)];
 
-/** Close the multiplexed session to `s`, if one lingers (it keeps a login of that user alive). */
-export function closeMux(s: Server): Promise<void> {
+/**
+ * Close the multiplexed session to `s`, if one lingers (it keeps a login of that user alive).
+ * "stop" lets the scripts running over it finish and only makes the next call log in anew.
+ */
+export function closeMux(s: Server, how: "exit" | "stop" = "exit"): Promise<void> {
   return new Promise((resolve) => {
-    const args = [...targetArgs(s), "-o", `ControlPath=${controlDir()}/%C`, "-O", "exit", dest(s)];
+    const args = [...targetArgs(s), "-o", `ControlPath=${controlDir()}/%C`, "-O", how, dest(s)];
     spawn("ssh", args, { stdio: "ignore" })
       .on("close", () => resolve())
       .on("error", () => resolve());
@@ -139,6 +142,7 @@ function spawnP(
     let part = "";
     const pass = (l: string) => {
       if (l === STARTED) return waitStart(child, opts.waitFor!);
+      if (l === STALE) return void (stderr += l + "\n");
       stderr += l + "\n";
       process.stderr.write(l + "\n");
       // Counts the quiet since the last line, not since the start.
@@ -223,6 +227,15 @@ async function shared<T>(s: Server, run: () => Promise<T>): Promise<T> {
   }
 }
 
+// A shared connection keeps the groups its login had. A user added to a group since (docker, by setup or by hand)
+// would not have it there, and docker would answer "permission denied" until the connection idles out, which a
+// polling web UI never lets happen. So a script first compares its groups with the user's, before it changes anything.
+const STALE = "landfall:stale";
+const STALE_CODE = 213;
+/** `say`: with the marker on stderr, where landfall reads stderr; else it would only show on the user's screen. */
+const staleCheck = (say: boolean) =>
+  `if [ "$(id -u)" -ne 0 ]; then _have=" $(id -G) "; for _g in $(id -G "$(id -un)" 2>/dev/null || true); do case "$_have" in *" $_g "*) ;; *) ${say ? `echo ${STALE} >&2; ` : ""}exit ${STALE_CODE} ;; esac; done; unset _have _g; fi`;
+
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
   const env = { LANDFALL_RUN: journal.run, LANDFALL_ACTOR: journal.actor, LANDFALL_CMD: journal.cmd, LANDFALL_REPORT: process.env.LANDFALL_REPORT, ...o.env };
   const header = Object.entries(env)
@@ -230,13 +243,22 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)
     .join("\n");
   const waitFor = o.capture && process.stderr.isTTY && !quiet ? s.host : undefined;
-  const res = await shared(s, () =>
-    spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-      input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${script}\n`,
-      capture: o.capture,
-      waitFor,
-    }),
-  );
+  const attempt = (check: string) =>
+    shared(s, () =>
+      spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
+        input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${check}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${script}\n`,
+        capture: o.capture,
+        waitFor,
+      }),
+    );
+  const piped = quiet || !!waitFor;
+  let res = await attempt(staleCheck(piped));
+  // Where stderr is ours to read, the exit code alone does not count: the script itself may have ended with it.
+  if (res.code === STALE_CODE && (!piped || res.stderr.includes(STALE))) {
+    await closeMux(s, "stop");
+    // Once only, and unchecked: a server whose user database disagrees with its logins must not loop.
+    res = await attempt("");
+  }
   // Quiet runs capture stderr: pass the script's report lines on all the same. A waited-for run showed them already.
   const lines = waitFor ? [] : res.stderr.trim().split("\n");
   for (const l of lines) if (l.startsWith(REPORT)) process.stderr.write(l + "\n");

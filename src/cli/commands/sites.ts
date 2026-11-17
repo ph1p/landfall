@@ -42,7 +42,7 @@ import {
   validName,
 } from "../../core/remote";
 import { shq, writeFileCmd } from "../../core/ssh";
-import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson } from "../../core/term";
+import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson, warn } from "../../core/term";
 import { volumes } from "../../core/volumes";
 import { slug } from "../../core/projects";
 import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/tunnel";
@@ -68,6 +68,7 @@ export const sitesList = defineCommand({
     const view = await overview(server);
     const { sites, others } = view;
     // --others: the whole overview the web UI reads (proxy, dashboard, unrouted containers too).
+    if (view.docker) warn(`Docker on ${name} does not answer, so its containers are not listed: ${view.docker}`);
     if (o.json) return printJson(o.others ? view : sites);
     if (others.length) {
       console.log(c.dim(`not deployed by landfall, routed by Traefik (\`lf adopt <name>\` manages a Compose project):`));

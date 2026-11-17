@@ -973,8 +973,19 @@ TUNNEL_PID=$!
 for _ in $(seq 1 30); do curl -s http://127.0.0.1:18096/ | has Hostname && break; sleep 0.5; done
 got=$(curl -s http://127.0.0.1:18096/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
 has Hostname <<<"$got" || { cat "$WORK/bare-tunnel.log"; die "tunnel to a plain container before setup"; }
-docker exec "$NAME-fresh" docker rm -f bare >/dev/null
 pass "before any setup a plain container is listed and lf tunnel reaches it"
+# A login user outside the docker group: the list says why it is empty. Once in the group, the next call sees
+# the containers at once, although the shared ssh connection still has the old groups.
+docker exec "$NAME-fresh" sh -c 'install -d -m 700 -o alice -g alice /home/alice/.ssh && install -m 600 -o alice -g alice /root/.ssh/authorized_keys /home/alice/.ssh/authorized_keys'
+plain server add al --host 127.0.0.1 --port "$FRESH_PORT" -u alice -i "$WORK/home2/.ssh/landfall_plain" </dev/null >/dev/null 2>&1 || die "server add as alice"
+out=$(plain ls -s al --others --json 2>"$WORK/al.err")
+{ has '"docker": "permission denied' <<<"$out" && has "Docker on al does not answer" "$WORK/al.err"; } || { echo "$out"; cat "$WORK/al.err"; die "ls says docker does not answer"; }
+docker exec "$NAME-fresh" addgroup alice docker
+out=$(plain ls -s al --others --json 2>/dev/null)
+{ has '"container": "bare"' <<<"$out" && ! has '"docker":' <<<"$out"; } || { echo "$out"; die "ls after joining the docker group"; }
+docker exec "$NAME-fresh" sh -c 'docker rm -f bare >/dev/null; delgroup alice docker; rm -rf /home/alice/.ssh'
+lf server rm al -y >/dev/null 2>&1
+pass "no Docker access is said, and a new group works without waiting for the ssh connection to close"
 lf server rm plain -y >/dev/null 2>&1; lf server rm keyed -y >/dev/null 2>&1; forget_fresh
 # Same steps as the dashboard: install the key with the password, then check and apply with the key only.
 # HOME keeps the generated ~/.ssh/landfall_fresh out of the real home; askpass types the password.

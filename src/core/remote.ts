@@ -159,6 +159,8 @@ export interface Overview {
   dashboard: { hosts: string[]; tunnel: boolean };
   /** Running containers neither a site nor routed by Traefik (databases, workers): only a tunnel reaches them. */
   unrouted: Unrouted[];
+  /** Set when Docker is installed but `docker ps` failed: its error. The lists above are empty then, not known. */
+  docker?: string;
 }
 
 export interface Unrouted {
@@ -266,7 +268,8 @@ P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
 ${SITE_LINES}
 ${ctrPs(true)} 2>/dev/null || true
-ids=$(docker ps -aq 2>/dev/null || true)
+# Docker is there but does not answer (no access to its socket, daemon down): say why, an empty list would lie.
+ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 || printf 'DOCKER\\t%s\\n' "$(docker ps -q 2>&1 | tail -n1)"; }
 # inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
 [ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true`,
     { capture: true },
@@ -289,6 +292,7 @@ ids=$(docker ps -aq 2>/dev/null || true)
   for (const line of stdout.split("\n")) {
     const [kind, a = "", b = "", project = "", service = "", image = "", ports = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
+    if (kind === "DOCKER") o.docker = a || "docker ps failed";
     if (kind === "TRAEFIK") {
       o.traefik = a;
       o.proxy = b || "traefik";
