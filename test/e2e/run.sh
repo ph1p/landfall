@@ -963,6 +963,18 @@ rm "$WORK/home2/.ssh/landfall_plain.pub"
 HOME="$WORK/home2" LANDFALL_SSH_CONFIG="$NEWCFG" node "$ROOT/dist/cli.mjs" server add keyed --host 127.0.0.1 --port "$FRESH_PORT" -i "$WORK/home2/.ssh/landfall_plain" </dev/null >/dev/null 2>&1 \
   || die "server add with a key file"
 { [ "$(ssh -F "$NEWCFG" -o BatchMode=yes keyed "id -un")" = root ] && grep -q "landfall_plain$" "$NEWCFG"; } || die "ssh keyed"; pass "server add logs in with a given key file"
+# No setup at all: a container started by hand is listed and a tunnel reaches it.
+docker exec "$NAME-fresh" docker run -d --name bare traefik/whoami:v1.11 >/dev/null 2>&1 || die "start a plain container"
+plain() { HOME="$WORK/home2" LANDFALL_SSH_CONFIG="$NEWCFG" node "$ROOT/dist/cli.mjs" "$@"; }
+out=$(plain ls -s plain --others --json 2>/dev/null)
+{ has '"ready": false' <<<"$out" && has '"container": "bare"' <<<"$out"; } || { echo "$out"; die "ls --others lists a plain container before setup"; }
+plain tunnel bare -s plain -l 18096 >"$WORK/bare-tunnel.log" 2>&1 &
+TUNNEL_PID=$!
+for _ in $(seq 1 30); do curl -s http://127.0.0.1:18096/ | has Hostname && break; sleep 0.5; done
+got=$(curl -s http://127.0.0.1:18096/ || true); kill $TUNNEL_PID 2>/dev/null || true; wait $TUNNEL_PID 2>/dev/null || true
+has Hostname <<<"$got" || { cat "$WORK/bare-tunnel.log"; die "tunnel to a plain container before setup"; }
+docker exec "$NAME-fresh" docker rm -f bare >/dev/null
+pass "before any setup a plain container is listed and lf tunnel reaches it"
 lf server rm plain -y >/dev/null 2>&1; lf server rm keyed -y >/dev/null 2>&1; forget_fresh
 # Same steps as the dashboard: install the key with the password, then check and apply with the key only.
 # HOME keeps the generated ~/.ssh/landfall_fresh out of the real home; askpass types the password.

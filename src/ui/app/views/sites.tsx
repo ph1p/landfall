@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { S, ago, errorMessage, http, render, sv, tilde } from "../lib/store";
+import { S, ago, errorMessage, http, plural, render, sv, tilde } from "../lib/store";
 import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
 import { go } from "../lib/api";
@@ -51,6 +51,18 @@ const SetupChoice = ({ title, text, label, primary, on }: { title: string; text:
   </div>
 );
 
+/** On a server landfall has not set up: the containers it runs already, which a tunnel reaches as they are. */
+function Running({ n, o }: { n: string; o: Overview }) {
+  const count = o.others.length + o.unrouted.length;
+  if (!count) return null;
+  return (
+    <p>
+      {plural(count, "container")} already run{count === 1 ? "s" : ""} here. A tunnel reaches {count === 1 ? "it" : "them"} without any setup.{" "}
+      <Btn on={() => go(n, "tunnels")}>Open Tunnels</Btn>
+    </p>
+  );
+}
+
 export function SitesView({ n, o }: { n: string; o: Overview }) {
   useEffect(() => ensureDns(n, o));
   const k = can(n);
@@ -59,6 +71,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
       <Card>
         <Empty title="Not ready for sites">
           <p>{S.facts[n]?.data?.why?.setup ?? ""}, so landfall cannot set it up: sites need Docker and /opt/landfall, which setup creates.</p>
+          <Running n={n} o={o} />
         </Empty>
       </Card>
     );
@@ -83,6 +96,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
               on={() => setupFlow([n, "--minimal"], [n])}
             />
           </div>
+          <Running n={n} o={o} />
         </Empty>
       </Card>
     );

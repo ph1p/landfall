@@ -128,7 +128,10 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
     return (
       <Card>
         <Empty title="Nothing to tunnel to yet">
-          <p>Set up the server and deploy a site first. A minimal setup is enough: tunnels need no Traefik.</p>
+          <p>
+            No container runs on {n}. A tunnel reaches any running container, with or without landfall's setup: start one with docker, or set the server up and
+            deploy a site.
+          </p>
         </Empty>
       </Card>
     );
@@ -136,6 +139,7 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
   const one = (head: Target): Block => ({ head, rows: [] });
   const loose = byProject(o);
   const others = otherBlocks(n, o, loose);
+  const only = !o.sites.length && !others.length;
   const sections: Section[] = [
     { title: "Sites", blocks: siteBlocks(n, o) },
     {
@@ -144,22 +148,26 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
       blocks: others,
     },
     {
-      title: "Other containers",
-      lede: "no domain routes to them (databases, caches, workers): the tunnel goes to the port their image exposes",
+      title: only ? "Containers" : "Other containers",
+      lede: only
+        ? "running on this server: the tunnel goes to the port their image exposes"
+        : "no domain routes to them (databases, caches, workers): the tunnel goes to the port their image exposes",
       blocks: looseBlocks(n, loose),
     },
     {
       title: "Server",
-      blocks: [
-        one({
-          key: "traefik",
-          name: "Traefik dashboard",
-          status: o.traefik,
-          serves: o.dashboard.hosts,
-          argv: o.dashboard.tunnel ? ["traefik", "dashboard", ...sv(n)] : null,
-          why: "no tunnel yet: see Traefik",
-        }),
-      ],
+      blocks: !o.traefik
+        ? []
+        : [
+            one({
+              key: "traefik",
+              name: "Traefik dashboard",
+              status: o.traefik,
+              serves: o.dashboard.hosts,
+              argv: o.dashboard.tunnel ? ["traefik", "dashboard", ...sv(n)] : null,
+              why: "no tunnel yet: see Traefik",
+            }),
+          ],
     },
   ].filter((s) => s.blocks.length);
   // An open tunnel names what it reaches: the target whose command it extends (--lan, -p…), under its block.

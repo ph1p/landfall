@@ -31,6 +31,9 @@ lf sites rm blog                   # delete the site (asks you to type the name)
 lf logs api -s vps                 # another site on another server
 ```
 
+A tunnel needs no setup on the server. A server you only added (`lf server add`) is enough: `lf tunnel <container>`
+reaches any container running there. The web page lists them under Tunnels.
+
 A tunnel needs the server's sshd to allow port forwarding. With `AllowTcpForwarding no` the tunnel opens but
 every request fails; `lf tunnel` then says so: set it to `yes` (or `local`) in `/etc/ssh/sshd_config` and reload ssh.
 
