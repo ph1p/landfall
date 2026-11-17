@@ -23,7 +23,7 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | Users       | `lf users` and its subcommands; the tab shows only where landfall may manage users                                                                                                                                                   |
 | System      | `lf system`, `services`, `keys`, `unban`, `swap`, `hostname`, `timezone`, `log-limit`                                                                                                                                                |
 | History     | `lf history`, `lf undo`                                                                                                                                                                                                              |
-| Settings    | `lf server config`, `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard`                                                                                                                                    |
+| Settings    | `lf server config` (`--cloud`: Change next to provider, or the provider in the header), `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard`                                                                                                                                    |
 
 Servers are on the left (★ marks the default). The dot next to each says whether landfall's key login works
 (green), sshd refuses it (yellow) or ssh does not answer (red); hover for the reason. It checks on load, every

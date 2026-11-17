@@ -6,6 +6,7 @@ import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
+import { providerDialog } from "./flows";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError } from "../ui/dialog";
 
 // ---- traefik & settings --------------------------------------------------------
@@ -420,9 +421,23 @@ export function SettingsView({ n }: { n: string }) {
     run(["server", "domain", n, tunnel ? "--no-tunnel-only" : "--tunnel-only"], { server: n, after: ifOk(() => (load(n, "settings", true), refreshState())) });
   const saved: [string, ReactNode][] = x.saved
     ? Object.entries(x.saved)
-        .filter(([k, v]) => v !== undefined && k !== "dashboard")
+        .filter(([k, v]) => v !== undefined && k !== "dashboard" && k !== "cloud")
         .map(([k, v]) => [k, <span className={MONO}>{String(v)}</span>])
     : [];
+  const cloud = S.facts[n]?.data?.cloud;
+  saved.push([
+    "provider",
+    <>
+      {cloud ? cloud.name : <span className="dim">none</span>}{" "}
+      <span className="dim">
+        · {x.saved?.cloud ? "set by hand" : "detected"}
+        {cloud?.firewall ? ` · ${cloud.firewall} in front` : ""}
+      </span>{" "}
+      <Btn cls="sm" on={() => providerDialog(n)}>
+        Change
+      </Btn>
+    </>,
+  ]);
   const primary = x.domains[0];
   return (
     <>
@@ -579,7 +594,10 @@ export function SettingsView({ n }: { n: string }) {
         <CardHead>
           landfall config <Sub className={MONO}>{x.configFile}</Sub>
         </CardHead>
-        <Body>{saved.length ? <Kv pairs={saved} /> : <p className={cx("dim", P)}>Not registered — an ssh alias landfall reads from ~/.ssh/config.</p>}</Body>
+        <Body>
+          {!x.saved && <p className={cx("dim", P)}>Not registered — an ssh alias landfall reads from ~/.ssh/config.</p>}
+          <Kv pairs={saved} />
+        </Body>
       </Card>
       <Card>
         <CardHead>

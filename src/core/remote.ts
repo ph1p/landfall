@@ -29,7 +29,7 @@ import {
 import { onStop } from "./job";
 import { backupName, backupTo, recreateFrom } from "./volumes";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER, type Proxy } from "./templates";
+import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TRAEFIK_DIR, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
@@ -85,16 +85,19 @@ export function validName(name: string) {
 const SEP = "\n--8<--landfall--8<--\n";
 
 /** Fetch site.json and .env of a site, and the Traefik it goes through, in one round trip. */
-export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMeta; env: string; proxy: Proxy; exists: boolean }> {
+/** `routed`: a Traefik serves this server's sites (landfall's own, or one they were pointed at). Without one a domain answers nothing. */
+export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMeta; env: string; proxy: Proxy; exists: boolean; routed: boolean }> {
   const dir = siteDir(name);
   const { stdout } = await runScript(
     s,
-    [...[`${dir}/site.json`, `${dir}/.env`, PROXY_FILE].map((f) => `cat ${shq(f)} 2>/dev/null || true`), `[ ! -d ${shq(dir)} ] || echo 1`].join(
-      `; printf %s ${shq(SEP)}; `,
-    ),
+    [
+      ...[`${dir}/site.json`, `${dir}/.env`, PROXY_FILE].map((f) => `cat ${shq(f)} 2>/dev/null || true`),
+      `[ ! -d ${shq(dir)} ] || echo 1`,
+      `{ [ ! -f ${shq(PROXY_FILE)} ] && [ ! -f ${shq(`${TRAEFIK_DIR}/docker-compose.yml`)} ]; } || echo 1`,
+    ].join(`; printf %s ${shq(SEP)}; `),
     { capture: true },
   );
-  const [json, env = "", proxy = "", exists = ""] = stdout.split(SEP);
+  const [json, env = "", proxy = "", exists = "", routed = ""] = stdout.split(SEP);
   let meta: SiteMeta | undefined;
   if (json.trim()) {
     try {
@@ -102,7 +105,7 @@ export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMe
     } catch {}
     if (!isSiteMeta(meta)) fail(`corrupt ${dir}/site.json on ${s.host}`);
   }
-  return { meta, env, proxy: parseProxy(proxy) ?? OWN_PROXY, exists: exists.trim() === "1" };
+  return { meta, env, proxy: parseProxy(proxy) ?? OWN_PROXY, exists: exists.trim() === "1", routed: routed.trim() === "1" };
 }
 
 /** A site that exists and is a Compose project; `deployed` also refuses adopted ones (no releases). */

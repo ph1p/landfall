@@ -11,6 +11,7 @@ Every command, every local and remote file landfall uses, and its environment va
 | command | what it does |
 |---|---|
 | `lf setup <name> [--host ip]` | Turns a box into a deploy target: ssh key, Docker, ufw, deploy user, ssh hardening and Traefik. Idempotent. Installs fail2ban only where ssh passwords stay on (`--no-harden`). No ufw where the cloud provider's firewall is always in front, unless `--firewall`. `--cloud <provider>` sets the provider where detection is wrong. |
+| `lf setup <name> --minimal` | Only Docker and `/opt/landfall`: no Traefik, deploy user, packages, firewall or ssh hardening. Sites then deploy with no domain; `lf tunnel` reaches them. |
 | `lf setup <name> --check` | Reports what is set up and what setup would change. Changes nothing. |
 | `lf setup <name> --key-only` | Only installs landfall's ssh key. |
 | `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--cloud provider] [--default]` | Registers a server without installing anything on it. Writes `Host <name>` to `~/.ssh/config`. |
@@ -44,6 +45,7 @@ Every command, every local and remote file landfall uses, and its environment va
 | `lf timezone [zone]` | Shows or sets the time zone, e.g. `Europe/Berlin`. Undoable. Alias: `server timezone`. |
 | `lf log-limit [size\|off] [--files n] [--restart]` | Shows or sets Docker's json-file log limit per container in `daemon.json` (default 3 files). `--restart` restarts Docker so it applies now. Undoable. |
 | `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
+| `lf server config [name] --cloud <provider\|none\|auto>` | Remembers the server's cloud provider. `none` means no provider. `auto` forgets it and detects again. |
 | `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--tunnel-only] [--json]` | Manages main domains (the first is primary) and checks their DNS; `--tunnel-only` makes new sites deploy with no domain. |
 | `lf server use <name>` | Sets the default server. |
 | `lf config [--tunnel-only] [--email e] [--keep n] [--default name] [--unset key] [--json]` | Shows or changes landfall's defaults for every server, and lists every place landfall writes to. A server's own setting wins. |

@@ -56,6 +56,37 @@ with the newest release. An existing Docker is never reinstalled. In a terminal,
 Running setup again is safe. If root's key login is gone after hardening, setup logs in as the sudo user it
 remembered from the first run (`--dashboard-user` and `--email` are checked before anything changes).
 
+### Minimal setup: Docker only, no Traefik
+
+landfall also works without Traefik. A minimal setup only makes sure Docker runs and creates `/opt/landfall`.
+
+```sh
+lf setup vps --minimal --check   # what is there, what would change
+lf setup vps --minimal           # Docker (if missing), /opt/landfall and the Docker network: nothing else
+```
+
+It installs no Traefik, no deploy user, no packages and no firewall. It does not change sshd. landfall logs in
+as the user you gave it.
+
+A flag turns one part back on. Running setup without `--minimal` later adds the rest.
+
+```sh
+lf setup vps --minimal --harden  # minimal, plus key-only ssh
+lf setup vps                     # later: the full setup, with Traefik
+lf traefik setup -s vps          # later: only Traefik
+```
+
+On a server without Traefik, sites serve no domain. `lf deploy` deploys them without asking for one. You reach
+them through a tunnel.
+
+```sh
+lf deploy -s vps                 # no Traefik on vps: the site gets no domain
+lf tunnel my-site                # opens the site on a local port, over ssh
+lf tunnel postgres --port 5432   # any other container or Compose project on the server works too
+```
+
+A deploy with `-d` still works. It warns that nothing answers on the domain until Traefik runs.
+
 ### Setup flags
 
 | flag | effect |
@@ -72,6 +103,7 @@ remembered from the first run (`--dashboard-user` and `--email` are checked befo
 | `--no-http3` | Traefik without HTTP/3 on 443/udp (remembered), see [Traefik](traefik.md) |
 | `--no-firewall` / `--no-harden` / `--no-traefik` / `--no-ssh-config` | skip a step |
 | `--firewall` | install and enable ufw even behind a provider firewall |
+| `--minimal` | only Docker and `/opt/landfall`: no Traefik, deploy user, packages, firewall or ssh hardening. A part's own flag (`--harden`, `--firewall`, `--traefik`, `--deploy-user deploy`) turns it back on |
 | `--check` / `--key-only` / `--force` | report only / install only the key / apply despite conflicts |
 
 On a first Traefik install, setup asks for the image, host network, e-mail and dashboard in a terminal. `-y`
@@ -142,7 +174,12 @@ lf setup vps --cloud aws         # treat it as AWS: no ufw
 lf setup vps --cloud none        # no provider: ufw as usual
 lf setup vps --cloud auto        # forget the setting and detect again
 lf server add vps --cloud aws    # the same, without running setup
+lf server config vps --cloud aws # the same for a server landfall already knows; connects to nothing
 ```
+
+The web page sets it too: click the provider in the server's header, or Change in Settings.
+With a provider set, the server's list gets a link to the provider's console.
+Behind a provider firewall, the Firewall section is called Host firewall and says which ports to open at the provider.
 
 In the web UI, the setup dialog has the same choice as "Provider".
 

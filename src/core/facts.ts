@@ -84,6 +84,8 @@ export interface Facts {
   platform: string;
   /** The provider the server runs at, where its hardware strings name one (CLOUDS). */
   cloud?: Cloud;
+  /** What the probe found; `cloud` is landfall's config where that says something else (`lf server config --cloud`). */
+  cloudDetected?: Cloud;
   init: "systemd" | "openrc" | "other";
   /** The ssh login, and whether it is root or has passwordless sudo. */
   user: string;
@@ -135,7 +137,7 @@ export function parseFacts(out: string, today = new Date()): Facts {
 export async function facts(s: Server): Promise<Facts> {
   const { stdout } = await runScript(s, PRELUDE + FACTS, { capture: true });
   const f = parseFacts(stdout);
-  return s.cloud ? { ...f, cloud: cloudOf(cloudFor(s)) } : f;
+  return { ...f, cloudDetected: f.cloud, ...(s.cloud ? { cloud: cloudOf(cloudFor(s)) } : {}) };
 }
 
 /**

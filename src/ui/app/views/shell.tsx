@@ -19,7 +19,23 @@ import { FirewallView } from "./firewall";
 import { HistoryView } from "./history";
 import { HomeView } from "./home";
 import { SitesView } from "./sites";
-import { Activity, Cable, Cpu, Download, Gauge, Globe, History, LayoutGrid, RotateCw, Route, Settings, Shield, Users, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  Cable,
+  Cpu,
+  Download,
+  ExternalLink,
+  Gauge,
+  Globe,
+  History,
+  LayoutGrid,
+  RotateCw,
+  Route,
+  Settings,
+  Shield,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 
 export function App() {
   useStore();
@@ -339,7 +355,24 @@ function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
         <Bone className={nav ? ["w-12", "w-16", "w-10", "w-14"][i % 4] : "w-12"} />
       </div>
     ));
-  return sections(n).map(([t, label, grp], i, all) => {
+  const cl = S.facts[n]?.data?.cloud;
+  const groupHead = (key: string, title: string, first = false) => (
+    <div key={key} role="presentation" className={cx("px-2.5 pb-0.5 text-[11px] uppercase tracking-[.06em] text-faint font-medium", first ? "pt-1" : "pt-2.5")}>
+      {title}
+    </div>
+  );
+  // The provider's own console: where its firewall, snapshots and the machine itself are managed.
+  const provider =
+    nav && cl?.console
+      ? [
+          groupHead("provider/group", "Provider"),
+          <a key="provider" href={cl.console} target="_blank" rel="noopener" className={cx(look(false), "no-underline")} title={cl.console}>
+            <ExternalLink className="size-3.5 flex-none opacity-75" aria-hidden="true" />
+            <span className="mr-auto">{cl.name} console</span>
+          </a>,
+        ]
+      : [];
+  const list = sections(n).map(([t, label, grp], i, all) => {
     const Icon = ICON[t];
     const btn = (
       <button
@@ -357,17 +390,9 @@ function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
     );
     // The list heads each group; tabs on phones run on in one row.
     if (!nav || all[i - 1]?.[2] === grp) return btn;
-    return [
-      <div
-        key={`${t}/group`}
-        role="presentation"
-        className={cx("px-2.5 pb-0.5 text-[11px] uppercase tracking-[.06em] text-faint font-medium", i ? "pt-2.5" : "pt-1")}
-      >
-        {grp}
-      </div>,
-      btn,
-    ];
+    return [groupHead(`${t}/group`, grp, !i), btn];
   });
+  return [...list, ...provider];
 }
 
 const ICON: Record<Tab, LucideIcon> = {
@@ -447,7 +472,7 @@ function Main() {
                 <Star />
               </>
             )}{" "}
-            <span className="font-normal text-faint">/ {SECTIONS.find(([t]) => t === S.tab)![1]}</span>
+            <span className="font-normal text-faint">/ {(shown.find(([t]) => t === S.tab) ?? SECTIONS.find(([t]) => t === S.tab)!)[1]}</span>
             {reloading && (
               <>
                 {" "}

@@ -5,6 +5,7 @@ import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
 import { bytes as size, duration, pct } from "../../../core/format";
 import { isUp, statusKind } from "../../../core/status";
+import { providerDialog } from "./flows";
 
 export { bytes as size, pct } from "../../../core/format";
 export { isUp };
@@ -124,7 +125,14 @@ export function FactsLine({ n }: { n: string }) {
     <>
       <b className="text-fg font-medium">{f.os}</b> {f.arch}
     </>,
-    f.cloud ? <span title={f.cloud.firewall ? `${f.cloud.firewall} in front` : undefined}>{f.cloud.name}</span> : "",
+    <button
+      type="button"
+      className="border-0 bg-transparent shadow-none p-0 text-inherit font-[inherit] underline decoration-dotted underline-offset-2 hover:text-fg hover:bg-transparent"
+      title={f.cloud?.firewall ? `${f.cloud.firewall} in front. Change the provider` : "Change the provider"}
+      onClick={() => providerDialog(n)}
+    >
+      {f.cloud?.name ?? "no provider"}
+    </button>,
     <span title={`kernel ${f.kernel}`}>up {duration(f.uptime)}</span>,
     f.cpus ? `${f.cpus} CPU · load ${f.load.split(" ")[0]}` : "",
     f.mem.total ? `RAM ${size(f.mem.total - f.mem.available)} / ${size(f.mem.total)}` : "",
@@ -174,7 +182,9 @@ const SECTION_IF: Partial<Record<Tab, (k: Record<Cap, boolean>) => unknown>> = {
   firewall: (k) => k.firewall,
   users: (k) => k.users,
 };
-export const sections = (n: string) => {
+/** The server's sections. Behind a provider firewall, ufw is only the second one: its section says "Host firewall". */
+export const sections = (n: string): typeof SECTIONS => {
   const k = can(n);
-  return SECTIONS.filter(([t]) => !k || (SECTION_IF[t]?.(k) ?? true));
+  const front = S.facts[n]?.data?.cloud?.firewall;
+  return SECTIONS.filter(([t]) => !k || (SECTION_IF[t]?.(k) ?? true)).map((s) => (front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s));
 };

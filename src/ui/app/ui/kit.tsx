@@ -143,8 +143,8 @@ export const Table = ({ head, cols, children }: { head?: ReactNode; cols?: [stri
   </Scroll>
 );
 export const Empty = ({ title, children, className }: { title: ReactNode; children?: ReactNode; className?: string }) => (
-  <div className={cx("text-dim text-center px-5 py-[72px]", className)}>
-    <h2 className="text-fg text-[18px] font-semibold tracking-[-.01em] m-0 mb-1.5">{title}</h2>
+  <div className={cx("text-dim text-center px-5 py-16 flex flex-col items-center gap-4 [&>p]:m-0 [&>p]:max-w-[58ch] [&>p]:text-pretty", className)}>
+    <h2 className="text-fg text-[18px] font-semibold tracking-[-.01em] m-0 -mb-2">{title}</h2>
     {children}
   </div>
 );

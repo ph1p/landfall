@@ -86,6 +86,11 @@ missing. Steps that would break services already running there are skipped:
   - traefik, if ports 80/443 or the name are taken by something else;
     a Traefik already running there is used instead (lf traefik use)
 Use --check to only see that report, --force to apply firewall/hardening anyway.
+
+--minimal is the smallest setup: Docker (if it is missing), /opt/landfall and the
+Docker network. No Traefik, no deploy user, no packages, no firewall, no ssh
+change. Sites then serve no domain: reach them with lf tunnel. Add a part back
+with its flag (--minimal --harden), or run lf setup again without --minimal.
 In a terminal, a first Traefik install asks for image, host network, e-mail and
 dashboard unless given as flags.`,
   options: {
@@ -93,12 +98,13 @@ dashboard unless given as flags.`,
     user: { type: "string", short: "u", desc: "initial login user (default: root for --host, else ssh config)" },
     port: { type: "string", short: "p", desc: "ssh port" },
     key: { type: "string", short: "i", desc: "use this private key instead of generating one" },
-    "deploy-user": { type: "string", desc: "user landfall deploys as (empty = keep login user)", default: "deploy" },
+    minimal: { type: "boolean", desc: "only Docker and /opt/landfall: no traefik, deploy user, packages, firewall or ssh hardening" },
+    "deploy-user": { type: "string", desc: "user landfall deploys as (empty = keep login user; default: deploy)" },
     email: { type: "string", desc: "contact e-mail for the Let's Encrypt account (optional)" },
-    harden: { type: "boolean", desc: "disable ssh password auth (--no-harden to skip)", default: true },
+    harden: { type: "boolean", desc: "disable ssh password auth (--no-harden to skip)" },
     firewall: { type: "boolean", desc: "enable ufw (--no-firewall to skip); skipped by default behind a provider firewall (AWS, Google Cloud, Azure, …)" },
     cloud: { type: "string", desc: "the provider, if detection is wrong: aws, gcp, azure, hetzner, … none, or auto to detect again; remembered" },
-    traefik: { type: "boolean", desc: "install traefik (--no-traefik to skip)", default: true },
+    traefik: { type: "boolean", desc: "install traefik (--no-traefik to skip)" },
     "ssh-config": { type: "boolean", desc: "write Host block to ~/.ssh/config (--no-ssh-config)", default: true },
     staging: { type: "boolean", desc: "Let's Encrypt staging CA, remembered (--no-staging to switch back)" },
     domain: { type: "string", desc: "main domain: sites default to <site>.<domain> (lf server domain)" },
@@ -115,6 +121,11 @@ dashboard unless given as flags.`,
     if (!name) fail("usage: lf setup <name> [--host <ip>]");
     const cfg = loadConfig();
     const existing = cfg.servers[name];
+    // --minimal turns every optional part off; a part's own flag turns it back on.
+    const minimal = !!o.minimal;
+    const wantUser: string = o["deploy-user"] ?? (minimal ? "" : "deploy");
+    const harden: boolean = o.harden ?? !minimal;
+    const wantTraefik: boolean = o.traefik ?? !minimal;
     // --cloud auto forgets what was set; without --cloud the remembered provider stays.
     const cloudSet = o.cloud === undefined ? existing?.cloud : checkCloud(o.cloud);
     // Never shadow a Host entry the user wrote themselves (e.g. `Host vps`).
@@ -124,10 +135,10 @@ dashboard unless given as flags.`,
     // Re-running setup on a server we already set up: landfall now logs in as the
     // deploy user, but bootstrapping needs root, which kept key-only access.
     // Root may be locked: then the sudo user that bootstrapped it the first time.
-    if (!o.user && o["deploy-user"] && effectiveSsh(login).user === o["deploy-user"]) {
+    if (!o.user && wantUser && effectiveSsh(login).user === wantUser) {
       const admin = await rootLogin({ ...login, admin: existing?.admin }, { fresh: true });
       if (admin) login.user = admin.user;
-      else warn(`${o["deploy-user"]} can't change the system and root's key login does not work; pass -u <a sudo user> if setup fails`);
+      else warn(`${wantUser} can't change the system and root's key login does not work; pass -u <a sudo user> if setup fails`);
     }
     const eff = effectiveSsh(login);
     step(`setting up ${c.bold(name)} ${c.dim(`(${eff.user}@${eff.hostname}:${eff.port})`)}`);
@@ -139,7 +150,7 @@ dashboard unless given as flags.`,
     const keyPath = await ensureKeyLogin(name, login, { check: o.check, password: await loginPassword(o["password-stdin"]) });
     if (!keyPath || o["key-only"]) return;
     const pubkey = fs.readFileSync(`${keyPath}.pub`, "utf8").trim();
-    const deployUser: string = o["deploy-user"] === eff.user ? "" : o["deploy-user"];
+    const deployUser: string = wantUser === eff.user ? "" : wantUser;
 
     // 2. inspect before touching anything
     next("checking what is already set up");
@@ -151,15 +162,16 @@ dashboard unless given as flags.`,
     // Behind a provider firewall ufw only repeats its rules: left out unless asked for.
     const cloud = cloudOf(cloudFor({ cloud: cloudSet }, probe.values.cloud));
     const front = cloudFirewall(cloud?.id);
-    const firewall: boolean = o.firewall ?? !front;
+    const firewall: boolean = o.firewall ?? (!front && !minimal);
     const checks = assess(probe, {
       sshPort,
       loginUser: eff.user,
       deployUser,
       firewall,
-      cloudFirewall: o.firewall === undefined ? front : undefined,
-      harden: o.harden,
-      traefik: o.traefik,
+      cloudFirewall: o.firewall === undefined && !minimal ? front : undefined,
+      harden,
+      traefik: wantTraefik,
+      packages: !minimal,
     });
     const traefik = checks.find((ch) => ch.part === "traefik");
     const tOpts: TraefikInstall = {
@@ -214,6 +226,7 @@ dashboard unless given as flags.`,
           HARDEN: apply.has("harden"),
           FIREWALL: apply.has("firewall"),
           HTTP3: (tOpts.http3 ?? existing?.http3) !== false,
+          PACKAGES: apply.has("packages"),
         },
       });
       ok("server bootstrapped");
@@ -251,7 +264,12 @@ dashboard unless given as flags.`,
     } else if (apply.has("traefik")) await installTraefik(name, entry, tOpts);
     else info(c.dim("skipped"));
 
-    if (domain) {
+    if (!wantTraefik && !traefik?.proxy && !probe.values.traefik_container) {
+      console.log(`\n${c.green("Done.")} No Traefik on ${c.bold(name)}: sites serve no domain.\n`);
+      console.log(`  lf deploy ./app --server ${name}     ${c.dim("# runs it; no domain")}`);
+      console.log(`  lf tunnel <site> --server ${name}    ${c.dim("# opens it on localhost; also any other container")}`);
+      console.log(`  lf traefik setup --server ${name}    ${c.dim("# later: domains and HTTPS")}\n`);
+    } else if (domain) {
       console.log(`\n${c.green("Done.")} Point ${c.bold(domain)} and ${c.bold(`*.${domain}`)} (A records) at ${c.bold(eff.hostname)}, then:\n`);
       console.log(`  lf deploy ./dist --domain blog --server ${name}   ${c.dim(`# https://blog.${domain}`)}`);
       console.log(`  lf server domain ${name}                          ${c.dim("# check the DNS")}\n`);

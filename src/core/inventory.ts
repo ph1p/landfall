@@ -77,6 +77,8 @@ export interface Wanted {
   cloudFirewall?: string;
   harden: boolean;
   traefik: boolean;
+  /** false: leave the base packages out (setup --minimal). */
+  packages?: boolean;
 }
 
 const isLoopback = (addr: string) => /^(127\.|\[?::1\]?(%|$)|localhost)/.test(addr);
@@ -265,11 +267,13 @@ export function assess(p: Probe, w: Wanted): Check[] {
     .filter((p) => (w.firewall || p !== "ufw") && (!keysOnly || p !== "fail2ban"))
     .join(" ");
   checks.push(
-    v.pkg === "none"
-      ? check("packages", "base packages", "done", "no supported package manager, skipped")
-      : missing
-        ? check("packages", "base packages", "todo", `install ${missing}`)
-        : check("packages", "base packages", "done"),
+    w.packages === false
+      ? check("packages", "base packages", "off")
+      : v.pkg === "none"
+        ? check("packages", "base packages", "done", "no supported package manager, skipped")
+        : missing
+          ? check("packages", "base packages", "todo", `install ${missing}`)
+          : check("packages", "base packages", "done"),
   );
 
   checks.push(assessDocker(v));

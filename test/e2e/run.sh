@@ -700,6 +700,10 @@ HOME="$WORK/home" lf keys add --generate -u alice -s box </dev/null >"$WORK/gen.
 { ! lf setup box --no-firewall --check 2>&1 | has "would lose"; } || die "setup --check: alice has a key now"; pass "setup --check agrees: alice has a key"
 { lf setup box --check --cloud aws 2>&1 | has "AWS security group is in front"; } || die "setup --cloud aws leaves ufw to the provider"
 { ! lf setup box --check --cloud none 2>&1 | has "is in front"; } || die "setup --cloud none"; pass "setup --cloud sets the provider"
+lf server config box --cloud gcp 2>&1 | has "provider Google Cloud" || die "server config --cloud"
+{ lf server info box --json | tr -d ' \n' | has '"cloud":{"id":"gcp"'; } || die "server info shows the provider that was set"
+lf server config box --cloud auto 2>&1 | has "detects it again" || die "server config --cloud auto"
+{ ! lf server config box --json | has '"cloud"'; } || die "server config --cloud auto forgets it"; pass "server config --cloud remembers the provider without setup"
 lf harden ssh -s box -y >"$WORK/harden.log" 2>&1 || { cat "$WORK/harden.log"; die "harden ssh"; }
 { lf security -s box --json | has '"passwordLogin": false'; } || die "harden ssh turns passwords off"
 { ! lf security -s box --json | has '"password-login"'; } || die "no password advice after harden"; pass "harden ssh: keys only"
@@ -984,6 +988,24 @@ docker exec "$NAME-fresh" sh -c '! id deploy 2>/dev/null && [ ! -e /opt/landfall
 { docker exec "$NAME-fresh" sshd -T | grep -x >/dev/null 'passwordauthentication yes'; } || die "uninstall turns password auth back on"
 pass "server uninstall reverts setup: deploy user, ssh hardening"
 docker exec "$NAME-fresh" pkill nc || true
+# Minimal: Docker and /opt/landfall only. Sites deploy with no domain and a tunnel reaches them.
+HOME="$WORK/home" node "$ROOT/dist/cli.mjs" "${FRESH[@]}" --minimal -y </dev/null >"$WORK/minimal.log" 2>&1 || { cat "$WORK/minimal.log"; die "setup --minimal"; }
+docker exec "$NAME-fresh" sh -c '[ -d /opt/landfall/sites ] && ! id deploy 2>/dev/null && ! docker inspect traefik >/dev/null 2>&1' \
+  || { cat "$WORK/minimal.log"; die "minimal setup: only the layout"; }
+{ docker exec "$NAME-fresh" sshd -T | grep -x >/dev/null 'passwordauthentication yes'; } || die "minimal setup leaves sshd alone"
+# The earlier full setup left its packages: the plan is what shows that minimal installs none.
+{ has "base packages  *disabled" "$WORK/minimal.log" && has "No Traefik on fresh" "$WORK/minimal.log"; } || { cat "$WORK/minimal.log"; die "minimal setup says there is no Traefik"; }
+pass "setup --minimal: /opt/landfall, no traefik, deploy user, firewall, packages or ssh change"
+mkdir -p "$WORK/minsite" && echo "minimal site" > "$WORK/minsite/index.html"
+(cd "$WORK/minsite" && HOME="$WORK/home" node "$ROOT/dist/cli.mjs" deploy -s fresh --no-save -y </dev/null >"$WORK/min-deploy.log" 2>&1) || { cat "$WORK/min-deploy.log"; die "deploy without traefik"; }
+docker exec "$NAME-fresh" grep -q '"domains": *\[\]' /opt/landfall/sites/minsite/site.json || { cat "$WORK/min-deploy.log"; die "deploy without traefik: no domain"; }
+HOME="$WORK/home" node "$ROOT/dist/cli.mjs" tunnel minsite -s fresh -l 18097 >"$WORK/min-tunnel.log" 2>&1 &
+MINTUN=$!
+got=""; for _ in $(seq 1 20); do got=$(curl -s --max-time 2 localhost:18097/ || true); [ -n "$got" ] && break; sleep 0.5; done
+kill $MINTUN 2>/dev/null || true
+[ "$got" = "minimal site" ] || { cat "$WORK/min-deploy.log" "$WORK/min-tunnel.log"; die "tunnel to a site on a server without traefik"; }
+pass "without traefik a site deploys with no domain and lf tunnel reaches it"
+HOME="$WORK/home" node "$ROOT/dist/cli.mjs" server uninstall fresh -y </dev/null >"$WORK/fresh-un.log" 2>&1 || { cat "$WORK/fresh-un.log"; die "uninstall minimal"; }
 mkdir -p "$WORK/freshsite" && echo "fresh site" > "$WORK/freshsite/index.html"
 (cd "$WORK/freshsite" && echo hunter2 | HOME="$WORK/home" node "$ROOT/dist/cli.mjs" deploy -s fresh --host 127.0.0.1 --ssh-port "$FRESH_PORT" \
   --password-stdin -d fresh.test --no-save -y >"$WORK/fresh-deploy.log" 2>&1) || { cat "$WORK/fresh-deploy.log"; die "deploy sets up a new server"; }

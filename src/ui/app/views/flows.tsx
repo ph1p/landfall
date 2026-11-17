@@ -71,7 +71,15 @@ export function setupWizard(base: string[]) {
     ok: "Check",
     fields: [
       {
+        name: "minimal",
+        label: "Minimal: only Docker and landfall's folder",
+        type: "check",
+        value: base.includes("--minimal"),
+        hint: "No Traefik, deploy user, packages, firewall or ssh change. Sites serve no domain: reach them through a tunnel.",
+      },
+      {
         legend: "Traefik (reverse proxy, automatic HTTPS)",
+        when: full,
         fields: [
           {
             name: "traefik",
@@ -119,18 +127,16 @@ export function setupWizard(base: string[]) {
         type: "check",
         value: true,
         hint: "Skipped automatically if it would block ports in use, or if the provider's firewall is always in front (AWS, Google Cloud, Azure, …).",
+        when: full,
       },
       {
         name: "cloud",
         label: "Provider",
         type: "select",
         value: saved.cloud ?? "auto",
-        options: [
-          { value: "auto", label: "Detect automatically" },
-          ...Object.entries(CLOUDS).map(([value, cl]) => ({ value, label: cl.firewall ? `${cl.name} (${cl.firewall} always in front: no ufw)` : cl.name })),
-          { value: "none", label: "None of these (own hardware, another provider)" },
-        ],
+        options: providerOptions(),
         hint: "Set it only where detection is wrong. landfall remembers it for this server.",
+        when: full,
       },
       {
         name: "harden",
@@ -138,10 +144,19 @@ export function setupWizard(base: string[]) {
         type: "check",
         value: true,
         hint: "Skipped automatically if other users still log in with a password.",
+        when: full,
       },
-      { name: "user", label: "Deploy user", value: "deploy", hint: "landfall deploys as this user (docker group, your key). Empty keeps the login user." },
+      {
+        name: "user",
+        label: "Deploy user",
+        value: "deploy",
+        hint: "landfall deploys as this user (docker group, your key). Empty keeps the login user.",
+        when: full,
+      },
     ],
     onOk: (v) => {
+      const args = base.filter((a) => a !== "--minimal");
+      if (v.minimal) return setupFlow([...args, "--minimal"], args);
       const f: string[] = [];
       if (v.traefik === "none") f.push("--no-traefik");
       else {
@@ -156,7 +171,7 @@ export function setupWizard(base: string[]) {
       if (v.cloud !== "auto" || saved.cloud) f.push(`--cloud=${v.cloud}`);
       if (!v.harden) f.push("--no-harden");
       f.push(`--deploy-user=${v.user.trim()}`);
-      setupFlow([...base, ...f], base);
+      setupFlow([...args, ...f], args);
     },
   });
 }
@@ -253,6 +268,39 @@ export const mainDomain = (n: string): string | undefined => serverNamed(n)?.sav
 export const tunnelOnly = (n: string): boolean => serverNamed(n)?.saved?.tunnelOnly ?? S.state.defaults.tunnelOnly;
 
 /** landfall's defaults for every server (lf config); a server's own setting wins. */
+/** Wizard steps the minimal setup leaves out. */
+const full = (v: Values) => !v.minimal;
+
+const providerOptions = (found?: string) => [
+  { value: "auto", label: found ? `Detect automatically (${found})` : "Detect automatically" },
+  ...Object.entries(CLOUDS).map(([value, cl]) => ({ value, label: cl.firewall ? `${cl.name} (${cl.firewall} always in front: no ufw)` : cl.name })),
+  { value: "none", label: "None of these (own hardware, another provider)" },
+];
+
+/** Set a server's provider in landfall's config: `lf server config --cloud`, no setup run. */
+export function providerDialog(n: string) {
+  const saved = serverNamed(n)?.saved?.cloud ?? "auto";
+  dialog({
+    title: `Provider of ${n}`,
+    text: "landfall remembers it in its config. Nothing changes on the server.",
+    fields: [
+      {
+        name: "cloud",
+        label: "Provider",
+        type: "select",
+        value: saved,
+        options: providerOptions(S.facts[n]?.data?.cloudDetected?.name),
+        hint: "Where the provider's firewall is always in front, setup leaves ufw out and the Firewall section says so.",
+      },
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      if (v.cloud === saved) return;
+      run(["server", "config", n, `--cloud=${v.cloud}`], { server: n });
+    },
+  });
+}
+
 export function defaultsDialog() {
   const d = S.state.defaults;
   dialog({

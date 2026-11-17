@@ -20,6 +20,7 @@ lf deploy --start "python bot.py" --worker --volume /app/data   # a worker, no d
 lf deploy -d app.example.com -e DATABASE_URL=postgres://… --dotenv .env.production   # Dockerfile app
 lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com            # image
 lf deploy --no-domain                                   # no domain yet: reach it with lf tunnel, add one later with lf domains --add
+lf deploy -s box                                        # box has no Traefik (lf setup --minimal): deployed with no domain, like --no-domain
 lf deploy                                               # later: redeploy using ./.landfall.json
 ```
 

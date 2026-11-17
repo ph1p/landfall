@@ -21,7 +21,7 @@ import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
 import { pct } from "../../core/format";
-import { bytes, checkCloud, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
+import { bytes, checkCloud, CLOUD_IDS, cloudFirewall, cloudOf, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
 import { traefikState } from "../../core/traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
@@ -297,10 +297,33 @@ export const serverConfig = defineCommand({
   args: "[name]",
   summary: `Show every setting landfall uses for a server: its entry in landfall's config,
 the main domain, Traefik settings, what ssh resolves (host, user, port, keys)
-and the Host block in ~/.ssh/config. Nothing connects to the server.`,
-  options: { json: { type: "boolean", desc: "machine-readable output" } },
+and the Host block in ~/.ssh/config. Nothing connects to the server.
+
+--cloud remembers the server's provider: ${CLOUD_IDS.join(", ")},
+none (own hardware, another provider) or auto (forget it and detect again).
+Where the provider's firewall is always in front, \`lf setup\` leaves ufw out.`,
+  options: {
+    cloud: { type: "string", desc: "remember the provider: an id, none or auto" },
+    json: { type: "boolean", desc: "machine-readable output" },
+  },
   async run([n], o) {
     const { name, server } = resolveServer(n);
+    if (o.cloud !== undefined) {
+      const cloud = checkCloud(o.cloud);
+      const before = loadConfig().servers[name];
+      if (cloud) server.cloud = cloud;
+      else delete server.cloud;
+      await updateConfig((fresh) => void patchServer(fresh, name, before, server));
+      const front = cloudFirewall(cloud);
+      ok(
+        !cloud
+          ? `${c.bold(name)}: provider forgotten, landfall detects it again`
+          : cloud === "none"
+            ? `${c.bold(name)}: no provider`
+            : `${c.bold(name)}: provider ${c.bold(cloudOf(cloud)!.name)}${front ? c.dim(` (${front} in front: setup leaves ufw out)`) : ""}`,
+      );
+      if (!o.json) return;
+    }
     if (o.json) return void printJson(await configView(name, server));
     const s = serverSettings(name);
     const row = (k: string, v: string) => console.log(`  ${c.dim(k.padEnd(10))} ${v}`);

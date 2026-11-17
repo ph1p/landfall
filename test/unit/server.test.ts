@@ -89,6 +89,13 @@ describe("server inventory", () => {
     });
   });
 
+  test("minimal: only docker and the layout, the rest is off", () => {
+    const minimal = { ...want, deployUser: "", firewall: false, harden: false, traefik: false, packages: false };
+    expect(status(fresh, minimal)).toMatchObject({ packages: "off", docker: "todo", layout: "todo", firewall: "off", harden: "off", traefik: "off" });
+    // A part asked for by its own flag comes back, and with it the packages it needs stay out.
+    expect(status(fresh, { ...minimal, harden: true })).toMatchObject({ packages: "off", harden: "todo" });
+  });
+
   test("behind a provider firewall: no ufw, unless asked for", () => {
     const aws = parseProbe([fresh.replace("ufw=inactive", "ufw=missing").replace("fail2ban", "ufw fail2ban"), "cloud=aws"].join("\n"));
     const off = assess(aws, { ...want, firewall: false, cloudFirewall: "AWS security group" });
@@ -417,7 +424,7 @@ describe("server facts", () => {
   });
   test("cloud provider, and whether its firewall is always in front", () => {
     const f = (cloud: string) => parseFacts(`os=Ubuntu\nid=ubuntu\nversion=24.04\npkg=apt-get\ncloud=${cloud}\n`, day).cloud;
-    expect(f("aws")).toEqual({ id: "aws", name: "AWS", firewall: "security group" });
+    expect(f("aws")).toEqual({ id: "aws", name: "AWS", firewall: "security group", console: "https://console.aws.amazon.com/ec2/" });
     expect(f("hetzner")).toMatchObject({ id: "hetzner", name: "Hetzner" });
     expect(f("hetzner")!.firewall).toBeUndefined();
     expect(f("")).toBeUndefined();

@@ -128,7 +128,7 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
     return (
       <Card>
         <Empty title="Nothing to tunnel to yet">
-          <p className="my-[1em]">Set up the server and deploy a site first.</p>
+          <p>Set up the server and deploy a site first. A minimal setup is enough: tunnels need no Traefik.</p>
         </Empty>
       </Card>
     );

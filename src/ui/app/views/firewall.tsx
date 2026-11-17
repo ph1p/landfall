@@ -54,8 +54,21 @@ export function FirewallView({ n }: { n: string }) {
     form.reset();
     run(["firewall", action, port, ...s, ...(from && from !== "anywhere" ? ["--from", from] : [])], { server: n });
   };
+  const cl = S.facts[n]?.data?.cloud;
   return (
     <>
+      {cl?.firewall && (
+        <Note>
+          The {cl.name} {cl.firewall} is in front of this server and closed until you open a port. Open 80 and 443 (and 443/udp for HTTP/3) there: landfall
+          cannot do that.{" "}
+          {cl.console && (
+            <a href={cl.console} target="_blank" rel="noopener">
+              {cl.name} console
+            </a>
+          )}{" "}
+          ufw below is a second firewall on the server itself: optional here.
+        </Note>
+      )}
       {!active && fw.blocked.length > 0 && (
         <Note>Turning it on would cut off {fw.blocked.join(", ")}: add rules for them first, or landfall refuses (with a way to do it anyway).</Note>
       )}

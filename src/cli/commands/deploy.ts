@@ -367,6 +367,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
           let unrouted = noDomain || (!domains.length && ((!!prev && !!siteMain(prev) && !prev.domains.length) || project.domains?.length === 0));
           // The server's default: new sites stay off the internet until -d.
           if (!domains.length && !unrouted && isTunnelOnly(server)) unrouted = true;
+          // No Traefik on the server (lf setup --minimal, --no-traefik): nothing would answer on a domain.
+          if (!domains.length && !unrouted && !site.routed) unrouted = true;
+          if (domains.length && !site.routed)
+            warn(
+              `${serverName} has no Traefik: ${domains.join(", ")} answers nothing until \`lf traefik setup -s ${serverName}\` (reach ${name} with lf tunnel ${name})`,
+            );
           if (!domains.length && !unrouted) {
             // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
             const main = mainDomain(server);

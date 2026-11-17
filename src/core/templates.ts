@@ -375,8 +375,9 @@ if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
 fi
 # ufw only where setup turns it on: behind a provider's firewall, or with --no-firewall, it would sit there unused.
 # fail2ban only where ssh passwords stay on: with keys only there is nothing to guess (lf harden fail2ban adds it).
+# PACKAGES=0 (setup --minimal): none of them.
 keys_only=0; if [ "$HARDEN" = 1 ] || [ "$(sshd_passwords)" = no ]; then keys_only=1; fi
-missing=""; for p in $(base_pkgs); do
+missing=""; for p in $([ "$PACKAGES" != 1 ] || base_pkgs); do
   if [ "$p" = ufw ] && [ "$FIREWALL" != 1 ]; then continue; fi
   if [ "$p" = fail2ban ] && [ "$keys_only" = 1 ]; then continue; fi
   pkg_has "$p" || missing="$missing $p"

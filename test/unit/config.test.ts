@@ -15,7 +15,7 @@ process.env.LANDFALL_CONFIG_DIR = dir;
 process.env.LANDFALL_SSH_CONFIG = join(dir, "ssh");
 const { CONFIG_PATH, updateConfig, loadConfig, patchServer, useServer, forgetServer } = await import("../../src/core/config");
 const { config } = await import("../../src/cli/commands/config");
-const { serverAdd, serverDomain } = await import("../../src/cli/commands/server");
+const { serverAdd, serverConfig, serverDomain } = await import("../../src/cli/commands/server");
 const { ensureKeyLogin } = await import("../../src/core/login");
 const term = await import("../../src/core/term");
 
@@ -205,6 +205,25 @@ describe("global config transactions", () => {
       expect(loadConfig()).toEqual({ servers: { a: { host: "a" } }, default: "a", defaults: { keep: 4 } });
     } finally {
       output.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
+  test("server config --cloud remembers the provider, auto forgets it, an unknown one is refused", async () => {
+    await updateConfig((cfg) => {
+      cfg.servers.a = { host: "a", domains: ["a.test"] };
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await serverConfig.run(["a"], { cloud: "AWS" }, []);
+      expect(loadConfig().servers.a).toEqual({ host: "a", domains: ["a.test"], cloud: "aws" });
+      await serverConfig.run(["a"], { cloud: "none" }, []);
+      expect(loadConfig().servers.a.cloud).toBe("none");
+      await expect(serverConfig.run(["a"], { cloud: "bogus" }, [])).rejects.toThrow("unknown provider");
+      expect(loadConfig().servers.a.cloud).toBe("none");
+      await serverConfig.run(["a"], { cloud: "auto" }, []);
+      expect(loadConfig().servers.a).toEqual({ host: "a", domains: ["a.test"] });
+    } finally {
       errors.mockRestore();
     }
   });

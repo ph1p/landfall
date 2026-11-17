@@ -38,6 +38,19 @@ function Panel({ title, count, aside, children }: { title: string; count?: numbe
   );
 }
 
+/** One way to set a server up: what it installs, and the button that checks it first. */
+const SetupChoice = ({ title, text, label, primary, on }: { title: string; text: string; label: string; primary?: boolean; on: () => void }) => (
+  <div className="flex flex-col gap-2 rounded-lg border border-line p-4">
+    <h3 className="m-0 text-fg text-[14px] font-semibold">{title}</h3>
+    <p className="m-0 text-[13px] leading-snug grow">{text}</p>
+    <div className="mt-1">
+      <Btn cls={primary ? "primary" : undefined} on={on}>
+        {label}
+      </Btn>
+    </div>
+  </div>
+);
+
 export function SitesView({ n, o }: { n: string; o: Overview }) {
   useEffect(() => ensureDns(n, o));
   const k = can(n);
@@ -45,7 +58,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
     return (
       <Card>
         <Empty title="Not ready for sites">
-          <p>{S.facts[n]?.data?.why?.setup ?? ""}, so landfall cannot set it up: sites need /opt/landfall and Traefik, which setup creates.</p>
+          <p>{S.facts[n]?.data?.why?.setup ?? ""}, so landfall cannot set it up: sites need Docker and /opt/landfall, which setup creates.</p>
         </Empty>
       </Card>
     );
@@ -54,29 +67,43 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
     return (
       <Card>
         <Empty title="Not set up for landfall yet">
-          <p>Setup installs Docker and Traefik, a deploy user and (if you want) a firewall. It shows what it would change first.</p>
-          <p>
-            <Btn cls="primary" on={() => setupFlow([n])}>
-              Check &amp; set up
-            </Btn>
-          </p>
+          <p>Setup shows what it finds and what it would change. Nothing is applied before you confirm.</p>
+          <div className="grid gap-3 sm:grid-cols-2 w-full max-w-[620px] text-left mt-2">
+            <SetupChoice
+              title="Full setup"
+              text="Docker, Traefik with automatic HTTPS, a deploy user, a firewall and key-only ssh. Sites get domains."
+              label="Check & set up"
+              primary
+              on={() => setupFlow([n])}
+            />
+            <SetupChoice
+              title="Minimal"
+              text="Docker and landfall's folder, nothing else. Run containers and reach them through a tunnel. Traefik can follow later."
+              label="Check minimal setup"
+              on={() => setupFlow([n, "--minimal"], [n])}
+            />
+          </div>
         </Empty>
       </Card>
     );
   }
   if (!o.sites.length) {
+    const routed = o.traefik || o.adopted;
     return (
       <>
         <Card>
           <Empty title="No sites yet">
-            <p>Deploy a folder with a compose.yaml, a Dockerfile, static files, or an image. It gets HTTPS automatically.</p>
+            <p>
+              Deploy a folder with a compose.yaml, a Dockerfile, static files, or an image.{" "}
+              {routed ? "It gets HTTPS automatically." : "This server has no Traefik: sites serve no domain, a tunnel reaches them."}
+            </p>
             <p>
               <Btn cls="primary" on={() => folderDialog(S.state.cwd)}>
                 Choose a folder…
               </Btn>{" "}
               <span className="dim">or drop one here</span>
             </p>
-            <p className="faint mono">lf deploy ./dist -d example.com -s {n}</p>
+            <p className="faint mono">{routed ? `lf deploy ./dist -d example.com -s ${n}` : `lf deploy ./dist -s ${n}`}</p>
           </Empty>
         </Card>
         <OthersCard n={n} o={o} />

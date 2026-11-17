@@ -56,6 +56,7 @@ How defaults resolve, for every command:
 
 ```sh
 lf setup vps --host 203.0.113.7          # once per server: Docker, firewall, Traefik, an ssh key
+lf setup vps --minimal                   # or only Docker: no Traefik, sites are reached with lf tunnel
 cd my-site
 lf deploy -s vps                         # → https://my-site.203-0-113-7.sslip.io, no DNS needed
 lf deploy -s vps -d example.com          # or with your own domain (point its A record at the server first)
