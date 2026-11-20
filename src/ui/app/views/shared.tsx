@@ -1,6 +1,7 @@
 import { S, sv } from "../lib/store";
 import type { Cap, ServerEntry, SiteStatus } from "../lib/types";
 import { SECTIONS, type Tab } from "../lib/api";
+import { pluginTab } from "../../../core/plugin-api";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
 import { bytes as size, duration, pct } from "../../../core/format";
@@ -186,5 +187,17 @@ const SECTION_IF: Partial<Record<Tab, (k: Record<Cap, boolean>) => unknown>> = {
 export const sections = (n: string): typeof SECTIONS => {
   const k = can(n);
   const front = S.facts[n]?.data?.cloud?.firewall;
-  return SECTIONS.filter(([t]) => !k || (SECTION_IF[t]?.(k) ?? true)).map((s) => (front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s));
+  const core = SECTIONS.filter(([t]) => !k || (SECTION_IF[t]?.(k) ?? true)).map((s): (typeof SECTIONS)[number] =>
+    front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s,
+  );
+  // Plugin panels join their group (after its own sections), or make a new group at the end.
+  const out = [...core];
+  for (const p of S.state.plugins) {
+    if (!p.panel || p.error) continue;
+    const last = out.findLastIndex(([, , g]) => g === p.panel!.group);
+    const entry: (typeof SECTIONS)[number] = [pluginTab(p.name), p.panel.label, p.panel.group];
+    if (last < 0) out.push(entry);
+    else out.splice(last + 1, 0, entry);
+  }
+  return out;
 };

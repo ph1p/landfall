@@ -19,6 +19,9 @@ export interface TrivyState {
  * Trivy's image and database volume on s, measured with Trivy's own image (busybox du): nothing new is pulled to ask.
  * Without sizes only whether they are there (cache 0): no container is started.
  */
+/** Which sites and services run an image: "blog/web, shop". */
+export const usedBy = (i: ImageScan) => i.used.map((u) => (u.service ? `${u.name}/${u.service}` : u.name)).join(", ");
+
 export async function trivyState(s: Server, sizes = true): Promise<TrivyState> {
   const { stdout } = await runScript(
     s,

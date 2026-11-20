@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { S, render, plural, server, sv, tilde, useStore, type Slot } from "../lib/store";
 import type { Overview, ServerEntry } from "../lib/types";
-import { go, load, loadReach, needs, SECTIONS, STORE, type Tab } from "../lib/api";
+import { go, load, loadReach, needs, pluginNameOf, SECTIONS, STORE, type CoreTab, type Tab } from "../lib/api";
 import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
 import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
@@ -18,10 +18,23 @@ import { TraefikView, SettingsView } from "./settings";
 import { FirewallView } from "./firewall";
 import { HistoryView } from "./history";
 import { HomeView } from "./home";
+import { PluginView } from "./plugin";
+import type { PanelIcon } from "../../../core/plugin-api";
 import { SitesView } from "./sites";
 import {
   Activity,
+  Ban,
+  Bell,
+  Box,
+  Bug,
   Cable,
+  Database,
+  KeyRound,
+  Lock,
+  Puzzle,
+  ScanSearch,
+  Search,
+  ShieldCheck,
   Cpu,
   Download,
   ExternalLink,
@@ -373,7 +386,7 @@ function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
         ]
       : [];
   const list = sections(n).map(([t, label, grp], i, all) => {
-    const Icon = ICON[t];
+    const Icon = iconOf(t);
     const btn = (
       <button
         key={t}
@@ -395,7 +408,27 @@ function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
   return [...list, ...provider];
 }
 
-const ICON: Record<Tab, LucideIcon> = {
+// A plugin's panel names its icon from PANEL_ICONS; anything else is a puzzle piece.
+const PLUGIN_ICON: Record<PanelIcon, LucideIcon> = {
+  puzzle: Puzzle,
+  shield: ShieldCheck,
+  bug: Bug,
+  lock: Lock,
+  scan: ScanSearch,
+  activity: Activity,
+  database: Database,
+  bell: Bell,
+  key: KeyRound,
+  box: Box,
+  ban: Ban,
+  search: Search,
+};
+const iconOf = (t: Tab): LucideIcon => {
+  if (t in ICON) return ICON[t as CoreTab];
+  const icon = S.state.plugins.find((p) => p.name === pluginNameOf(t))?.panel?.icon;
+  return PLUGIN_ICON[icon as PanelIcon] ?? Puzzle;
+};
+const ICON: Record<CoreTab, LucideIcon> = {
   sites: Globe,
   tunnels: Cable,
   stats: Gauge,
@@ -560,6 +593,8 @@ function View({ n, ov }: { n: string; ov: Slot<Overview> }) {
       Docker on {n} does not answer, so its containers are not listed: <span className="mono">{o.docker}</span>
     </Note>
   );
+  const plugin = pluginNameOf(S.tab);
+  if (plugin) return <PluginView n={n} plugin={plugin} />;
   switch (S.tab) {
     case "sites":
       return (

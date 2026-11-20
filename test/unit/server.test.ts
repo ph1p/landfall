@@ -834,7 +834,6 @@ describe("system", () => {
       "UF\tdocker.service\tenabled",
       "kv junk",
       "fail2ban=running",
-      "JAIL\tsshd\t2\t40\t1\t1.2.3.4 5.6.7.8",
       `KEY\tdeploy\t${KEY}`,
       "KEY\troot\tgarbage",
     ].join("\n");
@@ -844,7 +843,6 @@ describe("system", () => {
     expect(i.docker).toMatchObject({ driver: "json-file", maxSize: "10m", maxFile: 3 });
     expect(i.services[0]).toMatchObject({ unit: "docker.service", active: "active", enabled: "enabled", description: "Docker Application Container Engine" });
     expect(i.services[1].active).toBe("failed");
-    expect(i.jails).toEqual([{ name: "sshd", banned: 2, total: 40, failed: 1, ips: ["1.2.3.4", "5.6.7.8"] }]);
     expect(i.keys).toHaveLength(1);
     expect(i.keys[0]).toMatchObject({ user: "deploy", mine: true });
     const bare = parseSystem("root=0\nuser=me\nlog_driver=json-file\nDAEMON\t{oops");

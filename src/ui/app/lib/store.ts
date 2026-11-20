@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Job } from "./jobs";
 import type * as T from "./types";
+import type { UiBlock } from "../../../core/plugin-api";
 
 /** One server's slot in a store: loading, then { data } or { error }; data stays while it reloads. */
 export interface Slot<T = unknown> {
@@ -34,6 +35,7 @@ export const S = {
   errs: {} as Store<T.Traffic>, // name -> {data: lf traffic --json --since 24h}, for the sites' errors card
   certs: {} as Store<T.Certs>, // name -> {data: lf certs --json}
   proxy: {} as Store<T.TraefikStatus>, // name -> {data: lf traefik status --json}, for the Traefik tab
+  plugin: {} as Store<UiBlock[]>, // "<name>\0<plugin>" -> {data: the plugin panel's blocks}
   open: new Set<string>(), // expanded site rows
   allSvcs: {} as Record<string, boolean>, // servers whose System tab lists every service
   filter: "", // server list filter

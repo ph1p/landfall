@@ -1,12 +1,22 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { resolveServer } from "../../core/config";
-import { removeTrivy, scanImages, SEVERITIES, TRIVY, TRIVY_ASK, TRIVY_CACHE, trivyState, trivyThere, type ImageScan, type Severity } from "../../core/scan";
+import {
+  removeTrivy,
+  scanImages,
+  SEVERITIES,
+  TRIVY,
+  TRIVY_ASK,
+  TRIVY_CACHE,
+  trivyState,
+  trivyThere,
+  usedBy,
+  type ImageScan,
+  type Severity,
+} from "../../core/scan";
 import { c, confirm, info, ok, step, table, warn, printJson } from "../../core/term";
 
 const COLOR: Record<Severity, (s: string) => string> = { CRITICAL: c.red, HIGH: c.yellow, MEDIUM: (s) => s, LOW: c.dim, UNKNOWN: c.dim };
 const SHORT: Record<Severity, string> = { CRITICAL: "crit", HIGH: "high", MEDIUM: "med", LOW: "low", UNKNOWN: "?" };
-
-const usedBy = (i: ImageScan) => i.used.map((u) => (u.service ? `${u.name}/${u.service}` : u.name)).join(", ");
 
 function printScan(scans: ImageScan[], all: boolean, fixable: boolean) {
   table([

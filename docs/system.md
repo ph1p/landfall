@@ -23,15 +23,15 @@ lf firewall enable | disable             # enable installs ufw if needed and all
 ## Server system
 
 ```sh
-lf system                         # host name, time zone, clock, swap, Docker log limit, services, keys, bans
+lf system                         # host name, time zone, clock, swap, Docker log limit, services, keys, whether fail2ban runs
 lf services                       # what landfall relies on (docker, ssh, fail2ban …) and failed ones; --all for every one
 lf services restart docker        # also start, stop; asks first for docker, refuses ssh without --force
 lf services logs fail2ban -f      # journald, else the service's log file; -n lines
 lf keys                           # who may log in, per user; ★ is the key this machine uses
 lf keys add ~/.ssh/anna.pub       # to the login user; --user root for another
 lf keys rm anna@laptop            # by comment or (part of) the fingerprint
-lf bans                           # what fail2ban blocks, per jail
-lf unban 203.0.113.9
+lf bans                           # what fail2ban blocks, per jail (lf fail2ban, a built-in plugin)
+lf unban 203.0.113.9              # lf fail2ban also bans, and sets ban times; see plugins.md
 lf swap 2G                        # a swap file at /swapfile, on at boot; lf swap off removes it
 lf hostname web-1
 lf timezone Europe/Berlin

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { pluginContext, pluginNamed, pluginsView } from "../../core/plugins";
 import fs from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -202,6 +203,8 @@ export function state() {
     defaults: defaultsView(),
     servers: listServers().map((e) => ({ ...e, target: target(e.name), saved: savedView(cfg.servers[e.name]) })),
     jobs: [...jobs.values()].reverse().map(jobInfo),
+    // Sections the plugins add to each server's page; GET servers/<n>/plugins/<plugin> loads one.
+    plugins: pluginsView(),
   };
 }
 
@@ -264,6 +267,11 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
       const q = new URL(req.url).searchParams;
       const sizes = q.get("sizes") !== "0";
       return json(await volumes(server, validName(q.get("site") ?? ""), sizes, !sizes));
+    }
+    if (method === "GET" && sub === "plugins") {
+      const p = pluginNamed(path[3] ?? "")?.plugin;
+      if (!p?.panel) return failure(`no plugin panel ${path[3] ?? ""}`, 404);
+      return json(await p.panel.load(pluginContext(p.name, name)));
     }
     if (method === "GET" && sub === "dns") {
       const domains = (new URL(req.url).searchParams.get("domains") ?? "")

@@ -5,7 +5,8 @@ import { CliError } from "../core/term";
 /** Never return parser errors here: Node's error text can include the rejected value. */
 function jobArgs(argv: string[]) {
   const found = find(argv);
-  if (!found.cmd || ["ui"].includes(found.cmd.name)) throw new CliError("invalid dashboard command; use a supported CLI command");
+  if (!found.cmd || ["ui", "plugin add", "plugin rm", "plugin new"].includes(found.cmd.name))
+    throw new CliError("invalid dashboard command; use a supported CLI command");
   try {
     return { ...found, cmd: found.cmd, parsed: tokenize(found.cmd, found.rest) };
   } catch {

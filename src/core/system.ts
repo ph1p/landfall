@@ -46,15 +46,8 @@ case "$init" in
     rc-status -a 2>/dev/null | awk '/\[/ { s = $0; sub(/.*\[[ \t]*/, "", s); sub(/[ \t]*\].*/, "", s); print "SVC\t" $1 "\t-\t" s "\t" s "\t" }' | sort -u ;;
 esac
 if command -v fail2ban-client >/dev/null 2>&1; then
-  if st=$(S fail2ban-client status 2>/dev/null); then
-    kv fail2ban running
-    for j in $(printf '%s\n' "$st" | sed -n 's/.*Jail list:[[:space:]]*//p' | tr ',' ' '); do
-      S fail2ban-client status "$j" 2>/dev/null | awk -v j="$j" '
-        /Currently banned:/ { c = $NF } /Total banned:/ { t = $NF } /Currently failed:/ { f = $NF }
-        /Banned IP list:/ { sub(/.*Banned IP list:[ \t]*/, ""); ips = $0 }
-        END { print "JAIL\t" j "\t" c + 0 "\t" t + 0 "\t" f + 0 "\t" ips }'
-    done
-  else kv fail2ban stopped; fi
+  # Only whether it runs: the fail2ban plugin reads its jails and bans.
+  if S fail2ban-client ping >/dev/null 2>&1; then kv fail2ban running; else kv fail2ban stopped; fi
 else kv fail2ban missing; fi
 # Security: what sshd really uses (sshd -T needs root), who has a password, firewall, updates.
 S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
@@ -107,14 +100,6 @@ export interface AuthorizedKey {
   mine?: boolean;
 }
 
-export interface Jail {
-  name: string;
-  banned: number;
-  total: number;
-  failed: number;
-  ips: string[];
-}
-
 /** What sshd and the system allow; undefined = could not tell (sshd -T and /etc/shadow need root). */
 export interface Security {
   /** sshd accepts passwords (PasswordAuthentication or KbdInteractiveAuthentication). */
@@ -150,7 +135,6 @@ export interface SystemInfo {
   docker?: { driver: string; maxSize?: string; maxFile?: number; daemon: Record<string, unknown>; daemonError?: string };
   services: Service[];
   fail2ban: "running" | "stopped" | "missing";
-  jails: Jail[];
   keys: AuthorizedKey[];
   security: Security;
   /** Set where the system keeps host name, time zone, swap and Docker's settings itself (Synology DSM). */
@@ -221,7 +205,6 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     mem: 0,
     services: [],
     fail2ban: "missing",
-    jails: [],
     keys: [],
     security: { reboot: false },
   };
@@ -233,8 +216,6 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     else if (f[0] === "DAEMON") daemon = f.slice(1).join("\t");
     else if (f[0] === "SVC" && f[1]) info.services.push({ unit: f[1], load: f[2], active: f[3], sub: f[4], description: f.slice(5).join("\t") });
     else if (f[0] === "UF" && f[1]) enabled.set(f[1], f[2]);
-    else if (f[0] === "JAIL")
-      info.jails.push({ name: f[1], banned: +f[2] || 0, total: +f[3] || 0, failed: +f[4] || 0, ips: (f[5] ?? "").split(/\s+/).filter(Boolean) });
     else if (f[0] === "KEY") {
       const k = parseKeyLine(f.slice(2).join("\t"));
       if (k) info.keys.push({ user: f[1], ...k, ...(mine.has(k.fingerprint) ? { mine: true } : {}) });
@@ -353,17 +334,6 @@ record "removed key $WHAT of $KEY_USER" "printf '%s\n' $(printf %q "$KEY") | \$S
 }
 
 export const IP = /^[0-9a-fA-F.:]+$/;
-
-export async function unban(s: Server, ip: string, jails: string[]) {
-  if (!IP.test(ip)) fail(`not an IP address: ${ip}`);
-  const reban = jails.map((j) => `\\$SUDO fail2ban-client set ${shq(j)} banip ${shq(ip)} >/dev/null`).join("; ");
-  const script = [
-    PRELUDE,
-    ...jails.map((j) => `$SUDO fail2ban-client set ${shq(j)} unbanip ${shq(ip)} >/dev/null`),
-    `record ${shq(`unbanned ${ip}`)} "${reban}"`,
-  ].join("\n");
-  await runScript(s, script);
-}
 
 /** 512M, 2G, 1.5G → bytes; swap is sized in MiB/GiB. */
 export function parseSwapSize(v: string): number {

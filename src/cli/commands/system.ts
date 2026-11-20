@@ -23,7 +23,6 @@ import {
   setTimezone,
   fullSystem,
   system,
-  unban,
   withLogLimit,
   type Service,
   type SystemInfo,
@@ -81,10 +80,7 @@ export const systemCmd = defineCommand({
           : `${i.services.filter(running).length} running${i.services.some(failed) ? c.red(` · ${i.services.filter(failed).length} failed`) : ""}`,
       ],
       [c.dim("ssh keys"), `${i.keys.length}`],
-      [
-        c.dim("fail2ban"),
-        i.fail2ban === "running" ? `${i.jails.reduce((n, j) => n + j.banned, 0)} banned now` : c.dim(i.fail2ban === "missing" ? "not installed" : "stopped"),
-      ],
+      [c.dim("fail2ban"), i.fail2ban === "running" ? `running ${c.dim("· lf fail2ban")}` : c.dim(i.fail2ban === "missing" ? "not installed" : "stopped")],
     ]);
     if (d?.daemonError) warn(d.daemonError);
     for (const s of i.services.filter(failed)) warn(`${serviceName(s.unit)} failed: lf services logs ${serviceName(s.unit)} -s ${name}`);
@@ -251,42 +247,6 @@ export const keysRemove = defineCommand({
     const admin = await adminLogin(server, "removing a key");
     await removeKey(admin, k);
     ok(`removed ${k.comment || shortFp(k)} from ${k.user}`);
-  },
-});
-
-export const bansList = defineCommand({
-  name: "bans",
-  summary: "Show what fail2ban blocks: banned IPs per jail.",
-  options: { server: serverOpt, json },
-  async run(_, o) {
-    const { name, i } = await inspect(o);
-    if (o.json) return void printJson({ fail2ban: i.fail2ban, jails: i.jails });
-    if (i.fail2ban !== "running") {
-      if (!i.root && i.fail2ban === "stopped") fail(`${i.user} cannot read fail2ban without passwordless sudo`);
-      return info(i.fail2ban === "missing" ? `fail2ban is not installed on ${name}` : `fail2ban is not running on ${name}`);
-    }
-    for (const j of i.jails) {
-      console.log(`${c.bold(j.name)}: ${j.banned} banned now${c.dim(` · ${j.total} in total · ${j.failed} failing`)}`);
-      for (const ip of j.ips) console.log(`  ${ip}`);
-    }
-    if (i.jails.some((j) => j.ips.length)) info(c.dim("lf unban <ip> lets one in again"));
-  },
-});
-
-export const unbanCmd = defineCommand({
-  name: "unban",
-  args: "<ip>",
-  summary: "Let a banned IP in again (all jails that ban it). Undo bans it again.",
-  options: { server: serverOpt },
-  async run([ip], o) {
-    if (!ip) fail("usage: lf unban <ip>");
-    const { name, server } = target(o);
-    const admin = await adminLogin(server, "unbanning");
-    const i = await system(admin);
-    const jails = i.jails.filter((j) => j.ips.includes(ip)).map((j) => j.name);
-    if (!jails.length) fail(`${ip} is not banned on ${name}`);
-    await unban(admin, ip, jails);
-    ok(`unbanned ${ip} (${jails.join(", ")})`);
   },
 });
 

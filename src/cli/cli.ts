@@ -2,6 +2,9 @@
 import { journalCmd, parse, usage } from "./cmd";
 import { byName, find } from "./registry";
 import { validateJobArgs } from "./job-args";
+import { pluginCommandNames, registerPlugins } from "./plugins";
+import { loadPlugins } from "../core/plugins";
+import { BUILTIN } from "../plugins";
 import { JOB_INPUT, readJobInput } from "../core/job-input";
 import { exitWithParent } from "../core/job";
 import { journal } from "../core/ssh";
@@ -42,8 +45,6 @@ function help() {
         "keys",
         "keys add",
         "keys rm",
-        "bans",
-        "unban",
         "swap",
         "hostname",
         "timezone",
@@ -85,6 +86,7 @@ function help() {
     ["Updates", ["updates", "update", "scan"]],
     ["History", ["history", "undo"]],
     ["landfall", ["config", "ui"]],
+    ["Plugins", ["plugins", "plugin add", "plugin rm", "plugin new", ...pluginCommandNames]],
   ];
   // A command left out above still shows up.
   const listed = new Set(groups.flatMap(([, names]) => names));
@@ -152,6 +154,8 @@ async function main(argv: string[]): Promise<number> {
 /** One command, errors printed. */
 async function run(argv: string[]): Promise<number> {
   try {
+    await loadPlugins(BUILTIN);
+    registerPlugins(main);
     if (argv.length === 1 && argv[0] === JOB_INPUT) {
       argv = await readJobInput();
       validateJobArgs(argv);

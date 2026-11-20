@@ -1,5 +1,6 @@
 import { S, http, render, server, errorMessage, type Slot, type StoreName } from "./store";
 import type { Reach, State } from "./types";
+import { pluginTab, type PluginTab, type UiBlock } from "../../../core/plugin-api";
 import { toast } from "../ui/toast";
 import { closeDialog, dialogOpen } from "../ui/dialog";
 
@@ -18,15 +19,17 @@ export function route() {
   ours = false;
   const [, name, tab] = location.hash.split("/");
   S.sel = name ? decodeURIComponent(name) : null;
-  S.tab = tab && tab in STORE ? tab : "sites";
+  S.tab = tab && (tab in STORE || pluginNameOf(tab)) ? tab : "sites";
   if (S.sel && server()) load(S.sel, S.tab);
   render();
 }
 
 // ---- loading -------------------------------------------------------------
 
-export type Tab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "users" | "system" | "history" | "settings";
-export const STORE: Record<Tab, StoreName> = {
+export type CoreTab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "users" | "system" | "history" | "settings";
+/** A core section, or a plugin's: plugin-<name>. */
+export type Tab = CoreTab | PluginTab;
+export const STORE: Record<CoreTab, StoreName> = {
   sites: "overview",
   tunnels: "overview",
   stats: "stats",
@@ -40,7 +43,7 @@ export const STORE: Record<Tab, StoreName> = {
   history: "history",
   settings: "settings",
 };
-const URLS: Record<Tab, string> = {
+const URLS: Record<CoreTab, string> = {
   sites: "",
   tunnels: "",
   stats: "/stats",
@@ -69,8 +72,12 @@ export const SECTIONS: [Tab, string, string][] = [
   ["settings", "Settings", "Machine"],
 ];
 
+/** The plugin a plugin-<name> tab shows, if one with a panel is loaded. */
+export const pluginNameOf = (tab: string) => S.state?.plugins.find((p) => p.panel && !p.error && pluginTab(p.name) === tab)?.name;
+
 // The overview and facts drive the header, so every tab needs them.
-export const needs = (tab: string): Tab[] => (STORE[tab as Tab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab as Tab]);
+export const needs = (tab: string): CoreTab[] =>
+  !(tab in STORE) || STORE[tab as CoreTab] === "overview" ? ["sites", "facts"] : ["sites", "facts", tab as CoreTab];
 /** Fetches server n's url into S[store][n]: loading, then { data } or { error }, and renders. */
 const latest = new Map<string, object>();
 export function fetchInto(store: StoreName, n: string, url: string, then?: (data: unknown) => void) {
@@ -103,14 +110,34 @@ function logStats(n: string, s: { cpu: number; mem: { total: number; available: 
 export function load(name: string, tab: string, force = false) {
   const todo = needs(tab).filter((t) => force || !S[STORE[t]][name]);
   for (const t of todo) fetchTab(name, t);
-  if (todo.length) render();
+  const plugin = pluginNameOf(tab);
+  if (plugin && (force || !S.plugin[pluginKey(name, plugin)])) loadPlugin(name, plugin);
+  if (todo.length || plugin) render();
 }
 /** Only the tab itself again, not the sites and facts it needs: for polling. */
 export function reload(name: string, tab: Tab) {
-  fetchTab(name, tab);
+  const plugin = pluginNameOf(tab);
+  if (plugin) loadPlugin(name, plugin);
+  else fetchTab(name, tab as CoreTab);
   render();
 }
-const fetchTab = (name: string, t: Tab) =>
+
+// ---- plugin panels: GET /api/servers/<n>/plugins/<plugin> -------------------
+
+export const pluginKey = (n: string, plugin: string) => `${n}\0${plugin}`;
+/** A plugin panel's blocks for server n, into S.plugin; what is shown stays while it reloads. */
+export function loadPlugin(n: string, plugin: string) {
+  const key = pluginKey(n, plugin);
+  S.plugin[key] = { ...S.plugin[key], loading: true, error: undefined };
+  const me = {};
+  latest.set(`plugin\0${key}`, me);
+  const mine = () => latest.get(`plugin\0${key}`) === me;
+  return http<UiBlock[]>(`/api/servers/${encodeURIComponent(n)}/plugins/${encodeURIComponent(plugin)}`).then(
+    (data) => void (mine() && ((S.plugin[key] = { data }), render())),
+    (e) => void (mine() && ((S.plugin[key] = { error: errorMessage(e) }), render())),
+  );
+}
+const fetchTab = (name: string, t: CoreTab) =>
   fetchInto(STORE[t], name, `${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`, t === "stats" ? (data) => logStats(name, data as never) : undefined);
 export function invalidate(name: string) {
   delete S.dns[name];
@@ -120,6 +147,8 @@ export function invalidate(name: string) {
   // What is on screen reloads in place; other tabs reload when opened.
   const shown = new Set(S.sel === name ? needs(S.tab).map((t) => STORE[t]) : []);
   for (const k of Object.values(STORE)) if (!shown.has(k)) delete S[k][name];
+  const open = S.sel === name ? pluginNameOf(S.tab) : undefined;
+  for (const k of Object.keys(S.plugin)) if (k.startsWith(`${name}\0`) && k !== pluginKey(name, open ?? "")) delete S.plugin[k];
   if (S.sel === name) load(name, S.tab, true);
 }
 export async function refreshState() {

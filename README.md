@@ -104,6 +104,7 @@ lf ui                              # the same in a local web UI
 | [Server administration](docs/system.md) | firewall, services, SSH keys, users, swap, hardening |
 | [Traffic, certificates and checks](docs/monitoring.md) | request stats, certificate state, HTTPS checks |
 | [History and undo](docs/history.md) | the server journal and what `lf undo` can revert |
+| [Plugins](docs/plugins.md) | fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
 | [Web UI](docs/web-ui.md) | `lf ui`, its pages and their commands, security model |
 | [Scripts, CI and AI agents](docs/automation.md) | non-interactive use, `--json`, secrets, exit codes, recipes |
 | [Reference](docs/reference.md) | every command, local and remote files, environment variables |

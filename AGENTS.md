@@ -42,6 +42,11 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/core/term.ts` | output helpers (`step`, `ok`, `info`, `warn`, `fail`, `printJson`, `table`) and prompts |
 | `src/core/config.ts` | local config, servers, `.landfall.json` (`ProjectConfig`), environments |
 | `src/core/views.ts` | the objects that `--json` prints and the web UI reads |
+| `src/core/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it) |
+| `src/core/plugins.ts` | loading plugins (built in and `~/.config/landfall/plugins`), the context their code runs with |
+| `src/plugins/` | the built-in plugins (fail2ban, trivy), written against the same API |
+| `src/cli/plugins.ts` | turns plugin commands and aliases into `lf` commands |
+| `src/cli/commands/plugins.ts` | `lf plugins`, `plugin add`, `plugin rm`, `plugin new` |
 | `src/ui/server/` | `lf ui`: local HTTP server; reads call core directly, writes spawn `lf` jobs |
 | `src/ui/app/` | the browser page (React + Tailwind, built by vite) |
 | `test/unit/` | vitest; remote scripts are captured by mocking `runScript` and checked with `bash -n` |

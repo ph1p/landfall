@@ -27,7 +27,7 @@ export const defineCommand = <O extends Record<string, OptSpec>>(cmd: Command<O>
 export const serverOpt = { type: "string", short: "s", desc: "server name or ssh alias" } as const;
 
 /** Accepted by every command. */
-const GLOBAL_OPTS: Record<string, OptSpec> = {
+export const GLOBAL_OPTS: Record<string, OptSpec> = {
   help: { type: "boolean", short: "h", desc: "show this help" },
   yes: { type: "boolean", short: "y", desc: "assume yes / defaults for prompts" },
   environment: { type: "string", short: "E", desc: "an environment of .landfall.json (staging…), deployed as its own site; or LANDFALL_ENV" },

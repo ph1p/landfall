@@ -129,7 +129,7 @@ export function SystemView({ n }: { n: string }) {
         {i.managed && <p className="faint mt-3 mb-0">{i.managed}.</p>}
         {!i.root && (
           <p className="faint mt-3 mb-0">
-            {i.user} has no passwordless sudo and root's key does not work: other users' keys, bans and Docker's settings may be missing.
+            {i.user} has no passwordless sudo and root's key does not work: other users' keys and Docker's settings may be missing.
           </p>
         )}
       </Body>
@@ -305,63 +305,12 @@ export function SystemView({ n }: { n: string }) {
     </Card>
   );
 
-  const banned: { ip: string; jail: string }[] = i.jails.flatMap((j) => j.ips.map((ip: string) => ({ ip, jail: j.name })));
-  const bans =
-    i.fail2ban === "running" ? (
-      <Card>
-        <CardHead>
-          Bans <Badge kind={banned.length ? "warn" : ""}>{banned.length}</Badge>{" "}
-          <Sub>fail2ban · {i.jails.map((j) => `${j.name}: ${j.total} in total`).join(", ")}</Sub>
-        </CardHead>
-        <Table
-          head={
-            <>
-              <th>IP</th>
-              <th>Jail</th>
-              <th>
-                <span className={SR}>Actions</span>
-              </th>
-            </>
-          }
-        >
-          {banned.length ? (
-            banned.map((b) => (
-              <tr key={`${b.jail}${b.ip}`}>
-                <td className={MONO}>{b.ip}</td>
-                <td>{b.jail}</td>
-                <td className={ACTS}>
-                  {may(
-                    adm,
-                    <Btn cls="sm" on={() => go_(["unban", b.ip])}>
-                      Unban
-                    </Btn>,
-                  )}
-                </td>
-              </tr>
-            ))
-          ) : (
-            <tr>
-              <td colSpan={3} className="dim">
-                nobody banned right now
-              </td>
-            </tr>
-          )}
-        </Table>
-      </Card>
-    ) : (
-      <Card>
-        <CardHead>Bans</CardHead>
-        <Body className="dim">{i.fail2ban === "missing" ? "fail2ban is not installed." : "fail2ban is not running."}</Body>
-      </Card>
-    );
-
   return (
     <>
       {securityCard(n, i)}
       {basics}
       {services}
       {keys}
-      {bans}
     </>
   );
 }

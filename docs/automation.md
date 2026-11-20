@@ -31,8 +31,9 @@ This page is the contract for running `lf` without a person at the keyboard. For
 | sites | `ls` (`--others` adds containers landfall did not deploy: `{sites, others}`), `sites info`, `domains` (the server's addresses under `ips`), `env`, `secret`, `volumes`, `tunnels`, `check` |
 | servers | `server list`, `server info`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
-| system | `system`, `services`, `keys`, `users`, `bans`, `swap`, `log-limit`, `security`, `firewall` |
+| system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `history` |
+| plugins | `plugins`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
 
 The web UI reads the very same JSON, so its shape is stable within a release. `lf env --json` hides values
 unless you add `--reveal`. `lf secret --json` never contains secret values.
@@ -87,6 +88,8 @@ Most changes revert with `lf undo`. These do not, so confirm them with the user 
 - `lf users rm`, `lf users passwd`
 - `lf swap off`, `lf services restart`, plain restarts
 - `lf server uninstall`
+- `lf trivy rm` (the next scan downloads Trivy again)
+- whatever a plugin does without journaling it; `lf plugin add` and `lf plugin rm` change only this computer
 - a firewall rule that replaced an existing one
 
 `lf undo` changes only the server. Local `~/.config/landfall` and `.landfall.json` stay as they are.

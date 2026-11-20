@@ -27,7 +27,6 @@ import { diskCmd, statsCmd } from "./commands/stats";
 import { certsCmd, checkCmd, trafficCmd } from "./commands/traffic";
 import { pruneCmd, rebootCmd } from "./commands/manage";
 import {
-  bansList,
   hostnameCmd,
   keysAdd,
   keysList,
@@ -41,11 +40,11 @@ import {
   swapCmd,
   systemCmd,
   timezoneCmd,
-  unbanCmd,
 } from "./commands/system";
 import { hardenCmd, securityCmd } from "./commands/security";
 import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./commands/users";
 import { ui } from "./commands/ui";
+import { pluginAdd, pluginNew, pluginRemove, pluginsList } from "./commands/plugins";
 import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
 import { update, updatesList } from "./commands/updates";
 import { scanCmd } from "./commands/scan";
@@ -111,8 +110,6 @@ export const commands: Command[] = [
   usersRemove,
   usersPasswd,
   usersSudo,
-  bansList,
-  unbanCmd,
   swapCmd,
   hostnameCmd,
   timezoneCmd,
@@ -142,6 +139,10 @@ export const commands: Command[] = [
   keygen,
   config,
   ui,
+  pluginsList,
+  pluginAdd,
+  pluginRemove,
+  pluginNew,
 ];
 
 /** Shorthands → canonical command names. */
@@ -203,10 +204,14 @@ export const aliases: Record<string, string> = {
   "users list": "users",
   "users remove": "users rm",
   "users password": "users passwd",
-  "bans unban": "unban",
   "server swap": "swap",
   "server hostname": "hostname",
   "server timezone": "timezone",
+  "plugin ls": "plugins",
+  "plugin list": "plugins",
+  "plugins ls": "plugins",
+  "plugin remove": "plugin rm",
+  "plugin install": "plugin add",
 };
 
 export const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));

@@ -38,8 +38,6 @@ Every command, every local and remote file landfall uses, and its environment va
 | `lf users rm <name> [--keep-home]` | Removes an account and (unless `--keep-home`) its home. Refuses root, landfall's login and the admin login. Not undoable. |
 | `lf users passwd <name> [--password p \| --password-stdin \| --generate \| --remove]` | Sets (asked twice in a terminal), makes up or removes a password. Not undoable. Alias: `users password`. |
 | `lf users sudo <name> [--nopasswd \| --off]` | Grants sudo through `/etc/sudoers.d/landfall-<name>`, or takes it away (that file and the sudo/wheel groups). Undoable. |
-| `lf bans [--json]` | Shows banned IPs per fail2ban jail. |
-| `lf unban <ip>` | Unbans an IP in every jail that bans it. Undo bans it again. |
 | `lf swap [size\|off]` | Shows swap, adds a swap file at `/swapfile` (at least 64M, keeps 2 GB of disk free) or removes it. Adding is undoable. Alias: `server swap`. |
 | `lf hostname [name]` | Shows or sets the host name (and its `/etc/hosts` line). Undoable. Alias: `server hostname`. |
 | `lf timezone [zone]` | Shows or sets the time zone, e.g. `Europe/Berlin`. Undoable. Alias: `server timezone`. |
@@ -110,6 +108,25 @@ Every command, every local and remote file landfall uses, and its environment va
 |---|---|
 | `lf ui [--port 4777] [--no-open]` | Starts the web UI on 127.0.0.1 and prints a login link. Alias: `web`. |
 
+**Plugins** (see [Plugins](plugins.md))
+
+| command | what it does |
+|---|---|
+| `lf plugins [--json]` | Lists the plugins, built in and in `~/.config/landfall/plugins`, with their commands, web UI section and load errors. |
+| `lf plugin add <file\|folder> [--force]` | Installs a plugin: a `.mjs`/`.js` file, or a folder with `index.mjs` or package.json `main`. Loads it first to check it. `--force` replaces one of that name. |
+| `lf plugin rm <name>` | Removes an installed plugin and what it keeps in `~/.config/landfall/plugin-data/<name>`. Built-in plugins stay. |
+| `lf plugin new <name> [--out file]` | Writes a plugin to start from, with a command and a web UI section. |
+| `lf fail2ban [--json]` | Shows fail2ban's jails, their ban time, find time and max retries, and the banned IPs. Alias: `bans`. |
+| `lf fail2ban ban <ip> [--jail j]` | Bans an IP now, in `sshd` unless `--jail`. Undo unbans it. |
+| `lf fail2ban unban <ip>` | Unbans an IP in every jail that bans it. Undo bans it again. Alias: `unban`. |
+| `lf fail2ban config <jail> [--bantime t] [--findtime t] [--maxretry n]` | Writes a jail's settings to `/etc/fail2ban/jail.d/50-landfall-<jail>.local` and reloads fail2ban. Undo restores the file. |
+| `lf fail2ban install` | Installs and starts fail2ban with an sshd jail, as `lf harden fail2ban`. |
+| `lf trivy [--json]` | Shows Trivy's image and databases on the server and the summaries of the last scans. |
+| `lf trivy images [site...] [--json]` | Scans the running images for vulnerabilities and keeps a summary. `lf scan` lists every vulnerability. Alias: `trivy scan`. |
+| `lf trivy files [site...] [--json]` | Scans the sites' current releases for secrets and misconfigurations. Skips `.env` files, `node_modules` and `.git`. Changes nothing. |
+| `lf trivy rm` | Removes Trivy's image and databases from the server. Not undoable; the next scan downloads them again. Alias: `trivy remove`. |
+| `lf <plugin> [--json]` | A plugin with a web UI section and no command of its own prints that section as text; `--json` prints its blocks. |
+
 ## Files and config
 
 | local file | content |
@@ -118,6 +135,8 @@ Every command, every local and remote file landfall uses, and its environment va
 | `~/.config/landfall/projects.json` | folders deployed from this machine (web UI *Recent*/*Redeploy*) |
 | `~/.config/landfall/ui-token` | web UI login token |
 | `~/.config/landfall/uploads/` | folders dropped into the web UI, removed after a day |
+| `~/.config/landfall/plugins/` | your plugins (`lf plugin add`) |
+| `~/.config/landfall/plugin-data/` | what plugins keep per server, e.g. Trivy's last scan summaries |
 | `~/.ssh/landfall_<name>` | generated keys |
 | `~/.ssh/config` | `Host <name>` blocks between `# >>> landfall:<name>` markers |
 | `./.landfall.json` | per-project deploy settings (keys below) |
@@ -126,6 +145,7 @@ Every command, every local and remote file landfall uses, and its environment va
 |---|---|
 | `LANDFALL_CONFIG_DIR` | use another directory than `~/.config/landfall` |
 | `XDG_CONFIG_HOME` | without `LANDFALL_CONFIG_DIR`: the config lives in `$XDG_CONFIG_HOME/landfall` |
+| `LANDFALL_NO_PLUGINS` | `1` skips your plugins (the built-in ones still load) |
 | `LANDFALL_ENV` | the environment of `.landfall.json` to work on, as `-E` |
 | `LANDFALL_SSH_CONFIG` | use another ssh config file (`ssh -F`) |
 | `LANDFALL_PASSWORD` | login password for `setup`/`server add`/`deploy --host` |

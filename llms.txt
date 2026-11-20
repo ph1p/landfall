@@ -27,6 +27,7 @@ Key facts for agents:
 - [Day-to-day](docs/sites.md): logs, env, secrets, domains, logins, tunnels, restart and removal
 - [Volumes and backups](docs/volumes.md): volumes, backups, schedules, offsite copies, push and pull
 - [History and undo](docs/history.md): the server journal and what `lf undo` reverts
+- [Plugins](docs/plugins.md): fail2ban and Trivy, installing plugins, writing commands and web UI sections
 - [Troubleshooting](docs/troubleshooting.md): error messages and fixes
 
 ## Optional
