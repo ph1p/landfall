@@ -216,6 +216,36 @@ ufw, so landfall refuses those changes there. On SteamOS, install Docker in your
 login without passwordless sudo can still deploy but not change the system. The web UI shows only the tabs and
 actions that work on the server.
 
+### Root login
+
+Some work needs root: fail2ban, the firewall, updates, users and `lf undo`. When the server's login has no
+passwordless sudo, landfall logs in another way for that work. It tries these in order:
+
+1. the Host set with `lf server config --root-login`;
+2. `root` with the server's own key;
+3. the sudo user setup used (`admin` in landfall's config);
+4. other Hosts in `~/.ssh/config` that reach the same machine (same HostName and port) with another user, root first.
+
+So a second Host block for root is enough:
+
+```
+Host vps
+  HostName 203.0.113.7
+  User deploy
+Host vps-root
+  HostName 203.0.113.7
+  User root
+  IdentityFile ~/.ssh/vps_root
+```
+
+```sh
+lf server config vps --root-login vps-root   # use vps-root for root work; tries the login once
+lf server config vps --root-login auto       # forget it: landfall tries the order above again
+```
+
+The web page sets it too: Change next to *root work* in the server's Settings. It lists the Hosts that reach the
+same machine.
+
 Non-interactive ssh sessions often lack `/usr/local/bin` (where DSM keeps `docker`), so landfall adds
 `/usr/local/sbin` and `/usr/local/bin` to `PATH` for every command it runs.
 

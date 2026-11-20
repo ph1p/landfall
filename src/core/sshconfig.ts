@@ -18,6 +18,24 @@ export interface EffectiveSsh {
 const resolved = new Map<string, EffectiveSsh>();
 let resolvedAt = 0;
 
+/** The ~/.ssh/config aliases that reach the same machine (hostname and port) as s with another user: candidates for root work. */
+export function sameMachineLogins(s: Server): { alias: string; user: string }[] {
+  const me = effectiveSsh(s);
+  const out: { alias: string; user: string }[] = [];
+  for (const alias of sshAliases()) {
+    if (alias === s.host) continue;
+    let e: EffectiveSsh;
+    try {
+      e = effectiveSsh({ host: alias });
+    } catch {
+      continue;
+    }
+    if (e.hostname === me.hostname && e.port === me.port && e.user !== me.user) out.push({ alias, user: e.user });
+  }
+  // root first: it needs no sudo.
+  return out.sort((a, b) => Number(b.user === "root") - Number(a.user === "root"));
+}
+
 /** Effective ssh settings for a server, as `ssh -G` resolves them (aliases, Include, Match...). */
 export function effectiveSsh(s: Server): EffectiveSsh {
   const args = [...targetArgs(s), "-G", dest(s)];

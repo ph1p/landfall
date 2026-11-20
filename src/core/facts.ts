@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { guessDomains, type Server } from "./config";
 import { runScript } from "./ssh";
-import { rootLogin } from "./privilege";
+import { ROOT_HINT, rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { CLOUD, KV, kvRecord, OS_RELEASE, PRELUDE } from "./templates";
 import { fail } from "./term";
@@ -151,7 +151,7 @@ export function capabilities(f: Facts, rootKey = false): Caps {
   const need = (cap: Cap, ok: boolean, reason: string) => (ok || (why[cap] = reason), ok);
   const noPkg = p ? p.name : NO_PKG;
   const setup = need("setup", f.pkg !== "none", noPkg);
-  need("admin", admin, `${f.user || "the login"} has no passwordless sudo and root's key login does not work`);
+  need("admin", admin, `${f.user || "the login"} has no passwordless sudo and no root key login works; ${ROOT_HINT}`);
   need("packages", setup && admin, setup ? why.admin! : noPkg);
   const noDocker = f.podman
     ? `only podman ${f.podman} here: landfall needs docker${p ? ` (${p.docker})` : ""}`

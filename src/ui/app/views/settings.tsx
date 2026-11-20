@@ -6,7 +6,7 @@ import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
-import { providerDialog } from "./flows";
+import { providerDialog, rootLoginDialog } from "./flows";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError } from "../ui/dialog";
 
 // ---- traefik & settings --------------------------------------------------------
@@ -421,7 +421,7 @@ export function SettingsView({ n }: { n: string }) {
     run(["server", "domain", n, tunnel ? "--no-tunnel-only" : "--tunnel-only"], { server: n, after: ifOk(() => (load(n, "settings", true), refreshState())) });
   const saved: [string, ReactNode][] = x.saved
     ? Object.entries(x.saved)
-        .filter(([k, v]) => v !== undefined && k !== "dashboard" && k !== "cloud")
+        .filter(([k, v]) => v !== undefined && k !== "dashboard" && k !== "cloud" && k !== "rootAlias")
         .map(([k, v]) => [k, <span className={MONO}>{String(v)}</span>])
     : [];
   const cloud = S.facts[n]?.data?.cloud;
@@ -434,6 +434,21 @@ export function SettingsView({ n }: { n: string }) {
         {cloud?.firewall ? ` · ${cloud.firewall} in front` : ""}
       </span>{" "}
       <Btn cls="sm" on={() => providerDialog(n)}>
+        Change
+      </Btn>
+    </>,
+  ]);
+  const others = x.ssh.sameMachine;
+  saved.push([
+    "root work",
+    <>
+      {x.ssh.rootAlias ? (
+        <span className={MONO}>{x.ssh.rootAlias}</span>
+      ) : (
+        <span className="dim">{others.length ? `tries root, then ${others.map((o) => o.alias).join(", ")}` : "tries root's key login"}</span>
+      )}{" "}
+      <span className="dim">· when {x.ssh.user} has no passwordless sudo</span>{" "}
+      <Btn cls="sm" on={() => rootLoginDialog(n, x.ssh.rootAlias, others)}>
         Change
       </Btn>
     </>,

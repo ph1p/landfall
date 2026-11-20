@@ -21,7 +21,8 @@ export interface F2bStatus {
   jails: F2bJail[];
 }
 
-// Read-only. fail2ban answers root only: without root or passwordless sudo it says noroot instead of guessing.
+// Read-only. fail2ban answers root only: without root or passwordless sudo it says noroot instead of guessing,
+// and status() asks again through the server's root login (lf server config --root-login).
 // S (from PRELUDE) runs a command as root without asking for a password.
 const STATUS = String.raw`
 command -v fail2ban-client >/dev/null 2>&1 || { echo "state missing"; exit 0; }
@@ -61,7 +62,15 @@ export function parseStatus(out: string): F2bStatus {
   return st;
 }
 
-export const status = async (ctx: PluginContext) => parseStatus(await ctx.script(STATUS));
+export async function status(ctx: PluginContext): Promise<F2bStatus> {
+  const st = parseStatus(await ctx.script(STATUS));
+  if (st.fail2ban !== "noroot") return st;
+  try {
+    return parseStatus(await ctx.script(STATUS, { admin: "reading fail2ban" }));
+  } catch {
+    return st; // no login with root either: noroot stands
+  }
+}
 
 /** 600 → "10m", 86400 → "1d", -1 → "forever". */
 export function duration(sec?: number): string {
@@ -119,7 +128,8 @@ echo "unbanned$hit"
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 
-const noroot = (ctx: PluginContext) => `fail2ban answers root only; ${ctx.name}'s login has no passwordless sudo`;
+const noroot = (ctx: PluginContext) =>
+  `fail2ban answers root only; ${ctx.name}'s login has no passwordless sudo and no root key login works (lf server config ${ctx.name} --root-login <ssh-alias>)`;
 
 function needRunning(ctx: PluginContext, state: F2bStatus["fail2ban"]) {
   if (state === "missing") ctx.fail(`fail2ban is not installed on ${ctx.name}; lf fail2ban install sets it up`);
@@ -236,7 +246,14 @@ export default definePlugin({
             actions: [{ label: "Install fail2ban", argv: ["fail2ban", "install"], primary: true }],
           },
         ];
-      if (st.fail2ban === "noroot") return [{ type: "note", kind: "warn", text: "fail2ban answers root only, and this login has no passwordless sudo." }];
+      if (st.fail2ban === "noroot")
+        return [
+          {
+            type: "note",
+            kind: "warn",
+            text: "fail2ban answers root only. This login has no passwordless sudo, and no root key login works. Pick a root login under Settings, or add a Host with User root to ~/.ssh/config.",
+          },
+        ];
       if (st.fail2ban === "stopped")
         return [
           {

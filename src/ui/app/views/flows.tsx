@@ -278,6 +278,37 @@ const providerOptions = (found?: string) => [
 ];
 
 /** Set a server's provider in landfall's config: `lf server config --cloud`, no setup run. */
+/** Which ~/.ssh/config Host does root work on n: lf server config --root-login. */
+export function rootLoginDialog(n: string, current: string | null, others: { alias: string; user: string }[]) {
+  const saved = current ?? "auto";
+  const options = [
+    { value: "auto", label: "Automatic: root, the admin user, then the Hosts below" },
+    ...others.map((o) => ({ value: o.alias, label: `${o.alias} (${o.user})` })),
+  ];
+  if (current && !others.some((o) => o.alias === current)) options.push({ value: current, label: current });
+  dialog({
+    title: `Root login for ${n}`,
+    text: "Used for root work (fail2ban, firewall, updates, undo) when the server's login has no passwordless sudo. landfall remembers it in its config.",
+    fields: [
+      {
+        name: "alias",
+        label: "Log in as",
+        type: "select",
+        value: saved,
+        options,
+        hint: others.length
+          ? "Hosts from ~/.ssh/config that reach the same machine with another user."
+          : "No other Host in ~/.ssh/config reaches this machine. Add one with User root (or a sudo user) and its key.",
+      },
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      if (v.alias === saved) return;
+      run(["server", "config", n, `--root-login=${v.alias}`], { server: n, after: ifOk(() => load(n, "settings", true)) });
+    },
+  });
+}
+
 export function providerDialog(n: string) {
   const saved = serverNamed(n)?.saved?.cloud ?? "auto";
   dialog({

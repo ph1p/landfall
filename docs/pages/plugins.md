@@ -39,8 +39,8 @@ lf fail2ban install               # install and start fail2ban: lf harden fail2b
 ```
 
 `config` writes `/etc/fail2ban/jail.d/50-landfall-<jail>.local` and reloads fail2ban. It keeps the settings you do
-not give. `ban`, `unban` and `config` are journaled, and `lf undo` takes them back. They need root or passwordless
-sudo.
+not give. `ban`, `unban` and `config` are journaled, and `lf undo` takes them back. fail2ban answers root only, so every
+command needs root or passwordless sudo. Without either, landfall uses the server's [root login](servers.md#root-login).
 
 The web UI section *fail2ban* (under Machine) shows the same. It has buttons to ban, unban and change a jail.
 

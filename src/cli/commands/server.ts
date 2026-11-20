@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { defineCommand } from "../cmd";
 import { TRIVY, TRIVY_CACHE } from "../../core/scan";
 import {
+  checkAlias,
   checkDomain,
   checkEmail,
   DOMAIN,
@@ -297,17 +298,40 @@ export const serverConfig = defineCommand({
   args: "[name]",
   summary: `Show every setting landfall uses for a server: its entry in landfall's config,
 the main domain, Traefik settings, what ssh resolves (host, user, port, keys)
-and the Host block in ~/.ssh/config. Nothing connects to the server.
+and the Host block in ~/.ssh/config. Only --root-login connects: it tries that login.
 
 --cloud remembers the server's provider: ${CLOUD_IDS.join(", ")},
 none (own hardware, another provider) or auto (forget it and detect again).
-Where the provider's firewall is always in front, \`lf setup\` leaves ufw out.`,
+Where the provider's firewall is always in front, \`lf setup\` leaves ufw out.
+
+--root-login names a Host from ~/.ssh/config that logs in to the same machine as
+root or a sudo user. landfall uses it for root work (fail2ban, firewall, updates,
+undo) when the server's own login has no passwordless sudo. auto forgets it:
+landfall then tries root, the admin user and other Hosts for the same machine.`,
   options: {
     cloud: { type: "string", desc: "remember the provider: an id, none or auto" },
+    "root-login": { type: "string", desc: "the ssh alias for root work, or auto" },
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run([n], o) {
     const { name, server } = resolveServer(n);
+    const via = o["root-login"];
+    if (via !== undefined) {
+      const alias = via === "auto" ? undefined : checkAlias(via);
+      if (alias) {
+        if (alias === server.host) fail(`${alias} is ${name}'s own login; --root-login names another Host in ~/.ssh/config`);
+        const eff = effectiveSsh({ host: alias });
+        const me = effectiveSsh(server);
+        if (eff.hostname !== me.hostname || eff.port !== me.port) fail(`${alias} reaches ${eff.hostname}:${eff.port}, not ${name} (${me.hostname}:${me.port})`);
+        if (!(await canLogin({ host: alias }))) warn(`${alias} does not log in with a key right now; saved anyway`);
+      }
+      const before = loadConfig().servers[name];
+      const next = { ...server, rootAlias: alias };
+      await updateConfig((fresh) => void patchServer(fresh, name, before, next));
+      Object.assign(server, next);
+      ok(alias ? `${c.bold(name)}: root work logs in as ${c.bold(alias)}` : `${c.bold(name)}: root login forgotten, landfall looks for one again`);
+      if (!o.json && o.cloud === undefined) return;
+    }
     if (o.cloud !== undefined) {
       const cloud = checkCloud(o.cloud);
       const before = loadConfig().servers[name];

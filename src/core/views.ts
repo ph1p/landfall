@@ -15,7 +15,7 @@ import { diskUsage, stats } from "./stats";
 import { securityOf } from "./security";
 import { certs, checkUrl, siteTraffic, traffic, type Traffic } from "./traffic";
 import { TUNNELS_DIR } from "./tunnel";
-import { effectiveSsh, findHostBlock, SSH_CONFIG } from "./sshconfig";
+import { effectiveSsh, findHostBlock, sameMachineLogins, SSH_CONFIG } from "./sshconfig";
 import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
 import { fail } from "./term";
 import { listUsers } from "./users";
@@ -129,6 +129,9 @@ export function serverSettings(name: string) {
       port: eff.port,
       keys: (server.key ? [server.key] : eff.identityFiles).map((f) => ({ file: tildify(f), exists: fs.existsSync(expandHome(f)) })),
       block: block ? { file: tildify(block.file), line: block.start + 1, managed: block.managed, text: block.lines.join("\n") } : null,
+      /** The alias set for root work (lf server config --root-login), and the other Hosts that reach this machine. */
+      rootAlias: server.rootAlias ?? null,
+      sameMachine: sameMachineLogins(server),
     },
   };
 }

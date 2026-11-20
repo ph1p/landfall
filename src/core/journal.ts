@@ -1,6 +1,6 @@
 import type { Server } from "./config";
 import { closeMux, runScript, shq } from "./ssh";
-import { rootLogin } from "./privilege";
+import { ROOT_HINT, rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { JOURNAL, PRELUDE, ROOT, SITES, TRAEFIK_DIR } from "./templates";
 import { fail } from "./term";
@@ -131,7 +131,7 @@ export async function loginFor(s: Server, user: string): Promise<{ login: Server
   // The same fallback as every other root step: root's key login, else the sudo admin's.
   const other = await rootLogin(s);
   if (other) return other.user === "root" ? { login: other } : { login: other, sudo: true };
-  return fail(`undoing this needs root: ${me} has no passwordless sudo, and neither root's nor the admin's key login works`);
+  return fail(`undoing this needs root: ${me} has no passwordless sudo, and no root or admin key login works; ${ROOT_HINT}`);
 }
 
 const UNDO_STEP = String.raw`

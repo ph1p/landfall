@@ -44,6 +44,7 @@ Every command, every local and remote file landfall uses, and its environment va
 | `lf log-limit [size\|off] [--files n] [--restart]` | Shows or sets Docker's json-file log limit per container in `daemon.json` (default 3 files). `--restart` restarts Docker so it applies now. Undoable. |
 | `lf server config [name] [--json]` | Shows everything landfall and ssh use for a server. Does not connect. |
 | `lf server config [name] --cloud <provider\|none\|auto>` | Remembers the server's cloud provider. `none` means no provider. `auto` forgets it and detects again. |
+| `lf server config [name] --root-login <ssh-alias\|auto>` | Names a Host from `~/.ssh/config` for root work when the server's login has no passwordless sudo. The Host must reach the same machine. `auto` forgets it. |
 | `lf server domain [name] [domain...] [--add d] [--primary d] [--rm d] [--clear] [--tunnel-only] [--json]` | Manages main domains (the first is primary) and checks their DNS; `--tunnel-only` makes new sites deploy with no domain. |
 | `lf server use <name>` | Sets the default server. |
 | `lf config [--tunnel-only] [--email e] [--keep n] [--default name] [--unset key] [--json]` | Shows or changes landfall's defaults for every server, and lists every place landfall writes to. A server's own setting wins. |
