@@ -1,5 +1,7 @@
 allowBuilds:
+  es5-ext: false
   esbuild: true
+  vue-demi: false
 minimumReleaseAgeExclude:
   - tsdown@0.23.2
   - lucide-react@1.73.0

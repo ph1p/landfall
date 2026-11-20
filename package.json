@@ -30,6 +30,8 @@
   "scripts": {
     "dev": "tsx src/cli/cli.ts",
     "build": "tsdown && vite build",
+    "docs:dev": "cd docs && vocs dev",
+    "docs:build": "cd docs && vocs build",
     "prepublishOnly": "pnpm build",
     "test": "vitest run test/unit",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/app",
@@ -60,7 +62,9 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "vocs": "2.14.1",
+    "waku": "1.0.0-rc.5"
   },
   "engines": {
     "node": ">=22.4"

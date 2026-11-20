@@ -78,7 +78,7 @@ export const pluginRemove = defineCommand({
 });
 
 /** A plugin to start from: one command, one panel, every part of the API in use once. */
-export const scaffold = (name: string) => `// A landfall plugin. Docs: https://github.com/ph1p/landfall/blob/main/docs/plugins.md
+export const scaffold = (name: string) => `// A landfall plugin. Docs: https://github.com/ph1p/landfall/blob/main/docs/pages/plugins.md
 // lf ${name} --help lists its commands; lf ui shows its panel on each server's page.
 // The types (Plugin, PluginContext, UiBlock) are in src/core/plugin-api.ts of the landfall repository.
 

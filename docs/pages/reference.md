@@ -4,7 +4,7 @@ Every command, every local and remote file landfall uses, and its environment va
 
 ## Command reference
 
-`[name]` is a site or server and is optional (see [Concepts](../README.md#concepts)). Most site and server commands take `-s <server>`. Every command takes `-y` and `--help`.
+`[name]` is a site or server and is optional (see [Concepts](index.md#concepts)). Most site and server commands take `-s <server>`. Every command takes `-y` and `--help`.
 
 **Servers**
 

@@ -28,7 +28,7 @@ The server needs a login as root or as a user with passwordless sudo. landfall i
 - **Fedora, RHEL-likes, Alpine and SUSE** (dnf, yum, apk, zypper) get Docker and rsync; their base repositories
   lack some of the rest.
 - **Systems without a package manager** (Synology DSM, SteamOS) can be deployed to when Docker is already there.
-  See [NAS, Steam Deck and other systems](docs/servers.md#nas-steam-deck-and-other-systems-without-a-package-manager).
+  See [NAS, Steam Deck and other systems](docs/pages/servers.md#nas-steam-deck-and-other-systems-without-a-package-manager).
 
 ```sh
 npm i -g landfall            # or: pnpm add -g landfall
@@ -67,7 +67,7 @@ lf deploy                                # later: redeploy with the settings sav
 
 | the folder has | landfall |
 |---|---|
-| a `compose.yaml` | runs it as one Compose project: app, database, worker. See [Compose sites](docs/compose.md). |
+| a `compose.yaml` | runs it as one Compose project: app, database, worker. See [Compose sites](docs/pages/compose.md). |
 | a `Dockerfile` | builds it on the server and routes its `EXPOSE`d port |
 | an app (Node.js, Bun, Python, Go, Rust, Java/Kotlin, .NET, Ruby, PHP, Elixir) | writes a Dockerfile for it and builds it on the server |
 | static files (or a site generator's build output) | serves them with `nginx:alpine` |
@@ -94,27 +94,27 @@ lf ui                              # the same in a local web UI
 
 | guide | covers |
 |---|---|
-| [Servers](docs/servers.md) | `lf setup` for fresh and existing servers, setup flags, registering servers, NAS and other systems |
-| [Deploy a site](docs/deploy.md) | site kinds, env and secrets, CI, what gets uploaded, environments, main domains, running without landfall |
-| [Compose sites](docs/compose.md) | `x-landfall`, routes, private ports, IP allowlists, volumes, published ports |
-| [Day-to-day](docs/sites.md) | logs, env, secrets, domains, logins, tunnels, restart and removal |
-| [Volumes and backups](docs/volumes.md) | volumes, backups, scheduled and offsite backups, push and pull data |
-| [Updates](docs/updates.md) | OS packages, images, Docker Compose, vulnerability scans |
-| [Traefik](docs/traefik.md) | landfall's Traefik, HTTP/3, the dashboard, using your own Traefik |
-| [Server administration](docs/system.md) | firewall, services, SSH keys, users, swap, hardening |
-| [Traffic, certificates and checks](docs/monitoring.md) | request stats, certificate state, HTTPS checks |
-| [History and undo](docs/history.md) | the server journal and what `lf undo` can revert |
-| [Plugins](docs/plugins.md) | fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
-| [Web UI](docs/web-ui.md) | `lf ui`, its pages and their commands, security model |
-| [Scripts, CI and AI agents](docs/automation.md) | non-interactive use, `--json`, secrets, exit codes, recipes |
-| [Reference](docs/reference.md) | every command, local and remote files, environment variables |
-| [Troubleshooting](docs/troubleshooting.md) | error messages and their fixes |
+| [Servers](docs/pages/servers.md) | `lf setup` for fresh and existing servers, setup flags, registering servers, NAS and other systems |
+| [Deploy a site](docs/pages/deploy.md) | site kinds, env and secrets, CI, what gets uploaded, environments, main domains, running without landfall |
+| [Compose sites](docs/pages/compose.md) | `x-landfall`, routes, private ports, IP allowlists, volumes, published ports |
+| [Day-to-day](docs/pages/sites.md) | logs, env, secrets, domains, logins, tunnels, restart and removal |
+| [Volumes and backups](docs/pages/volumes.md) | volumes, backups, scheduled and offsite backups, push and pull data |
+| [Updates](docs/pages/updates.md) | OS packages, images, Docker Compose, vulnerability scans |
+| [Traefik](docs/pages/traefik.md) | landfall's Traefik, HTTP/3, the dashboard, using your own Traefik |
+| [Server administration](docs/pages/system.md) | firewall, services, SSH keys, users, swap, hardening |
+| [Traffic, certificates and checks](docs/pages/monitoring.md) | request stats, certificate state, HTTPS checks |
+| [History and undo](docs/pages/history.md) | the server journal and what `lf undo` can revert |
+| [Plugins](docs/pages/plugins.md) | fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
+| [Web UI](docs/pages/web-ui.md) | `lf ui`, its pages and their commands, security model |
+| [Scripts, CI and AI agents](docs/pages/automation.md) | non-interactive use, `--json`, secrets, exit codes, recipes |
+| [Reference](docs/pages/reference.md) | every command, local and remote files, environment variables |
+| [Troubleshooting](docs/pages/troubleshooting.md) | error messages and their fixes |
 
 ## Scripts, CI and AI agents
 
 The CLI is built to be driven by other programs: no prompts without a terminal (a command that would ask fails
 and says to pass `-y`), `--json` on every read command, secrets on stdin, and a journal that `lf undo` reverts.
-[docs/automation.md](docs/automation.md) is the full contract. For agents, [llms.txt](llms.txt) indexes the docs.
+[docs/pages/automation.md](docs/pages/automation.md) is the full contract. For agents, [llms.txt](llms.txt) indexes the docs.
 
 Working on landfall itself? See [CONTRIBUTING.md](CONTRIBUTING.md); coding agents read [AGENTS.md](AGENTS.md).
 

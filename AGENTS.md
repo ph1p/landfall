@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Guide for coding agents working on landfall itself. If you only need to *use* the `lf` CLI (deploy, inspect,
-administer servers), read [docs/automation.md](docs/automation.md) instead.
+administer servers), read [docs/pages/automation.md](docs/pages/automation.md) instead.
 
 landfall is a TypeScript CLI (`lf` / `landfall`) that sets up Linux servers over ssh and deploys Docker Compose
 sites behind Traefik. There is no agent on the server: every remote action is a bash script sent over ssh, and
@@ -17,6 +17,7 @@ pnpm typecheck              # tsc for the CLI and, separately, for the web page 
 pnpm lint                   # oxlint (.oxlintrc.json)
 pnpm fmt                    # oxfmt, printWidth 160 (.oxfmtrc.json); pnpm fmt:check only reports
 pnpm build                  # tsdown → dist/cli.mjs, vite → dist/ui
+pnpm docs:dev               # the documentation site (Vocs) on localhost; pnpm docs:build writes docs/dist
 pnpm e2e                    # build, then test/e2e/run.sh against a throwaway sshd+dockerd container (needs Docker)
 E2E_ONLY="volumes ui" pnpm e2e   # setup, then only these sections and what they build on
 ```
@@ -51,7 +52,7 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/ui/app/` | the browser page (React + Tailwind, built by vite) |
 | `test/unit/` | vitest; remote scripts are captured by mocking `runScript` and checked with `bash -n` |
 | `test/e2e/run.sh` | end-to-end run against a container with sshd and dockerd |
-| `docs/` | user documentation; `docs/reference.md` lists every command |
+| `docs/` | the documentation site (Vocs): pages in `docs/pages`, `docs/vocs.config.ts`; `docs/pages/reference.md` lists every command |
 
 Navigate by symbol where you can: `cona outline <file>`, `cona show <Symbol>`, `cona refs <Name>`.
 
@@ -73,8 +74,8 @@ Enforced by `test/unit/layers.test.ts`:
 4. Read commands: build the data in core (a view), print it with `printJson` under `--json`, else as a table.
    The web UI reads the same object, so keep the shape stable.
 5. Commands that change a server: do the work in one `runScript` and journal every change (see below).
-6. Document it in `docs/reference.md` and in the topic page under `docs/`. Add it to the `--json` table in
-   `docs/automation.md` if it supports `--json`, and to "What cannot be undone" there if it cannot be undone.
+6. Document it in `docs/pages/reference.md` and in the topic page under `docs/pages/`. Add it to the `--json` table in
+   `docs/pages/automation.md` if it supports `--json`, and to "What cannot be undone" there if it cannot be undone.
 
 ## Invariants
 
@@ -114,9 +115,9 @@ Breaking one of these breaks users' scripts, CI jobs or servers.
 
 ## Documentation
 
-User docs are part of a change. Update `docs/` (and `README.md` if the quickstart or the concepts change) in the
+User docs are part of a change. Update `docs/pages/` (and `README.md` if the quickstart or the concepts change) in the
 same commit as the behavior. The docs are written in short, plain sentences: one fact per sentence, commands in code
-blocks with a comment saying what they do.
+blocks with a comment saying what they do. A new page also goes into the sidebar in `docs/vocs.config.ts`.
 
 ## Commits
 

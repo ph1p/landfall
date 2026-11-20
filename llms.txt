@@ -19,23 +19,23 @@ Key facts for agents:
 
 ## Docs
 
-- [Scripts, CI and AI agents](docs/automation.md): the non-interactive contract, `--json` commands, secrets, server and site resolution, what cannot be undone, recipes
-- [Reference](docs/reference.md): every command and alias, local and remote files, `.landfall.json` keys, environment variables
-- [Servers](docs/servers.md): `lf setup` for fresh and existing servers, setup flags, registering servers, systems without a package manager
-- [Deploy a site](docs/deploy.md): site kinds, env and secrets, deploying from CI, what gets uploaded, environments, main domains
-- [Compose sites](docs/compose.md): `x-landfall` (port, domains, routes, private ports, allowlists), volumes, published ports
-- [Day-to-day](docs/sites.md): logs, env, secrets, domains, logins, tunnels, restart and removal
-- [Volumes and backups](docs/volumes.md): volumes, backups, schedules, offsite copies, push and pull
-- [History and undo](docs/history.md): the server journal and what `lf undo` reverts
-- [Plugins](docs/plugins.md): fail2ban and Trivy, installing plugins, writing commands and web UI sections
-- [Troubleshooting](docs/troubleshooting.md): error messages and fixes
+- [Scripts, CI and AI agents](docs/pages/automation.md): the non-interactive contract, `--json` commands, secrets, server and site resolution, what cannot be undone, recipes
+- [Reference](docs/pages/reference.md): every command and alias, local and remote files, `.landfall.json` keys, environment variables
+- [Servers](docs/pages/servers.md): `lf setup` for fresh and existing servers, setup flags, registering servers, systems without a package manager
+- [Deploy a site](docs/pages/deploy.md): site kinds, env and secrets, deploying from CI, what gets uploaded, environments, main domains
+- [Compose sites](docs/pages/compose.md): `x-landfall` (port, domains, routes, private ports, allowlists), volumes, published ports
+- [Day-to-day](docs/pages/sites.md): logs, env, secrets, domains, logins, tunnels, restart and removal
+- [Volumes and backups](docs/pages/volumes.md): volumes, backups, schedules, offsite copies, push and pull
+- [History and undo](docs/pages/history.md): the server journal and what `lf undo` reverts
+- [Plugins](docs/pages/plugins.md): fail2ban and Trivy, installing plugins, writing commands and web UI sections
+- [Troubleshooting](docs/pages/troubleshooting.md): error messages and fixes
 
 ## Optional
 
-- [Updates](docs/updates.md): OS packages, images, Docker Compose, vulnerability scans
-- [Traefik](docs/traefik.md): landfall's Traefik, HTTP/3, dashboard, using your own Traefik
-- [Server administration](docs/system.md): firewall, services, SSH keys, users, swap, hardening
-- [Traffic, certificates and checks](docs/monitoring.md): request stats, certificate state, HTTPS checks
-- [Web UI](docs/web-ui.md): `lf ui`, its pages and the commands behind them
+- [Updates](docs/pages/updates.md): OS packages, images, Docker Compose, vulnerability scans
+- [Traefik](docs/pages/traefik.md): landfall's Traefik, HTTP/3, dashboard, using your own Traefik
+- [Server administration](docs/pages/system.md): firewall, services, SSH keys, users, swap, hardening
+- [Traffic, certificates and checks](docs/pages/monitoring.md): request stats, certificate state, HTTPS checks
+- [Web UI](docs/pages/web-ui.md): `lf ui`, its pages and the commands behind them
 - [AGENTS.md](AGENTS.md): architecture, layer rules and invariants for agents changing landfall's code
 - [README](README.md): overview and quickstart
