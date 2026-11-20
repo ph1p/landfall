@@ -50,8 +50,11 @@ const reached = new Map<string, { at: number; r: Promise<Reach> }>();
 /** Results stay this long, so switching views does not log in again. */
 const REACH_TTL = 30_000;
 
-/** Whether each server takes landfall's ssh login: 8 at a time, cached for REACH_TTL unless fresh. */
-export async function reachAll(names: string[], fresh = false): Promise<Record<string, Reach>> {
+/**
+ * Whether each server takes landfall's ssh login: 16 at a time, cached for REACH_TTL unless fresh.
+ * each() hears every answer as it comes, so a page can show the quick ones before a dead host times out.
+ */
+export async function reachAll(names: string[], fresh = false, each?: (name: string, r: Reach) => void): Promise<Record<string, Reach>> {
   const out: Record<string, Reach> = {};
   const queue = [...names];
   const worker = async () => {
@@ -68,9 +71,10 @@ export async function reachAll(names: string[], fresh = false): Promise<Record<s
         reached.set(n, (hit = { at: Date.now(), r }));
       }
       out[n] = await hit.r;
+      each?.(n, out[n]);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(8, names.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(16, names.length) }, worker));
   return out;
 }
 

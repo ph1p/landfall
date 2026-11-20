@@ -87,6 +87,8 @@ export function StatusDot({ status }: { status: string }) {
 export const REACH_WORD = { ok: "reachable", login: "login refused", down: "unreachable" } as const;
 export const REACH_KIND = { ok: "up", login: "warn", down: "down" } as const;
 /** Reachable first, then refused, then down, then not checked. */
+/** The first ssh login check has not answered for server n yet: lists hold it back instead of drawing a row that moves. */
+export const awaitingReach = (n: string) => !S.reachSettled && !S.reach[n];
 export const reachRank = (n: string) => ({ ok: 0, login: 1, down: 2 })[S.reach[n]?.state as "ok"] ?? 3;
 export function reachCount(list: ServerEntry[]) {
   const count = { ok: 0, login: 0, down: 0 };

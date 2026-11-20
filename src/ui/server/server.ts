@@ -216,6 +216,34 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
 
   // Separate from state: logging in to every server takes seconds, the list should not wait.
   if (what === "reach" && method === "GET") {
+    const url = new URL(req.url);
+    // ?stream=1: one JSON line per server as its answer comes, then {"done":true}.
+    if (url.searchParams.get("stream") === "1") {
+      const enc = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(ctl) {
+          const send = (v: unknown) => {
+            try {
+              ctl.enqueue(enc.encode(`${JSON.stringify(v)}\n`));
+            } catch {} // the page went away
+          };
+          try {
+            await reachAll(
+              listServers().map((e) => e.name),
+              url.searchParams.get("fresh") === "1",
+              (name, reach) => send({ name, reach }),
+            );
+            send({ done: true });
+          } catch (e: any) {
+            send({ error: e.message });
+          }
+          try {
+            ctl.close();
+          } catch {}
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
+    }
     return json(
       await reachAll(
         listServers().map((e) => e.name),

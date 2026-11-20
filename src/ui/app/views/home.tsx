@@ -1,9 +1,9 @@
 import { S, ago, plural, tilde } from "../lib/store";
 import type { Remembered, ServerEntry } from "../lib/types";
 import { go } from "../lib/api";
-import { Badge, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
+import { Badge, Bone, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
 import { addServer, defaultsDialog, deployFrom, folderDialog, redeploy } from "./flows";
-import { ReachDot, REACH_KIND, REACH_WORD, Star, reachCount, reachRank } from "./shared";
+import { awaitingReach, ReachDot, REACH_KIND, REACH_WORD, Star, reachCount, reachRank } from "./shared";
 
 const H3 = "m-0 mb-2 text-xs font-medium text-faint uppercase tracking-[.04em]";
 
@@ -61,27 +61,37 @@ export function HomeView() {
         )}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
-        {own.map((s) => {
-          const r = S.reach[s.name];
-          return (
-            <button
-              key={s.name}
-              type="button"
-              className="block text-left px-[18px] py-4 rounded-lg bg-panel border border-line shadow-xs w-full transition-[border-color,box-shadow,transform] hover:bg-panel hover:border-line-strong hover:shadow-lg hover:-translate-y-px"
-              onClick={() => go(s.name, "sites")}
-            >
-              <div className="font-semibold text-[15px] flex items-center gap-1.5">
-                <ReachDot n={s.name} className="mr-0" />
-                {s.name}
-                {s.isDefault && <Star />}
-              </div>
-              <div className="text-faint text-sm mt-0.5 overflow-hidden text-ellipsis">{s.target}</div>
-              {r && r.state !== "ok" && (
-                <div className={cx("text-xs mt-1", r.state === "login" ? "text-warn" : "text-bad")}>{REACH_WORD[r.state as "login"]}</div>
-              )}
-            </button>
-          );
-        })}
+        {own
+          .filter((s) => !awaitingReach(s.name))
+          .map((s) => {
+            const r = S.reach[s.name];
+            return (
+              <button
+                key={s.name}
+                type="button"
+                className="block text-left px-[18px] py-4 rounded-lg bg-panel border border-line shadow-xs w-full transition-[border-color,box-shadow,transform] hover:bg-panel hover:border-line-strong hover:shadow-lg hover:-translate-y-px"
+                onClick={() => go(s.name, "sites")}
+              >
+                <div className="font-semibold text-[15px] flex items-center gap-1.5">
+                  <ReachDot n={s.name} className="mr-0" />
+                  {s.name}
+                  {s.isDefault && <Star />}
+                </div>
+                <div className="text-faint text-sm mt-0.5 overflow-hidden text-ellipsis">{s.target}</div>
+                {r && r.state !== "ok" && (
+                  <div className={cx("text-xs mt-1", r.state === "login" ? "text-warn" : "text-bad")}>{REACH_WORD[r.state as "login"]}</div>
+                )}
+              </button>
+            );
+          })}
+        {own
+          .filter((s) => awaitingReach(s.name))
+          .map((s) => (
+            <div key={s.name} role="presentation" className="px-[18px] py-4 rounded-lg bg-panel border border-line shadow-xs">
+              <Bone className="w-28 h-3.5" />
+              <Bone className="block w-40 h-2.5 mt-2" />
+            </div>
+          ))}
         <button
           type="button"
           className="grid place-items-center min-h-[68px] w-full rounded-lg border-[1.5px] border-dashed border-line-strong bg-transparent shadow-none text-dim hover:text-accent hover:border-accent hover:bg-accent-bg"

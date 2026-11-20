@@ -6,7 +6,22 @@ import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
 import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
-import { ReachDot, StatusDot, FactsLine, FactsNote, errorHint, can, connected, sections, reachRank, reachCount, Star, REACH_WORD, REACH_KIND } from "./shared";
+import {
+  awaitingReach,
+  ReachDot,
+  StatusDot,
+  FactsLine,
+  FactsNote,
+  errorHint,
+  can,
+  connected,
+  sections,
+  reachRank,
+  reachCount,
+  Star,
+  REACH_WORD,
+  REACH_KIND,
+} from "./shared";
 import { runCommand, forget, makeDefault, uninstall } from "./domains";
 import { rebootDlg, SystemView } from "./system";
 import { UsersView } from "./users";
@@ -140,7 +155,10 @@ const SRV =
 const SRV_ON = "bg-panel! shadow-[0_0_0_1px_var(--line),var(--sh)]";
 
 function Nav() {
-  const list: ServerEntry[] = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
+  const all: ServerEntry[] = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
+  // A server shows once the first login check has answered for it; until then a placeholder holds its place.
+  const list = all.filter((s) => !awaitingReach(s.name));
+  const waiting = all.length - list.length;
   // Down servers sit in their own group, closed until opened, so the rest stay in view.
   const isDown = (s: ServerEntry) => S.reach[s.name]?.state === "down";
   const own = list.filter((s) => s.registered && !isDown(s));
@@ -148,7 +166,7 @@ function Nav() {
   const down = list.filter(isDown);
   const q = S.filter.toLowerCase();
   const hit = (s: ServerEntry) => !q || s.name.toLowerCase().includes(q) || s.target.toLowerCase().includes(q) || s.name === S.sel;
-  const few = list.length < 8;
+  const few = all.length < 8;
   const item = (s: ServerEntry) => {
     const tunnels = openTunnels(s.name).length;
     const r = S.reach[s.name];
@@ -244,14 +262,37 @@ function Nav() {
         {group("own", "Servers", own)}
         {group("ssh", "From ~/.ssh/config", aliases)}
         {group("down", "Unreachable", down)}
-        {!list.length && <div className={NONE}>No servers yet.</div>}
+        {waiting > 0 && <NavBones n={waiting} head={!list.length} />}
+        {!all.length && <div className={NONE}>No servers yet.</div>}
       </div>
-      {list.length > 0 && (
+      {all.length > 0 && (
         <div className="sticky bottom-0 mt-auto flex items-center gap-2 pt-2.5 pr-3 pb-3 pl-[18px] border-t border-line bg-bg text-sm">
-          <ReachSummary list={list} />
+          <ReachSummary list={all} />
         </div>
       )}
     </nav>
+  );
+}
+
+/** Placeholder server rows while the first login check runs. */
+function NavBones({ n, head }: { n: number; head: boolean }) {
+  return (
+    <div role="status" aria-label="Checking servers">
+      {head ? (
+        <h3 className="mt-3.5 mx-2.5 mb-1">
+          <Bone className="w-16 h-2.5" />
+        </h3>
+      ) : (
+        <div className="h-2" />
+      )}
+      {Array.from({ length: Math.min(n, 6) }, (_, i) => (
+        <div key={i} className={cx(SRV, "hover:bg-transparent")}>
+          <Bone className="size-2 rounded-full" />
+          <Bone className="col-start-2 w-24 h-3" />
+          <Bone className="col-start-2 w-36 h-2.5 mt-1.5" />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -315,16 +356,18 @@ function Pick() {
   return (
     <div className="hidden max-[760px]:block px-4 pt-3">
       <select aria-label="Server" value={S.sel ?? ""} onChange={(e) => go(e.target.value || null)}>
-        <option value="">Pick a server…</option>
-        {list.map((s) => {
-          const r = S.reach[s.name];
-          return (
-            <option key={s.name} value={s.name}>
-              {s.name} · {s.target}
-              {r && r.state !== "ok" ? ` · ${REACH_WORD[r.state as "ok"]}` : ""}
-            </option>
-          );
-        })}
+        <option value="">{list.some((s) => awaitingReach(s.name)) ? "Pick a server… (checking the rest)" : "Pick a server…"}</option>
+        {list
+          .filter((s) => !awaitingReach(s.name))
+          .map((s) => {
+            const r = S.reach[s.name];
+            return (
+              <option key={s.name} value={s.name}>
+                {s.name} · {s.target}
+                {r && r.state !== "ok" ? ` · ${REACH_WORD[r.state as "ok"]}` : ""}
+              </option>
+            );
+          })}
       </select>
     </div>
   );

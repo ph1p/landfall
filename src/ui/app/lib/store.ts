@@ -42,6 +42,7 @@ export const S = {
   reach: {} as Record<string, T.Reach>, // from /api/reach
   reaching: false,
   reachedAt: null as Date | null, // when the last check finished
+  reachSettled: false, // the first check ended (answered or failed): until then a server shows once its own answer is in
   jobs: new Map<string, Job>(),
   job: null as string | null, // shown job id
 };

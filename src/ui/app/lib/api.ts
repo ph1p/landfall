@@ -161,12 +161,34 @@ export async function loadReach(fresh = false) {
   S.reaching = true;
   render();
   try {
-    S.reach = await http<Record<string, Reach>>(`/api/reach${fresh ? "?fresh=1" : ""}`);
-    S.reachedAt = new Date();
+    // One line per server as its answer comes: quick servers show before a dead one times out.
+    const r = await fetch(`/api/reach?stream=1${fresh ? "&fresh=1" : ""}`);
+    if (r.status === 401) throw new Error("This browser is not logged in. Open the link `lf ui` printed.");
+    if (!r.ok || !r.body) throw new Error(`${r.status} ${r.statusText}`);
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    let finished = false;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split("\n");
+      buf = lines.pop()!;
+      for (const line of lines) {
+        if (!line) continue;
+        const m = JSON.parse(line) as { name?: string; reach?: Reach; done?: boolean; error?: string };
+        if (m.error) throw new Error(m.error);
+        if (m.name && m.reach) S.reach = { ...S.reach, [m.name]: m.reach };
+        if (m.done) ((finished = true), (S.reachedAt = new Date()));
+      }
+      render();
+    }
+    if (!finished) throw new Error("the check stopped before every server answered");
   } catch (e) {
     toast(`Checking servers failed: ${errorMessage(e)}`);
   } finally {
     S.reaching = false;
+    S.reachSettled = true;
     render();
   }
 }
