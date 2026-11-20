@@ -4,7 +4,7 @@ allowBuilds:
   vue-demi: false
 minimumReleaseAgeExclude:
   - tsdown@0.23.2
-  - lucide-react@1.73.0
+  - lucide-react@1.73.0 || 1.77.0
   - "@oxfmt/binding-android-arm-eabi@0.79.0"
   - "@oxfmt/binding-android-arm64@0.79.0"
   - "@oxfmt/binding-darwin-arm64@0.79.0"
