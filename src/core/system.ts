@@ -50,7 +50,7 @@ if command -v fail2ban-client >/dev/null 2>&1; then
   if S fail2ban-client ping >/dev/null 2>&1; then kv fail2ban running; else kv fail2ban stopped; fi
 else kv fail2ban missing; fi
 # Security: what sshd really uses (sshd -T needs root), who has a password, firewall, updates.
-S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
+S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|pubkeyauthentication)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
 [ "$R" = 1 ] && kv password_users "$(password_users)"
 ${PKG_MGR}
 kv pkg "$(pkg_mgr)"
@@ -104,6 +104,8 @@ export interface AuthorizedKey {
 export interface Security {
   /** sshd accepts passwords (PasswordAuthentication or KbdInteractiveAuthentication). */
   passwordLogin?: boolean;
+  /** sshd takes keys (PubkeyAuthentication). false: keys only would lock everyone out. */
+  keyLogin?: boolean;
   rootLogin?: string;
   /** Users with a password set: those may log in with it while passwordLogin is on. */
   passwordUsers?: string[];
@@ -238,6 +240,7 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
   const pw = [v.sshd_passwordauthentication, v.sshd_kbdinteractiveauthentication].filter(Boolean);
   info.security = {
     passwordLogin: pw.length ? pw.includes("yes") : undefined,
+    keyLogin: v.sshd_pubkeyauthentication ? v.sshd_pubkeyauthentication !== "no" : undefined,
     rootLogin: v.sshd_permitrootlogin || undefined,
     passwordUsers: v.password_users?.split(/\s+/).filter(Boolean),
     pkg: v.pkg || undefined,

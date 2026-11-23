@@ -200,6 +200,13 @@ describe("server inventory", () => {
     expect(checks.find((c) => c.part === "traefik")).toMatchObject({ status: "conflict", detail: "port 80 is in use by nginx" });
   });
 
+  test("does not harden ssh while sshd refuses keys", () => {
+    // sshd -T resolves Include files: a drop-in with PubkeyAuthentication no counts, whatever sshd_config says.
+    const checks = assess(parseProbe(`${fresh}\npubkey_auth=no`), want);
+    expect(checks.find((c) => c.part === "harden")).toMatchObject({ status: "conflict", detail: expect.stringContaining("PubkeyAuthentication no") });
+    expect(assess(parseProbe(`${fresh}\npubkey_auth=yes`), want).find((c) => c.part === "harden")).toMatchObject({ status: "todo" });
+  });
+
   test("own running traefik is done, foreign container conflicts", () => {
     const ours = `${fresh}\ntraefik_compose=landfall\ntraefik_container=running /opt/landfall/traefik\npublish_80=traefik \nlisten=0.0.0.0:80 5/docker-proxy`;
     expect(status(ours).traefik).toBe("done");

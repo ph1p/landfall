@@ -46,7 +46,7 @@ first and prints what is done (`✓`), what it will do (`→`) and what it refus
 | step | skipped when |
 |---|---|
 | firewall | ufw is off and enabling it would block a public port that something listens on (Postgres on 5432, WireGuard on 51820/udp, …). Docker-published ports stay reachable because Docker's NAT bypasses ufw. If Docker uses nftables or has no IPv6 NAT, they would be blocked, so setup skips the firewall. |
-| ssh hardening | other users still log in with a password. Afterwards setup checks the effective config with `sshd -T`, so a drop-in that turns passwords back on is reported. |
+| ssh hardening | other users still log in with a password, or sshd refuses keys (`PubkeyAuthentication no`). landfall reads every sshd setting from `sshd -T`, so `Include` files such as `/etc/ssh/sshd_config.d/*.conf` count. Afterwards setup checks the effective config again, so a drop-in that turns passwords back on is reported. |
 | traefik | 80/443 are held by something that is not Traefik, or by a `traefik` that landfall didn't create. If it is your own Traefik, setup offers `lf traefik use` instead. |
 
 Docker that is installed but stopped gets started. A missing compose, or the old v1 `docker-compose`, is replaced

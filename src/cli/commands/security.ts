@@ -15,7 +15,18 @@ export const securityCmd = defineCommand({
     if (o.json) return void printJson({ ...i.security, fail2ban: i.fail2ban, advice });
     const s = i.security;
     table([
-      [c.dim("ssh login"), s.passwordLogin === undefined ? c.dim("unknown") : s.passwordLogin ? c.red("passwords and keys") : c.green("keys only")],
+      [
+        c.dim("ssh login"),
+        s.passwordLogin === undefined
+          ? c.dim("unknown")
+          : s.passwordLogin
+            ? s.keyLogin === false
+              ? c.red("passwords only")
+              : c.red("passwords and keys")
+            : s.keyLogin === false
+              ? c.red("none (keys and passwords off)")
+              : c.green("keys only"),
+      ],
       [c.dim("root login"), s.rootLogin === undefined ? c.dim("unknown") : s.rootLogin === "yes" ? c.yellow("yes") : s.rootLogin === "no" ? "no" : "key only"],
       [
         c.dim("firewall"),
@@ -51,9 +62,13 @@ Each change is journaled: lf undo takes it back.`,
     const parts = (args.length ? args : [...HARDEN_PARTS]) as HardenPart[];
     const { name, server } = target(o);
     const admin = await adminLogin(server, "hardening");
-    if (parts.includes("ssh") && !o.force) {
-      const locked = await lockedOutOn(admin, effectiveSsh(server).user);
-      if (locked.length) fail(`${addKeyFirst(locked)} Or --force.`);
+    if (parts.includes("ssh")) {
+      const { keysOff, locked } = await lockedOutOn(admin, effectiveSsh(server).user);
+      if (keysOff)
+        fail(
+          "sshd refuses keys (PubkeyAuthentication no): keys only would lock everyone out; set PubkeyAuthentication yes in /etc/ssh/sshd_config.d/ and reload ssh first",
+        );
+      if (locked.length && !o.force) fail(`${addKeyFirst(locked)} Or --force.`);
     }
     if (parts.includes("ssh") && !(await confirm(`Only keys log in to ${name} afterwards (lf undo turns passwords back on). Go on?`))) return;
     await harden(admin, parts);

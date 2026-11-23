@@ -97,6 +97,9 @@ ufw_state() {
 password_users() { S awk -F: '$2 ~ /^\$/ {printf "%s ", $1}' /etc/shadow 2>/dev/null; }
 # What sshd really uses (a Match block or an earlier file can override ours): "no", "" without root, else passwords work.
 sshd_passwords() { S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" {print $2}' | sort -u | tr -d '\n'; }
+# sshd_opt <keyword>: the value sshd really uses, Include files and first-match-wins resolved; "" without root.
+# awk reads to the end: an early exit would kill sshd -T with SIGPIPE, and pipefail fail the script.
+sshd_opt() { S sshd -T 2>/dev/null | awk -v k="$1" '$1 == k && !f {print $2; f = 1}'; }
 key_file_user() { printf %s "$1" | sed 's#^/root/.*#root#; s#^/home/\([^/]*\)/.*#\1#'; }
 # Users with a key: keys-only ssh does not lock them out.
 key_users() {
@@ -291,10 +294,16 @@ ufw_enable() {
 
 /** Keys-only sshd (root keeps key login unless it was off), journaled; also run by lf harden. Needs PRELUDE. */
 export const HARDEN_SSH = String.raw`
+harden_ssh() {
 log "hardening sshd (keys only)"
+# Keys only with key login off (PubkeyAuthentication no, maybe in an Include file) locks everyone out.
+if [ "$(sshd_opt pubkeyauthentication)" = no ]; then
+  log "warning: sshd refuses keys (PubkeyAuthentication no, check: sudo sshd -T); leaving password login on"
+  return 0
+fi
 # Never loosen an admin's stricter root login setting.
 root_login=prohibit-password
-if [ "$($SUDO sshd -T 2>/dev/null | awk '$1 == "permitrootlogin" {print $2}')" = no ]; then root_login=no; fi
+if [ "$(sshd_opt permitrootlogin)" = no ]; then root_login=no; fi
 # 00- so it wins over cloud-init's 50-cloud-init.conf: sshd keeps the first value it reads.
 want=$(printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login")
 undo=""
@@ -318,6 +327,8 @@ else
 fi
 pw=$(sshd_passwords)
 [ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
+}
+harden_ssh
 `;
 
 /** Where setup puts the official compose plugin when the distro has none (or only v1). */
@@ -513,7 +524,8 @@ kv ufw "$(ufw_state)"
 # Without root sshd -T prints nothing: then our file is all there is to go by.
 pw=$(sshd_passwords)
 if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi
-kv password_auth "$(S sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}')"
+kv password_auth "$(sshd_opt passwordauthentication)"
+kv pubkey_auth "$(sshd_opt pubkeyauthentication)"
 kv password_users "$(password_users)"
 kv key_users "$(key_users)"
 f=${TRAEFIK_DIR}/docker-compose.yml
@@ -531,7 +543,7 @@ for n in $(S docker ps --filter publish=443 --format '{{.Names}}' 2>/dev/null); 
 done
 S ufw show added 2>/dev/null | sed -n 's/^ufw /ufw_rule=/p'
 kv ufw_in "$(sed -n 's/^DEFAULT_INPUT_POLICY="*\([A-Z]*\).*/\1/p' /etc/default/ufw 2>/dev/null)"
-kv ssh_port "$(S sshd -T 2>/dev/null | awk '$1 == "port" {print $2; exit}')"
+kv ssh_port "$(sshd_opt port)"
 # Published container ports skip ufw only while Docker manages iptables/ip6tables NAT.
 kv docker_fw "$(S docker info -f '{{.FirewallBackend.Driver}}' 2>/dev/null)"
 kv docker_nat4 "$(yn S iptables -t nat -n -L DOCKER)"

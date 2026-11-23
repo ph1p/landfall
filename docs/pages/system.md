@@ -72,9 +72,12 @@ lf security                       # ssh passwords, root login, firewall, fail2ba
                                   # with keys only, a missing fail2ban is not a warning
 lf harden                         # all of: ssh (keys only), fail2ban, updates; or name the parts
 lf harden ssh                     # asks first; refuses while a user logs in with a password only (--force)
+                                  # always refuses while sshd refuses keys (PubkeyAuthentication no)
 lf keys add --generate -u anna    # new pair at ~/.ssh/<server>_anna, its public key on the server
 ```
 
 `lf setup` and `lf server add` end with the same advice, and the web UI shows it on the system tab with a
 button per fix. Each fix is journaled, so `lf undo` takes it back. Automatic updates know apt
 (unattended-upgrades), dnf (dnf-automatic) and apk (a daily `apk upgrade` from cron). Without root or sudo landfall only checks sshd's settings.
+landfall reads sshd's settings from `sshd -T`, the configuration sshd really uses: `Include` files and the first value
+wins, as in sshd.

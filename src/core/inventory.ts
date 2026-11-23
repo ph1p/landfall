@@ -262,7 +262,7 @@ export function assess(p: Probe, w: Wanted): Check[] {
   // ufw is only installed where setup turns it on, fail2ban only where ssh passwords stay on.
   const others = passwordOnly(words(v.password_users), words(v.key_users), [w.loginUser, w.deployUser]);
   const lockout = others.length > 0 && v.password_auth !== "no";
-  const keysOnly = v.hardened === "1" || v.password_auth === "no" || (w.harden && !lockout);
+  const keysOnly = v.hardened === "1" || v.password_auth === "no" || (w.harden && !lockout && v.pubkey_auth !== "no");
   const missing = words(v.pkgs_missing)
     .filter((p) => (w.firewall || p !== "ufw") && (!keysOnly || p !== "fail2ban"))
     .join(" ");
@@ -304,9 +304,11 @@ export function assess(p: Probe, w: Wanted): Check[] {
   else if (v.hardened === "1") checks.push(check("harden", "ssh hardening", "done"));
   else {
     checks.push(
-      lockout
-        ? check("harden", "ssh hardening", "conflict", `${others.join(", ")} would lose ssh password login`)
-        : check("harden", "ssh hardening", "todo", "keys only"),
+      v.pubkey_auth === "no"
+        ? check("harden", "ssh hardening", "conflict", "sshd refuses keys (PubkeyAuthentication no): keys only would lock everyone out")
+        : lockout
+          ? check("harden", "ssh hardening", "conflict", `${others.join(", ")} would lose ssh password login`)
+          : check("harden", "ssh hardening", "todo", "keys only"),
     );
   }
 

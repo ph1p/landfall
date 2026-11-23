@@ -43,11 +43,15 @@ export const lockedOut = (i: SystemInfo, loginUser: string) =>
     [loginUser],
   );
 
-/** lockedOut, read with two shell checks instead of the whole system check. `admin`: root or sudo. */
+/**
+ * What keys-only ssh would break, read with three shell checks instead of the whole system check. `admin`: root or sudo.
+ * keysOff: sshd refuses keys (PubkeyAuthentication no, as `sshd -T` resolves it), so keys only would lock everyone out.
+ */
 export async function lockedOutOn(admin: Server, loginUser: string) {
-  const { stdout } = await runScript(admin, `${PRELUDE}\necho "$(password_users)"; echo "$(key_users)"`, { capture: true });
-  const [pw = [], keys = []] = stdout.split("\n").map((l) => l.split(/\s+/).filter(Boolean));
-  return passwordOnly(pw, keys, [loginUser]);
+  const { stdout } = await runScript(admin, `${PRELUDE}\necho "$(password_users)"; echo "$(key_users)"; sshd_opt pubkeyauthentication`, { capture: true });
+  const [pw = "", keys = "", pubkey = ""] = stdout.split("\n");
+  const words = (l: string) => l.split(/\s+/).filter(Boolean);
+  return { keysOff: pubkey.trim() === "no", locked: passwordOnly(words(pw), words(keys), [loginUser]) };
 }
 
 /** What to fix on a server, worst first. Pure: `lf security`, setup and the web UI share it. */
@@ -65,10 +69,19 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
       id: "password-login",
       level: "risk",
       title: s.rootLogin === "yes" ? "SSH accepts passwords, root's too" : "SSH accepts passwords",
-      why: `Bots try passwords on every public server all day: one weak or reused password lets them in. A key cannot be guessed.${locked.length ? ` ${addKeyFirst(locked)}` : ""}`,
-      fix: locked.length
-        ? { label: `Make a key for ${locked[0]}`, argv: ["keys", "add", "--generate", "-u", locked[0], ...srv], user: locked[0] }
-        : { label: "Keys only", argv: ["harden", "ssh", ...srv], confirm: "Only keys log in afterwards; lf undo turns passwords back on." },
+      why: `Bots try passwords on every public server all day: one weak or reused password lets them in. A key cannot be guessed.${
+        s.keyLogin === false
+          ? " sshd refuses keys as well (PubkeyAuthentication no): set PubkeyAuthentication yes in /etc/ssh/sshd_config.d/ and reload ssh first."
+          : locked.length
+            ? ` ${addKeyFirst(locked)}`
+            : ""
+      }`,
+      fix:
+        s.keyLogin === false
+          ? undefined
+          : locked.length
+            ? { label: `Make a key for ${locked[0]}`, argv: ["keys", "add", "--generate", "-u", locked[0], ...srv], user: locked[0] }
+            : { label: "Keys only", argv: ["harden", "ssh", ...srv], confirm: "Only keys log in afterwards; lf undo turns passwords back on." },
     });
   }
   // Without root ufw and fail2ban cannot be asked: say nothing rather than guess.
