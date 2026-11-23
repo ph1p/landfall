@@ -11,13 +11,15 @@ import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject,
 import { ENV_NAME, SECRET_NAME } from "../../core/compose";
 import { listServers, reachAll, target } from "../../core/dashboard";
 import { loadProjects } from "../../core/projects";
-import { browse, jobCwd, pruneUploads, receiveUpload } from "./local";
+import { browse, emptyFolder, jobCwd, pruneUploads, receiveUpload } from "./local";
+import { localImages } from "../../core/buildlocal";
 import { startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
 import { volumes } from "../../core/volumes";
 import { USER_NAME } from "../../core/users";
 import { trivyState } from "../../core/scan";
+import { registries } from "../../core/registries";
 import {
   configView,
   defaultsView,
@@ -50,8 +52,8 @@ interface WebJob {
   startedAt: string;
   job: Job;
   listeners: Set<() => void>;
-  /** As started, for a retry with --force: the page only sees the argv with passwords masked. */
-  opts: { server?: string; password?: string; cwd?: string };
+  /** As started, for a retry with --force or a sudo password: the page only sees the argv with passwords masked. */
+  opts: { server?: string; password?: string; sudoPassword?: string; cwd?: string };
 }
 
 // The page, built by vite into dist/ui next to the bundle; run from src (tsx), the last build's.
@@ -105,12 +107,12 @@ interface JobArgsPolicy {
   mask(argv: string[]): string[];
 }
 
-function startWebJob(argv: string[], o: { server?: string; password?: string; cwd?: string }, policy: JobArgsPolicy): WebJob {
+function startWebJob(argv: string[], o: WebJob["opts"], policy: JobArgsPolicy): WebJob {
   // The journal credits what the job changes to this id, so it can be undone as one.
   const id = newRunId();
   const listeners = new Set<() => void>();
   policy.validate(argv);
-  const job = startJob(argv, () => listeners.forEach((f) => f()), { password: o.password, cwd: o.cwd, env: { LANDFALL_RUN: id } });
+  const job = startJob(argv, () => listeners.forEach((f) => f()), { ...o, env: { LANDFALL_RUN: id } });
   const w: WebJob = { id, argv, shown: policy.mask(argv), server: o.server, startedAt: new Date().toISOString(), job, listeners, opts: o };
   jobs.set(id, w);
   for (const [old, j] of jobs) {
@@ -259,6 +261,7 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
     if (method === "GET" && sub === "firewall") return json(await firewallView(server));
     if (method === "GET" && sub === "config") return json(await configView(name, server));
     if (method === "GET" && sub === "history") return json(await historyBrief(server));
+    if (method === "GET" && sub === "registries") return json(await registries(server));
     if (method === "GET" && sub === "facts") return json(await factsView(name, server));
     if (method === "GET" && sub === "stats") return json(await statsView(server));
     if (method === "GET" && sub === "disk") return json(await diskView(server));
@@ -312,7 +315,7 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
 
   if (what === "jobs") {
     if (method === "POST" && !name) {
-      const body = (await req.json()) as { argv?: unknown; server?: string; password?: string; cwd?: unknown };
+      const body = (await req.json()) as { argv?: unknown; server?: string; password?: string; sudoPassword?: string; cwd?: unknown };
       const argv = body.argv;
       if (!Array.isArray(argv) || !argv.length || !argv.every((a) => typeof a === "string") || NO_JOB.has(argv[0])) {
         return failure("argv must be a list of landfall arguments", 400);
@@ -326,7 +329,9 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
       } catch (e) {
         return failure(e, 400);
       }
-      return json(jobInfo(startWebJob(argv, { server: body.server, password: body.password || undefined, cwd }, policy)));
+      return json(
+        jobInfo(startWebJob(argv, { server: body.server, password: body.password || undefined, sudoPassword: body.sudoPassword || undefined, cwd }, policy)),
+      );
     }
     const w = name ? jobs.get(name) : undefined;
     if (name && !w) return failure(`no job ${name}`, 404);
@@ -339,6 +344,14 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
       if ([...jobs.values()].filter((j) => j.job.code === undefined).length >= MAX_RUNNING) return failure("too many jobs running", 429);
       return json(jobInfo(startWebJob([...w.argv, "--force"], w.opts, policy)));
     }
+    // The same job again with the login's sudo password (what -K asks for), handed over beside argv.
+    if (w && method === "POST" && sub === "sudo") {
+      const { sudoPassword } = (await req.json()) as { sudoPassword?: unknown };
+      if (w.job.code === undefined) return failure("only a finished job", 400);
+      if (typeof sudoPassword !== "string" || !sudoPassword) return failure("no sudo password given", 400);
+      if ([...jobs.values()].filter((j) => j.job.code === undefined).length >= MAX_RUNNING) return failure("too many jobs running", 429);
+      return json(jobInfo(startWebJob(w.argv, { ...w.opts, sudoPassword }, policy)));
+    }
     if (w && method === "POST" && sub === "stop") {
       w.job.stop();
       return json(jobInfo(w));
@@ -346,6 +359,9 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
   }
 
   if (what === "fs" && method === "GET") return json(browse(new URL(req.url).searchParams.get("path") ?? undefined));
+  // This machine's Docker images, for lf deploy --image (and --send-image); none when Docker is not running here.
+  if (what === "images" && method === "GET") return json(localImages());
+  if (what === "image-folder" && method === "POST") return json({ path: emptyFolder() });
   if (what === "upload" && method === "POST") {
     const up = await receiveUpload(await req.formData());
     return json({ ...up, detected: browse(up.path).detected });

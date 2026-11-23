@@ -69,6 +69,15 @@ export async function receiveUpload(form: FormData) {
   }
 }
 
+/**
+ * An empty folder to run `lf deploy --image` in: from the folder the UI started in, deploy would take that
+ * project's .landfall.json (its volumes, worker, …) for the image. Pruned with the uploads.
+ */
+export function emptyFolder() {
+  pruneUploads();
+  return fs.mkdtempSync(join(UPLOADS, "image-"));
+}
+
 async function unpack(root: string, files: File[], paths: string[]) {
   const archive = files.length === 1 && /\.(zip|tar|tgz|tar\.gz)$/i.test(files[0].name);
   if (archive) {

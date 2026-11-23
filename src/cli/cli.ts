@@ -127,7 +127,7 @@ function help() {
   console.log(lines.join("\n"));
 }
 
-async function main(argv: string[]): Promise<number> {
+async function main(argv: string[], sudoPassword?: string): Promise<number> {
   if (!argv.length || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
     help();
     return 0;
@@ -148,7 +148,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   setAssumeYes(!!values.yes);
-  await sudoFromUser(!!values["ask-sudo"]);
+  await sudoFromUser(!!values["ask-sudo"], sudoPassword);
   if (values.environment !== undefined) process.env.LANDFALL_ENV = values.environment;
   journal.cmd = journalCmd(cmd, positionals, values);
   const code = await cmd.run(positionals, values, passthrough);
@@ -157,12 +157,12 @@ async function main(argv: string[]): Promise<number> {
 
 /**
  * -K asks for the login's sudo password, $LANDFALL_SUDO_PASSWORD gives it without a terminal. It lives in memory for
- * this run; the variable is dropped from the environment so no child process (ssh, docker) inherits it.
+ * this run; the web UI hands it over in the job input. The variable is dropped from the environment so no child process (ssh, docker) inherits it.
  */
-async function sudoFromUser(ask: boolean) {
+async function sudoFromUser(ask: boolean, given?: string) {
   const env = process.env.LANDFALL_SUDO_PASSWORD;
   delete process.env.LANDFALL_SUDO_PASSWORD;
-  const pw = env || (ask ? await askSecret("sudo password:") : undefined);
+  const pw = given || env || (ask ? await askSecret("sudo password:") : undefined);
   if (ask && !pw) throw new CliError("-K: no sudo password given");
   setSudoPassword(pw);
 }
@@ -173,8 +173,9 @@ async function run(argv: string[]): Promise<number> {
     await loadPlugins(BUILTIN);
     registerPlugins(main);
     if (argv.length === 1 && argv[0] === JOB_INPUT) {
-      argv = await readJobInput();
-      validateJobArgs(argv);
+      const input = await readJobInput();
+      validateJobArgs(input.argv);
+      return await main(input.argv, input.sudoPassword);
     }
     return await main(argv);
   } catch (e) {
@@ -182,6 +183,8 @@ async function run(argv: string[]): Promise<number> {
       console.error(`${c.red("error:")} ${e.message}`);
       // A safety check refused: the web UI offers to run it again with --force.
       if (/--force\b/.test(e.message)) report({ force: e.message });
+      // Root work the login may only sudo to with a password: the web UI asks for it and runs the job again.
+      else if (/(^|\s)-K\b/.test(e.message)) report({ sudo: e.message });
     } else console.error(e);
     return 1;
   }

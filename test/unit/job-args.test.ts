@@ -68,6 +68,10 @@ describe("job display masking", () => {
       ["users", "password", "bob", "-yp***"],
     ],
     [
+      ["registry", "login", "ghcr.io", "-u", "me", "--password", "synthetic-hidden"],
+      ["registry", "login", "ghcr.io", "-u", "me", "--password", "***"],
+    ],
+    [
       ["auth", "blog", "--password="],
       ["auth", "blog", "--password=***"],
     ],

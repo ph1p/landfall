@@ -24,14 +24,17 @@ other and show up in `lf history`. The pages read the same data the `--json` com
 | System      | `lf system`, `services`, `keys`, `swap`, `hostname`, `timezone`, `log-limit`                                                                                                                                                |
 | Plugins     | each plugin with a section adds one, e.g. *fail2ban* (`lf fail2ban`, `fail2ban ban`/`unban`/`config`) and *Trivy* (`lf trivy`, `trivy images`/`files`/`rm`). See [Plugins](plugins.md) |
 | History     | `lf history`, `lf undo`                                                                                                                                                                                                              |
-| Settings    | `lf server config` (`--cloud`: Change next to provider, or the provider in the header), `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard`                                                                                                                                    |
+| Settings    | `lf server config` (`--cloud`: Change next to provider, or the provider in the header), `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard`, `lf registries`, `registry login`/`logout`                                                                                       |
 
 Servers are on the left (★ marks the default). The dot next to each says whether landfall's key login works
 (green), sshd refuses it (yellow) or ssh does not answer (red); hover for the reason. It checks on load, every
 minute while the page is open, and on **Check** at the foot of the list (like `lf server list --check`).
 Reachable servers come first; unreachable ones move to a closed **Unreachable** group. Git hosts and aliases
 for this machine (`localhost`, `127.0.0.1`, e.g. a Colima VM) from `~/.ssh/config` are not listed. **Deploy folder…** browses local folders, or takes a dropped
-folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refused). Destructive actions ask first.
+folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refused). Its **a Docker image** link
+deploys an image (`lf deploy --image`) and suggests the images this machine's Docker has. An image deploy runs in
+an empty folder with `--no-save`, so the folder `lf ui` started in adds no `.landfall.json` settings. **Redeploy**
+on an image site asks for the image again. Destructive actions ask first.
 
 - **Login:** through the printed `/login?t=…` link. The token is kept in `~/.config/landfall/ui-token`; delete
   that file to rotate it.
@@ -43,5 +46,8 @@ folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refuse
   values; arbitrary command output can still contain sensitive data. Dashboard jobs cannot also read command
   stdin (`--dotenv -` / `--password-stdin`): use a dotenv filename or the dashboard's password/value fields.
   Direct terminal commands retain their normal stdin options.
+- **sudo password:** when a command fails because sudo needs a password (what `-K` asks for in a terminal), the
+  job offers **Give the sudo password**. It runs the same command again with the password in the stdin envelope.
+  The password is used for that run only. It is not stored and not in the command line.
 - **No screen scraping:** commands report results the UI needs (deploy URL, tunnel address, setup checks, a
   refusal that `--force` would override) on a separate channel, so the UI never parses CLI text.

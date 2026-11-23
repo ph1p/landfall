@@ -85,6 +85,8 @@ export interface Field {
   /** type custom: draws the control itself and reports its value through set. */
   render?: (value: FormValue, set: (value: FormValue) => void) => ReactNode;
   options?: { value: string; label: string }[];
+  /** type text: values offered while typing (a datalist); any other value is fine too. */
+  suggest?: string[];
   hint?: string;
   placeholder?: string;
   /** true, or the message when it is empty. */
@@ -340,13 +342,22 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
+          list={f.suggest?.length ? `${id}-l` : undefined}
           onChange={onChange}
         />
       );
+    const suggest = f.suggest?.length ? (
+      <datalist id={`${id}-l`}>
+        {f.suggest.map((x) => (
+          <option key={x} value={x} />
+        ))}
+      </datalist>
+    ) : null;
     return (
       <label key={f.name}>
         {f.label}
         {control}
+        {suggest}
         {hint}
         {below}
       </label>

@@ -103,6 +103,7 @@ landfall writes a one-service `compose.yaml` for it and routes it like any other
 Traefik routes the port the image declares with `EXPOSE`; `--port` overrides it.
 An image with no `EXPOSE` runs as a worker: no port, no domain.
 Deploying a new tag replaces the running container; the old release stays for `lf rollback`.
+In the web UI, **Deploy folder…** has a link for an image, and image sites have a **Redeploy** button.
 
 ```sh
 lf deploy -n uptime --image louislam/uptime-kuma:1 --volume /app/data -d status.example.com   # an off-the-shelf app with its data kept

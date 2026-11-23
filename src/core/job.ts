@@ -79,8 +79,12 @@ const clip = (l: string) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) + "…" 
  * Run `lf <argv>` as a child with piped output and no terminal, so it never
  * prompts: the web dashboard asks the questions before starting it.
  */
-export function startJob(argv: string[], onChange: () => void, opts: { password?: string; env?: Record<string, string>; cwd?: string } = {}): Job {
-  const input = encodeJobInput(argv);
+export function startJob(
+  argv: string[],
+  onChange: () => void,
+  opts: { password?: string; sudoPassword?: string; env?: Record<string, string>; cwd?: string } = {},
+): Job {
+  const input = encodeJobInput(argv, opts.sudoPassword);
   const env: Record<string, string | undefined> = { ...process.env, NO_COLOR: "1", LANDFALL_REPORT: "1", LANDFALL_PARENT: String(process.pid), ...opts.env };
   if (opts.password) {
     Object.assign(env, askpassEnv(opts.password));

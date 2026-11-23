@@ -4,6 +4,7 @@ import { bytes } from "../../../core/format";
 import { slug } from "../../../core/slug";
 import { CLOUDS } from "../../../core/clouds";
 import type { Browse, Detected, Redeploy, Remembered, SavedServer } from "../lib/types";
+import type { LocalImage } from "../../../core/buildlocal";
 import { go, load, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
@@ -417,6 +418,16 @@ export function autoDomain(n: string, name: string) {
   return suffix ? `${name}.${suffix}` : "";
 }
 const slugify = (s: string) => slug(s.toLowerCase().replace(/\.(zip|tgz|tar(\.gz)?)$/, ""));
+/** ghcr.io/me/blog:1.2 → blog. */
+export const imageName = (ref: string) =>
+  slugify(
+    ref
+      .trim()
+      .replace(/@.*$/, "")
+      .replace(/:[\w.-]*$/, "")
+      .split("/")
+      .pop() ?? "",
+  );
 
 /** What landfall found in a folder and how it deploys it. */
 const ROLE: Record<string, string> = { language: "Language", framework: "Framework", tooling: "Package manager or build tool" };
@@ -451,9 +462,13 @@ export function Describe({ d, before = true, plan = true }: { d: Detected; befor
         {plan && <ComposePlan a={d.analysis} />}
       </>
     ) : d.kind === "image" ? (
-      <>
-        Docker image <code>{d.project?.image ?? ""}</code> (from .landfall.json)
-      </>
+      d.project?.image ? (
+        <>
+          Docker image <code>{d.project.image}</code> (from .landfall.json)
+        </>
+      ) : (
+        "Docker image: the server pulls it, or this machine sends it. Nothing is built."
+      )
     ) : d.kind === "dockerfile" && d.start ? (
       <>
         {d.runtime} app{d.tool ? ` (${d.tool})` : ""}: built on the server
@@ -609,7 +624,8 @@ export function buildForm(det: Detected) {
   // Static files or an app without a Dockerfile: what to build and run is landfall's to decide, and editable here.
   const runtime = det.runtime ?? "Node.js";
   const modal = det.kind === "static" || !!det.start;
-  const runs = det.kind === "dockerfile" || det.kind === "image";
+  const image = det.kind === "image";
+  const runs = det.kind === "dockerfile" || image;
   const isApp = (v: Values) => (modal ? (v.mode || (det.start ? "node" : "static")) === "node" : runs);
   const served = (v: Values) => !(isApp(v) && v.worker);
   const volumes: string[] = det.volumes ?? [];
@@ -625,10 +641,12 @@ export function buildForm(det: Detected) {
       name: "port",
       label: "Port it listens on",
       type: "number" as const,
-      value: String(det.port ?? 3000),
-      hint: modal ? "The app gets it as PORT." : "",
+      // An image says its port itself (EXPOSE): deploy reads it on the server unless one is given.
+      value: det.port !== undefined ? String(det.port) : image ? "" : "3000",
+      placeholder: image ? "what the image EXPOSEs" : undefined,
+      hint: modal ? "The app gets it as PORT." : image ? "Empty: the port the image EXPOSEs, read on the server at each deploy." : "",
       when: (v: Values) => !v.worker,
-      required: "Which port does it listen on?",
+      required: !image && "Which port does it listen on?",
       check: portError,
     },
     {
@@ -733,8 +751,8 @@ export function buildForm(det: Detected) {
     }
     if (asNode) {
       if (worker !== !!det.worker) argv.push(worker ? "--worker" : "--no-worker");
-      const port = Number(v.port.trim());
-      if (!worker && port !== (det.port ?? 3000)) argv.push("--port", String(port));
+      const port = v.port.trim() ? Number(v.port.trim()) : undefined;
+      if (!worker && port !== undefined && port !== (det.port ?? (image ? undefined : 3000))) argv.push("--port", String(port));
       const vols = words(v.volumes);
       if (vols.join(" ") !== volumes.join(" ")) argv.push(...(vols.length ? vols.flatMap((x) => ["--volume", x]) : ["--volume", ""]));
     }
@@ -748,6 +766,8 @@ interface DeployOpts {
   upload?: boolean;
   files?: number;
   name?: string;
+  /** An image deploy from an empty folder (deployImage): this machine's images, offered for the image field. */
+  images?: string[];
 }
 /**
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
@@ -759,9 +779,12 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
   const target: string = re?.server ?? p?.server ?? defaultServer() ?? "";
   const name: string = re?.name ?? o.name ?? det.name;
+  const image = det.kind === "image";
+  // An image deploy without a name: the image's, as blog for ghcr.io/me/blog:1.2.
+  const siteName = (v: Values): string => v.name.trim() || (image ? imageName(v.image ?? "") : "");
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
   const keeps: string[] | null = re && !p?.domains ? re.domains : null;
-  const keeping = (v: Values) => keeps && v.name.trim() === re?.name && v.server === re?.server;
+  const keeping = (v: Values) => keeps && siteName(v) === re?.name && v.server === re?.server;
   const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
   // An example's key with a value is only suggested (askable in core/compose): the CLI says it, the form leaves it out.
   const required = (det.required ?? []).filter((r) => r.example === undefined);
@@ -773,7 +796,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     for (const x of d?.vars ?? []) if (x.length) has.add(x.key);
   }
   const seeds = det.seeds ?? [];
-  const sameTarget = (v: Values) => v.name.trim() === name && v.server === target;
+  const sameTarget = (v: Values) => siteName(v) === name && v.server === target;
   // A static site has no .env; the mode field, when there is one, says which it deploys as.
   const hasEnv = (v: Values) => (v.mode || (det.kind === "static" ? "static" : "node")) === "node";
   // Images to build: a compose.yaml's build: services, a Dockerfile, or the one landfall writes for an app.
@@ -782,22 +805,57 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const addresses = (v: Values): [string[], string?] => {
     const main = mainDomain(v.server);
     const given = words(v.domains);
-    if (!given.length) return [keeping(v) ? keeps! : [autoDomain(v.server, v.name.trim())].filter(Boolean)];
+    if (!given.length) return [keeping(v) ? keeps! : [siteName(v) && autoDomain(v.server, siteName(v))].filter(Boolean)];
     const out = given.map((d) => (d === "@" ? main : !d.includes(".") && main ? `${d}.${main}` : d)?.toLowerCase());
     if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
     const bad = out.find((d) => !domainOk(d!));
     return [out as string[], bad && `Not a domain: ${bad}`];
   };
+  const sends = p?.sendImage === true ? "send" : p?.sendImage === false ? "pull" : "";
   dialog({
-    title: re ? `Redeploy ${name}` : `Deploy ${name}`,
+    title: re ? `Redeploy ${name}` : name ? `Deploy ${name}` : "Deploy a Docker image",
     text:
-      (o.upload
-        ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.`
-        : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`) +
+      (o.images
+        ? "Runs an image as a site. Not remembered here: Redeploy on the site asks for the image again."
+        : o.upload
+          ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.`
+          : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`) +
       (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data, and Roll back returns to the current one.` : ""),
     aside: <DeployAside d={det} />,
     sidebar: true,
     fields: [
+      ...(image
+        ? [
+            {
+              legend: "Image",
+              fields: [
+                {
+                  name: "image",
+                  label: "Image",
+                  value: p?.image ?? "",
+                  mono: true,
+                  placeholder: "ghcr.io/you/app:1.2",
+                  suggest: o.images,
+                  required: "Which image? For example ghcr.io/you/app:1.2",
+                  check: (x: string) => /\s/.test(x) && "One image reference, without spaces",
+                  hint: "Public, from a registry the server is logged in to (Registries in the server's settings), or one only this machine's Docker has.",
+                },
+                {
+                  name: "send",
+                  label: "How the server gets it",
+                  type: "select" as const,
+                  value: sends,
+                  options: [
+                    { value: "", label: "Pull it, or send it when only this machine has it" },
+                    { value: "send", label: "Send it from this machine (docker save)" },
+                    { value: "pull", label: "Pull it on the server" },
+                  ],
+                  hint: "Sending needs no registry: this machine's Docker saves the image and the server loads it. lf deploy --send-image",
+                },
+              ],
+            },
+          ]
+        : []),
       {
         legend: "Site",
         fields: [
@@ -807,8 +865,10 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
                 name: "name",
                 label: "Site name",
                 value: name,
-                required: "Give the site a name",
-                check: siteNameError,
+                required: !image && "Give the site a name",
+                placeholder: image ? "the image's name" : undefined,
+                check: (x: string) => x && siteNameError(x),
+                preview: (v: Values) => !v.name.trim() && siteName(v) && `→ ${siteName(v)}`,
                 hint: re ? "Another name deploys a new site." : "",
               },
               { name: "server", label: "Server", type: "select", options: servers, value: target, required: "Pick a server" },
@@ -933,8 +993,15 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     ],
     ok: re ? "Redeploy" : "Deploy",
     onOk: (v) => {
-      const n = v.name.trim();
+      const n = siteName(v);
+      if (!n) return invalid("name", "Give the site a name");
+      if (siteNameError(n)) return invalid("name", `${n} is no site name: lowercase letters, digits and dashes`);
       const argv = ["deploy", "-y", ...sv(v.server), "-n", n];
+      if (image) {
+        const ref = v.image.trim();
+        if (ref !== p?.image) argv.push("--image", ref);
+        if (v.send && v.send !== sends) argv.push(v.send === "send" ? "--send-image" : "--no-send-image");
+      }
       if (served(v)) {
         const domains = words(v.domains);
         // The server's default would leave it unrouted though the box is unticked.
@@ -951,10 +1018,24 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       if (builds(v) && v.buildLocal !== !!p?.buildLocal) argv.push(v.buildLocal ? "--build-local" : "--no-build-local");
       // The login counts once there is a password; the user defaults to admin.
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
-      if (o.upload) argv.push("--no-save");
+      // An upload or an image's empty folder is thrown away: nothing to save .landfall.json in.
+      if (o.upload || o.images) argv.push("--no-save");
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
   });
+}
+
+/**
+ * Deploy a Docker image (lf deploy --image), or redeploy a site that runs one. It runs in an empty folder:
+ * the folder lf ui started in may hold another project's .landfall.json.
+ */
+export async function deployImage(site?: Redeploy) {
+  try {
+    const [images, { path }] = await Promise.all([http<LocalImage[]>("/api/images"), http<{ path: string }>("/api/image-folder", {})]);
+    await deployDialog({ path, name: site?.name ?? "", kind: "image", stack: [] }, { site, images: images.map((i) => i.ref) });
+  } catch (e) {
+    toast(errorMessage(e));
+  }
 }
 
 /** After a deploy: offer the address it printed. */
@@ -1126,7 +1207,16 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
               if (f) upload([[f, f.name]], f.name, site);
             }}
           />
-        </label>
+        </label>{" "}
+        ·{" "}
+        <button
+          type="button"
+          className={cx(PICK, "border-0 bg-transparent p-0 shadow-none")}
+          title="Run an image from a registry or this machine's Docker (lf deploy --image)"
+          onClick={() => deployImage(site)}
+        >
+          a Docker image
+        </button>
       </div>
       <div className={DBTNS}>
         <Btn cls="ghost" id="dlg-cancel" on={closeDialog}>

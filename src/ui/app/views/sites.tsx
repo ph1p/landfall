@@ -6,7 +6,7 @@ import { go } from "../lib/api";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
-import { Describe, Stack, detected, folderDialog, redeploy, setupFlow } from "./flows";
+import { Describe, Stack, deployImage, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
 import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
@@ -115,7 +115,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
               <Btn cls="primary" on={() => folderDialog(S.state.cwd)}>
                 Choose a folder…
               </Btn>{" "}
-              <span className="dim">or drop one here</span>
+              <Btn on={() => deployImage()}>Deploy an image…</Btn> <span className="dim">or drop a folder here</span>
             </p>
             <p className="faint mono">{routed ? `lf deploy ./dist -d example.com -s ${n}` : `lf deploy ./dist -s ${n}`}</p>
           </Empty>
@@ -261,7 +261,16 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           <Icon name="deploy" />
           Redeploy
         </Btn>
-      ) : m.adopted || m.kind === "image" ? null : (
+      ) : m.kind === "image" ? (
+        <Btn
+          cls="sm"
+          title="Deploy an image to it again: the same tag pulls anew (lf deploy --image)"
+          on={() => deployImage({ server: n, name, domains: m.domains })}
+        >
+          <Icon name="deploy" />
+          Redeploy
+        </Btn>
+      ) : m.adopted ? null : (
         <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains })}>
           <Icon name="deploy" />
           Redeploy

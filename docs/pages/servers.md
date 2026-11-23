@@ -260,6 +260,7 @@ LANDFALL_SUDO_PASSWORD=… lf reboot vps -y   # without a terminal
 In a terminal, landfall also asks by itself when root work finds no other way.
 The password stays in memory for that one command. landfall never writes it to its config, the journal or a log.
 It travels inside the script on ssh's stdin, never in a command line.
+In the web UI, a command that needs the password offers **Give the sudo password** and runs again with it.
 On the server, an askpass helper hands it to `sudo`. The helper holds no secret and is removed when the script ends.
 
 Before root work starts, landfall says how it gets root: `runs as root: sudo as anna`, or the root login it uses.

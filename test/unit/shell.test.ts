@@ -37,7 +37,7 @@ describe("shell quoting", () => {
 describe("secrets stay off the command line", () => {
   test("web jobs carry the whole original vector, not a lossy dotenv conversion", () => {
     const args = ["sites", "secret", "blog", "KEY=  synthetic  \r\n", "--dotenv=.env", "KEY=last"];
-    expect(decodeJobInput(encodeJobInput(args))).toEqual(args);
+    expect(decodeJobInput(encodeJobInput(args)).argv).toEqual(args);
   });
 
   test("password options fall back to LANDFALL_SECRET_*", () => {

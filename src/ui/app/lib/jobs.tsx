@@ -38,7 +38,9 @@ export interface RunOpts {
   server?: string;
   password?: string;
   cwd?: string;
+  /** Run that job again (it is the server that has its argv unmasked): with --force, or with the sudo password. */
   retry?: string;
+  sudoPassword?: string;
   after?: Job["after"];
 }
 
@@ -53,7 +55,7 @@ export async function run(argv: string[], o: RunOpts = {}) {
   try {
     // A retry runs the job's own argv on the server: the page only has it with passwords masked.
     info = o.retry
-      ? await http(`/api/jobs/${encodeURIComponent(o.retry)}/force`, {})
+      ? await http(`/api/jobs/${encodeURIComponent(o.retry)}/${o.sudoPassword ? "sudo" : "force"}`, o.sudoPassword ? { sudoPassword: o.sudoPassword } : {})
       : await http("/api/jobs", { argv, server: o.server ?? argvServer(argv) ?? S.sel ?? undefined, password: o.password, cwd: o.cwd });
   } catch (e) {
     return toast(errorMessage(e));
@@ -116,6 +118,22 @@ function finished(j: Job) {
           ok: "Run with --force",
           danger: true,
           onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }),
+        }),
+    });
+  }
+  // Root work the login may only sudo to with a password: ask for it (as -K would) and run the same job again.
+  const sudo = rep(j).sudo;
+  if (failed && sudo) {
+    j.actions.push({
+      label: "Give the sudo password",
+      run: () =>
+        dialog({
+          title: "Run it again with the sudo password?",
+          text: `${sudo}\n\nThe ssh login's password, for sudo on the server (what -K asks for). Used for this run only: not stored, not in the command line.`,
+          // Not trimmed: a password may end in a space.
+          fields: [{ name: "pw", type: "password", label: "sudo password", required: "The sudo password" }],
+          ok: "Run again",
+          onOk: (v) => run(info.argv, { server: info.server, retry: info.id, sudoPassword: String(v.pw), after: j.after }),
         }),
     });
   }

@@ -75,6 +75,8 @@ export interface Report {
   url?: string;
   lan?: string[];
   force?: string;
+  /** It needs root and the login may sudo only with a password: the error, which names -K. */
+  sudo?: string;
   password?: string;
   keyFile?: string;
 }
