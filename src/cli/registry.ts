@@ -48,6 +48,7 @@ import { pluginAdd, pluginNew, pluginRemove, pluginsList } from "./commands/plug
 import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
 import { update, updatesList } from "./commands/updates";
 import { scanCmd } from "./commands/scan";
+import { registryList, registryLoginCmd, registryLogoutCmd } from "./commands/registries";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 
 /** Registration only: importing commands must never start the CLI. */
@@ -70,6 +71,9 @@ export const commands: Command[] = [
   sitesAdopt,
   sitesTunnel,
   tunnelsList,
+  registryList,
+  registryLoginCmd,
+  registryLogoutCmd,
   volumeList,
   volumeBackup,
   volumePull,

@@ -263,6 +263,17 @@ lf deploy --no-save -n who --image traefik/whoami:v1.11 --port 80 -d who.test -y
 expect who.test / "Hostname"
 { lf sites info who | has who-app-1; } || die "sites info"; pass "sites info"
 { lf logs who -n 5 >/dev/null; } || die "logs"; pass "logs"
+# No --port: the port comes from the image's EXPOSE.
+lf deploy --no-save -n who2 --image traefik/whoami:v1.11 -d who2.test -y
+expect who2.test / "Hostname"; pass "image port from EXPOSE"
+# An image that exists only here: sent over ssh, never pulled.
+docker pull -q traefik/whoami:v1.11 >/dev/null && docker tag traefik/whoami:v1.11 lf-e2e-local:1
+lf deploy --no-save -n sent --image lf-e2e-local:1 --send-image -d sent.test -y
+expect sent.test / "Hostname"
+{ docker exec "$NAME" docker image ls --format '{{.Repository}}' | has -x sent-app; } || die "sent image tagged per release"
+pass "send a local image"
+docker image rm -f lf-e2e-local:1 >/dev/null
+lf sites rm who2 -y >/dev/null 2>&1 && lf sites rm sent -y >/dev/null 2>&1 || die "remove who2 and sent"
 fi
 
 if want compose; then echo "== compose"

@@ -77,6 +77,7 @@ Isolate a run from the user's setup with `LANDFALL_CONFIG_DIR` (landfall's confi
 | what is pending? | `lf updates --json`, `lf scan --json` |
 | what would prune remove? | `lf prune --dry-run --json` |
 | what did landfall change? | `lf history --json` |
+| which registries can the server pull from? | `lf registries --json` |
 | what can the server do? | `lf server info --json` (OS support, cloud provider as `cloud`, login, init system, Docker) |
 
 ## What cannot be undone
@@ -90,6 +91,7 @@ Most changes revert with `lf undo`. These do not, so confirm them with the user 
 - `lf swap off`, `lf services restart`, plain restarts
 - `lf server uninstall`
 - `lf trivy rm` (the next scan downloads Trivy again)
+- `lf registry logout` (log in again with `lf registry login`)
 - whatever a plugin does without journaling it; `lf plugin add` and `lf plugin rm` change only this computer
 - a firewall rule that replaced an existing one
 

@@ -58,7 +58,7 @@ Every command, every local and remote file landfall uses, and its environment va
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name] [--json]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
@@ -83,6 +83,9 @@ Every command, every local and remote file landfall uses, and its environment va
 | `lf volume restore [name] [volume] [backup]` | Replaces a volume's contents with a backup (default: the newest). Backs up first; undoable. |
 | `lf eject [name] [--network n] [--entrypoint e] [--resolver r]` | Writes the live release's Traefik labels, logins and proxy network into the project as `compose.traefik.yaml`, to run it behind your own Traefik. Changes nothing on the server. |
 | `lf adopt <project> [--name n]` | Makes a Compose project you started yourself a site, so `ls`, logs, restart and rm work for it. |
+| `lf registries [--json]` | Lists the registries the server's Docker is logged in to. |
+| `lf registry login <host> -u user [--password-stdin]` | Logs the server's Docker in to a registry, so deploys pull private images. The password is asked, read from stdin or `$LANDFALL_SECRET_PASSWORD`. Undoable. |
+| `lf registry logout <host>` | Logs the server's Docker out of a registry. Not undoable. |
 
 **Traefik, firewall, updates, history**
 

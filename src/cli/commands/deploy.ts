@@ -22,6 +22,7 @@ import {
 } from "../../core/config";
 import {
   analyze,
+  builtImage,
   askable,
   CONTAINER_PATH,
   currentRelease,
@@ -33,7 +34,9 @@ import {
   routePlan,
   subDomains,
   besideCompose,
+  besideName,
   generatedCompose,
+  WEB_PORTS,
   routed,
   mainService,
   nginxConf,
@@ -57,8 +60,9 @@ import {
   readSite,
   siteDir,
   validName,
+  imagePorts,
 } from "../../core/remote";
-import { buildLocally, buildTmp, localBuilds } from "../../core/buildlocal";
+import { buildLocally, buildTmp, localBuilds, localImage, localImages, sendImage } from "../../core/buildlocal";
 import { uploadList, uploadSize } from "../../core/ignore";
 import { journal, setUpState, upload } from "../../core/ssh";
 import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
@@ -114,6 +118,16 @@ export function nextReleaseId(taken: string[], now: Date | string = new Date()):
   return releaseId(new Date(t));
 }
 
+/** One of this machine's Docker images, picked in a terminal. */
+async function pickLocalImage(): Promise<string> {
+  const list = localImages();
+  if (!list.length) fail("this machine's Docker has no tagged image to send (docker build -t <name> . makes one)");
+  if (!interactive()) fail("--send-image needs --image <name:tag> without a terminal (docker image ls lists them)");
+  list.slice(0, 30).forEach((i, n) => process.stderr.write(`  ${c.dim(String(n + 1).padStart(2))} ${i.ref} ${c.dim(`${i.size}, ${i.created}`)}\n`));
+  const answer = await ask("Image to send (number or name:tag):", "1");
+  return list[+answer - 1]?.ref ?? answer;
+}
+
 export const deploy = defineCommand({
   name: "deploy",
   args: "[dir]",
@@ -161,6 +175,10 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     file: { type: "string", short: "f", desc: "compose file to deploy (default: compose.yaml)" },
     spa: { type: "boolean", desc: "single-page app: unknown paths serve index.html" },
     image: { type: "string", desc: "deploy a docker image instead of files" },
+    "send-image": {
+      type: "boolean",
+      desc: "--image: send it from this machine's Docker, no registry (saved; --no-send-image pulls it again). Alone: pick one of the local images",
+    },
     port: { type: "string", desc: "container port (image/dockerfile; default: EXPOSE or 3000)" },
     static: { type: "boolean", desc: "force static even if a Dockerfile or compose file exists" },
     env: { type: "string", short: "e", multiple: true, desc: "set KEY=VALUE in the site's .env" },
@@ -234,7 +252,9 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
 
-    const { buildCmd, forceStatic, image, compose, beside, layered, app, detected, dir, kind, worker, volumes, port, appBuild, spa, root } = planDeploy(
+    // --send-image without an image: pick one of this machine's.
+    if (o["send-image"] && !o.image && !project.image) o.image = await pickLocalImage();
+    let { buildCmd, forceStatic, image, compose, beside, layered, app, detected, dir, kind, worker, volumes, port, appBuild, spa, root } = planDeploy(
       cwd,
       dirArg,
       o,
@@ -242,6 +262,23 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       environment,
     );
 
+    // An image only this machine's Docker has (built here, never pushed) is sent, not pulled.
+    const here = kind === "image" ? localImage(image!) : undefined;
+    const send = kind === "image" && !!(o["send-image"] ?? project.sendImage ?? (here && !here.pushed));
+    if (send && !here) fail(`${image} is not in this machine's Docker (docker image ls lists what is; --no-send-image pulls it on the server)`);
+    if (send && o["send-image"] === undefined && project.sendImage === undefined)
+      info(c.dim(`${image} is only in this machine's Docker: sending it to ${serverName} (--no-send-image pulls it there instead)`));
+    // Read from the image on every deploy, never saved: a new tag may expose another port.
+    const fromImage = kind === "image" && port === undefined && !worker;
+    if (fromImage) {
+      step(`reading the ports ${image} exposes`);
+      const exposed = send ? here!.ports : await imagePorts(server, image!);
+      port = exposed.find((p) => WEB_PORTS.has(p)) ?? exposed[0];
+      if (port === undefined) {
+        worker = true;
+        warn(`${image} exposes no port: it runs as a worker, without a domain (--port <port> routes it)`);
+      } else info(c.dim(`routing to port ${port}${exposed.length > 1 ? ` of ${exposed.join(", ")}` : ""} (EXPOSE in the image; --port picks another)`));
+    }
     step(`deploying ${c.bold(name)} (${app ? app.name : kind}) to ${c.bold(serverName)}`);
     // One deploy of a site at a time; its release id from the server's clock.
     const lock = await lockSite(server, name);
@@ -303,12 +340,17 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         lock.now,
       );
       const releaseDir = `${siteDir(name)}/releases/${id}`;
+      // A sent image runs under a tag of this release: a redeploy of the same local tag replaces it, old releases' go with them.
+      const appService = beside ? besideName(beside.services) : "app";
+      const sentImage = builtImage(name, appService, id);
       const withBeside = (text: string) => (beside ? besideCompose(fs.readFileSync(join(root, beside.file), "utf8"), beside.file, text) : text);
       const generated: Record<string, string> =
         kind === "compose"
           ? {}
           : {
-              "compose.yaml": withBeside(generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes })),
+              "compose.yaml": withBeside(
+                generatedCompose(kind, { port: worker ? undefined : port, image: send ? sentImage : image, sent: send, app: app?.name, volumes }),
+              ),
               ...(kind === "static" && { "nginx.conf": nginxConf(spa) }),
             };
       if (app) {
@@ -420,6 +462,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
             fs.rmSync(tmp, { recursive: true, force: true });
           }
         }
+        if (send) {
+          // Counted as built here: the release's images, and with them this tag, go when the release does.
+          for (const s of release.services) if (s.name === appService) s.build = true;
+          sent = [sentImage];
+          await sendImage(server, image!, here!, sentImage);
+        }
       } catch (e) {
         await discardRelease(server, name, id, sent).catch((e) => warn(`could not remove the failed release ${id} of ${name}: ${e?.message ?? e}`));
         throw e;
@@ -443,7 +491,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         await applySite(server, meta, proxy, {
           env,
           // Built here: the server runs the images it was sent.
-          build: !buildLocal,
+          build: !buildLocal && !send,
           pull: true,
           keep,
           prev,
@@ -464,7 +512,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
       const all = siteDomains(meta);
       if (o.save) {
         const saved: ProjectConfig = { name, server: serverName, domains };
-        if (kind === "image") Object.assign(saved, { image, port });
+        if (kind === "image") Object.assign(saved, { image, ...(!fromImage && { port }), ...(send && { sendImage: true }) });
         else {
           const rel = relative(cwd, dir) || ".";
           if (kind !== "static") {
@@ -478,7 +526,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         }
         // Saved even when empty: --volume '' turns off the volumes an app would get by default.
         if (o.volume?.length || project.volumes) saved.volumes = volumes;
-        if (worker) saved.worker = true;
+        if (worker && !fromImage) saved.worker = true;
         if (gitignore) saved.gitignore = true;
         // Written by hand: kept as they are.
         if (project.exclude) saved.exclude = project.exclude;
@@ -570,9 +618,10 @@ export function planDeploy(
   if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
   const guessed = o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port);
   // Traefik would send visitors to a port nothing listens on, and the deploy still say live: say the guess.
-  if (KINDS[kind].port && guessed === undefined && !worker)
+  // An image says its port itself (EXPOSE): deploy reads it on the server.
+  if (KINDS[kind].port && guessed === undefined && !worker && kind !== "image")
     warn(`${ownDockerfile ? "the Dockerfile has no EXPOSE with a number" : "no port known"}: routing to 3000; pass --port if the app listens elsewhere`);
-  const port = KINDS[kind].port ? checkInt(guessed ?? 3000, "--port", 1, 65535) : undefined;
+  const port = KINDS[kind].port && (guessed !== undefined || kind !== "image") ? checkInt(guessed ?? 3000, "--port", 1, 65535) : undefined;
   const appBuild = app && (buildCmd ?? app.build);
   if (app)
     info(

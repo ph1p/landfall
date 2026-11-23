@@ -3,6 +3,7 @@ import { loadProject, type Server } from "./config";
 import { parse as parseYaml } from "yaml";
 import {
   builtImage,
+  exposedPorts,
   COMPOSE_FILES,
   currentRelease,
   isUp,
@@ -433,6 +434,17 @@ export async function adoptSite(s: Server, meta: SiteMeta) {
       `record ${shq(`adopted ${meta.project} as site ${meta.name}`)} ${shq(`rm -rf ${dir}`)}`,
     ].join("\n"),
   );
+}
+
+/** The TCP ports an image EXPOSEs, lowest first; the server pulls it first when it lacks it. */
+export async function imagePorts(s: Server, image: string): Promise<number[]> {
+  const script = [
+    PRELUDE,
+    `$DOCKER image inspect ${shq(image)} >/dev/null 2>&1 || $DOCKER pull -q ${shq(image)} >&2`,
+    `$DOCKER image inspect --format '{{range $p, $_ := .Config.ExposedPorts}}{{$p}} {{end}}' ${shq(image)}`,
+  ].join("\n");
+  const { stdout } = await runScript(s, script, { capture: true });
+  return exposedPorts(stdout);
 }
 
 /**

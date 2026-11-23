@@ -9,7 +9,7 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 | **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is where the site generator builds to, even before the first build (Vite/Astro `dist/` or its `outDir`, SvelteKit/CRA/Docusaurus `build/`, Next `out/`, Gatsby/Hugo `public/`, Eleventy/Jekyll `_site/`, Nuxt `.output/public/`, Angular, MkDocs `site/`), else `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/` with one. Publishing a detected generator's folder, deploy runs the project's `build` script here first (saved in `.landfall.json`, so every redeploy builds again; `-b` sets another command, `--build ''` none). `lf deploy <dir>` picks another folder. `--spa` sends unknown paths to `index.html`. |
 | **app** | a server, no `Dockerfile` | landfall writes a Dockerfile, builds it on the server (so native modules match Linux) and passes `PORT`. **Node.js**: Next.js (a `start` script like `node server.ts` runs as its custom server), Nuxt (`nuxt build`), TanStack Start, SolidStart, SvelteKit with `adapter-node`, Astro with `@astrojs/node`, React Router / Remix, Angular SSR, any `start` script that isn't a dev server, or a server dependency (Express, Fastify, Hono, NestJS, `ws`, Socket.IO…) with `server.js`/`index.js`/`main`; Node from `.nvmrc` / `.node-version`, else the newest maintained major `engines.node` allows (24 when it does), the lockfile's package manager (else `packageManager`) at the version `packageManager` pins, via corepack, `HOST=0.0.0.0`, port 3000. **Bun**: the same, on Bun's image, for a `bun.lock`, `bunfig.toml`, `@types/bun` or a start command with `bun`; it also runs `index.ts`/`server.ts` with a server dependency or `Bun.serve`. **Python** (Django, FastAPI, Flask, Starlette, Quart, Sanic, Streamlit; pip, uv, Poetry, Pipenv; 8000), **Go** (8080), **Rust** (8080), **Java/Kotlin** (Spring Boot, Quarkus, Micronaut, Ktor…; Maven or Gradle, the JDK the build asks for; 8080), **.NET** (8080), **Ruby** (Rails, Rack; 3000), **PHP** (Laravel, Symfony, plain `index.php`; Apache; 80), **Elixir/Phoenix** (4000). A `Procfile` `web:` line names the start command. Websockets pass through Traefik as is. `--start 'cmd'` makes any folder one, `--build` changes the build (`''` for none), `--port` the port, `--static` publishes static files instead, `--volume /app/data` keeps a folder across deploys (a named volume; Rails on SQLite gets `/app/storage`; `--volume ''` for none), `--worker` runs it without a port or domain (a bot, a queue consumer); all saved to `.landfall.json`. `lf init` writes the Dockerfile into the project to change it. |
 | **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from the last `EXPOSE` with a number, else `--port` (default 3000, with a warning: nothing may listen there). `--static` forces static. |
-| **image** | `--image ghcr.io/me/app:1.2` | Pulls the image and runs it. Needs `--port`. For private registries: `lf ssh vps -- docker login ghcr.io`. |
+| **image** | `--image ghcr.io/me/app:1.2` | Pulls the image and runs it. Traefik routes the port the image `EXPOSE`s (`--port` picks another). An image that exposes no port runs as a worker, without a domain. `-e`, `--dotenv` and `--volume` work as for apps. A private registry needs `lf registry login` once. An image only this machine's Docker has is sent there (see below). |
 
 ```sh
 cd my-site
@@ -18,7 +18,9 @@ lf deploy -b "npm run build"                            # build locally first (a
 lf deploy --start "node server.js" --port 8080          # an app: landfall writes its Dockerfile (Node.js, Python, Go, Java…)
 lf deploy --start "python bot.py" --worker --volume /app/data   # a worker, no domain; /app/data outlives deploys
 lf deploy -d app.example.com -e DATABASE_URL=postgres://… --dotenv .env.production   # Dockerfile app
-lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com            # image
+lf deploy -n api --image ghcr.io/me/api:1.4 -d api.example.com                        # image: routes the port it EXPOSEs
+lf deploy -n api --image ghcr.io/me/api:1.5                                            # later: the new tag replaces the old one
+lf deploy -n app --image myapp:dev                                                     # an image built here: sent without a registry
 lf deploy --no-domain                                   # no domain yet: reach it with lf tunnel, add one later with lf domains --add
 lf deploy -s box                                        # box has no Traefik (lf setup --minimal): deployed with no domain, like --no-domain
 lf deploy                                               # later: redeploy using ./.landfall.json
@@ -93,6 +95,49 @@ builds need QEMU/binfmt, which Docker Desktop has), and builds that use `ssh`, `
 `platforms` or a remote context still build on the server. The images get the same `<site>-<service>:<release>`
 tags, so rollbacks and cleanup work as usual. It is saved to `.landfall.json` (`--no-build-local` builds on the
 server again); in `lf ui` it is the deploy dialog's "Build them on this machine" box.
+
+## Deploy an image
+
+`--image` deploys a prebuilt image without a compose file.
+landfall writes a one-service `compose.yaml` for it and routes it like any other site.
+Traefik routes the port the image declares with `EXPOSE`; `--port` overrides it.
+An image with no `EXPOSE` runs as a worker: no port, no domain.
+Deploying a new tag replaces the running container; the old release stays for `lf rollback`.
+
+```sh
+lf deploy -n uptime --image louislam/uptime-kuma:1 --volume /app/data -d status.example.com   # an off-the-shelf app with its data kept
+lf deploy -n api --image ghcr.io/me/api:1.4 -e DATABASE_URL=postgres://… --port 8080          # env and a port the image does not EXPOSE
+```
+
+A private registry needs a login on the server once.
+The credentials go to the deploy user's `~/.docker/config.json` on the server, base64 encoded, not encrypted.
+Use a token that can only read packages.
+
+```sh
+echo "$GHCR_TOKEN" | lf registry login ghcr.io -u me --password-stdin -s vps   # pull private images from ghcr.io
+lf registries -s vps                                                           # the registries docker on vps is logged in to
+lf registry logout ghcr.io -s vps                                              # remove the stored credentials
+```
+
+### Images from this machine
+
+An image that only this machine's Docker has goes to the server without a registry.
+landfall sends it with `docker save | gzip | ssh docker load` and shows how much it sent.
+It does so on its own for an image built here and never pushed (one without a repo digest).
+`--send-image` sends any local image; `--no-send-image` makes the server pull it instead.
+Both are saved to `.landfall.json`.
+
+```sh
+docker build -t myapp:dev .
+lf deploy -n app --image myapp:dev -d app.example.com   # sends myapp:dev to the server and runs it
+lf deploy --send-image                                  # pick one of this machine's images from a list
+```
+
+Before sending, landfall compares the image's platform with the server's (`uname -m`).
+An `arm64` image for an `amd64` server fails with the `docker build --platform` command that fixes it.
+Each deploy sends the whole image again: Docker does not reuse layers across `docker load`.
+On the server the image is tagged `<site>-app:<release>`, so a redeploy of the same local tag replaces the container.
+Old releases' images go with the releases (`--keep`), like images built with `--build-local`.
 
 ## Deploy from CI
 

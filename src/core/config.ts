@@ -287,6 +287,8 @@ export interface ProjectConfig {
   spa?: boolean;
   static?: boolean;
   image?: string;
+  /** Image: sent from this machine's Docker on each deploy, not pulled from a registry. */
+  sendImage?: boolean;
   port?: number;
   /** Static: runs locally before the upload. A Node.js app: runs on the server, in its image. */
   build?: string;

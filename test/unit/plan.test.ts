@@ -62,7 +62,9 @@ describe("planDeploy", () => {
 
   test("--image wins over the folder", () => {
     const p = planDeploy(project({ "compose.yaml": "services: {}\n" }), undefined, { image: "nginx:1.27" }, {});
-    expect(p).toMatchObject({ kind: "image", image: "nginx:1.27", compose: undefined, port: 3000 });
+    // No --port: deploy reads EXPOSE from the image.
+    expect(p).toMatchObject({ kind: "image", image: "nginx:1.27", compose: undefined, port: undefined });
+    expect(planDeploy(project({}), undefined, { image: "nginx:1.27", port: "8080" }, {}).port).toBe(8080);
   });
 
   test("wrong combinations fail before anything is sent", () => {
