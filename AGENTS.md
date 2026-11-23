@@ -123,3 +123,11 @@ blocks with a comment saying what they do. A new page also goes into the sidebar
 
 Conventional commits: `type(scope): subject`, with a short body for the what and the one non-obvious why
 (for example `fix(deploy): keep the previous release when the health check fails`). No AI attribution lines.
+
+## Releases
+
+Releases are automatic. Every push to `main` runs CI, then semantic-release (`.releaserc.cjs`,
+`.github/workflows/release.yml`): `feat` publishes a minor version, `fix`, `perf`, `refactor` and `revert` a patch,
+a breaking change (`feat!:` or `BREAKING CHANGE:`) a major one. It publishes to npm, tags `vX.Y.Z`, writes the
+GitHub release and commits the version to `package.json`. Do not bump the version or run `npm publish` by hand.
+The docs site deploys to GitHub Pages after each release, and on pushes that change only `docs/`.

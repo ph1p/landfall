@@ -1,10 +1,13 @@
 // The documentation site: `pnpm docs:dev` serves it, `pnpm docs:build` writes docs/dist.
 // The pages are the Markdown files in docs/pages; they read the same on GitHub.
+// Served from GitHub Pages at https://ph1p.github.io/landfall/ by .github/workflows/pages.yml.
 import { defineConfig } from "vocs/config";
 
 export default defineConfig({
   title: "landfall",
   description: "Set up Linux servers and deploy sites to them behind Traefik with automatic HTTPS, from one CLI.",
+  basePath: "/landfall",
+  baseUrl: "https://ph1p.github.io",
   srcDir: ".",
   outDir: "dist",
   renderStrategy: "full-static",

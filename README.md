@@ -92,6 +92,8 @@ lf ui                              # the same in a local web UI
 
 ## Documentation
 
+The full documentation is at [ph1p.github.io/landfall](https://ph1p.github.io/landfall/).
+
 | guide | covers |
 |---|---|
 | [Servers](docs/pages/servers.md) | `lf setup` for fresh and existing servers, setup flags, registering servers, NAS and other systems |

@@ -2,19 +2,20 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
+  # Release runs these checks on every push to main before it publishes.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
+    name: Checks (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -22,9 +23,9 @@ jobs:
       matrix:
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: pnpm/action-setup@v4.1.0 # packageManager selects pnpm
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # packageManager selects pnpm
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -34,32 +35,47 @@ jobs:
       - run: pnpm lint
       - run: pnpm fmt:check
       - run: pnpm build
-      - uses: actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@v7
         if: matrix.node == 24
         with:
           name: cli
           path: dist/
           if-no-files-found: error
 
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:build
+
   runtime-floor:
+    name: Runtime floor (Node 22.4)
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: pnpm/action-setup@v4.1.0
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
       # tsdown leaves production dependencies external. Install on a supported toolchain,
       # then switch only the artifact execution to the advertised runtime floor.
       - run: pnpm install --prod --frozen-lockfile
-      - uses: actions/download-artifact@v4.3.0
+      - uses: actions/download-artifact@v8
         with:
           name: cli
           path: dist/
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.4.0
       - env:
@@ -72,13 +88,14 @@ jobs:
           test -f dist/ui/index.html
 
   integration:
+    name: End to end
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: pnpm/action-setup@v4.1.0
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm

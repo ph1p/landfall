@@ -11,7 +11,7 @@
     "traefik",
     "vps"
   ],
-  "homepage": "https://github.com/ph1p/landfall#readme",
+  "homepage": "https://ph1p.github.io/landfall/",
   "bugs": "https://github.com/ph1p/landfall/issues",
   "license": "MIT",
   "author": "ph1p <me@ph1p.dev>",
@@ -27,6 +27,10 @@
     "dist"
   ],
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "dev": "tsx src/cli/cli.ts",
     "build": "tsdown && vite build",
@@ -39,7 +43,9 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "e2e": "pnpm build && bash test/e2e/run.sh",
-    "dev:ui": "vite build --watch"
+    "dev:ui": "vite build --watch",
+    "release": "semantic-release",
+    "release:dry": "semantic-release --dry-run --no-ci"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -47,16 +53,24 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
+    "@semantic-release/github": "^12.0.11",
+    "@semantic-release/npm": "^13.2.0",
+    "@semantic-release/release-notes-generator": "15.0.0-beta.3",
     "@tailwindcss/vite": "^4.3.5",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "conventional-changelog-conventionalcommits": "^10.4.1",
     "lucide-react": "^1.77.0",
     "oxfmt": "0.79.0",
     "oxlint": "1.94.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "semantic-release": "^26.0.1",
     "tailwindcss": "^4.3.5",
     "tsdown": "^0.23.7",
     "tsx": "^4.23.15",
