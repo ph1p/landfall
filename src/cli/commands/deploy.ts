@@ -32,6 +32,7 @@ import {
   fixedDomains,
   routePlan,
   subDomains,
+  besideCompose,
   generatedCompose,
   routed,
   mainService,
@@ -64,7 +65,7 @@ import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, rep
 import { pickIp, serverIps, sslipDomain } from "../../core/facts";
 import { bytes, plural } from "../../core/format";
 import { detectBuild } from "../../core/frameworks";
-import { composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
+import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { onStop } from "../../core/job";
@@ -233,7 +234,7 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
 
-    const { buildCmd, forceStatic, image, compose, layered, app, detected, dir, kind, worker, volumes, port, appBuild, spa, root } = planDeploy(
+    const { buildCmd, forceStatic, image, compose, beside, layered, app, detected, dir, kind, worker, volumes, port, appBuild, spa, root } = planDeploy(
       cwd,
       dirArg,
       o,
@@ -262,7 +263,8 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         let missing = missingVars(
           wantedVars(
             root,
-            [compose, layered].filter((f): f is string => !!f),
+            [compose, beside?.file, layered].filter((f): f is string => !!f),
+            { app: !!beside },
           ),
           parseEnvPairs(dotenvLines(env ?? prevEnv ?? "")),
         );
@@ -301,11 +303,12 @@ before and logging in with the password once: \`lf deploy -s vps --host 1.2.3.4\
         lock.now,
       );
       const releaseDir = `${siteDir(name)}/releases/${id}`;
+      const withBeside = (text: string) => (beside ? besideCompose(fs.readFileSync(join(root, beside.file), "utf8"), beside.file, text) : text);
       const generated: Record<string, string> =
         kind === "compose"
           ? {}
           : {
-              "compose.yaml": generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes }),
+              "compose.yaml": withBeside(generatedCompose(kind, { port: worker ? undefined : port, image, app: app?.name, volumes })),
               ...(kind === "static" && { "nginx.conf": nginxConf(spa) }),
             };
       if (app) {
@@ -513,7 +516,7 @@ export function planDeploy(
   const image = imageArg && checkImage(imageArg);
   const root = resolve(cwd, dirArg ?? project.dir ?? ".");
   const named = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
-  const compose = named && normalize(named);
+  let compose = named && normalize(named);
   // The file becomes the release's compose.yaml, at the root of the upload: from a subfolder its relative
   // paths (build: ., ./data:/data) would point elsewhere.
   if (compose?.includes("/"))
@@ -525,6 +528,17 @@ export function planDeploy(
   const layer = compose && environment ? envComposeFile(compose, environment) : undefined;
   const layered = layer && fs.existsSync(join(root, layer)) ? layer : undefined;
   if (layered) info(c.dim(`layering ${layered} over ${compose}`));
+  // A compose file of databases and caches next to an app (a Next.js app with Redis): the app is what deploys,
+  // with them beside it. Named with -f or in .landfall.json, the file deploys as it is.
+  const beside = compose && !o.file && !project.compose ? besideApp(root, compose, o.start ?? project.start, forceStatic) : undefined;
+  if (beside) {
+    compose = undefined;
+    info(
+      c.dim(
+        `${beside.file} runs no app of its own (${beside.services.join(", ")}): deploying the app with them beside it (-f ${beside.file} deploys only the file)`,
+      ),
+    );
+  }
   const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
   if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
   // Without a Dockerfile of its own: an app landfall writes one for.
@@ -568,7 +582,7 @@ export function planDeploy(
     );
   if (volumes.length) info(c.dim(`kept across deploys: ${volumes.join(", ")}`));
   const spa = kind === "static" && !!(o.spa ?? project.spa);
-  return { buildCmd, forceStatic, image, root, compose, layered, ownDockerfile, app, detected, dir, kind, tool, worker, volumes, port, appBuild, spa };
+  return { buildCmd, forceStatic, image, root, compose, beside, layered, ownDockerfile, app, detected, dir, kind, tool, worker, volumes, port, appBuild, spa };
 }
 
 /** What goes where, port by port; a route the live release did not have is marked new. */

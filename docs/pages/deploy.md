@@ -5,7 +5,7 @@ No domain yet? Leave out `-d`. landfall offers `<name>.<ip-with-dashes>.sslip.io
 
 | kind | when | how |
 |---|---|---|
-| **compose** | the folder has a `compose.yaml` | Uploads the folder and runs it as one Compose project. See [Compose sites](compose.md). |
+| **compose** | the folder has a `compose.yaml` that runs an app (one service builds or serves HTTP) | Uploads the folder and runs it as one Compose project. See [Compose sites](compose.md). |
 | **static** | no compose file, no Dockerfile | Uploads the folder and serves it with `nginx:alpine` (gzip, long cache headers for assets). The folder is where the site generator builds to, even before the first build (Vite/Astro `dist/` or its `outDir`, SvelteKit/CRA/Docusaurus `build/`, Next `out/`, Gatsby/Hugo `public/`, Eleventy/Jekyll `_site/`, Nuxt `.output/public/`, Angular, MkDocs `site/`), else `.` if it has an `index.html`, else the first of `dist/ build/ out/ public/ _site/ site/` with one. Publishing a detected generator's folder, deploy runs the project's `build` script here first (saved in `.landfall.json`, so every redeploy builds again; `-b` sets another command, `--build ''` none). `lf deploy <dir>` picks another folder. `--spa` sends unknown paths to `index.html`. |
 | **app** | a server, no `Dockerfile` | landfall writes a Dockerfile, builds it on the server (so native modules match Linux) and passes `PORT`. **Node.js**: Next.js (a `start` script like `node server.ts` runs as its custom server), Nuxt (`nuxt build`), TanStack Start, SolidStart, SvelteKit with `adapter-node`, Astro with `@astrojs/node`, React Router / Remix, Angular SSR, any `start` script that isn't a dev server, or a server dependency (Express, Fastify, Hono, NestJS, `ws`, Socket.IO…) with `server.js`/`index.js`/`main`; Node from `.nvmrc` / `.node-version`, else the newest maintained major `engines.node` allows (24 when it does), the lockfile's package manager (else `packageManager`) at the version `packageManager` pins, via corepack, `HOST=0.0.0.0`, port 3000. **Bun**: the same, on Bun's image, for a `bun.lock`, `bunfig.toml`, `@types/bun` or a start command with `bun`; it also runs `index.ts`/`server.ts` with a server dependency or `Bun.serve`. **Python** (Django, FastAPI, Flask, Starlette, Quart, Sanic, Streamlit; pip, uv, Poetry, Pipenv; 8000), **Go** (8080), **Rust** (8080), **Java/Kotlin** (Spring Boot, Quarkus, Micronaut, Ktor…; Maven or Gradle, the JDK the build asks for; 8080), **.NET** (8080), **Ruby** (Rails, Rack; 3000), **PHP** (Laravel, Symfony, plain `index.php`; Apache; 80), **Elixir/Phoenix** (4000). A `Procfile` `web:` line names the start command. Websockets pass through Traefik as is. `--start 'cmd'` makes any folder one, `--build` changes the build (`''` for none), `--port` the port, `--static` publishes static files instead, `--volume /app/data` keeps a folder across deploys (a named volume; Rails on SQLite gets `/app/storage`; `--volume ''` for none), `--worker` runs it without a port or domain (a bot, a queue consumer); all saved to `.landfall.json`. `lf init` writes the Dockerfile into the project to change it. |
 | **dockerfile** | the folder has a `Dockerfile` | Uploads the folder and builds it on the server. The port comes from the last `EXPOSE` with a number, else `--port` (default 3000, with a warning: nothing may listen there). `--static` forces static. |
@@ -22,6 +22,19 @@ lf deploy -n api --image ghcr.io/me/api:1.4 --port 8080 -d api.example.com      
 lf deploy --no-domain                                   # no domain yet: reach it with lf tunnel, add one later with lf domains --add
 lf deploy -s box                                        # box has no Traefik (lf setup --minimal): deployed with no domain, like --no-domain
 lf deploy                                               # later: redeploy using ./.landfall.json
+```
+
+A compose file can hold only what the app needs, like Redis or Postgres, while the app itself has no service in it.
+landfall then deploys the app (its Dockerfile, or the one landfall writes) and runs those services beside it.
+The app's service is called `app` (or `web` when `app` is taken) and depends on them.
+It reaches them by service name, like `redis://redis:6379`.
+Their `ports:` are dropped, so a database is not open on the server's public address; `lf tunnel <site> redis --port 6379` reaches one.
+Their `${VARS}` come from the site's `.env`, as in any Compose site.
+`-f docker-compose.yml` (or `compose` in `.landfall.json`) deploys the file on its own instead.
+
+```sh
+# Next.js app plus docker-compose.yml with redis: the app is built, redis runs beside it
+lf deploy -d app.example.com
 ```
 
 The first deploy writes `.landfall.json`. Commit it:

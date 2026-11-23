@@ -10,6 +10,7 @@ import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose 
 import {
   adoptCompose,
   analyze,
+  besideCompose,
   findRoute,
   isCidr,
   generatedCompose,
@@ -208,6 +209,17 @@ describe("templates", () => {
     expect(worker).not.toContain("x-landfall");
     expect(YAML.parse(worker)).toMatchObject({ services: { app: { volumes: ["app-data:/app/data"] } }, volumes: { "app-data": {} } });
     expect(analyze(YAML.parse(worker), "/x")).toMatchObject({ errors: [], warnings: [expect.stringMatching(/no service is routed/)] });
+    // backing services keep their settings (uninterpolated), lose their published ports, and the app depends on them
+    const raw =
+      "services:\n  # cache\n  redis:\n    image: redis:7\n    command: redis-server --requirepass ${REDIS_PASSWORD}\n    ports: ['6379:6379']\n    volumes: [redis:/data]\n  app:\n    image: postgres:17\nvolumes:\n  redis: {}\n";
+    const merged = besideCompose(raw, "docker-compose.yml", generatedCompose("dockerfile", { port: 3000, app: "Node.js", volumes: ["/app/data"] }));
+    expect(merged).toContain("${REDIS_PASSWORD}");
+    expect(merged).toContain("# cache");
+    const m = YAML.parse(merged);
+    expect(m.services.redis.ports).toBeUndefined();
+    expect(m.services.web).toMatchObject({ build: ".", depends_on: ["redis", "app"], "x-landfall": { port: 3000 } });
+    expect(Object.keys(m.volumes)).toEqual(["redis", "app-data"]);
+    expect(analyze(m, "/x")).toMatchObject({ errors: [], services: expect.arrayContaining([expect.objectContaining({ name: "web", port: 3000 })]) });
     expect(nginxConf(false)).toContain("=404;");
     expect(nginxConf(true)).toContain("/index.html;");
   });

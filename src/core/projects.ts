@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { configDir, environmentOf, expandDomain, loadConfig, loadProject, mainDomain, saveProject, tildify, writeAtomic, type ProjectConfig } from "./config";
 import {
+  backingServices,
   analyze,
   COMPOSE_FILES,
   localCompose,
@@ -24,6 +25,16 @@ const OUTPUT_DIRS = ["dist", "build", "out", "public", "_site", "site"];
 
 /** Never in a Node.js app's image: local installs and build output (made again inside it). */
 const APP_IGNORE = ["node_modules", ".git", ".next", ".nuxt", ".output", ".svelte-kit", ".vinxi", ".react-router", ".tanstack", ".astro"];
+
+/**
+ * A compose file of only databases and caches (Redis next to a Next.js app), next to an app with a Dockerfile
+ * or one landfall detects: the app deploys, with them beside it. Used by lf deploy and the web UI alike.
+ */
+export function besideApp(root: string, compose: string, start?: string, isStatic?: boolean): { file: string; services: string[] } | undefined {
+  const services = backingServices(root, compose);
+  if (!services) return;
+  return fs.existsSync(join(root, "Dockerfile")) || (!isStatic && detectApp(root, start)) ? { file: compose, services } : undefined;
+}
 
 /**
  * The app in a folder: another language by its build files (Python, Go, Java, Ruby, PHP, Rust, .NET, Elixir),
@@ -171,6 +182,8 @@ export interface Detected {
   kind: SiteKind;
   /** Compose: its compose file. */
   compose?: string;
+  /** An app with a compose file of databases and caches beside it: that file and its services. */
+  beside?: { file: string; services: string[] };
   /** Static: the folder with index.html, relative; undefined until a build makes it. */
   dir?: string;
   port?: number;
@@ -308,15 +321,16 @@ export function detectProject(path: string): Detected {
     const app = detectApp(path, project?.start);
     return detectStack(path, app?.name, app?.tool);
   };
-  const wanted = (files?: string[]) => {
+  const wanted = (files?: string[], app?: boolean) => {
     try {
       const local = localEnv(path);
-      return wantedVars(path, files).map((v) => (local[v.name] ? { ...v, local: true } : v));
+      return wantedVars(path, files, { app }).map((v) => (local[v.name] ? { ...v, local: true } : v));
     } catch {
       return [];
     }
   };
-  if (compose) {
+  const beside = compose && !project?.compose ? besideApp(path, compose, project?.start, project?.static) : undefined;
+  if (compose && !beside) {
     const analysis = analyzeLocal(path, compose, project);
     const images = Object.entries(analysis?.about ?? {}).flatMap(([svc, a]): UsedImage[] =>
       a.build !== undefined ? based(svc, readText(resolve(path, a.build, a.dockerfile ?? "Dockerfile"))) : a.image ? [{ ref: a.image, service: svc }] : [],
@@ -334,7 +348,7 @@ export function detectProject(path: string): Detected {
       images,
     };
   }
-  const runs = { volumes: project?.volumes, worker: project?.worker, required: wanted() };
+  const runs = { volumes: project?.volumes, worker: project?.worker, required: beside ? wanted([beside.file], true) : wanted(), ...(beside && { beside }) };
   if (project?.image && !project.static)
     return { path, name, kind: "image", port: project.port, ...runs, project, stack: detectStack(path), images: [{ ref: project.image, service: "app" }] };
   const has = (f: string) => fs.existsSync(join(path, f));

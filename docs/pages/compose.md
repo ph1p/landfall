@@ -10,6 +10,9 @@ docker compose up --build          # http://localhost:3000
 lf deploy -e POSTGRES_PASSWORD=$(openssl rand -hex 16)   # the first time; later just lf deploy
 ```
 
+A compose file with only a database or a cache in it, next to an app, is not a Compose site.
+landfall deploys the app and runs those services beside it (see [Deploy a site](deploy.md)).
+
 ```yaml
 services:
   app:

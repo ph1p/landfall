@@ -32,6 +32,24 @@ describe("planDeploy", () => {
     expect(p).toMatchObject({ port: 9000, volumes: ["/data"] });
   });
 
+  test("an app next to a compose file of backing services deploys the app with them beside it", () => {
+    const redis = "services:\n  redis:\n    image: redis:7\n    ports: ['6379:6379']\n";
+    const next = { "package.json": JSON.stringify({ dependencies: { next: "15" }, scripts: { build: "next build", start: "next start" } }) };
+    const cwd = project({ ...next, "docker-compose.yml": redis });
+    expect(planDeploy(cwd, undefined, {}, {})).toMatchObject({
+      kind: "dockerfile",
+      compose: undefined,
+      beside: { file: "docker-compose.yml", services: ["redis"] },
+    });
+    // -f keeps the file as the whole site
+    expect(planDeploy(cwd, undefined, { file: "docker-compose.yml" }, {})).toMatchObject({ kind: "compose", beside: undefined });
+    // without an app the file is the site
+    expect(planDeploy(project({ "compose.yaml": redis }), undefined, {}, {})).toMatchObject({ kind: "compose" });
+    // a routed service is an app of its own
+    const web = "services:\n  web:\n    image: nginx\n    ports: ['8080:80']\n";
+    expect(planDeploy(project({ ...next, "compose.yaml": web }), undefined, {}, {})).toMatchObject({ kind: "compose" });
+  });
+
   test("a compose.yaml deploys as it is, layered with the environment's file", () => {
     const cwd = project({ "compose.yaml": "services: {}\n", "compose.staging.yaml": "services: {}\n" });
     expect(planDeploy(cwd, undefined, {}, {}, "staging")).toMatchObject({

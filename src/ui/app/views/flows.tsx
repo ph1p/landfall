@@ -492,6 +492,12 @@ export function Describe({ d, before = true, plan = true }: { d: Detected; befor
   return (
     <>
       {what}
+      {d.beside && (
+        <>
+          {" "}
+          · with {d.beside.services.join(", ")} from <code>{d.beside.file}</code> beside it
+        </>
+      )}
       {before && d.project?.server ? (
         <>
           {" "}
