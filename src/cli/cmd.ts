@@ -31,6 +31,7 @@ export const GLOBAL_OPTS: Record<string, OptSpec> = {
   help: { type: "boolean", short: "h", desc: "show this help" },
   yes: { type: "boolean", short: "y", desc: "assume yes / defaults for prompts" },
   environment: { type: "string", short: "E", desc: "an environment of .landfall.json (staging…), deployed as its own site; or LANDFALL_ENV" },
+  "ask-sudo": { type: "boolean", short: "K", desc: "ask once for the login's sudo password (or $LANDFALL_SUDO_PASSWORD); kept in memory only" },
 };
 
 /** Shared by execution and dashboard argument masking; Node owns the accepted flag syntax. */
@@ -59,7 +60,7 @@ export function parse(cmd: Command, argv: string[]) {
 export function usage(cmd: Command): string {
   const lines = [`${c.bold("Usage:")} lf ${cmd.name}${cmd.args ? " " + cmd.args : ""} [options]`, "", cmd.summary];
   lines.push("", c.bold("Options:"));
-  const rows = Object.entries({ ...cmd.options, yes: GLOBAL_OPTS.yes }).map(([k, o]) => {
+  const rows = Object.entries({ ...cmd.options, yes: GLOBAL_OPTS.yes, "ask-sudo": GLOBAL_OPTS["ask-sudo"] }).map(([k, o]) => {
     const flag = `${o.short ? `-${o.short}, ` : "    "}--${k}${o.type === "string" ? ` <${k}>` : ""}`;
     const def = o.default !== undefined && o.default !== false ? c.dim(` (default: ${o.default})`) : "";
     return [flag, o.desc + (o.multiple ? c.dim(" (repeatable)") : "") + def];

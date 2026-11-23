@@ -9,7 +9,7 @@ import { checkCloud, cloudFirewall, cloudFor, cloudOf, PLATFORM, support } from 
 import { ensureKey, ensureKeyLogin, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../../core/templates";
 import { latestCompose, latestDocker } from "../../core/updates";
-import { rootLogin } from "../../core/privilege";
+import { askSudo, rootLogin, sudoNote } from "../../core/privilege";
 import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, report, step, warn } from "../../core/term";
 import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "../../core/traefik";
 
@@ -199,6 +199,10 @@ dashboard unless given as flags.`,
     report({ checks: shown.map(({ part, label, status, detail }) => ({ part, label, status, detail })), ...(refuse && { refuse }) });
     if (o.check) return void (refuse && warn(refuse));
     if (refuse) fail(refuse);
+    // Setup changes the system, so it needs root. Without it: ask for the sudo password, or stop before any change.
+    if (probe.values.sudo !== "1")
+      await askSudo(login, "setup", "log in as root or a sudo user (-u <user>), or give the sudo password with -K or $LANDFALL_SUDO_PASSWORD");
+    if (eff.user !== "root") sudoNote("setup", eff.user);
     const apply = await decide(checks, o.force);
     const firstTraefik = ownTraefik && traefik.status === "todo" && interactive();
     let domain = o.domain ? checkDomain(o.domain) : existing && mainDomain(existing);

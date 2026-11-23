@@ -45,6 +45,7 @@ Command lines show up in `ps` and shell history. Keep secrets out of them:
 | what | how |
 |---|---|
 | root / login password for `setup`, `server add`, `deploy --host` | `--password-stdin` or `$LANDFALL_PASSWORD` |
+| the login's sudo password, for root work | `$LANDFALL_SUDO_PASSWORD` (`-K` asks in a terminal) |
 | a site's environment | `lf env --dotenv -` or `lf deploy --dotenv -`, values on stdin |
 | a secret file | `lf secret --file NAME=./path` |
 | a login for `lf auth` | `lf auth -u anna --password-stdin` |

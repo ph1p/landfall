@@ -150,6 +150,7 @@ Every command, every local and remote file landfall uses, and its environment va
 | `LANDFALL_ENV` | the environment of `.landfall.json` to work on, as `-E` |
 | `LANDFALL_SSH_CONFIG` | use another ssh config file (`ssh -F`) |
 | `LANDFALL_PASSWORD` | login password for `setup`/`server add`/`deploy --host` |
+| `LANDFALL_SUDO_PASSWORD` | the login's sudo password for root work, as `-K`; kept in memory only |
 | `LANDFALL_SECRET_<OPTION>` | value of a `--…password` option, e.g. `LANDFALL_SECRET_PASSWORD` for `lf auth` |
 
 ### `.landfall.json`

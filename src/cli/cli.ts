@@ -7,8 +7,8 @@ import { loadPlugins } from "../core/plugins";
 import { BUILTIN } from "../plugins";
 import { JOB_INPUT, readJobInput } from "../core/job-input";
 import { exitWithParent } from "../core/job";
-import { journal } from "../core/ssh";
-import { c, CliError, report, setAssumeYes } from "../core/term";
+import { journal, setSudoPassword } from "../core/ssh";
+import { askSecret, c, CliError, report, setAssumeYes } from "../core/term";
 import pkg from "../../package.json";
 
 function help() {
@@ -145,10 +145,23 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   setAssumeYes(!!values.yes);
+  await sudoFromUser(!!values["ask-sudo"]);
   if (values.environment !== undefined) process.env.LANDFALL_ENV = values.environment;
   journal.cmd = journalCmd(cmd, positionals, values);
   const code = await cmd.run(positionals, values, passthrough);
   return typeof code === "number" ? code : 0;
+}
+
+/**
+ * -K asks for the login's sudo password, $LANDFALL_SUDO_PASSWORD gives it without a terminal. It lives in memory for
+ * this run; the variable is dropped from the environment so no child process (ssh, docker) inherits it.
+ */
+async function sudoFromUser(ask: boolean) {
+  const env = process.env.LANDFALL_SUDO_PASSWORD;
+  delete process.env.LANDFALL_SUDO_PASSWORD;
+  const pw = env || (ask ? await askSecret("sudo password:") : undefined);
+  if (ask && !pw) throw new CliError("-K: no sudo password given");
+  setSudoPassword(pw);
 }
 
 /** One command, errors printed. */

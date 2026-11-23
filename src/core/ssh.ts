@@ -190,6 +190,42 @@ export const journal = {
   cmd: "",
 };
 
+let sudoPassword: string | undefined;
+/**
+ * The login's sudo password for this run (-K, $LANDFALL_SUDO_PASSWORD). It stays in memory: never stored,
+ * never in argv; each script gets it on ssh's stdin and hands it to sudo through an askpass helper.
+ */
+export const setSudoPassword = (pw: string | undefined) => void (sudoPassword = pw || undefined);
+export const hasSudoPassword = () => !!sudoPassword;
+
+/**
+ * Shell that makes `sudo` and `sudo -n` answer with the password: a function in front of sudo whose askpass helper
+ * prints it from the environment of that one sudo call. The helper file holds no secret.
+ */
+export const sudoShim = (pw: string) =>
+  [
+    `if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then`,
+    `_lf_pw=${shq(pw)}`,
+    `_lf_askpass=$(mktemp "\${TMPDIR:-/tmp}/landfall-askpass.XXXXXX")`,
+    `trap 'rm -f -- "$_lf_askpass"' EXIT`,
+    `printf '#!/bin/sh\\nprintf "%%s\\\\n" "$LANDFALL_SUDO_PASSWORD"\\n' >"$_lf_askpass"`,
+    `chmod 700 "$_lf_askpass"`,
+    // Leading options pass through but -n: with the password, sudo may ask (the helper answers).
+    `sudo() {`,
+    `  local _a=()`,
+    `  while [ $# -gt 0 ] && [ "\${1#-}" != "$1" ]; do [ "$1" = -n ] || _a+=("$1"); shift; done`,
+    `  LANDFALL_SUDO_PASSWORD="$_lf_pw" SUDO_ASKPASS="$_lf_askpass" command sudo -A \${_a[@]+"\${_a[@]}"} "$@"`,
+    `}`,
+    `fi`,
+  ].join("\n");
+
+/** The script with the sudo shim in front; run as root (o.sudo) it becomes a heredoc fed to sudo bash. */
+function withSudo(input: string, asRoot?: boolean): string {
+  if (!sudoPassword) return input;
+  const shim = `set -euo pipefail\n${sudoShim(sudoPassword)}\n`;
+  return asRoot ? `${shim}sudo bash -s <<'__LANDFALL_SUDO__'\n${input}__LANDFALL_SUDO__\n` : shim + input;
+}
+
 export interface ScriptOpts {
   env?: Record<string, string | number | boolean | undefined>;
   capture?: boolean;
@@ -245,8 +281,8 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
   const waitFor = o.capture && process.stderr.isTTY && !quiet ? s.host : undefined;
   const attempt = (check: string) =>
     shared(s, () =>
-      spawnP("ssh", [...sshArgs(s), o.sudo ? "sudo -n bash -s" : "bash -s"], {
-        input: `set -euo pipefail\n${REMOTE_PATH}\n${header}\n${check}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${script}\n`,
+      spawnP("ssh", [...sshArgs(s), o.sudo && !sudoPassword ? "sudo -n bash -s" : "bash -s"], {
+        input: withSudo(`set -euo pipefail\n${REMOTE_PATH}\n${header}\n${check}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${script}\n`, o.sudo),
         capture: o.capture,
         waitFor,
       }),

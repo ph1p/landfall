@@ -91,7 +91,8 @@ A deploy with `-d` still works. It warns that nothing answers on the domain unti
 
 | flag | effect |
 |---|---|
-| `-u admin` / `-p 2222` | log in as `admin` (needs passwordless sudo) / ssh port |
+| `-u admin` / `-p 2222` | log in as `admin` (needs sudo) / ssh port |
+| `-K` | ask for the login's sudo password (or set `$LANDFALL_SUDO_PASSWORD`) |
 | `-i ~/.ssh/id_ed25519` | use an existing key instead of generating one |
 | `--password-stdin` | read the login password from stdin (or set `$LANDFALL_PASSWORD`) |
 | `--deploy-user ""` | deploy as the login user instead of creating `deploy` |
@@ -245,6 +246,31 @@ lf server config vps --root-login auto       # forget it: landfall tries the ord
 
 The web page sets it too: Change next to *root work* in the server's Settings. It lists the Hosts that reach the
 same machine.
+
+### Sudo with a password
+
+A login whose sudo asks for a password can do root work too. Give the password once per command:
+
+```sh
+lf setup vps -u anna -K          # asks for anna's sudo password
+lf harden vps -K                 # the same for any other command
+LANDFALL_SUDO_PASSWORD=… lf reboot vps -y   # without a terminal
+```
+
+In a terminal, landfall also asks by itself when root work finds no other way.
+The password stays in memory for that one command. landfall never writes it to its config, the journal or a log.
+It travels inside the script on ssh's stdin, never in a command line.
+On the server, an askpass helper hands it to `sudo`. The helper holds no secret and is removed when the script ends.
+
+Before root work starts, landfall says how it gets root: `runs as root: sudo as anna`, or the root login it uses.
+Setup checks this before it changes anything. Without root, passwordless sudo or `-K`, it stops and names the options.
+
+### Docker access is root
+
+The deploy user is in the `docker` group, and deploys need nothing more. The docker group is root in all but name:
+anyone in it can start a container that mounts `/` and change any file. So keep the deploy user's key as safe as
+root's. A separate, unprivileged deploy user still helps: it cannot install packages, change sshd or the firewall
+without a sudo password, and its mistakes show up in `lf history` under its name.
 
 Non-interactive ssh sessions often lack `/usr/local/bin` (where DSM keeps `docker`), so landfall adds
 `/usr/local/sbin` and `/usr/local/bin` to `PATH` for every command it runs.

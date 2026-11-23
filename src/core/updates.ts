@@ -83,7 +83,7 @@ export async function pkgStatus(s: Server, refresh = true): Promise<PkgStatus> {
 
 /** Upgrade all packages, or only ONLY (names). Not reversible. Env: ONLY WHAT REBOOT */
 const PKG_UPGRADE = String.raw`
-if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then echo "upgrading packages needs root or passwordless sudo" >&2; exit 1; fi
+if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then echo "upgrading packages needs root or sudo (-K gives the sudo password)" >&2; exit 1; fi
 keep="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 case "$(pkg_mgr)" in
   apt-get)

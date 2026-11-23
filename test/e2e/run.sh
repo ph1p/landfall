@@ -680,6 +680,17 @@ lf log-limit 10m --files 2 -s box >/dev/null 2>&1 || die "log-limit"
 { lf system -s box --json | has '"maxSize": "10m"'; } || die "system shows the limit"
 lf undo -s box -y >/dev/null 2>&1 || die "undo log-limit"
 { ! docker exec "$NAME" grep -qs max-size /etc/docker/daemon.json; } || die "undo restores daemon.json"; pass "log-limit, undo restores daemon.json"
+# deploy gets sudo with a password: root work then goes through it, given by $LANDFALL_SUDO_PASSWORD.
+shadow=$(docker exec "$NAME" grep '^deploy:' /etc/shadow)
+docker exec "$NAME" sh -c 'apk add -q sudo >/dev/null && echo deploy:e2e-sudo | chpasswd 2>/dev/null && echo "deploy ALL=(ALL) ALL" > /etc/sudoers.d/e2e && chmod 440 /etc/sudoers.d/e2e'
+out=$(LANDFALL_SUDO_PASSWORD=e2e-sudo lf hostname e2e-sudo -s box 2>&1) || die "hostname with the sudo password: $out"
+{ grep -q "runs as root: sudo as deploy with the password given" <<<"$out"; } || die "says how it gets root: $out"
+[ "$(docker exec "$NAME" hostname)" = e2e-sudo ] || die "hostname through sudo"
+out=$(LANDFALL_SUDO_PASSWORD=e2e-sudo lf undo -s box -y 2>&1) || die "undo through sudo: $out"
+[ "$(docker exec "$NAME" hostname)" = "$old" ] || die "undo through sudo restores the host name"
+{ ! docker exec "$NAME" sh -c 'ls /tmp/landfall-askpass.* 2>/dev/null' | has askpass; } || die "askpass helper left behind"
+pass "sudo with a password: hostname, undo"
+docker exec "$NAME" sh -c "sed -i '/^deploy:/d' /etc/shadow && printf '%s\n' '$shadow' >> /etc/shadow && rm /etc/sudoers.d/e2e"
 fi
 
 if want security; then echo "== security"

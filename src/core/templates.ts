@@ -381,7 +381,7 @@ deploys and rollbacks. "lf sites rm" keeps them; "lf sites rm --volumes" deletes
 export const BOOTSTRAP = String.raw`
 ${COMPOSE_INSTALL}
 if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-  echo "setup needs root or passwordless sudo for $(id -un) (try: lf setup <name> --user root)" >&2
+  echo "setup needs root or sudo for $(id -un) (try: lf setup <name> --user root, or -K for the sudo password)" >&2
   exit 1
 fi
 # ufw only where setup turns it on: behind a provider's firewall, or with --no-firewall, it would sit there unused.
