@@ -58,7 +58,7 @@ Every command, every local and remote file landfall uses, and its environment va
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` for the project, to run it locally and deploy it. |
-| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. |
+| `lf deploy [dir] [-d domain...] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--host ip [-u user] [--ssh-port p] [--password-stdin]] [--skip-hook name...] [--skip-hooks]` | Deploys a Compose project, app (Node.js, Bun, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile app or image. Sets up a server that isn't yet. Runs the [lifecycle hooks](hooks.md) of `package.json`; `--skip-hook` skips one, `--skip-hooks` all. |
 | `lf ls [--json] [--others]` | Lists sites on the server with their status, plus containers Traefik routes that landfall did not deploy (read only; `--json --others` gives `{sites, others}`). Alias: `sites list`. |
 | `lf sites info [name] [--json]` | Shows services, domains and release history. |
 | `lf domains [name] [--add d] [--rm d] [--set d] [--json]` | Lists domains with their DNS and HTTPS state, or changes them. Removing the last one leaves the site unrouted. |
@@ -67,12 +67,12 @@ Every command, every local and remote file landfall uses, and its environment va
 | `lf logs [name] [service] [-f] [-n lines]` | Shows logs of all services, or one. |
 | `lf env [name] [K=V...] [--dotenv f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows the site's `.env` (values hidden unless `--reveal`), copies it to a local file, or changes it. A change recreates the services. |
 | `lf secret [name] [K=V...] [--file K=path] [--dotenv f\|-] [-u K] [--json] [--force]` | Lists the site's secret files (names and sizes) or changes them; services read them at `/run/secrets/<K>`. Changing one restarts the services that use it. |
-| `lf rollback [name] [--to id]` | Switches to the previous release, or to the given one. |
+| `lf rollback [name] [--to id] [--skip-hook name...] [--skip-hooks]` | Switches to the previous release, or to the given one. Runs the `prerollback` and `postrollback` [hooks](hooks.md). |
 | `lf release rm [name] [id…] [--keep n]` | Deletes old releases and the images built for them: the given ones, else all but the live one (`--keep n` keeps the n newest). The live release always stays. Journaled, not reversible. |
 | `lf restart` / `stop` / `start [name] [service]` | Restarts, stops or starts the site, or one service. |
 | `lf tunnel [name] [service] [--port p] [-l local] [--lan]` | Opens a site, one of its services or any container on localhost through an SSH tunnel. |
 | `lf tunnels [--json]` | Lists the tunnels open on this machine. |
-| `lf sites rm <name> [--volumes]` | Deletes the site and its files. Named volumes and their backups stay; `--volumes` deletes the volumes, each backed up first (`lf undo` brings them back). |
+| `lf sites rm <name> [--volumes] [--skip-hook name...] [--skip-hooks]` | Deletes the site and its files. Named volumes and their backups stay; `--volumes` deletes the volumes, each backed up first (`lf undo` brings them back). The `predestroy` [hook](hooks.md) runs first; when it fails, nothing is removed. |
 | `lf volumes [name] [--json]` | Lists a site's volumes: size, mounts, backups. Alias: `volume ls`. |
 | `lf volume add [name] [service:]<path> [--as key]` | Keeps a container folder in a named volume: edits compose.yaml or `.landfall.json`; `lf deploy` applies it. |
 | `lf volume rm [name] <volume> [--data]` | Unmounts a volume in the project; `--data` deletes an unused one on the server (backed up first; undoable). |
@@ -160,6 +160,11 @@ Every command, every local and remote file landfall uses, and its environment va
 
 The first `lf deploy` writes it; later deploys update it from their flags. Every key but `name` and `domains` is
 optional.
+
+Any of these keys can also live in `package.json`, under `"landfall"`, next to the [hooks](/hooks).
+Put some or all of them there.
+`.landfall.json` wins for a key both name.
+A deploy writes to `.landfall.json` only the keys that differ from `package.json`, and no file when nothing does.
 
 | key | meaning |
 |---|---|

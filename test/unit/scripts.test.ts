@@ -13,7 +13,8 @@ vi.mock("../../src/core/ssh", async (orig) => ({
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
-const { applySite, discardRelease, lockSite, overview } = await import("../../src/core/remote");
+const { applySite, discardRelease, lockSite, overview, removeSite } = await import("../../src/core/remote");
+const { serverCall, skipper } = await import("../../src/core/hooks");
 
 const server = { host: "example.com" } as any;
 const release = (id: string) => ({ id, at: "", services: [{ name: "web", networks: ["default"], build: true, port: 8000 }] });
@@ -41,6 +42,36 @@ beforeEach(() => {
 });
 
 describe("deploy scripts", () => {
+  test("hooks: release in a one-off container before the switch, verify after the start, both undo on failure", async () => {
+    const hooks = { pm: "npm", service: "web", port: 8000, run: { release: ["migrate"], verify: ["smoke"], postdeploy: ["notify"] } };
+    const call = (hook: "release" | "verify" | "postdeploy") => serverCall(hooks, hook, skipper({}), { LANDFALL_RELEASE: "2" });
+    await applySite(server, site("2", ["1", "2"]), OWN_PROXY, {
+      env: "A=1\n",
+      build: true,
+      prev: site("1", ["1"]),
+      hooks: { release: call("release"), verify: call("verify"), post: call("postdeploy") },
+      what: "deploy blog release 2",
+    });
+    const s = scripts[0];
+    parses(s);
+    const release = at(s, "dc run --rm -T", at(s, "mv -f .env.new .env"));
+    const up = at(s, "up -d --wait", release);
+    const verify = at(s, "'npm' 'smoke'", up);
+    at(s, "'npm' 'notify'", verify);
+    expect(s.slice(release, up)).toMatch(/eval "\$undo"[\s\S]*hook release failed/);
+    expect(s.slice(verify)).toMatch(/eval "\$undo"[\s\S]*hook verify failed/);
+  });
+
+  test("predestroy runs in the running container before anything is removed", async () => {
+    const m = site("1", ["1"]);
+    m.releases[0].hooks = { pm: "npm", service: "web", run: { predestroy: ["backup"] } };
+    await removeSite(server, m, { hooks: skipper({}) });
+    const s = scripts[0];
+    parses(s);
+    const hook = at(s, "dc exec -T");
+    expect(at(s, "hook predestroy failed", hook)).toBeLessThan(at(s, "stopping blog", hook));
+  });
+
   test("a redeploy builds with the new .env aside, journals, then switches; a failed start goes back", async () => {
     await applySite(server, site("2", ["1", "2"]), OWN_PROXY, { env: "A=1\n", build: true, pull: true, prev: site("1", ["1"]), what: "deploy blog release 2" });
     const s = scripts[0];

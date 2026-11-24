@@ -25,6 +25,7 @@ export default defineConfig({
         { text: "Deploy a site", link: "/deploy" },
         { text: "Day-to-day", link: "/sites" },
         { text: "Compose sites", link: "/compose" },
+        { text: "Lifecycle hooks", link: "/hooks" },
         { text: "Volumes and backups", link: "/volumes" },
       ],
     },

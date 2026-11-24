@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { join } from "node:path";
 import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 import { DOMAIN } from "./config";
+import type { ReleaseHooks } from "./hooks";
 import { fail } from "./term";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
@@ -73,6 +74,8 @@ export interface Release {
   git?: { commit: string; branch?: string; dirty?: boolean };
   /** Who deployed it: user@machine. */
   by?: string;
+  /** package.json's server hooks as deployed: rollback and removal run the ones of the release they leave or reach. */
+  hooks?: ReleaseHooks;
 }
 
 /** "a1b2c3d4e5f6 main, uncommitted changes" for a release deployed from git. */

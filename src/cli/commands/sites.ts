@@ -17,6 +17,7 @@ import {
   type SiteMeta,
 } from "../../core/compose";
 import { bytes } from "../../core/facts";
+import { hookVars, serverCall, SKIP_OPTIONS, skipper } from "../../core/hooks";
 import {
   adoptSite,
   changeSite,
@@ -168,9 +169,13 @@ export const sitesStart = lifecycle("start", "up -d --wait", "started", "stop", 
 export const sitesRollback = defineCommand({
   name: "rollback",
   args: "[name]",
-  summary: "Switch a site back to the previous release (or --to <release>).",
-  options: { server: serverOpt, to: { type: "string", desc: "release id (see `lf sites info`)" } },
+  summary: `Switch a site back to the previous release (or --to <release>).
+
+The release's prerollback hook runs in the running container first and stops the rollback when it
+fails; postrollback runs in the restored one after (see package.json's landfall.hooks).`,
+  options: { server: serverOpt, to: { type: "string", desc: "release id (see `lf sites info`)" }, ...SKIP_OPTIONS },
   async run([n], o) {
+    const skip = skipper(o);
     const { site, server } = target(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "roll back" });
     const sorted = newestFirst(meta);
@@ -178,7 +183,15 @@ export const sitesRollback = defineCommand({
     if (idx < 0 && !o.to) fail(`current release ${meta.current} is not in the release list; pick one with --to (see \`lf sites info\`)`);
     const to = o.to ? sorted.find((r) => r.id === o.to) : sorted[idx + 1];
     if (!to) fail(o.to ? `no release ${o.to}` : `no release older than ${meta.current}`);
-    await changeSite(server, site, proxy, `rollback ${site} from ${meta.current} to ${to!.id}`, (m) => void (m.current = to!.id));
+    await changeSite(server, site, proxy, `rollback ${site} from ${meta.current} to ${to!.id}`, (m) => void (m.current = to!.id), {
+      // Each side's own hooks: prerollback is what the running release knows, postrollback what the restored one does.
+      hooks: (before, after) => {
+        const [from, back] = [currentRelease(before), currentRelease(after)];
+        const vars = hookVars(site, { release: back, prev: from });
+        return { pre: serverCall(from?.hooks, "prerollback", skip, vars), post: serverCall(back?.hooks, "postrollback", skip, vars) };
+      },
+      skip,
+    });
     ok(`${site} rolled back to ${c.bold(to!.id)}`);
   },
 });
@@ -270,10 +283,14 @@ export const sitesRemove = defineCommand({
 
 Named volumes (databases, uploads) and their backups stay, so deploying the site again finds its
 data; --volumes deletes the volumes too, each backed up to the site's backups folder first (lf undo
-brings them back). An adopted site is stopped and forgotten; its folder stays.`,
-  options: { server: serverOpt, volumes: { type: "boolean", desc: "also delete the site's named volumes (its data)" } },
+brings them back). An adopted site is stopped and forgotten; its folder stays.
+
+The current release's predestroy hook (package.json's landfall.hooks) runs in the running container
+first; when it fails, nothing is removed.`,
+  options: { server: serverOpt, volumes: { type: "boolean", desc: "also delete the site's named volumes (its data)" }, ...SKIP_OPTIONS },
   async run([n], o) {
     if (!n) fail("usage: lf sites rm <name>");
+    const skip = skipper(o);
     const { site, server, name } = target(n, o.server);
     const { meta: m } = await requireSite(server, site);
     const domains = siteDomains(m).join(", ") || "no domains";
@@ -285,7 +302,7 @@ brings them back). An adopted site is stopped and forgotten; its folder stays.`,
         : `Delete ${site} (${domains})${data} from ${name}? Its files and releases cannot be brought back.`,
       site,
     );
-    await removeSite(server, m, { vols });
+    await removeSite(server, m, { vols, hooks: skip });
     ok(`removed ${site}${vols ? " and its volumes" : c.dim(" (its volumes stay; --volumes deletes them)")}`);
     if (vols?.length) info(c.dim(`their contents: ${siteDir(site)}/backups/*-before-rm.tar.gz (lf undo puts them back; lf prune --volumes deletes them)`));
   },

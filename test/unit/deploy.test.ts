@@ -6,7 +6,18 @@ import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
 import { detectStaticDir, slug } from "../../src/core/projects";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
-import { baseDomain, checkImage, checkInt, environmentOf, expandDomain, guessDomains, loadProject, saveProject, withPrimary } from "../../src/core/config";
+import {
+  baseDomain,
+  checkImage,
+  checkInt,
+  environmentOf,
+  expandDomain,
+  guessDomains,
+  loadProject,
+  projectSources,
+  saveProject,
+  withPrimary,
+} from "../../src/core/config";
 import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
 import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/compose";
 
@@ -76,6 +87,29 @@ describe("environments", () => {
     saveProject(d, { name: "blog-preview", server: "vps", domains: [] }, "preview");
     expect(read(d)).toEqual({ name: "blog", server: "vps", domains: [], environments: { preview: { domains: [] } } });
     expect(loadProject(d, "preview")?.name).toBe("blog-preview");
+  });
+
+  test("package.json's landfall section holds settings too; .landfall.json wins and gets only the rest", () => {
+    const d = tmp();
+    const pkg = { name: "web", landfall: { name: "shop", server: "vps", port: 3000, hooks: { predeploy: "test" } } };
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify(pkg));
+    expect(loadProject(d, "")).toEqual({ name: "shop", server: "vps", port: 3000 });
+    expect(projectSources(d)).toEqual(["package.json"]);
+    // Nothing new to say: no .landfall.json.
+    saveProject(d, { name: "shop", server: "vps", port: 3000, domains: [] } as any, "");
+    expect(read(d)).toEqual({ domains: [] });
+    saveProject(d, { name: "shop", server: "test", port: 3000, domains: ["shop.com"] }, "");
+    expect(read(d)).toEqual({ server: "test", domains: ["shop.com"] });
+    expect(loadProject(d, "")).toEqual({ name: "shop", server: "test", port: 3000, domains: ["shop.com"] });
+    expect(projectSources(d)).toEqual([".landfall.json", "package.json"]);
+  });
+
+  test("hooks alone do not make package.json a project", () => {
+    const d = tmp();
+    fs.writeFileSync(join(d, "package.json"), JSON.stringify({ landfall: { hooks: { predeploy: "test" } } }));
+    expect(loadProject(d, "")).toBeUndefined();
+    saveProject(d, { name: "x", domains: [] }, "");
+    expect(read(d)).toEqual({ name: "x", domains: [] });
   });
 
   test("the compose file an environment layers on", () => {

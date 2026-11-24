@@ -45,6 +45,13 @@ The first deploy writes `.landfall.json`. Commit it:
 { "name": "my-site", "server": "vps", "domains": ["example.com", "www.example.com"] }
 ```
 
+A Node project can keep these settings in `package.json` instead, under `"landfall"`.
+Then the deploy writes `.landfall.json` only for what differs:
+
+```json
+{ "name": "my-site", "landfall": { "name": "my-site", "server": "vps", "domains": ["example.com"] } }
+```
+
 Local `.env*` files are never uploaded: each site has its own `.env` on the server. Pass variables with
 `-e`/`--dotenv`, or later with `lf env`. `--local-env` takes what the project asks for (below) and the site's `.env`
 lacks from the project's own `.env`, nothing else; an empty answer to the question takes it too. `--dotenv -` reads the lines from stdin, so secrets stay out of `ps`.
@@ -95,6 +102,16 @@ builds need QEMU/binfmt, which Docker Desktop has), and builds that use `ssh`, `
 `platforms` or a remote context still build on the server. The images get the same `<site>-<service>:<release>`
 tags, so rollbacks and cleanup work as usual. It is saved to `.landfall.json` (`--no-build-local` builds on the
 server again); in `lf ui` it is the deploy dialog's "Build them on this machine" box.
+
+## Hooks
+
+`package.json` can name scripts to run along a deploy: tests before it, migrations in the new release, a smoke test after the start.
+See [Lifecycle hooks](hooks.md).
+
+```sh
+# deploy, but without the verify hook
+lf deploy --skip-hook verify
+```
 
 ## Deploy an image
 

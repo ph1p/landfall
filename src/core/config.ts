@@ -328,7 +328,38 @@ export const envSiteName = (name: string, env = activeEnvironment()) => (env ? `
 /** The project file in a directory: .landfall.json, or the older one. */
 const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
-function readProject(cwd: string): ProjectConfig | undefined {
+/**
+ * package.json's "landfall" section, if it has one. It holds any key of .landfall.json, and the hooks
+ * (hooks, service). A broken package.json without the section is the build's business, not landfall's.
+ */
+export function packageSection(cwd: string): Record<string, any> | undefined {
+  let text: string;
+  try {
+    text = fs.readFileSync(join(cwd, "package.json"), "utf8");
+  } catch {
+    return undefined;
+  }
+  let pkg: any;
+  try {
+    pkg = JSON.parse(text);
+  } catch (e: any) {
+    if (!text.includes('"landfall"')) return undefined;
+    return fail(`could not read package.json: ${e?.message ?? e}`);
+  }
+  const section = pkg?.landfall;
+  if (section === undefined) return undefined;
+  if (!section || typeof section !== "object" || Array.isArray(section))
+    fail('package.json: "landfall" must be an object, like { "name": "blog", "hooks": { "predeploy": "test" } }');
+  return section;
+}
+
+/** The project settings in package.json's "landfall" section: all of it but the hooks. */
+function packageProject(cwd: string): Partial<ProjectConfig> | undefined {
+  const { hooks: _h, service: _s, ...rest } = packageSection(cwd) ?? {};
+  return Object.keys(rest).length ? rest : undefined;
+}
+
+function readFile(cwd: string): ProjectConfig | undefined {
   try {
     return JSON.parse(fs.readFileSync(projectFile(cwd), "utf8"));
   } catch (e: any) {
@@ -337,6 +368,16 @@ function readProject(cwd: string): ProjectConfig | undefined {
     return fail(`cannot read ${projectFile(cwd)}: ${e.message}`);
   }
 }
+
+/** package.json's "landfall" settings with .landfall.json's on top, key by key. */
+function readProject(cwd: string): ProjectConfig | undefined {
+  const [pkg, file] = [packageProject(cwd), readFile(cwd)];
+  return pkg || file ? ({ ...pkg, ...file } as ProjectConfig) : undefined;
+}
+
+/** Where a folder's project settings come from: .landfall.json, package.json, or both. */
+export const projectSources = (cwd: string) =>
+  [fs.existsSync(projectFile(cwd)) && PROJECT_FILE, packageProject(cwd) && "package.json"].filter((f): f is string => !!f);
 
 /** The settings of a project folder, or of one of its environments: the project's with the environment's on top. */
 export function loadProject(cwd: string, env = activeEnvironment()): ProjectConfig | undefined {
@@ -372,5 +413,9 @@ export function saveProject(cwd: string, p: ProjectConfig, env = activeEnvironme
     if (own.name === envSiteName(base.name, env)) delete own.name;
     out = { ...base, environments: { ...environments, [env]: own } };
   }
-  writeAtomic(join(cwd, PROJECT_FILE), JSON.stringify(out, null, 2) + "\n");
+  // What package.json's "landfall" already says stays there; .landfall.json gets the rest.
+  const pkg: Record<string, unknown> = packageProject(cwd) ?? {};
+  const own = Object.fromEntries(Object.entries(out).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(pkg[k])));
+  if (!Object.keys(own).length && !fs.existsSync(projectFile(cwd))) return;
+  writeAtomic(projectFile(cwd), JSON.stringify(own, null, 2) + "\n");
 }

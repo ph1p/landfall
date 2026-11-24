@@ -94,6 +94,7 @@ Most changes revert with `lf undo`. These do not, so confirm them with the user 
 - `lf registry logout` (log in again with `lf registry login`)
 - whatever a plugin does without journaling it; `lf plugin add` and `lf plugin rm` change only this computer
 - a firewall rule that replaced an existing one
+- what a [lifecycle hook](hooks.md) did (a migration, a notification): `lf undo` reverts landfall's changes, not the hook's
 
 `lf undo` changes only the server. Local `~/.config/landfall` and `.landfall.json` stay as they are.
 
@@ -147,5 +148,6 @@ lf history --json                                     # confirm what changed
 | `… (--force to do it anyway)` | a safety check refused. Fix the cause; use `--force` only with the user's consent |
 | `another deploy of <site> is running (<who>)` | wait, or check `lf history`; a lock left by a cut-off deploy expires after an hour |
 | `cannot connect to <host>: …` | ssh failed; the rest is ssh's own last line |
+| `hook <name> failed: <pm> run <script>` | a [lifecycle hook](hooks.md) from `package.json` failed; fix the script, or `--skip-hook <name>` with the user's consent |
 
 More in [Troubleshooting](troubleshooting.md).

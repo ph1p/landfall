@@ -27,6 +27,7 @@ import {
   ENV_NAME,
   volumeDir,
 } from "./compose";
+import { hookLines, hookVars, serverCall, type HookCall, type Skipper } from "./hooks";
 import { onStop } from "./job";
 import { backupName, backupTo, recreateFrom } from "./volumes";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
@@ -483,6 +484,20 @@ export interface ApplyOpts {
   what: string;
   /** A new site whose dir was already there (leftovers, or someone's files): undo removes only what landfall wrote. */
   existed?: boolean;
+  /** package.json hooks: what fails of pre, release and verify puts the site back like a failed start. */
+  hooks?: SiteHooks;
+}
+
+/** Hooks of one site change, each run in the site's container. */
+export interface SiteHooks {
+  /** In the running container, before the switch (prerollback). */
+  pre?: HookCall;
+  /** In a one-off container of the new release, before the switch (release). */
+  release?: HookCall;
+  /** In the new container once it runs (verify). */
+  verify?: HookCall;
+  /** In the new container once it runs and was verified; only reports (postdeploy, postrollback). */
+  post?: HookCall;
 }
 
 // Not the script on stdin: Compose asks there, e.g. to recreate a volume whose configuration changed.
@@ -504,7 +519,7 @@ const upLines = (name: string, failed: string[] = []) => [
 /** Shell: remove a built image, quietly; one still in use stays. */
 const rmImage = (i: string) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`;
 
-interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate"> {
+interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate" | "hooks"> {
   /** Shell after the build and pull, before anything that changes the running site (journal it). */
   before?: string[];
   /** Shell when it does not start (put the previous release back). */
@@ -552,12 +567,15 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
       text === null ? `rm -f ${shq(f)}` : writeFileCmd(f, text, f.startsWith(`${SECRETS_DIR}/`) ? "644" : "600"),
     ),
   );
+  // With the new .env in place, before the switch: what fails goes back like a failed start.
+  lines.push(...hookLines(o.hooks?.pre, "exec", "current", o.failed), ...hookLines(o.hooks?.release, "run", rel, o.failed));
   // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
   lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
   lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name, o.failed));
   if (o.recreate?.length)
     lines.push(`log "recreating ${o.recreate.join(", ")}"`, `(cd -P current && ${UP} --force-recreate --no-deps ${o.recreate.map(shq).join(" ")}) || exit 1`);
+  lines.push(...hookLines(o.hooks?.verify, "exec", "current", o.failed), ...hookLines(o.hooks?.post, "exec", "current"));
   return lines;
 }
 
@@ -605,7 +623,12 @@ export async function changeSite(
   proxy: Proxy,
   what: string,
   change: (m: SiteMeta) => void,
-  o: Pick<ApplyOpts, "files" | "recreate"> = {},
+  o: Pick<ApplyOpts, "files" | "recreate"> & {
+    /** The hooks of the change, from site.json as read under the lock: before it and after it. */
+    hooks?: (before: SiteMeta, after: SiteMeta) => SiteHooks | undefined;
+    /** Its skips go into the journal line. */
+    skip?: Skipper;
+  } = {},
 ): Promise<SiteMeta> {
   // Under the deploy lock, on site.json as it is now: a deploy or change in between would be lost on write.
   const lock = await lockSite(s, name);
@@ -614,7 +637,8 @@ export async function changeSite(
     const prev = structuredClone(meta);
     change(meta);
     meta.updatedAt = new Date().toISOString();
-    await applySite(s, meta, proxy, { ...o, keep: meta.releases.length, prev, what });
+    const hooks = o.hooks?.(prev, meta);
+    await applySite(s, meta, proxy, { files: o.files, recreate: o.recreate, hooks, keep: meta.releases.length, prev, what: what + (o.skip?.note() ?? "") });
     return meta;
   } finally {
     await lock.unlock();
@@ -747,8 +771,11 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
  * vols: the site's volumes, deleted with it (--volumes). Each is backed up to its backups folder first and
  * journaled, so lf undo brings them back; a backup that fails stops it all before anything is gone.
  */
-export async function removeSite(s: Server, meta: SiteMeta, o: { vols?: { name: string; key: string }[] } = {}) {
-  const what = `removed site ${meta.name} (${siteDomains(meta).join(", ") || "no domains"})${o.vols ? " and its volumes" : ""}`;
+/** Removes a site; with `hooks`, the current release's predestroy runs first (minus what it skips). */
+export async function removeSite(s: Server, meta: SiteMeta, o: { vols?: { name: string; key: string }[]; hooks?: Skipper } = {}) {
+  const r = meta.adopted ? undefined : currentRelease(meta);
+  const hook = o.hooks && serverCall(r?.hooks, "predestroy", o.hooks, hookVars(meta.name, { release: r }));
+  const what = `removed site ${meta.name} (${siteDomains(meta).join(", ") || "no domains"})${o.vols ? " and its volumes" : ""}${o.hooks?.note() ?? ""}`;
   const dir = siteDir(meta.name);
   const now = new Date();
   const saves = (o.vols ?? []).flatMap((v) => {
@@ -760,7 +787,11 @@ export async function removeSite(s: Server, meta: SiteMeta, o: { vols?: { name: 
       `record ${shq(`delete volume ${v.key} of ${meta.name} (backup ${name})`)} ${shq(recreateFrom(v.name, v.key, projectName(meta), file))}`,
     ];
   });
-  const head = saves.length ? [`cd ${shq(dir)} && mkdir -p backups`, ...saves] : [];
+  // predestroy first, in the running container: what fails stops the removal before anything is gone.
+  const head = [
+    ...(hook ? [`cd ${shq(dir)}`, ...hookLines(hook, "exec", "current")] : []),
+    ...(saves.length ? [`cd ${shq(dir)} && mkdir -p backups`, ...saves] : []),
+  ];
   await runScript(s, [PRELUDE, ...head, ...removeLines(meta, { volumes: !!o.vols }), `record ${shq(what)}`].join("\n"));
 }
 
