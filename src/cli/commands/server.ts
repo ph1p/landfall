@@ -23,7 +23,6 @@ import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
 import { pct } from "../../core/format";
 import { bytes, checkCloud, CLOUD_IDS, cloudFirewall, cloudOf, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
-import { traefikState } from "../../core/traefik";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
 import { listServers, reachAll } from "../../core/dashboard";
@@ -183,7 +182,8 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     if (server !== saved && !(await canLogin(server))) fail(`cannot log in to ${name}, neither as ${effectiveSsh(saved).user} nor as root`);
     // Deleting ROOT needs root: found now, while the deploy user still exists.
     const root = await loginFor(server, "root");
-    const [ov, st, runs] = await Promise.all([overview(server), traefikState(server), readJournal(server)]);
+    const [ov, runs] = await Promise.all([overview(server), readJournal(server)]);
+    const st = ov.owner;
     if (st.compose === "foreign") fail(`${TRAEFIK_DIR}/docker-compose.yml was not written by landfall: move it out of ${ROOT} first`);
     // Whatever lives under ROOT goes with it; undoing it step by step could trip over what is already gone.
     const steps = o["keep-setup"]

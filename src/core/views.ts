@@ -83,18 +83,23 @@ export async function updatesView(server: Server, refresh = false) {
 }
 
 /** `lf domains --json`: where each domain points and whether it answers on https. */
-export async function dnsView(server: Server, domains: string[]) {
-  const ips = await serverIps(server);
-  const [dns, https] = await Promise.all([checkDns(domains, ips), Promise.all(domains.map((d) => checkUrl(d)))]);
-  return { ips, domains: dns.map((d, i) => ({ ...d, https: https[i] })) };
+export async function dnsView(server: Server, domains: string[], serverIpsP = serverIps(server)) {
+  const https = Promise.all(domains.map((d) => checkUrl(d)));
+  const ips = await serverIpsP;
+  const [dns, http] = await Promise.all([checkDns(domains, ips), https]);
+  return { ips, domains: dns.map((d, i) => ({ ...d, https: http[i] })) };
 }
 
 /** `lf redirects --json`: the server's redirects, each with where its host points and whether it answers on https. */
 export async function redirectsView(server: Server) {
+  // The server's addresses do not depend on the file: look them up meanwhile.
+  const ipsP = serverIps(server);
+  ipsP.catch(() => {});
   const r = await readRedirects(server);
   const { ips, domains } = await dnsView(
     server,
     r.list.map((x) => x.host),
+    ipsP,
   );
   return { ips, redirects: r.list.map((x, i) => ({ ...x, ...domains[i] })), ...(r.error && { error: r.error }) };
 }

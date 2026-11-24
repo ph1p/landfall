@@ -5,6 +5,7 @@ import { dropRedirects, editableRedirects, readRedirects, writeRedirects } from 
 import { OWN_PROXY } from "../../core/templates";
 import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, printJson, warn } from "../../core/term";
 import { redirectsView } from "../../core/views";
+import { oneOrMany } from "../../core/format";
 import { claimDomains, lookupDns } from "../../core/claim";
 import { overview } from "../../core/remote";
 
@@ -74,9 +75,9 @@ export const redirectRemove = defineCommand({
     const want = hosts.map((h) => expandDomain(h.trim(), server));
     const gone = was.list.filter((r) => want.includes(r.host));
     const missing = want.filter((h) => !gone.some((r) => r.host === h));
-    if (!gone.length) fail(`${missing.join(", ")} ${missing.length > 1 ? "are not redirects" : "is not a redirect"} on ${name} (lf redirects)`);
+    if (!gone.length) fail(`${missing.join(", ")} ${oneOrMany(missing.length, "is not a redirect", "are not redirects")} on ${name} (lf redirects)`);
     if (missing.length) warn(`${missing.join(", ")} not a redirect on ${name}`);
-    await confirmRemoval(`Remove ${gone.map((r) => `${r.host} → ${r.to}`).join(", ")}? ${gone.length > 1 ? "They stop" : "It stops"} answering.`);
+    await confirmRemoval(`Remove ${gone.map((r) => `${r.host} → ${r.to}`).join(", ")}? ${oneOrMany(gone.length, "It stops", "They stop")} answering.`);
     const names = gone.map((r) => r.host).join(", ");
     await dropRedirects(
       server,

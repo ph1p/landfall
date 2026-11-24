@@ -19,4 +19,6 @@ export const pct = (used: number, total: number) => (total ? Math.round((used / 
 /** A duration in milliseconds: 230ms, 1.4s. */
 export const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
 
+/** `one` for a single thing, `many` for more: verbs and pronouns after a list (`is`/`are`, `it`/`them`). */
+export const oneOrMany = (n: number, one: string, many: string) => (n > 1 ? many : one);
 export const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;

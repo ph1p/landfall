@@ -35,6 +35,7 @@ import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TRAEFIK_DIR, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
 import { REDIRECTS_STATE, redirectsStateOf, type RedirectsState } from "./server-redirects";
+import { traefikStateOf, type TraefikState } from "./traefik";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
@@ -171,6 +172,8 @@ export interface Overview {
   docker?: string;
   /** Hosts landfall's Traefik redirects with no site behind them (`lf redirect add`): the file as read, and whose Traefik runs. */
   redirects: RedirectsState;
+  /** Who runs the Traefik: an adopted proxy's container, whose compose file is in landfall's Traefik folder. */
+  owner: Omit<TraefikState, "sites">;
 }
 
 export interface Unrouted {
@@ -299,6 +302,7 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
     dashboard: { hosts: [], tunnel: false },
     unrouted: [],
     redirects: redirectsStateOf(stdout),
+    owner: traefikStateOf(stdout),
   };
   const ctrs: Unrouted[] = [];
   for (const line of stdout.split("\n")) {

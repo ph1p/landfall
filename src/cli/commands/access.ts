@@ -9,6 +9,8 @@ import { target } from "./sites";
 import { dnsView } from "../../core/views";
 import { claimDomains, lookupDns } from "../../core/claim";
 import { planDomains } from "../../core/domain-plan";
+import { oneOrMany } from "../../core/format";
+import { overview } from "../../core/remote";
 
 export const domains = defineCommand({
   name: "domains",
@@ -33,6 +35,9 @@ permanent redirect to the site's first domain, path and query kept.`,
   async run([n], o) {
     const { site, name: serverName, server } = target(n, o.server);
     const changing = !!(o.add || o.rm || o.set || o.redirect);
+    // What may claim hosts from other sites needs the whole server: read it alongside the site.
+    const all = o.add || o.set || o.redirect ? overview(server) : undefined;
+    all?.catch(() => {});
     const { meta, proxy } = await requireSite(server, site, changing ? { deployed: "change the domains of" } : {});
     if (!changing) {
       const { hosts, to } = siteRedirects(meta);
@@ -57,11 +62,11 @@ permanent redirect to the site's first domain, path and query kept.`,
     if (!plan.changed) return ok("nothing to change");
     if (dropped.length) {
       const left = next.length ? "" : ` ${site} keeps running, unreachable until it gets a domain again.`;
-      await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.${left}`);
+      await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${oneOrMany(dropped.length, "It stops", "They stop")} serving it.${left}`);
     }
     const services = currentRelease(meta)?.services ?? [];
     const claim = [...added, ...subDomains(services, added), ...addedRedirects];
-    const move = await claimDomains(server, serverName, { site }, claim, proxy);
+    const move = await claimDomains(server, serverName, { site }, claim, proxy, { overview: await all });
     const dns = lookupDns(server, claim);
     await move();
     const what = `domains of ${site}: ${next.join(", ")}${nextRedirects.length ? `; redirects to ${next[0]}: ${nextRedirects.join(", ")}` : ""}`;

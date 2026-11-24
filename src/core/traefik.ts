@@ -177,7 +177,7 @@ record ${shq(`sites use traefik ${p.container}`)} "$u"`,
 }
 
 /** Who runs the Traefik for lf sites on the server, and the sites behind it. */
-type TraefikState = { proxy?: string; compose?: "ours" | "foreign"; sites: string[] };
+export type TraefikState = { proxy?: string; compose?: "ours" | "foreign"; sites: string[] };
 
 /** Prints `proxy <container>` for an adopted proxy, `compose ours|foreign` for a compose file in landfall's Traefik folder. */
 export const TRAEFIK_OWNER = `[ ! -f ${PROXY_FILE} ] || printf 'proxy\\t%s\\n' "$(sed -n 's/^container=//p' ${PROXY_FILE})"
