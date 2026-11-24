@@ -29,11 +29,12 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | servers | `server list`, `server info`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
-| maintenance | `updates`, `scan`, `prune`, `traefik status`, `history` |
+| maintenance | `updates`, `scan`, `prune`, `traefik status`, `redirects`, `history` |
 | plugins | `plugins`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
 
 - `ls --others` adds containers landfall did not deploy: `{sites, others}`.
 - `domains` lists the server's addresses under `ips`, and redirect hosts under `redirects`, each with `to`.
+- `redirects` lists `{server, ips, redirects}`; each redirect has `host`, `to`, `permanent`, `path` and its DNS and HTTPS state.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
 The web UI reads the same JSON, so its shape is stable within a release.

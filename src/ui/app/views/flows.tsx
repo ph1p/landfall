@@ -11,7 +11,6 @@ import { toast } from "../ui/toast";
 import { Badge, Btn, cx } from "../ui/kit";
 import {
   dialog,
-  confirmDlg,
   promptDlg,
   invalid,
   openDialog,
@@ -31,6 +30,8 @@ import {
   type Values,
 } from "../ui/dialog";
 import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "./env";
+import { DEPLOY_HOOKS } from "../../../core/hook-names";
+import { HookList, hookFields, skipArgv } from "./hooks";
 
 // ---- server flows ----------------------------------------------------------
 
@@ -611,6 +612,13 @@ function DeployAside({ d }: { d: Detected }) {
           <UsedImages d={d} />
         </div>
       ) : null}
+      {d.hooks || d.hooksError ? (
+        <div>
+          <h3 className={ASIDE_HEAD}>Hooks</h3>
+          {d.hooks && <HookList run={d.hooks.run} pm={d.hooks.pm} service={d.hooks.service} only={DEPLOY_HOOKS} />}
+          {d.hooksError && <p className="m-0 text-bad">{d.hooksError}</p>}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -977,6 +985,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
           },
         ],
       },
+      ...hookFields(det.hooks?.run, DEPLOY_HOOKS, "From package.json's landfall.hooks. Untick one to skip it this once: lf deploy --skip-hook <name>"),
       {
         legend: "Visitor login",
         note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.",
@@ -1020,6 +1029,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       // An upload or an image's empty folder is thrown away: nothing to save .landfall.json in.
       if (o.upload || o.images) argv.push("--no-save");
+      argv.push(...skipArgv(v, det.hooks?.run, DEPLOY_HOOKS));
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
   });
@@ -1060,7 +1070,9 @@ export function detected(path: string) {
 /** Redeploy a folder with its saved settings (.landfall.json), after saying exactly what runs. */
 export function redeploy(path: string, server: string, name: string, kind?: string, environment?: string) {
   const argv = ["deploy", "-y", ...sv(server), ...(environment ? ["-E", environment] : [])];
-  confirmDlg({
+  // The folder's hooks, when the site details read them already.
+  const hooks = S.det[path] ? S.det[path].hooks?.run : undefined;
+  dialog({
     title: `Redeploy ${name} to ${server}?`,
     text: `${kind === "static" ? "Runs its build here (if it has one), uploads" : "Uploads"} ${tilde(path)} with its saved settings and makes it the live release. The current release stays for Roll back.`,
     extra: (
@@ -1068,8 +1080,9 @@ export function redeploy(path: string, server: string, name: string, kind?: stri
         cd {tilde(path)} && lf {argv.join(" ")}
       </code>
     ),
+    fields: hookFields(hooks, DEPLOY_HOOKS),
     ok: "Redeploy",
-    onOk: () => run(argv, { server, cwd: path, after: openAfter }),
+    onOk: (v) => run([...argv, ...skipArgv(v, hooks, DEPLOY_HOOKS)], { server, cwd: path, after: openAfter }),
   });
 }
 

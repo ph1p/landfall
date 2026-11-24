@@ -63,7 +63,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` to run locally and deploy. |
-| `lf deploy [dir] [-d domain...] [--no-domain] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f\|-] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--no-save] [--auth-user u] [--auth-password p] [--host ip [-u user] [--ssh-port p] [--password-stdin]] [--skip-hook name...] [--skip-hooks]` | Deploys a Compose project, app (Node.js, Bun, Deno, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile or image. Sets the server up if needed. Runs [hooks](hooks.md). `--no-save`: no `.landfall.json`. `--auth-user`: a login, as `lf auth`. |
+| `lf deploy [dir] [-d domain...] [--no-domain] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f\|-] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--redirect host...] [--no-redirect] [--no-save] [--auth-user u] [--auth-password p] [--host ip [-u user] [--ssh-port p] [--password-stdin]] [--skip-hook name...] [--skip-hooks]` | Deploys a Compose project, app (Node.js, Bun, Deno, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile or image. Sets the server up if needed. Runs [hooks](hooks.md). `--no-save`: no `.landfall.json`. `--redirect`: the site's redirect hosts, as `lf domains --redirect`; `--no-redirect` removes them. `--auth-user`: a login, as `lf auth`. |
 | `lf ls [--json] [--others]` | Sites and status, plus other containers Traefik routes (read only). `--json --others` gives `{sites, others}`. Alias: `sites list`. |
 | `lf sites info [name] [--json]` | Services, domains, release history. |
 | `lf domains [name] [-a d] [--rm d] [--set d] [--redirect d] [--json]` | Domains and redirects with DNS and HTTPS state, or changes them. No domains: unrouted. `--redirect www`: www.<first domain> redirects to the first domain. |
@@ -101,6 +101,9 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf traefik rm [--certs]` | Removes landfall's Traefik (undoable), or stops using yours. |
 | `lf traefik dashboard [-l local] [--lan] [--port p]` | Dashboard on localhost via SSH tunnel. |
 | `lf traefik status [--json]` / `logs [-f] [-n 100] [--access]` / `restart` | Container and routes, logs (`--access`: with requests), restart. `lf traefik` = `status`. |
+| `lf redirects [--json]` | Server redirects with DNS and HTTPS state. Alias: `redirect ls`. |
+| `lf redirect add <host> <url> [--temporary] [--no-path]` | Redirects a host to a URL, with no site behind it. Path and query are appended; `--no-path` drops them. `--temporary`: 302/307. Adding a host again changes it. Needs landfall's Traefik. Undoable. |
+| `lf redirect rm <host...>` | Removes server redirects. Undoable. |
 | `lf firewall [--json]` | ufw rules; reachability per listening port. |
 | `lf firewall allow` / `deny <port[/proto]> [--from ip] [--comment c] [--force]` | Adds a rule. Denies go first and win. |
 | `lf firewall update <n\|rule> [--port p] [--from ip] [--comment c] [--action allow\|deny\|limit] [--force]` | Changes a rule. |

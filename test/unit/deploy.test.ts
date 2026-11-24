@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
+import { deployRedirects } from "../../src/core/domain-plan";
 import { detectStaticDir, slug, withRedirects } from "../../src/core/projects";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
 import {
@@ -158,6 +159,22 @@ describe("deploy helpers", () => {
     for (const bad of ["abc", "", "80a", "0", "70000", "1.5"]) expect(() => checkInt(bad, "--port", 1, 65535)).toThrow(/--port/);
     expect(checkImage("ghcr.io/me/app:1.2@sha256:abc")).toBe("ghcr.io/me/app:1.2@sha256:abc");
     for (const bad of ['traefik"; rm -rf /', "x $(id)", "a\nb: c", "-x"]) expect(() => checkImage(bad)).toThrow(/not an image/);
+  });
+  test("redirects: --redirect, else .landfall.json, else the site's own", () => {
+    const base = { none: false, domains: ["shop.com"], name: "shop" };
+    expect(deployRedirects({ ...base, args: ["www"], saved: ["old.com"] })).toEqual(["www.shop.com"]);
+    expect(deployRedirects({ ...base, saved: ["old.com"], prev: ["www.shop.com"] })).toEqual(["old.com"]);
+    expect(deployRedirects({ ...base, prev: ["www.shop.com"] })).toEqual(["www.shop.com"]);
+    // A served domain is not also a redirect.
+    expect(deployRedirects({ ...base, args: ["www", "shop.com"] })).toEqual(["www.shop.com"]);
+    expect(deployRedirects({ ...base, none: true, saved: ["old.com"], prev: ["www.shop.com"] })).toEqual([]);
+    expect(() => deployRedirects({ ...base, saved: ["no_pe.com"] })).toThrow(/not a domain: no_pe.com \(redirects in/);
+  });
+  test("redirects without a domain: kept, unless asked for", () => {
+    const base = { none: false, domains: [], name: "shop" };
+    expect(deployRedirects({ ...base, saved: ["old.com"], prev: ["www.shop.com"] })).toEqual(["www.shop.com"]);
+    expect(deployRedirects({ ...base, none: true, prev: ["www.shop.com"] })).toEqual([]);
+    expect(() => deployRedirects({ ...base, args: ["www"] })).toThrow(/would redirect to nothing: shop serves no domain/);
   });
   test("slug", () => {
     expect(slug("My Site.com")).toBe("my-site-com");

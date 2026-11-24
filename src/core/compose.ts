@@ -186,6 +186,9 @@ export function siteDomains(meta: SiteMeta): string[] {
   return [...new Set([...(mainService(r) ? meta.domains : []), ...fixedDomains(r.services), ...subDomains(r.services, meta.domains)])];
 }
 
+/** Every host a site claims: the domains it serves and its redirect hosts (also those waiting for a domain). */
+export const siteHosts = (meta: SiteMeta): string[] => [...siteDomains(meta), ...(meta.redirects ?? [])];
+
 /** One Traefik router of a release: a service's own port, or one of its routes. */
 export interface Router {
   /** service:port, how \`lf auth --route\` names it. */

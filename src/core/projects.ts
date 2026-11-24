@@ -18,6 +18,7 @@ import { seedFolders, uploadList } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { detectRuntime, files, head, nodeFrom, nodeStage, packageManager, tail, type Runtime } from "./runtimes";
 import { localEnv } from "./remote";
+import { readHooks, refuseStaticServerHooks, type ProjectHooks } from "./hooks";
 import { slug } from "./slug";
 import { warn } from "./term";
 
@@ -220,6 +221,9 @@ export interface Detected {
   stack: Tag[];
   /** The images it runs or builds on, so a deploy says what it pulls. */
   images?: UsedImage[];
+  /** package.json's lifecycle hooks, as a deploy from here reads them; or why they cannot be read. */
+  hooks?: ProjectHooks;
+  hooksError?: string;
 }
 
 /** An image a deploy pulls: run as it is, or (base) a Dockerfile's FROM that a build starts from. */
@@ -313,6 +317,18 @@ const namedVolumes = (a: Detected["analysis"]) =>
   );
 
 export function detectProject(path: string): Detected {
+  const d = detectKind(path);
+  try {
+    const hooks = readHooks([resolve(path, d.project?.dir ?? "."), path]);
+    // What the deploy refuses, the dialog reports up front.
+    refuseStaticServerHooks(hooks, d.kind);
+    return hooks ? { ...d, hooks } : d;
+  } catch (e) {
+    return { ...d, hooksError: (e as Error).message };
+  }
+}
+
+function detectKind(path: string): Detected {
   const project = loadProject(path);
   const name = project?.name ?? slug(basename(path));
   const compose = composeFile(path, project);

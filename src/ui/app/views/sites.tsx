@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { S, ago, errorMessage, http, plural, render, sv, tilde } from "../lib/store";
-import type { External, Overview, SiteMeta, SiteStatus, Volumes } from "../lib/types";
+import type { External, Overview, Release, SiteMeta, SiteStatus, Volumes } from "../lib/types";
 import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
 import { go } from "../lib/api";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
@@ -9,6 +9,8 @@ import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
 import { Describe, Stack, deployImage, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
+import { ROLLBACK_HOOKS } from "../../../core/hook-names";
+import { HookList, definedHooks, hookFields, skipArgv, type HookRun } from "./hooks";
 import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
@@ -166,6 +168,17 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   useEffect(() => {
     if (open && deploys) detected(proj.path);
   });
+  // Hooks a rollback runs: the leaving release's prerollback, the reached one's postrollback.
+  const rollback = (to: Release, argv: string[], title: string, text: string, ok: string) => {
+    const hooks: HookRun = { prerollback: cur?.hooks?.run.prerollback, postrollback: to.hooks?.run.postrollback };
+    dialog({
+      title,
+      text,
+      fields: hookFields(hooks, ROLLBACK_HOOKS, "Untick one to skip it this once: lf rollback --skip-hook <name>"),
+      ok,
+      onOk: (v) => run(["rollback", name, ...sv(n), ...argv, "-y", ...skipArgv(v, hooks, ROLLBACK_HOOKS)]),
+    });
+  };
   const deleteSite = () =>
     dialog({
       title: m.adopted ? `Stop and forget ${name}?` : `Delete ${name} from ${n}?`,
@@ -181,11 +194,16 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               label: "Also delete its volumes",
               hint: "Databases, uploads: all its data. Each is backed up to the site's backups folder first; lf undo brings them back. lf sites rm --volumes",
             },
+            ...hookFields(
+              cur?.hooks?.run,
+              ["predestroy"],
+              "The live release's predestroy hook runs before anything goes. Untick it to skip it: lf sites rm --skip-hook predestroy",
+            ),
           ],
       ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
       danger: true,
       typeToConfirm: m.adopted ? "" : name,
-      onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : [])]),
+      onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : []), ...skipArgv(v, cur?.hooks?.run, ["predestroy"])]),
     });
   // Empty fields keep what the site runs behind now: landfall's Traefik, or the one it uses.
   const eject = () => {
@@ -314,12 +332,13 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               hint: "lf rollback",
               title: `To ${older[0].id} (${ago(older[0].at)})`,
               run: () =>
-                confirmDlg({
-                  title: `Roll back ${name}?`,
-                  text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`,
-                  ok: "Roll back",
-                  onOk: () => run(["rollback", name, ...sv(n), "-y"]),
-                }),
+                rollback(
+                  older[0],
+                  [],
+                  `Roll back ${name}?`,
+                  `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`,
+                  "Roll back",
+                ),
             },
           "-",
           domains.length > 0 && {
@@ -426,6 +445,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <div className="faint text-sm truncate">
           {ago(r.at)}
           {r.services && ` · ${r.services.map((x) => x.name).join(", ")}`}
+          {r.hooks && ` · hooks ${definedHooks(r.hooks.run).join(", ")}`}
           {r.git && (
             <span className="mono" title={r.by ? `deployed by ${r.by}` : undefined}>
               {" "}
@@ -440,12 +460,13 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <Btn
           cls="sm shrink-0"
           on={() =>
-            confirmDlg({
-              title: `Switch ${name} to ${r.id}?`,
-              text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`,
-              ok: "Switch",
-              onOk: () => run(["rollback", name, ...sv(n), "--to", r.id, "-y"]),
-            })
+            rollback(
+              r,
+              ["--to", r.id],
+              `Switch ${name} to ${r.id}?`,
+              `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`,
+              "Switch",
+            )
           }
         >
           Switch to this
@@ -497,6 +518,14 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       ) : (
         <span className="dim">not deployed from this machine{m.kind === "image" ? "" : " (or the folder moved): Redeploy picks the folder"}</span>
       ),
+    ]);
+  if (cur?.hooks)
+    facts.push([
+      "Hooks",
+      <>
+        <HookList run={cur.hooks.run} pm={cur.hooks.pm} service={cur.hooks.service} />
+        <span className="dim text-sm">The live release&apos;s, from package.json: rollback and Delete run them, a deploy reads them anew.</span>
+      </>,
     ]);
   facts.push(["Created", `${ago(m.createdAt)} · updated ${ago(m.updatedAt)}`]);
   const detail = (

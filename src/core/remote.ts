@@ -34,6 +34,8 @@ import { backupName, backupTo, recreateFrom } from "./volumes";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
 import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TRAEFIK_DIR, TUNNEL_ROUTER, type Proxy } from "./templates";
 import { fail, readStdin, warn } from "./term";
+import type { ServerRedirect } from "./redirects";
+import { readRedirectsLine, REDIRECTS_LINE } from "./server-redirects";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
@@ -168,6 +170,12 @@ export interface Overview {
   unrouted: Unrouted[];
   /** Set when Docker is installed but `docker ps` failed: its error. The lists above are empty then, not known. */
   docker?: string;
+  /** Hosts landfall's Traefik redirects with no site behind them (`lf redirect add`). */
+  redirects: ServerRedirect[];
+  /** Set when the redirects file is not as landfall wrote it (edited by hand): why. */
+  redirectsError?: string;
+  /** sha256 of the redirects file as read: a change to it checks that nothing changed in between. */
+  redirectsSha?: string;
 }
 
 export interface Unrouted {
@@ -274,6 +282,7 @@ export async function overview(s: Server): Promise<Overview> {
 P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
 ${SITE_LINES}
+${REDIRECTS_LINE}
 ${ctrPs(true)} 2>/dev/null || true
 # Docker is there but does not answer (no access to its socket, daemon down): say why, an empty list would lie.
 ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 || printf 'DOCKER\\t%s\\n' "$(docker ps -q 2>&1 | tail -n1)"; }
@@ -294,12 +303,14 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
     others: [],
     dashboard: { hosts: [], tunnel: false },
     unrouted: [],
+    redirects: [],
   };
   const ctrs: Unrouted[] = [];
   for (const line of stdout.split("\n")) {
     const [kind, a = "", b = "", project = "", service = "", image = "", ports = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
     if (kind === "DOCKER") o.docker = a || "docker ps failed";
+    if (kind === "REDIRECTS") ({ list: o.redirects, error: o.redirectsError, sha: o.redirectsSha } = readRedirectsLine(a, b));
     if (kind === "TRAEFIK") {
       o.traefik = a;
       o.proxy = b || "traefik";

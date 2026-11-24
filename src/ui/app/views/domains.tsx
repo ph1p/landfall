@@ -1,5 +1,5 @@
 import { S, plural, sv, tilde } from "../lib/store";
-import type { Detected, Overview, SiteStatus } from "../lib/types";
+import type { Detected, Dns, Overview, SiteStatus } from "../lib/types";
 import { fetchInto, go, refreshState } from "../lib/api";
 import { run, ifOk } from "../lib/jobs";
 import { toast } from "../ui/toast";
@@ -203,6 +203,8 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
       let domains: string[] | undefined;
       // lf domains --redirect / --rm for the redirects that changed; with no domain they stay as they are.
       const redirectArgs: string[] = [];
+      // A redeploy takes the whole list instead: --redirect for each, --no-redirect for none.
+      let deployRedirects: string[] = [];
       if (svc && served(v)) {
         const next = v.noDomain ? [] : words(v.domains);
         if (v.free && !v.noDomain) next.push(free);
@@ -213,6 +215,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
           const want = redirectHosts(words(v.redirects), next[0]);
           redirectArgs.push(...want.filter((d) => !was.includes(d)).flatMap((d) => ["--redirect", d]));
           redirectArgs.push(...was.filter((d) => !want.includes(d) && !next.includes(d)).flatMap((d) => ["--rm", d]));
+          if (redirectArgs.length) deployRedirects = want.length ? want.flatMap((d) => ["--redirect", d]) : ["--no-redirect"];
         }
       }
       const flags = build?.argv(v) ?? [];
@@ -220,8 +223,10 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
       // A redeploy takes the new domains along; run from the folder, both keep .landfall.json in step.
       if (rebuild) {
         const to = domains && (domains.length ? domains.flatMap((d) => ["-d", d]) : ["--no-domain"]);
-        jobs.push({ argv: ["deploy", "-y", ...sv(n), ...(environment ? ["-E", environment] : []), "-n", name, ...flags, ...(to ?? [])], cwd: path });
-        if (redirectArgs.length) jobs.push({ argv: ["domains", name, ...sv(n), ...redirectArgs, "-y"], cwd: path });
+        jobs.push({
+          argv: ["deploy", "-y", ...sv(n), ...(environment ? ["-E", environment] : []), "-n", name, ...flags, ...(to ?? []), ...deployRedirects],
+          cwd: path,
+        });
       } else if (domains || redirectArgs.length) {
         // None left: the site keeps running, unrouted.
         const args = !domains ? [] : domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
@@ -235,11 +240,21 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
   });
 }
 
-/** Check the sites' domains (DNS and HTTPS) once, again when forced. Call it from an effect. */
+/** Check the sites' and redirects' hosts (DNS and HTTPS): all of them once or when forced, else only hosts added since. Call it from an effect. */
 export function ensureDns(n: string, o: Overview | undefined, force = false) {
-  if ((S.dns[n] && !force) || S.dns[n]?.loading || !o?.sites.length) return;
-  const domains = [...new Set(o.sites.flatMap((x) => [...x.domains, ...x.redirects]))];
-  fetchInto("dns", n, `/dns?domains=${encodeURIComponent(domains.join(","))}`);
+  const slot = S.dns[n];
+  if (slot?.loading || !o || (slot?.error && !force)) return;
+  const hosts = [...new Set([...o.sites.flatMap((x) => [...x.domains, ...x.redirects]), ...o.redirects.map((r) => r.host)])];
+  const have = slot?.data;
+  const url = (list: string[]) => `/dns?domains=${encodeURIComponent(list.join(","))}`;
+  if (force || !have) return void (hosts.length && fetchInto("dns", n, url(hosts)));
+  const missing = hosts.filter((h) => !have.domains.some((d) => d.domain === h));
+  if (!missing.length) return;
+  // Only the new hosts are fetched; the answer is merged into what is shown.
+  fetchInto("dns", n, url(missing), (d) => {
+    const x = d as Dns;
+    x.domains = [...have.domains.filter((h) => !missing.includes(h.domain)), ...x.domains];
+  });
 }
 
 /** A site's domain as a link, with a dot for its DNS and HTTPS check and a copy button; `to`: it redirects there. */

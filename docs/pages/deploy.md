@@ -367,6 +367,7 @@ lf domains blog --add www                   # www.example.com
 lf deploy -d @                              # @ → example.com itself
 lf domains blog --add @                     # blog also serves example.com
 lf domains blog --redirect www              # www.<blog's first domain> redirects to it (see Sites: Redirects)
+lf deploy -d @ --redirect www               # the same on deploy; --no-redirect drops the redirects
 lf server domain vps --add other.org        # more main domains; the first stays primary
 lf server domain vps --primary other.org    # switch the primary
 lf server domain vps --rm other.org         # drop one; --clear drops all (back to sslip.io)

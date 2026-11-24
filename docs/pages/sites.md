@@ -62,6 +62,8 @@ lf domains blog                               # redirects are listed with an arr
 - Redirects are saved in `.landfall.json` under `redirects`, and every deploy keeps them.
 - A site with no domain keeps its redirects but does not route them until it has a domain again.
 - `lf undo` takes a redirect change back.
+- `lf deploy --redirect www` sets the redirects on deploy. `--no-redirect` removes them.
+- A host that redirects elsewhere, with no site behind it, is a server redirect: `lf redirect add` (see [Traefik](traefik.md)).
 
 Removing the last domain leaves the site running, unrouted.
 

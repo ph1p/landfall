@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import stringWidth from "string-width";
+import { CliError, fail } from "./fail";
+
+export { CliError, fail };
 
 /** All of stdin, for secrets passed as --*-stdin / `-` instead of on the command line (where `ps` shows them). */
 export const readStdin = async () => {
@@ -35,7 +38,6 @@ export function showStack(stack: { label: string; role: string }[]) {
   if (stack.length) info(`detected: ${stack.map((t) => (t.role === "tooling" ? t.label : c.bold(t.label))).join(c.dim(" · "))}`);
 }
 
-export class CliError extends Error {}
 /** Starts a marker line on stderr: what follows is JSON for the web UI, not text to show. */
 export const REPORT = "\x1e";
 
@@ -46,10 +48,6 @@ export const REPORT = "\x1e";
 export function report(data: Record<string, unknown>) {
   if (process.env.LANDFALL_REPORT) process.stderr.write(`${REPORT}${JSON.stringify(data)}\n`);
 }
-
-export const fail = (msg: string): never => {
-  throw new CliError(msg);
-};
 
 let assumeYes = false;
 export const setAssumeYes = (v: boolean) => (assumeYes = v);
@@ -173,4 +171,15 @@ export function showDiff(file: string, before: string, after: string) {
     gap = false;
     console.log(t === "+" ? c.green(`+ ${l}`) : t === "-" ? c.red(`- ${l}`) : c.dim(`  ${l}`));
   });
+}
+
+/** `dns ok`, or where the name points instead. */
+export const dnsLabel = (r: { ok: boolean; ips: string[] }) =>
+  r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");
+
+/** The status a visitor gets over HTTPS, red for an error or a bad certificate. */
+export function httpsLabel({ status, error, tls }: { status?: number; error?: string; tls?: { valid: boolean; error?: string } }) {
+  if (!status) return c.red(`https ${error}`);
+  if (tls && !tls.valid) return c.red(`https ${status}, certificate: ${tls.error}`);
+  return (status < 400 ? c.green : status === 401 ? c.cyan : c.yellow)(`https ${status}`);
 }

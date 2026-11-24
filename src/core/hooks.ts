@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import type { Release } from "./compose";
 import { mainService } from "./compose";
-import { packageSection } from "./config";
+import { packageJson } from "./config";
 import { usesBun } from "./frameworks";
+import { HOOKS, SERVER_HOOKS, type Hook, type LocalHook, type ServerHook } from "./hook-names";
 import { files, packageManager } from "./runtimes";
 import { journal, shq } from "./ssh";
 import { c, fail, info, step, warn } from "./term";
@@ -13,12 +14,6 @@ import { c, fail, info, step, warn } from "./term";
  * code and the production .env run on the server, in the site's container. No agent: a hook is one more
  * `docker compose run` or `exec` in the deploy's script.
  */
-const LOCAL_HOOKS = ["prebuild", "postbuild", "predeploy", "onfailure"] as const;
-const SERVER_HOOKS = ["release", "verify", "postdeploy", "prerollback", "postrollback", "predestroy"] as const;
-const HOOKS = [...LOCAL_HOOKS, ...SERVER_HOOKS] as const;
-type LocalHook = (typeof LOCAL_HOOKS)[number];
-export type ServerHook = (typeof SERVER_HOOKS)[number];
-export type Hook = (typeof HOOKS)[number];
 
 /** Hooks whose failure stops what they guard; the others (post*, onfailure) only report. */
 const BLOCKING: readonly Hook[] = ["prebuild", "predeploy", "release", "verify", "prerollback", "predestroy"];
@@ -49,16 +44,15 @@ export interface ReleaseHooks {
 export function readHooks(dirs: string[]): ProjectHooks | undefined {
   const dir = dirs.find((d) => files(d).has("package.json"));
   if (!dir) return;
-  const f = files(dir);
   // The section's other keys are project settings (see loadProject).
-  const section = packageSection(dir);
-  if (!section) return;
+  const read = packageJson(dir);
+  if (!read) return;
+  const { pkg, section } = read;
   if (section.service !== undefined && (typeof section.service !== "string" || !section.service))
     fail('package.json: "landfall.service" must name a compose service');
   const hooks = section.hooks ?? {};
   if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) fail('package.json: "landfall.hooks" must map hooks to script names');
   const run: Partial<Record<Hook, string[]>> = {};
-  const pkg = f.pkg;
   const scripts: Record<string, unknown> = pkg.scripts ?? {};
   for (const [name, value] of Object.entries<unknown>(hooks)) {
     if (!(HOOKS as readonly string[]).includes(name)) fail(`package.json: unknown hook "${name}" in landfall.hooks (hooks: ${HOOKS.join(", ")})`);
@@ -70,7 +64,8 @@ export function readHooks(dirs: string[]): ProjectHooks | undefined {
     run[name as Hook] = list as string[];
   }
   if (!Object.keys(run).length) return;
-  const pm = packageManager(f.has, usesBun(f), pkg.packageManager).name;
+  const has = files(dir).has;
+  const pm = packageManager(has, usesBun({ has, pkg }), pkg.packageManager).name;
   return { dir, pm, ...(section.service && { service: section.service }), run };
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { S, sv } from "../lib/store";
 import type { DnsCheck } from "../lib/types";
+import { redirectTarget, type ServerRedirect } from "../../../core/redirects";
 import { ensure, fetchInto, load, refreshState } from "../lib/api";
 import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";
@@ -8,6 +9,7 @@ import { Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, Sub, T
 import { MenuBtn } from "../ui/menu";
 import { providerDialog, rootLoginDialog } from "./flows";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError } from "../ui/dialog";
+import { DomainChip, ensureDns } from "./domains";
 
 // ---- traefik & settings --------------------------------------------------------
 
@@ -298,7 +300,148 @@ export function TraefikView({ n }: { n: string }) {
         </Body>
       </Card>
       <RoutesCard n={n} useDlg={useDlg} />
+      {!foreign && ts?.container && <RedirectsCard n={n} reload={reload} />}
     </>
+  );
+}
+
+/** lf redirects: hosts the server's Traefik answers with a redirect, with no site behind them. */
+function RedirectsCard({ n, reload }: { n: string; reload: { server: string; after: ReturnType<typeof ifOk> } }) {
+  const o = S.overview[n]?.data;
+  const list = o?.redirects ?? [];
+  const dns = S.dns[n]?.data;
+  const locked = !!o?.redirectsError;
+  // Checks hosts added since the last check too: each host shows its DNS and HTTPS state.
+  useEffect(() => ensureDns(n, o), [n, o]);
+  const edit = (r?: ServerRedirect) =>
+    dialog({
+      title: r ? `Change the redirect of ${r.host}` : `Redirect a host on ${n}`,
+      text: "Traefik answers every request for the host with a redirect. No site runs behind it.",
+      fields: [
+        ...(r
+          ? []
+          : [
+              {
+                name: "host",
+                label: "Host",
+                mono: true,
+                placeholder: "old.example.com",
+                required: "Which host? For example old.example.com",
+                check: (v: unknown) => (domainOk(String(v).trim()) || !String(v).includes(".") ? undefined : "not a domain"),
+                hint: "A bare name is a subdomain of the main domain. Point its DNS at this server.",
+              },
+            ]),
+        {
+          name: "to",
+          label: "To",
+          mono: true,
+          value: r?.to ?? "",
+          placeholder: "https://example.com",
+          required: "Where to? For example https://example.com",
+          preview: (v) => {
+            const to = String(v.to ?? "").trim();
+            if (!to) return null;
+            const host = r?.host ?? (String(v.host ?? "").trim() || "old.example.com");
+            try {
+              const url = redirectTarget(host, to, !!v.path);
+              return `${host}/a?b=1 → ${url}${v.path ? "/a?b=1" : ""}`;
+            } catch (e) {
+              return (e as Error).message;
+            }
+          },
+        },
+        { name: "path", label: "Keep the path and query", type: "check", value: r?.path ?? true },
+        { name: "temporary", label: "Temporary (302/307: browsers do not remember it)", type: "check", value: r ? !r.permanent : false },
+      ],
+      ok: r ? "Change" : "Add",
+      onOk: (v) =>
+        run(
+          [
+            "redirect",
+            "add",
+            r?.host ?? String(v.host).trim(),
+            String(v.to).trim(),
+            ...sv(n),
+            ...(v.path ? [] : ["--no-path"]),
+            ...(v.temporary ? ["--temporary"] : []),
+            "-y",
+          ],
+          reload,
+        ),
+    });
+  const remove = (r: ServerRedirect) =>
+    confirmDlg({
+      title: `Remove the redirect of ${r.host}?`,
+      text: `${r.host} stops redirecting to ${r.to}. Requests for it fail until a site or redirect takes it again.`,
+      ok: "Remove",
+      onOk: () => run(["redirect", "rm", r.host, ...sv(n), "-y"], reload),
+    });
+  const offDns = list.filter((r) => dns?.domains.some((d) => d.domain === r.host && !d.ok));
+  return (
+    <Card>
+      <CardHead>
+        Redirects <Sub>hosts sent elsewhere, no site behind them</Sub>
+        <Actions>
+          <Btn cls="sm" title="lf redirect add" disabled={locked} on={() => edit()}>
+            Add…
+          </Btn>
+        </Actions>
+      </CardHead>
+      {o?.redirectsError && (
+        <Body>
+          <Note>{o.redirectsError}. Change it by hand, or remove it, to manage redirects here.</Note>
+        </Body>
+      )}
+      {list.length ? (
+        <>
+          <Table cols={[["host"], ["to"], ["kind", HIDE], [""]]}>
+            {list.map((r) => (
+              <tr key={r.host}>
+                <td className={MONO}>
+                  <DomainChip n={n} d={r.host} />
+                </td>
+                <td className={cx(MONO, "break-all")}>
+                  <a href={r.to} target="_blank" rel="noopener">
+                    {r.to}
+                  </a>
+                  {r.path && <span className="faint">/…</span>}
+                </td>
+                <td className={cx(HIDE, "whitespace-nowrap")}>
+                  <Badge kind={r.permanent ? "ok" : "warn"}>{r.permanent ? "permanent" : "temporary"}</Badge>{" "}
+                  {!r.path && (
+                    <span className="dim" title="Every request goes to the URL as given">
+                      path dropped
+                    </span>
+                  )}
+                </td>
+                <td className="text-right whitespace-nowrap">
+                  <Btn cls="sm" title="lf redirect add" disabled={locked} on={() => edit(r)}>
+                    Change…
+                  </Btn>{" "}
+                  <Btn cls="sm" title="lf redirect rm" disabled={locked} on={() => remove(r)}>
+                    Remove…
+                  </Btn>
+                </td>
+              </tr>
+            ))}
+          </Table>
+          {offDns.length > 0 && dns && (
+            <Body>
+              <Note>
+                Point an A record for <b className={MONO}>{offDns.map((r) => r.host).join(", ")}</b> at <b className={MONO}>{dns.ips.join(" or ")}</b>. HTTPS
+                waits for it.
+              </Note>
+            </Body>
+          )}
+        </>
+      ) : (
+        !o?.redirectsError && (
+          <Body className="dim">
+            No redirects. Add one to send an old domain to a new one, path and query kept. A site&apos;s own redirects (like www) are in its domain settings.
+          </Body>
+        )
+      )}
+    </Card>
   );
 }
 

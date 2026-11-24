@@ -54,7 +54,21 @@ function help() {
       ],
     ],
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
-    ["Traefik", ["traefik setup", "traefik use", "traefik status", "traefik dashboard", "traefik logs", "traefik restart", "traefik rm"]],
+    [
+      "Traefik",
+      [
+        "traefik setup",
+        "traefik use",
+        "traefik status",
+        "traefik dashboard",
+        "traefik logs",
+        "traefik restart",
+        "traefik rm",
+        "redirects",
+        "redirect add",
+        "redirect rm",
+      ],
+    ],
     ["Firewall", ["firewall status", "firewall enable", "firewall disable", "firewall allow", "firewall deny", "firewall update", "firewall rm"]],
     [
       "Sites",

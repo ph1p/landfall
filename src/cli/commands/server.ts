@@ -29,7 +29,7 @@ import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
 import { listServers, reachAll } from "../../core/dashboard";
 import { overview, removeLines, siteDir } from "../../core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
-import { c, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
+import { c, confirmRemoval, dnsLabel, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
 import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { configView, factsView, serverSettings } from "../../core/views";
 
@@ -471,8 +471,7 @@ Without either, the server follows landfall's default (\`lf config --tunnel-only
     domains.forEach((d, i) => {
       const r = dns[i];
       for (const x of [r.apex, r.wildcard]) {
-        const state = x.ok ? c.green("dns ok") : x.ips.length ? c.yellow(`dns → ${x.ips.join(", ")}`) : c.red("no dns");
-        console.log(`${x.domain.padEnd(width)}  ${state}${x === r.apex && i === 0 && domains.length > 1 ? c.dim("  primary") : ""}`);
+        console.log(`${x.domain.padEnd(width)}  ${dnsLabel(x)}${x === r.apex && i === 0 && domains.length > 1 ? c.dim("  primary") : ""}`);
         if (!x.ok) records.push(`  ${x.domain}  A  ${r.ips[0] ?? "<server ip>"}`);
       }
     });

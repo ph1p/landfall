@@ -11,6 +11,17 @@ import { safeParts } from "../../src/ui/server/local";
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
 describe("folders and access", () => {
+  test("detects package.json's hooks for the deploy dialog, or why they cannot be read", () => {
+    const d = tmp();
+    const pkg = (hooks: object) => fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { start: "node .", test: "x" }, landfall: { hooks } }));
+    fs.writeFileSync(join(d, "pnpm-lock.yaml"), "");
+    pkg({ predeploy: "test" });
+    expect(detectProject(d)).toMatchObject({ hooks: { dir: d, pm: "pnpm", run: { predeploy: ["test"] } } });
+    pkg({ predeploy: "nope" });
+    const bad = detectProject(d);
+    expect(bad.hooks).toBeUndefined();
+    expect(bad.hooksError).toMatch(/runs nope, which "scripts" does not have/);
+  });
   test("detects what a folder deploys as", () => {
     const d = tmp();
     fs.writeFileSync(join(d, "package.json"), JSON.stringify({ scripts: { build: "vite build" } }));

@@ -49,6 +49,7 @@ import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, vo
 import { update, updatesList } from "./commands/updates";
 import { scanCmd } from "./commands/scan";
 import { registryList, registryLoginCmd, registryLogoutCmd } from "./commands/registries";
+import { redirectAdd, redirectRemove, redirectsList } from "./commands/redirects";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
 
 /** Registration only: importing commands must never start the CLI. */
@@ -71,6 +72,9 @@ export const commands: Command[] = [
   sitesAdopt,
   sitesTunnel,
   tunnelsList,
+  redirectsList,
+  redirectAdd,
+  redirectRemove,
   registryList,
   registryLoginCmd,
   registryLogoutCmd,
@@ -183,6 +187,11 @@ export const aliases: Record<string, string> = {
   "sites open": "open",
   "sites tunnel": "tunnel",
   "tunnels ls": "tunnels",
+  "redirect ls": "redirects",
+  "redirect list": "redirects",
+  "redirect remove": "redirect rm",
+  "redirects rm": "redirect rm",
+  "redirects add": "redirect add",
   "tunnels list": "tunnels",
   upgrade: "update",
   "server stats": "stats",

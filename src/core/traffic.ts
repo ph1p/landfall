@@ -1,7 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import https from "node:https";
 import type { Server } from "./config";
-import { SITE_LINES, siteDomains, readSiteLine } from "./compose";
+import { SITE_LINES, siteHosts, readSiteLine } from "./compose";
 import { runScript } from "./ssh";
 import { PROXY_CTR, PROXY_FILE } from "./templates";
 import { fail } from "./term";
@@ -82,18 +82,18 @@ function siteOf(sites: Map<string, string>, host: string): string | undefined {
   return sites.get(host) ?? sites.get(`*.${host.slice(host.indexOf(".") + 1)}`);
 }
 
-function siteHosts(out: string): Map<string, string> {
+function hostSites(out: string): Map<string, string> {
   const sites = new Map<string, string>();
   for (const line of out.split("\n")) {
     const meta = readSiteLine(line);
-    if (meta) for (const d of siteDomains(meta)) sites.set(d.toLowerCase(), meta.name);
+    if (meta) for (const d of siteHosts(meta)) sites.set(d.toLowerCase(), meta.name);
   }
   return sites;
 }
 
 export function parseTraffic(out: string, secs: number, now = new Date()): Traffic {
   const keys = buckets(secs, now);
-  const sites = siteHosts(out);
+  const sites = hostSites(out);
   const hosts = new Map<
     string,
     Omit<HostTraffic, keyof Summary | "series"> & { codes: Record<string, number>; bytes: number; series: Map<string, Record<StatusClass, number>> }
@@ -319,7 +319,7 @@ export function parseCerts(out: string, now = new Date()): Certs {
     }
   }
   r.certs.sort((a, b) => (a.domains[0] ?? "").localeCompare(b.domains[0] ?? "") || b.days - a.days);
-  const sites = siteHosts(out);
+  const sites = hostSites(out);
   r.domains = [...sites]
     .filter(([d]) => !d.startsWith("*."))
     .map(([domain, site]) => {

@@ -177,16 +177,16 @@ record ${shq(`sites use traefik ${p.container}`)} "$u"`,
 }
 
 /** Who runs the Traefik for lf sites on the server, and the sites behind it. */
-export async function traefikState(server: Server): Promise<{ proxy?: string; compose?: "ours" | "foreign"; sites: string[] }> {
-  const { stdout } = await runScript(
-    server,
-    `[ ! -f ${PROXY_FILE} ] || printf 'proxy\\t%s\\n' "$(sed -n 's/^container=//p' ${PROXY_FILE})"
+type TraefikState = { proxy?: string; compose?: "ours" | "foreign"; sites: string[] };
+
+/** Prints `proxy <container>` (another proxy is in use), `compose ours|foreign` (whose Traefik compose file) and `site <name>` lines. */
+export const TRAEFIK_STATE = `[ ! -f ${PROXY_FILE} ] || printf 'proxy\\t%s\\n' "$(sed -n 's/^container=//p' ${PROXY_FILE})"
 f=${TRAEFIK_DIR}/docker-compose.yml
 [ ! -f $f ] || { grep -q "managed by landfall" $f && echo compose ours || echo compose foreign; }
-for d in ${SITES}/*/; do [ -d "$d" ] && printf 'site\\t%s\\n' "$(basename "$d")"; done; true`,
-    { capture: true },
-  );
-  const st: { proxy?: string; compose?: "ours" | "foreign"; sites: string[] } = { sites: [] };
+for d in ${SITES}/*/; do [ -d "$d" ] && printf 'site\\t%s\\n' "$(basename "$d")"; done; true`;
+
+export function traefikStateOf(stdout: string): TraefikState {
+  const st: TraefikState = { sites: [] };
   for (const line of stdout.split("\n")) {
     const [k, v] = line.split(/[\t ]/);
     if (k === "proxy") st.proxy = v || "?";
@@ -194,6 +194,10 @@ for d in ${SITES}/*/; do [ -d "$d" ] && printf 'site\\t%s\\n' "$(basename "$d")"
     if (k === "site") st.sites.push(v);
   }
   return st;
+}
+
+export async function traefikState(server: Server): Promise<TraefikState> {
+  return traefikStateOf((await runScript(server, TRAEFIK_STATE, { capture: true })).stdout);
 }
 
 /**

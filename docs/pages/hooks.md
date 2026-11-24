@@ -119,6 +119,14 @@ lf rollback --skip-hook prerollback
 
 The output and the journal (`lf history`) name skipped hooks.
 
+## In the web UI
+
+- The deploy dialog lists the folder's hooks, where each runs and when.
+- A broken `landfall.hooks` section shows its error there, before the deploy fails on it.
+- Each hook has a box in the dialog. Untick one to skip it this once (`--skip-hook <name>`).
+- Redeploy, Roll back, Switch to this and Delete offer the same boxes for the hooks they would run.
+- A site's details show the live release's hooks; each release row names its hooks.
+
 ## Output and failures
 
 Hook output goes to the deploy log, on stderr.

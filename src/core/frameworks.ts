@@ -131,7 +131,7 @@ const NODE_ENTRIES = ["server.js", "server.mjs", "index.js", "index.mjs", "app.j
 const BUN_ENTRIES = ["index.ts", "server.ts", "app.ts", "main.ts", "src/index.ts", "src/server.ts"];
 
 /** A Bun project: its lockfile, its config, its types or Elysia; or a start command run with Bun. */
-export function usesBun({ has, pkg }: Files, start = "") {
+export function usesBun({ has, pkg }: Pick<Files, "has" | "pkg">, start = "") {
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
   return (
     ["bun.lock", "bun.lockb", "bunfig.toml"].some(has) ||

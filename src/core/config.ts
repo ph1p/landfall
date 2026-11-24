@@ -334,7 +334,8 @@ const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
  * package.json's "landfall" section, if it has one. It holds any key of .landfall.json, and the hooks
  * (hooks, service). A broken package.json without the section is the build's business, not landfall's.
  */
-export function packageSection(cwd: string): Record<string, any> | undefined {
+/** package.json, parsed, with its "landfall" section checked; undefined without that section. */
+export function packageJson(cwd: string): { pkg: any; section: Record<string, any> } | undefined {
   let text: string;
   try {
     text = fs.readFileSync(join(cwd, "package.json"), "utf8");
@@ -352,12 +353,12 @@ export function packageSection(cwd: string): Record<string, any> | undefined {
   if (section === undefined) return undefined;
   if (!section || typeof section !== "object" || Array.isArray(section))
     fail('package.json: "landfall" must be an object, like { "name": "blog", "hooks": { "predeploy": "test" } }');
-  return section;
+  return { pkg, section };
 }
 
 /** The project settings in package.json's "landfall" section: all of it but the hooks. */
 function packageProject(cwd: string): Partial<ProjectConfig> | undefined {
-  const { hooks: _h, service: _s, ...rest } = packageSection(cwd) ?? {};
+  const { hooks: _h, service: _s, ...rest } = packageJson(cwd)?.section ?? {};
   return Object.keys(rest).length ? rest : undefined;
 }
 

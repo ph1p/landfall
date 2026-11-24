@@ -526,6 +526,22 @@ for _ in $(seq 1 20); do [ "$(loc who2.test '/a/b?c=1')" = "301 https://who.test
 lf domains who --add who2.test >/dev/null 2>&1
 for _ in $(seq 1 20); do [ "$(code who2.test)" = 200 ] && break; sleep 1; done
 [ "$(code who2.test)" = 200 ] || die "--add turns a redirect back into a domain"; pass "domains --redirect: 301 with path and query, --add serves it again"
+# A server redirect: no site behind the host, Traefik's file provider answers.
+lf redirect add old.test https://who.test/docs -y >/dev/null 2>&1 || die "redirect add"
+for _ in $(seq 1 20); do [ "$(loc old.test '/a?b=1')" = "301 https://who.test/docs/a?b=1" ] && break; sleep 1; done
+[ "$(loc old.test '/a?b=1')" = "301 https://who.test/docs/a?b=1" ] || { loc old.test '/a?b=1'; die "server redirect answers 301 with path and query"; }
+{ lf redirects --json | tr -d ' \n' | has '"host":"old.test","to":"https://who.test/docs"'; } || die "redirects --json"
+lf redirect rm old.test -y >/dev/null 2>&1 || die "redirect rm"
+for _ in $(seq 1 20); do [ "$(loc old.test /)" != "301 https://who.test/docs/" ] && break; sleep 1; done
+[ "$(loc old.test /)" != "301 https://who.test/docs/" ] || die "redirect rm stops the redirect"
+lf undo -y >/dev/null 2>&1 || die "undo of redirect rm"
+for _ in $(seq 1 20); do [ "$(loc old.test /)" = "301 https://who.test/docs/" ] && break; sleep 1; done
+[ "$(loc old.test /)" = "301 https://who.test/docs/" ] || die "undo brings the redirect back"
+# A site that takes the host over takes it off the server's redirects.
+lf domains who --add old.test -y >/dev/null 2>&1 || die "a site claims a server redirect's host"
+{ lf redirects --json | has '"old.test"'; } && die "the claimed host left the server redirects"
+lf domains who --rm old.test -y >/dev/null 2>&1
+pass "redirect add/rm: 301 with path and query, undo, a site claims the host"
 # A compose project of the user's own, routed by the same Traefik.
 docker exec "$NAME" docker run -d --name ext-web-1 --label com.docker.compose.project=ext --label com.docker.compose.project.working_dir=/root/ext \
   --label 'traefik.http.routers.ext.rule=Host(`ext.test`)' busybox:1.37 sleep 3600 >/dev/null

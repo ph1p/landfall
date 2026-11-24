@@ -71,7 +71,7 @@ import { pickIp, serverIps, sslipDomain } from "../../core/facts";
 import { bytes, plural } from "../../core/format";
 import { detectBuild } from "../../core/frameworks";
 import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug, withRedirects } from "../../core/projects";
-import { redirectHosts } from "../../core/redirects";
+import { deployRedirects } from "../../core/domain-plan";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { onStop } from "../../core/job";
@@ -95,6 +95,15 @@ function withLogin(auth: string[] | undefined, login?: string) {
   if (!login) return auth;
   const user = loginUser(login);
   return [...(auth ?? []).filter((l) => loginUser(l) !== user), login];
+}
+
+/** A repeatable --<name> with its --no-<name>: parseArgs reads the latter as a false among the values. */
+function listFlag(o: Record<string, any>, name: string): { none: boolean; args?: string[] } {
+  const vals = o[name] as unknown[] | undefined;
+  const none = !!o[`no-${name}`] || (vals?.includes(false) ?? false);
+  const args = vals?.filter((d): d is string => typeof d === "string");
+  if (none && args?.length) fail(`--no-${name} and --${name} exclude each other`);
+  return { none, args };
 }
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
@@ -179,6 +188,12 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
       desc: "domain to serve (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here",
     },
     "no-domain": { type: "boolean", desc: "serve no domain: reach it with lf tunnel until lf domains --add gives it one" },
+    redirect: {
+      type: "string",
+      multiple: true,
+      desc: "redirect a host to the site's first domain (`www` = www.<first domain>); replaces the saved redirects",
+    },
+    "no-redirect": { type: "boolean", desc: "drop the site's redirects" },
     file: { type: "string", short: "f", desc: "compose file to deploy (default: compose.yaml)" },
     spa: { type: "boolean", desc: "single-page app: unknown paths serve index.html" },
     image: { type: "string", desc: "deploy a docker image instead of files" },
@@ -251,10 +266,8 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     }
     const name = validName(o.name ?? project.name ?? envSiteName(slug(basename(cwd))));
     const keep = checkInt(o.keep ?? defaults().keep ?? DEFAULT_KEEP, "--keep", 1);
-    // parseArgs reads --no-domain as the negation of --domain: a false among its values.
-    const noDomain = !!o["no-domain"] || ((o.domain as unknown[] | undefined)?.includes(false) ?? false);
-    const domainArgs: string[] | undefined = o.domain?.filter((d: unknown) => typeof d === "string");
-    if (noDomain && domainArgs?.length) fail("--no-domain and --domain exclude each other");
+    const { none: noDomain, args: domainArgs } = listFlag(o, "domain");
+    const { none: noRedirect, args: redirectArgs } = listFlag(o, "redirect");
     // Domains given up front fail on a typo before the build and the upload.
     const typos = (domainArgs?.length ? domainArgs : (project.domains ?? [])).map((d) => expandDomain(d, server)).filter((d) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
@@ -469,18 +482,20 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
               `-d ignored: ${release.services.some(routed) ? `every routed service of ${name} names its own x-landfall.domains` : `${name} serves no domain`}`,
             );
 
-          // Redirects: .landfall.json's when it lists them, else what lf domains --redirect set; `www` = www.<first domain>.
-          if (mainService(release) && domains.length) {
-            redirects = redirectHosts(project.redirects ?? prev?.redirects ?? [], domains[0]).filter((d) => !domains.includes(d));
-            const bad = redirects.filter((d) => !DOMAIN.test(d));
-            if (bad.length) fail(`not a domain: ${bad.join(", ")} (redirects in ${PROJECT_FILE})`);
-            if (redirects.length) info(c.dim(`redirects to ${domains[0]}: ${redirects.join(", ")}`));
-          } else redirects = prev?.redirects ?? [];
+          redirects = deployRedirects({
+            none: noRedirect,
+            args: redirectArgs,
+            saved: project.redirects,
+            prev: prev?.redirects,
+            domains: mainService(release) ? domains : [],
+            name,
+          });
+          if (redirects.length && domains.length) info(c.dim(`redirects to ${domains[0]}: ${redirects.join(", ")}`));
           showRoutes(a.services, domains, prev && currentRelease(prev));
           move = await claimDomains(
             server,
             serverName,
-            name,
+            { site: name },
             [...domains, ...fixed, ...subDomains(a.services, domains), ...redirects.filter((d) => !prev?.redirects?.includes(d))],
             proxy,
             fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined,
