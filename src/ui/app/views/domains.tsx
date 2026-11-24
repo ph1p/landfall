@@ -7,7 +7,9 @@ import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
 import { autoDomain, browse, buildForm, mainDomain, openAfter } from "./flows";
 import { Copy } from "lucide-react";
-import { redirectHosts } from "../../../core/redirects";
+import { expandHost, redirectHosts } from "../../../core/redirects";
+import { DEPLOY_HOOKS } from "../../../core/hook-names";
+import { hookChoice } from "./hooks";
 import { EnvTable, NO_ENV_CHANGE, type EnvChange } from "./env";
 
 // ---- domains & login ---------------------------------------------------------
@@ -19,8 +21,14 @@ export function copy(text: string) {
   ) ?? toast(text);
 }
 
-const servedByOther = (n: string, site: string, d: string): string | undefined =>
-  S.overview[n]?.data?.sites.find((s) => s.meta.name !== site && s.domains.includes(d))?.meta.name;
+/** What answers a host now, other than `site`: another site, or a server redirect. */
+const servedByOther = (n: string, site: string, d: string): string | undefined => {
+  const o = S.overview[n]?.data;
+  return (
+    o?.sites.find((s) => s.meta.name !== site && s.domains.includes(d))?.meta.name ??
+    (o?.redirects.list.some((r) => r.host === d) ? "A server redirect" : undefined)
+  );
+};
 
 /**
  * Everything about a site in one form: its domains, login, environment and, deployed from here, how it builds.
@@ -56,6 +64,16 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
   const served = (v: Values) => !build || build.served(v);
   // The untouched form already asks for flags (a detected build not yet saved): only a change from them redeploys.
   const untouched = build ? build.argv(defaults(build.fields)).join("\0") : "";
+  const rebuilds = (v: Values) => !!build && build.argv(v).join("\0") !== untouched;
+  const hooks = hookChoice(det?.hooks?.run, DEPLOY_HOOKS, "deploy", "A build change redeploys.");
+  // The domains the form asks for, as lf domains expands them: @ = the main domain, a bare name = a subdomain of it.
+  const nextDomains = (v: Values) => {
+    if (v.noDomain) return [];
+    const next = words(v.domains).map((d) => expandHost(d, main) ?? d);
+    if (v.free) next.push(free);
+    if (v.apex) next.push(main!);
+    return [...new Set(next)];
+  };
   dialog({
     title: `Edit ${name}`,
     text: `On ${n}${path ? `, deployed from ${tilde(path)}${environment ? ` as its ${environment} environment` : ""}` : ""}. Saving runs one lf command per changed section${build ? "; a build change redeploys" : ""}.`,
@@ -72,10 +90,15 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
             value: m.domains.join(" "),
             mono: true,
             off: (v: Values) => v.noDomain,
+            hint: main ? `@ means ${main}, a bare name a subdomain of it.` : undefined,
             check: (x: string) =>
               words(x)
-                .filter((d) => !domainOk(d))
-                .map((d) => `Not a domain: ${d}`)[0],
+                .map((d) =>
+                  expandHost(d, main) === undefined
+                    ? "@ means the main domain, and this server has none"
+                    : !domainOk(expandHost(d, main)!) && `Not a domain: ${d}`,
+                )
+                .find(Boolean) || undefined,
           },
           {
             name: "redirects",
@@ -86,10 +109,11 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
             off: (v: Values) => v.noDomain,
             hint: "These answer with a permanent redirect to the first domain, path and query kept. www means www.<first domain>.",
             check: (x: string, v: Values) => {
-              const first = words(v.domains)[0];
+              const next = nextDomains(v);
+              const first = next[0];
               const bad = words(x).find((d) => !domainOk(d) && !/^[a-z0-9-]+$/i.test(d));
               if (bad) return `Not a domain: ${bad}`;
-              const both = redirectHosts(words(x), first).find((d) => words(v.domains).includes(d));
+              const both = redirectHosts(words(x), first).find((d) => next.includes(d));
               if (both) return `${both} is a domain of the site: take it out there to redirect it`;
               if (words(x).length && !first) return "Redirects need a domain to point at";
             },
@@ -182,6 +206,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
           ],
         },
       ...(build?.fields ?? []),
+      ...hooks.fields.map((g) => ({ ...g, when: rebuilds })),
     ].filter(Boolean) as Spec[],
     ok: "Save",
     onOk: (v) => {
@@ -206,9 +231,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
       // A redeploy takes the whole list instead: --redirect for each, --no-redirect for none.
       let deployRedirects: string[] = [];
       if (svc && served(v)) {
-        const next = v.noDomain ? [] : words(v.domains);
-        if (v.free && !v.noDomain) next.push(free);
-        if (v.apex && !v.noDomain) next.push(main!);
+        const next = nextDomains(v);
         if (next.join(" ") !== m.domains.join(" ")) domains = next;
         if (!v.noDomain) {
           const was = m.redirects ?? [];
@@ -219,12 +242,23 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
         }
       }
       const flags = build?.argv(v) ?? [];
-      const rebuild = flags.join("\0") !== untouched;
+      const rebuild = rebuilds(v);
       // A redeploy takes the new domains along; run from the folder, both keep .landfall.json in step.
       if (rebuild) {
         const to = domains && (domains.length ? domains.flatMap((d) => ["-d", d]) : ["--no-domain"]);
         jobs.push({
-          argv: ["deploy", "-y", ...sv(n), ...(environment ? ["-E", environment] : []), "-n", name, ...flags, ...(to ?? []), ...deployRedirects],
+          argv: [
+            "deploy",
+            "-y",
+            ...sv(n),
+            ...(environment ? ["-E", environment] : []),
+            "-n",
+            name,
+            ...flags,
+            ...(to ?? []),
+            ...deployRedirects,
+            ...hooks.skip(v),
+          ],
           cwd: path,
         });
       } else if (domains || redirectArgs.length) {
@@ -244,7 +278,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
 export function ensureDns(n: string, o: Overview | undefined, force = false) {
   const slot = S.dns[n];
   if (slot?.loading || !o || (slot?.error && !force)) return;
-  const hosts = [...new Set([...o.sites.flatMap((x) => [...x.domains, ...x.redirects]), ...o.redirects.map((r) => r.host)])];
+  const hosts = [...new Set([...o.sites.flatMap((x) => [...x.domains, ...x.redirects]), ...o.redirects.list.map((r) => r.host)])];
   const have = slot?.data;
   const url = (list: string[]) => `/dns?domains=${encodeURIComponent(list.join(","))}`;
   if (force || !have) return void (hosts.length && fetchInto("dns", n, url(hosts)));

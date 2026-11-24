@@ -2,13 +2,13 @@ import type { Server } from "./config";
 import { parseRedirects, redirectsFile, type ServerRedirect } from "./redirects";
 import { runScript, shq, writeFileCmd } from "./ssh";
 import { DYNAMIC_DIR, PRELUDE } from "./templates";
-import { fail } from "./term";
-import { TRAEFIK_STATE, traefikStateOf } from "./traefik";
+import { fail } from "./fail";
+import { TRAEFIK_OWNER, traefikStateOf } from "./traefik";
 
 export const REDIRECTS_FILE = `${DYNAMIC_DIR}/redirects.yml`;
 
 /** Prints `REDIRECTS <sha256> <file without comments, on one line>` if the file exists. */
-export const REDIRECTS_LINE = `[ ! -f ${REDIRECTS_FILE} ] || printf 'REDIRECTS\\t%s\\t%s\\n' "$(sha256sum ${REDIRECTS_FILE} | cut -c1-64)" "$(grep -v '^#' ${REDIRECTS_FILE} | tr -d '\\n')" || true`;
+export const REDIRECTS_LINE = `[ ! -f ${REDIRECTS_FILE} ] || printf 'REDIRECTS\\t%s\\t%s\\n' "$(sha256sum ${REDIRECTS_FILE} | cut -c1-64)" "$(grep -v '^#' ${REDIRECTS_FILE} | tr -d '\\n' | tr -s ' ')" || true`;
 
 export interface RedirectsFile {
   list: ServerRedirect[];
@@ -26,13 +26,28 @@ export function readRedirectsLine(sha: string, json: string): RedirectsFile {
   }
 }
 
-/** The server's redirects, and whether landfall's own Traefik runs there (it alone reads the file). */
-export async function readRedirects(server: Server): Promise<RedirectsFile & { traefik: "ours" | "foreign" | "none" }> {
-  const { stdout } = await runScript(server, `${TRAEFIK_STATE}\n${REDIRECTS_LINE}`, { capture: true });
-  const st = traefikStateOf(stdout);
+/** Who runs the server's Traefik: landfall ("ours", it alone reads the redirects file), another tool, or none yet. */
+export type RedirectsState = RedirectsFile & { traefik: "ours" | "foreign" | "none" };
+
+/** Script lines for redirectsStateOf: whose Traefik runs, and the redirects file. */
+export const REDIRECTS_STATE = `${TRAEFIK_OWNER}\n${REDIRECTS_LINE}`;
+
+/** The redirects file from a script's output that ran REDIRECTS_LINE. */
+export function redirectsOf(stdout: string): RedirectsFile {
   const line = stdout.split("\n").find((l) => l.startsWith("REDIRECTS\t"));
   const [, sha = "", json = ""] = line?.split("\t") ?? [];
-  return { ...(line ? readRedirectsLine(sha, json) : { list: [] }), traefik: st.proxy ? "foreign" : (st.compose ?? "none") };
+  return line ? readRedirectsLine(sha, json) : { list: [] };
+}
+
+export function redirectsStateOf(stdout: string): RedirectsState {
+  const st = traefikStateOf(stdout);
+  return { ...redirectsOf(stdout), traefik: st.proxy ? "foreign" : (st.compose ?? "none") };
+}
+
+/** The server's redirects, and whether landfall's own Traefik runs there. */
+export async function readRedirects(server: Server): Promise<RedirectsState> {
+  const { stdout } = await runScript(server, REDIRECTS_STATE, { capture: true });
+  return redirectsStateOf(stdout);
 }
 
 /** Writes the list (none: removes the file), journaled; fails if the file changed since `was` was read. */
@@ -50,8 +65,7 @@ record ${shq(what)} "$u"`,
 }
 
 /** Refuses unless landfall's Traefik runs and the file is landfall's: the redirects live in its file provider. */
-export async function editableRedirects(server: Server, name: string): Promise<RedirectsFile> {
-  const r = await readRedirects(server);
+export function editableRedirects(r: RedirectsState, name: string): RedirectsState {
   if (r.traefik === "none") fail(`${name} has no traefik yet: lf traefik setup -s ${name}`);
   if (r.traefik === "foreign") fail(`${name} runs a Traefik landfall does not manage: add redirects in its own configuration`);
   if (r.error) fail(`${r.error}: change it by hand, or remove it`);

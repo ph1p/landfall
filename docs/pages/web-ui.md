@@ -34,6 +34,8 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 - Its **a Docker image** link deploys an image (`lf deploy --image`) and suggests images from this machine's Docker. It runs in an empty folder with `--no-save`, so the folder `lf ui` started in adds no `.landfall.json` settings.
 - **Redeploy** on an image site asks for the image again.
 - Deploy, Redeploy, Roll back and Delete list the [hooks](hooks.md) they run, each with a box to skip it (`--skip-hook`).
+- So do a build change in **Edit** and a volume change with **Redeploy now**: both redeploy the site.
+- The deploy dialog takes redirect hosts next to the domains (`lf deploy --redirect`).
 - A site's **Edit** dialog takes redirect hosts next to its domains (`lf domains --redirect`). The site row shows each one with an arrow to the first domain.
 - The **Traefik** section lists the server's redirects (`lf redirects`), each with its DNS and HTTPS state.
 - **Add…** and **Change…** run `lf redirect add`; **Remove…** runs `lf redirect rm`.

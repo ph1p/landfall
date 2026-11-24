@@ -2,6 +2,7 @@ import { X509Certificate } from "node:crypto";
 import https from "node:https";
 import type { Server } from "./config";
 import { SITE_LINES, siteHosts, readSiteLine } from "./compose";
+import { REDIRECTS_LINE, redirectsOf } from "./server-redirects";
 import { runScript } from "./ssh";
 import { PROXY_CTR, PROXY_FILE } from "./templates";
 import { fail } from "./term";
@@ -203,6 +204,7 @@ set +e
 P=${PROXY_CTR}
 if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi
 ${SITE_LINES}
+${REDIRECTS_LINE}
 readf() { cat "$1" 2>/dev/null || sudo -n cat "$1" 2>/dev/null; }
 for d in $(docker inspect -f '{{range .Mounts}}{{.Source}} {{end}}' "$P"); do
   [ -d "$d" ] || [ -f "$d" ] || continue
@@ -251,8 +253,11 @@ export interface Certs {
   denied: string[];
   certs: Cert[];
   errors: CertError[];
-  /** Each site domain with the certificate that covers it (by expiry, latest first) and its last error. */
-  domains: { domain: string; site: string; cert?: Cert; error?: CertError }[];
+  /**
+   * Each site domain, then each server redirect's host (`redirect`: where it points),
+   * with the certificate that covers it (by expiry, latest first) and its last error.
+   */
+  domains: { domain: string; site?: string; redirect?: string; cert?: Cert; error?: CertError }[];
 }
 
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -320,14 +325,20 @@ export function parseCerts(out: string, now = new Date()): Certs {
   }
   r.certs.sort((a, b) => (a.domains[0] ?? "").localeCompare(b.domains[0] ?? "") || b.days - a.days);
   const sites = hostSites(out);
-  r.domains = [...sites]
-    .filter(([d]) => !d.startsWith("*."))
-    .map(([domain, site]) => {
-      const cert = r.certs.filter((c) => c.domains.some((n) => covers(n, domain))).sort((a, b) => b.days - a.days)[0];
-      const error = r.errors.filter((e) => e.domains.includes(domain)).at(-1);
-      return { domain, site, ...(cert && { cert }), ...(error && { error }) };
-    })
-    .sort((a, b) => a.site.localeCompare(b.site) || a.domain.localeCompare(b.domain));
+  // Server redirects (lf redirect add) get certificates too: their hosts belong to no site.
+  const redirects = redirectsOf(out).list.filter((x) => !sites.has(x.host));
+  const rows = [
+    ...[...sites]
+      .filter(([d]) => !d.startsWith("*."))
+      .map(([domain, site]) => ({ domain, site }))
+      .sort((a, b) => a.site.localeCompare(b.site) || a.domain.localeCompare(b.domain)),
+    ...redirects.map((x) => ({ domain: x.host, redirect: x.to })).sort((a, b) => a.domain.localeCompare(b.domain)),
+  ];
+  r.domains = rows.map((row) => {
+    const cert = r.certs.filter((c) => c.domains.some((n) => covers(n, row.domain))).sort((a, b) => b.days - a.days)[0];
+    const error = r.errors.filter((e) => e.domains.includes(row.domain)).at(-1);
+    return { ...row, ...(cert && { cert }), ...(error && { error }) };
+  });
   return r;
 }
 

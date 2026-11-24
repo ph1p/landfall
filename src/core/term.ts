@@ -173,6 +173,11 @@ export function showDiff(file: string, before: string, after: string) {
   });
 }
 
+/** The footer under a DNS listing when a row does not point at the server yet. */
+export const dnsHint = (rows: { ok: boolean }[], ips: string[], noun: string) => {
+  if (rows.some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each ${noun}`));
+};
+
 /** `dns ok`, or where the name points instead. */
 export const dnsLabel = (r: { ok: boolean; ips: string[] }) =>
   r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");

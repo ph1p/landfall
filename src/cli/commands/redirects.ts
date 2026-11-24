@@ -3,9 +3,10 @@ import { DOMAIN, expandDomain, resolveServer } from "../../core/config";
 import { redirectTarget, type ServerRedirect } from "../../core/redirects";
 import { dropRedirects, editableRedirects, readRedirects, writeRedirects } from "../../core/server-redirects";
 import { OWN_PROXY } from "../../core/templates";
-import { c, confirmRemoval, dnsLabel, fail, httpsLabel, info, ok, printJson, warn } from "../../core/term";
-import { dnsView } from "../../core/views";
-import { claimDomains, warnDns } from "./access";
+import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, printJson, warn } from "../../core/term";
+import { redirectsView } from "../../core/views";
+import { claimDomains, lookupDns } from "../../core/claim";
+import { overview } from "../../core/remote";
 
 const describe = (r: ServerRedirect) =>
   `${c.cyan(`https://${r.host}`)} ${c.dim("→")} ${r.to}${r.path ? "" : c.dim(" (path dropped)")}${r.permanent ? "" : c.dim(" (temporary)")}`;
@@ -19,17 +20,12 @@ A server redirect sends every request for a host elsewhere, with no site behind 
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
-    const r = await readRedirects(server);
-    if (r.error) warn(r.error);
-    const { ips, domains } = await dnsView(
-      server,
-      r.list.map((x) => x.host),
-    );
-    const rows = r.list.map((x, i) => ({ ...x, ...domains[i] }));
-    if (o.json) return void printJson({ server: name, ips, redirects: rows });
-    if (!rows.length) return info(`no redirects on ${name} ${c.dim("(lf redirect add old.example.com https://example.com)")}`);
-    for (const x of rows) console.log(`${describe(x)}  ${dnsLabel(x)}  ${httpsLabel(x.https)}`);
-    if (rows.some((x) => !x.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each host`));
+    const v = await redirectsView(server);
+    if (v.error) warn(v.error);
+    if (o.json) return void printJson({ server: name, ...v });
+    if (!v.redirects.length) return info(`no redirects on ${name} ${c.dim("(lf redirect add old.example.com https://example.com)")}`);
+    for (const x of v.redirects) console.log(`${describe(x)}  ${dnsLabel(x)}  ${httpsLabel(x.https)}`);
+    dnsHint(v.redirects, v.ips, "host");
   },
 });
 
@@ -52,15 +48,17 @@ A bare host name is a subdomain of the main domain. Adding a host again changes 
     if (!DOMAIN.test(host)) fail(`not a domain: ${host}`);
     const path = o.path !== false;
     const next: ServerRedirect = { host, to: redirectTarget(host, url.trim(), path), permanent: !o.temporary, path };
-    const was = await editableRedirects(server, name);
+    const all = await overview(server);
+    const was = editableRedirects(all.redirects, name);
     const same = was.list.find((r) => r.host === host);
     if (same && JSON.stringify(same) === JSON.stringify(next)) return ok(`nothing to change: ${describe(same)}`);
-    const move = await claimDomains(server, name, "redirect", [host], OWN_PROXY);
+    const move = await claimDomains(server, name, "redirect", [host], OWN_PROXY, { overview: all });
+    const dns = lookupDns(server, [host]);
     await move();
     const list = [...was.list.filter((r) => r.host !== host), next];
     await writeRedirects(server, was, list, `${same ? "changed" : "added"} redirect ${host} → ${next.to}${next.permanent ? "" : " (temporary)"}`);
     ok(describe(next));
-    await warnDns(server, [host]);
+    (await dns)();
   },
 });
 
@@ -72,7 +70,7 @@ export const redirectRemove = defineCommand({
   async run(hosts, o) {
     if (!hosts.length) fail("usage: lf redirect rm <host...>");
     const { name, server } = resolveServer(o.server);
-    const was = await editableRedirects(server, name);
+    const was = editableRedirects(await readRedirects(server), name);
     const want = hosts.map((h) => expandDomain(h.trim(), server));
     const gone = was.list.filter((r) => want.includes(r.host));
     const missing = want.filter((h) => !gone.some((r) => r.host === h));

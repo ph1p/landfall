@@ -27,7 +27,10 @@ export function planDomains(
 ): DomainPlan {
   const lower = (l?: string[]) => (l ?? []).map((d) => expand(d.trim())).filter(Boolean);
   const was = meta.redirects ?? [];
-  const served = editList(o.set ? lower(o.set) : meta.domains, lower(o.add), lower(o.rm));
+  // `--rm www`: the redirect www.<first domain> if the site has it, else www.<main domain> like --add.
+  const rmHost = (d: string) => redirectHosts([d], meta.domains[0]).find((r) => was.includes(r)) ?? expand(d.trim());
+  const rm = (o.rm ?? []).filter((d) => d.trim()).map(rmHost);
+  const served = editList(o.set ? lower(o.set) : meta.domains, lower(o.add), rm);
   const asked = redirectHosts(o.redirect ?? []);
   // A bare name redirects to a subdomain of the site's own first domain: www → www.example.com.
   const redirect = redirectHosts(
@@ -37,13 +40,12 @@ export function planDomains(
   const bare = redirect.find((d) => !d.includes("."));
   if (bare) fail(`\`${bare}\` means ${bare}.<first domain>, but ${meta.name} serves no domain: give the whole host`);
   const domains = served.filter((d) => !redirect.includes(d));
-  // Hosts served again leave the redirects; removed ones leave either list. `--rm www` takes www.<first domain> too.
-  const rm = [...lower(o.rm), ...redirectHosts(o.rm ?? [], meta.domains[0])];
+  // Hosts served again leave the redirects; removed ones leave either list.
   const redirects = editList(was, redirect, [...rm, ...domains]);
   const bad = [...domains, ...redirects].filter((d) => !DOMAIN.test(d));
   if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
   const on = (h: string) => meta.domains.includes(h) || was.includes(h);
-  const missing = (o.rm ?? []).filter((d) => ![expand(d.trim()), ...redirectHosts([d], meta.domains[0])].some(on));
+  const missing = rm.filter((h) => !on(h));
   const changed = domains.join() !== meta.domains.join() || redirects.join() !== was.join();
   // Redirects kept from before wait for a domain; new ones need one now.
   if (changed && redirect.length && !domains.length) fail(`${redirect.join(", ")} would redirect to nothing: ${meta.name} needs a domain to redirect to`);

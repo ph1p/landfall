@@ -49,6 +49,7 @@ export interface Redeploy {
   server: string;
   name: string;
   domains: string[];
+  redirects?: string[];
 }
 
 // ---- a server -------------------------------------------------------------------

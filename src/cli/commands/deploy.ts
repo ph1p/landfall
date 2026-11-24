@@ -72,7 +72,7 @@ import { bytes, plural } from "../../core/format";
 import { detectBuild } from "../../core/frameworks";
 import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug, withRedirects } from "../../core/projects";
 import { deployRedirects } from "../../core/domain-plan";
-import { claimDomains } from "./access";
+import { claimDomains } from "../../core/claim";
 import { setupServer } from "./setup";
 import { onStop } from "../../core/job";
 import { offerSeed } from "./volume";
@@ -95,15 +95,6 @@ function withLogin(auth: string[] | undefined, login?: string) {
   if (!login) return auth;
   const user = loginUser(login);
   return [...(auth ?? []).filter((l) => loginUser(l) !== user), login];
-}
-
-/** A repeatable --<name> with its --no-<name>: parseArgs reads the latter as a false among the values. */
-function listFlag(o: Record<string, any>, name: string): { none: boolean; args?: string[] } {
-  const vals = o[name] as unknown[] | undefined;
-  const none = !!o[`no-${name}`] || (vals?.includes(false) ?? false);
-  const args = vals?.filter((d): d is string => typeof d === "string");
-  if (none && args?.length) fail(`--no-${name} and --${name} exclude each other`);
-  return { none, args };
 }
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
@@ -186,14 +177,14 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
       short: "d",
       multiple: true,
       desc: "domain to serve (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here",
+      no: "serve no domain: reach it with lf tunnel until lf domains --add gives it one",
     },
-    "no-domain": { type: "boolean", desc: "serve no domain: reach it with lf tunnel until lf domains --add gives it one" },
     redirect: {
       type: "string",
       multiple: true,
       desc: "redirect a host to the site's first domain (`www` = www.<first domain>); replaces the saved redirects",
+      no: "drop the site's redirects",
     },
-    "no-redirect": { type: "boolean", desc: "drop the site's redirects" },
     file: { type: "string", short: "f", desc: "compose file to deploy (default: compose.yaml)" },
     spa: { type: "boolean", desc: "single-page app: unknown paths serve index.html" },
     image: { type: "string", desc: "deploy a docker image instead of files" },
@@ -266,8 +257,10 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     }
     const name = validName(o.name ?? project.name ?? envSiteName(slug(basename(cwd))));
     const keep = checkInt(o.keep ?? defaults().keep ?? DEFAULT_KEEP, "--keep", 1);
-    const { none: noDomain, args: domainArgs } = listFlag(o, "domain");
-    const { none: noRedirect, args: redirectArgs } = listFlag(o, "redirect");
+    const domainArgs: string[] | undefined = o.domain;
+    const redirectArgs: string[] | undefined = o.redirect;
+    const noDomain = !!o["no-domain"];
+    const noRedirect = !!o["no-redirect"];
     // Domains given up front fail on a typo before the build and the upload.
     const typos = (domainArgs?.length ? domainArgs : (project.domains ?? [])).map((d) => expandDomain(d, server)).filter((d) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
@@ -498,7 +491,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
             { site: name },
             [...domains, ...fixed, ...subDomains(a.services, domains), ...redirects.filter((d) => !prev?.redirects?.includes(d))],
             proxy,
-            fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined,
+            { refuse: fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined },
           );
           if (buildLocal) {
             const tmp = buildTmp();

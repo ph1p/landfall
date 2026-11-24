@@ -32,7 +32,7 @@ lf domains                         # where DNS points, whether HTTPS answers
 lf domains --add www.example.com   # also --rm, --set (updates .landfall.json)
 lf domains --rm @                  # take the main domain off
 lf domains --redirect www          # www.<first domain> redirects to the first domain
-lf domains --rm www.example.com    # stop the redirect (--rm takes domains and redirects)
+lf domains --rm www                # stop the redirect (--rm takes domains and redirects; www as for --redirect)
 lf auth -u anna                    # login in front of the site (asks for the password, -p passes it)
 lf auth --password-stdin < pw.txt  # user admin, password from stdin
 lf auth --rm-user anna | --off

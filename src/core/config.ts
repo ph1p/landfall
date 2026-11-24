@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
+import { expandHost } from "./redirects";
 import { fail } from "./term";
 
 /**
@@ -244,9 +245,7 @@ export const mainDomain = (s: Server) => s.domains?.[0];
 
 /** `@` → the primary main domain, `blog` → `blog.<primary main domain>`; anything with a dot stays as it is. */
 export function expandDomain(d: string, server: Server): string {
-  const main = mainDomain(server);
-  if (d === "@") return main ?? fail("`@` means the main domain, but none is set: lf server domain <server> <domain>");
-  return !d.includes(".") && main ? `${d.toLowerCase()}.${main}` : d.toLowerCase();
+  return expandHost(d, mainDomain(server)) ?? fail("`@` means the main domain, but none is set: lf server domain <server> <domain>");
 }
 
 /** Free wildcard-DNS services: never a main domain. */

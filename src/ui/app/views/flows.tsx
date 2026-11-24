@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from "../lib/store";
 import { bytes } from "../../../core/format";
 import { slug } from "../../../core/slug";
+import { expandHost, redirectHosts } from "../../../core/redirects";
 import { CLOUDS } from "../../../core/clouds";
 import type { Browse, Detected, Redeploy, SavedServer } from "../lib/types";
 import type { LocalImage } from "../../../core/buildlocal";
@@ -31,7 +32,7 @@ import {
 } from "../ui/dialog";
 import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "./env";
 import { DEPLOY_HOOKS } from "../../../core/hook-names";
-import { HookList, hookFields, skipArgv } from "./hooks";
+import { HookList, hookChoice } from "./hooks";
 
 // ---- server flows ----------------------------------------------------------
 
@@ -615,7 +616,7 @@ function DeployAside({ d }: { d: Detected }) {
       {d.hooks || d.hooksError ? (
         <div>
           <h3 className={ASIDE_HEAD}>Hooks</h3>
-          {d.hooks && <HookList run={d.hooks.run} pm={d.hooks.pm} service={d.hooks.service} only={DEPLOY_HOOKS} />}
+          {d.hooks && <HookList hooks={d.hooks} only={DEPLOY_HOOKS} />}
           {d.hooksError && <p className="m-0 text-bad">{d.hooksError}</p>}
         </div>
       ) : null}
@@ -814,11 +815,14 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     const main = mainDomain(v.server);
     const given = words(v.domains);
     if (!given.length) return [keeping(v) ? keeps! : [siteName(v) && autoDomain(v.server, siteName(v))].filter(Boolean)];
-    const out = given.map((d) => (d === "@" ? main : !d.includes(".") && main ? `${d}.${main}` : d)?.toLowerCase());
+    const out = given.map((d) => expandHost(d, main));
     if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
     const bad = out.find((d) => !domainOk(d!));
     return [out as string[], bad && `Not a domain: ${bad}`];
   };
+  const hooks = hookChoice(det.hooks?.run, DEPLOY_HOOKS, "deploy", "From package.json's landfall.hooks.");
+  // What the deploy redirects without --redirect: .landfall.json's, else the site's.
+  const savedRedirects = (p?.redirects ?? re?.redirects ?? []).join(" ");
   const sends = p?.sendImage === true ? "send" : p?.sendImage === false ? "pull" : "";
   dialog({
     title: re ? `Redeploy ${name}` : name ? `Deploy ${name}` : "Deploy a Docker image",
@@ -910,6 +914,21 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
             value: p?.domains ? !p.domains.length : re ? false : !!tunnelOnly(target),
             hint: "Nothing is served on the internet. Give it a domain later with Edit on the site.",
           },
+          {
+            name: "redirects",
+            label: "Redirect to the first domain",
+            value: savedRedirects,
+            off: (v) => v.noDomain,
+            placeholder: "www",
+            hint: "Hosts that answer with a permanent redirect, path and query kept. www = www.<first domain>. lf deploy --redirect",
+            check: (x, v) => {
+              const bad = words(x).find((d) => !domainOk(d) && !/^[a-z0-9-]+$/i.test(d));
+              if (bad) return `Not a domain: ${bad}`;
+              const [out] = addresses(v);
+              const both = redirectHosts(words(x), out[0]).find((d) => out.includes(d));
+              return both && `${both} is a domain of the site: it cannot also redirect`;
+            },
+          },
         ],
       },
       ...buildFields,
@@ -985,7 +1004,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
           },
         ],
       },
-      ...hookFields(det.hooks?.run, DEPLOY_HOOKS, "From package.json's landfall.hooks. Untick one to skip it this once: lf deploy --skip-hook <name>"),
+      ...hooks.fields,
       {
         legend: "Visitor login",
         note: "Optional: HTTP basic auth. Set or remove it later with Edit on the site.",
@@ -1017,6 +1036,9 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
         if (!v.noDomain && !domains.length && !p?.domains?.length && !keeping(v) && tunnelOnly(v.server))
           return invalid("domains", `${v.server} gives new sites no domain: name one, or tick No domain`);
         argv.push(...(v.noDomain ? ["--no-domain"] : domains.flatMap((d) => ["-d", d])));
+        const redirects = words(v.redirects);
+        if (!v.noDomain && redirects.join(" ") !== savedRedirects)
+          argv.push(...(redirects.length ? redirects.flatMap((d) => ["--redirect", d]) : ["--no-redirect"]));
       }
       argv.push(...buildArgv(v));
       for (const r of required) if (v[`env_${r.name}`]) argv.push("-e", `${r.name}=${v[`env_${r.name}`]}`);
@@ -1029,7 +1051,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       if (served(v) && v.authPassword) argv.push("--auth-user", v.authUser.trim() || "admin", "--auth-password", v.authPassword);
       // An upload or an image's empty folder is thrown away: nothing to save .landfall.json in.
       if (o.upload || o.images) argv.push("--no-save");
-      argv.push(...skipArgv(v, det.hooks?.run, DEPLOY_HOOKS));
+      argv.push(...hooks.skip(v));
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
   });
@@ -1071,7 +1093,7 @@ export function detected(path: string) {
 export function redeploy(path: string, server: string, name: string, kind?: string, environment?: string) {
   const argv = ["deploy", "-y", ...sv(server), ...(environment ? ["-E", environment] : [])];
   // The folder's hooks, when the site details read them already.
-  const hooks = S.det[path] ? S.det[path].hooks?.run : undefined;
+  const choice = hookChoice(S.det[path] ? S.det[path].hooks?.run : undefined, DEPLOY_HOOKS, "deploy");
   dialog({
     title: `Redeploy ${name} to ${server}?`,
     text: `${kind === "static" ? "Runs its build here (if it has one), uploads" : "Uploads"} ${tilde(path)} with its saved settings and makes it the live release. The current release stays for Roll back.`,
@@ -1080,9 +1102,9 @@ export function redeploy(path: string, server: string, name: string, kind?: stri
         cd {tilde(path)} && lf {argv.join(" ")}
       </code>
     ),
-    fields: hookFields(hooks, DEPLOY_HOOKS),
+    fields: choice.fields,
     ok: "Redeploy",
-    onOk: (v) => run([...argv, ...skipArgv(v, hooks, DEPLOY_HOOKS)], { server, cwd: path, after: openAfter }),
+    onOk: (v) => run([...argv, ...choice.skip(v)], { server, cwd: path, after: openAfter }),
   });
 }
 

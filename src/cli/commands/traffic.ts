@@ -154,7 +154,13 @@ export const certsCmd = defineCommand({
     if (r.domains.length) {
       table([
         ["domain", "site", "certificate", "expires", "issuer"].map(c.dim),
-        ...r.domains.map((d) => [d.domain, c.dim(d.site), certCell(d.cert), d.cert ? d.cert.expires.slice(0, 10) : "", c.dim(d.cert?.issuer ?? "")]),
+        ...r.domains.map((d) => [
+          d.domain,
+          c.dim(d.site ?? `→ ${d.redirect}`),
+          certCell(d.cert),
+          d.cert ? d.cert.expires.slice(0, 10) : "",
+          c.dim(d.cert?.issuer ?? ""),
+        ]),
       ]);
       for (const d of r.domains.filter((d) => d.error && (!d.cert || d.cert.days < 30)))
         warn(`${d.domain}: ${d.error!.error}${d.error!.at ? c.dim(` (${new Date(d.error!.at).toLocaleString()})`) : ""}`);

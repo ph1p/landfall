@@ -370,7 +370,7 @@ export function CertsCard({ n }: { n: string }) {
               {d.domain}
               {d.error && (!d.cert || d.cert.days < 30) ? <div className="faint text-bad!">{d.error.error}</div> : null}
             </td>
-            <td className={cx(HIDE, "dim")}>{d.site}</td>
+            <td className={cx(HIDE, "dim")}>{d.site ?? `→ ${d.redirect}`}</td>
             <td>{days(d.cert)}</td>
             <td className={cx(HIDE, "dim")}>{d.cert ? new Date(d.cert.expires).toLocaleDateString() : ""}</td>
             <td className={cx(HIDE, "faint")}>{d.cert?.issuer ?? ""}</td>

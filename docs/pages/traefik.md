@@ -34,7 +34,7 @@ lf redirect rm old.example.com                             # asks first; lf undo
 
 - The redirects live in `/opt/landfall/traefik/dynamic/redirects.yml`, read by Traefik's file provider.
 - They need landfall's own Traefik. With a Traefik you run, add them to its own configuration.
-- Point DNS at the server for each host. Traefik gets a certificate for it like for any domain.
+- Point DNS at the server for each host. Traefik gets a certificate for it like for any domain. `lf certs` lists it with an arrow to its target.
 - Permanent redirects answer `301` for GET and HEAD and `308` for other methods. `--temporary` answers `302` and `307`.
 - A host a site serves moves to the redirect after a prompt. A site that adds a redirect's host takes it over after a prompt.
 - Every change is journaled. `lf undo` takes it back.

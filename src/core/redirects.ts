@@ -7,7 +7,13 @@ import { fail } from "./fail";
  */
 export function redirectHosts(list: string[], first?: string): string[] {
   const hosts = list.map((d) => d.trim().toLowerCase()).filter(Boolean);
-  return [...new Set(hosts.map((d) => (d.includes(".") || !first ? d : `${d}.${first}`)))];
+  return [...new Set(hosts.map((d) => expandHost(d, first) ?? d))];
+}
+
+/** A domain as written on the command line: `@` = the main domain (undefined without one), a bare name = a subdomain of it. */
+export function expandHost(d: string, main?: string): string | undefined {
+  if (d === "@") return main;
+  return !d.includes(".") && main ? `${d.toLowerCase()}.${main}` : d.toLowerCase();
 }
 
 /** A host the server's Traefik answers with a redirect, with no site behind it (`lf redirect add`). */

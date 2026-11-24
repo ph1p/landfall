@@ -5,12 +5,12 @@ import { ifOk, run, TunnelBtn, tunnelFor } from "../lib/jobs";
 import { go } from "../lib/api";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
-import { confirmDlg, dialog, siteNameError } from "../ui/dialog";
+import { confirmDlg, dialog, siteNameError, type Values } from "../ui/dialog";
 import { Describe, Stack, deployImage, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
-import { ROLLBACK_HOOKS } from "../../../core/hook-names";
-import { HookList, definedHooks, hookFields, skipArgv, type HookRun } from "./hooks";
+import { DEPLOY_HOOKS, ROLLBACK_HOOKS } from "../../../core/hook-names";
+import { HookList, definedHooks, hookChoice } from "./hooks";
 import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
@@ -169,17 +169,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
     if (open && deploys) detected(proj.path);
   });
   // Hooks a rollback runs: the leaving release's prerollback, the reached one's postrollback.
-  const rollback = (to: Release, argv: string[], title: string, text: string, ok: string) => {
-    const hooks: HookRun = { prerollback: cur?.hooks?.run.prerollback, postrollback: to.hooks?.run.postrollback };
-    dialog({
-      title,
-      text,
-      fields: hookFields(hooks, ROLLBACK_HOOKS, "Untick one to skip it this once: lf rollback --skip-hook <name>"),
-      ok,
-      onOk: (v) => run(["rollback", name, ...sv(n), ...argv, "-y", ...skipArgv(v, hooks, ROLLBACK_HOOKS)]),
-    });
+  const rollback = ({ to, argv = [], ...d }: { to: Release; argv?: string[]; title: string; text: string; ok: string }) => {
+    const hooks = hookChoice({ prerollback: cur?.hooks?.run.prerollback, postrollback: to.hooks?.run.postrollback }, ROLLBACK_HOOKS, "rollback");
+    dialog({ ...d, fields: hooks.fields, onOk: (v) => run(["rollback", name, ...sv(n), ...argv, "-y", ...hooks.skip(v)]) });
   };
-  const deleteSite = () =>
+  const deleteSite = () => {
+    const destroyHooks = hookChoice(cur?.hooks?.run, ["predestroy"], "sites rm", "The live release's predestroy hook runs before anything goes.");
     dialog({
       title: m.adopted ? `Stop and forget ${name}?` : `Delete ${name} from ${n}?`,
       text: m.adopted
@@ -194,17 +189,14 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               label: "Also delete its volumes",
               hint: "Databases, uploads: all its data. Each is backed up to the site's backups folder first; lf undo brings them back. lf sites rm --volumes",
             },
-            ...hookFields(
-              cur?.hooks?.run,
-              ["predestroy"],
-              "The live release's predestroy hook runs before anything goes. Untick it to skip it: lf sites rm --skip-hook predestroy",
-            ),
+            ...destroyHooks.fields,
           ],
       ok: m.adopted ? `Forget ${name}` : `Delete ${name}`,
       danger: true,
       typeToConfirm: m.adopted ? "" : name,
-      onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : []), ...skipArgv(v, cur?.hooks?.run, ["predestroy"])]),
+      onOk: (v) => run(["sites", "rm", name, ...sv(n), "-y", ...(v.volumes ? ["--volumes"] : []), ...destroyHooks.skip(v)]),
     });
+  };
   // Empty fields keep what the site runs behind now: landfall's Traefik, or the one it uses.
   const eject = () => {
     const proxy = S.overview[n]?.data?.proxy;
@@ -283,13 +275,17 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <Btn
           cls="sm"
           title="Deploy an image to it again: the same tag pulls anew (lf deploy --image)"
-          on={() => deployImage({ server: n, name, domains: m.domains })}
+          on={() => deployImage({ server: n, name, domains: m.domains, redirects: m.redirects })}
         >
           <Icon name="deploy" />
           Redeploy
         </Btn>
       ) : m.adopted ? null : (
-        <Btn cls="sm" title="Pick the folder it was deployed from" on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains })}>
+        <Btn
+          cls="sm"
+          title="Pick the folder it was deployed from"
+          on={() => folderDialog(S.state.cwd, { server: n, name, domains: m.domains, redirects: m.redirects })}
+        >
           <Icon name="deploy" />
           Redeploy
         </Btn>
@@ -332,13 +328,12 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               hint: "lf rollback",
               title: `To ${older[0].id} (${ago(older[0].at)})`,
               run: () =>
-                rollback(
-                  older[0],
-                  [],
-                  `Roll back ${name}?`,
-                  `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`,
-                  "Roll back",
-                ),
+                rollback({
+                  to: older[0],
+                  title: `Roll back ${name}?`,
+                  text: `From ${m.current} to ${older[0].id} (${ago(older[0].at)}). Volumes keep their data.`,
+                  ok: "Roll back",
+                }),
             },
           "-",
           domains.length > 0 && {
@@ -460,13 +455,13 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
         <Btn
           cls="sm shrink-0"
           on={() =>
-            rollback(
-              r,
-              ["--to", r.id],
-              `Switch ${name} to ${r.id}?`,
-              `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`,
-              "Switch",
-            )
+            rollback({
+              to: r,
+              argv: ["--to", r.id],
+              title: `Switch ${name} to ${r.id}?`,
+              text: `Release from ${ago(r.at)} goes live instead of ${m.current}. Volumes keep their data.`,
+              ok: "Switch",
+            })
           }
         >
           Switch to this
@@ -523,7 +518,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
     facts.push([
       "Hooks",
       <>
-        <HookList run={cur.hooks.run} pm={cur.hooks.pm} service={cur.hooks.service} />
+        <HookList hooks={cur.hooks} />
         <span className="dim text-sm">The live release&apos;s, from package.json: rollback and Delete run them, a deploy reads them anew.</span>
       </>,
     ]);
@@ -731,9 +726,13 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
   const compose = edit?.kind === "compose";
   const env = edit?.environment ? ["-E", edit.environment] : [];
   const where = compose ? "compose.yaml" : ".landfall.json";
+  // The folder's deploy hooks, when the site details read them already: the redeploy below runs them.
+  const det = edit && S.det[edit.path];
+  const hooks = hookChoice(det ? det.hooks?.run : undefined, DEPLOY_HOOKS, "deploy");
+  const hookFields = hooks.fields.map((g) => ({ ...g, when: (v: Values) => v.deploy }));
   // Edits the project folder, then (if asked) redeploys from it so the server follows and reads the volumes again.
-  const then = (deploy: boolean, next = load) =>
-    ifOk(() => deploy && edit && run(["deploy", "-y", ...sv(n), ...env], { server: n, cwd: edit.path, after: ifOk(next) }));
+  const then = (v: Values, next = load) =>
+    ifOk(() => v.deploy && edit && run(["deploy", "-y", ...sv(n), ...env, ...hooks.skip(v)], { server: n, cwd: edit.path, after: ifOk(next) }));
   const add =
     edit &&
     (() =>
@@ -772,11 +771,12 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
               ]
             : []),
           { name: "deploy", type: "check", label: "Redeploy now to apply it", value: true },
+          ...hookFields,
         ],
         ok: "Add volume",
         onOk: (v) => {
           const spec = compose && v.service ? `${v.service}:${v.path}` : String(v.path);
-          run(["volume", "add", spec, ...(v.as ? ["--as", String(v.as)] : []), ...env], { server: n, cwd: edit.path, after: then(!!v.deploy) });
+          run(["volume", "add", spec, ...(v.as ? ["--as", String(v.as)] : []), ...env], { server: n, cwd: edit.path, after: then(v) });
         },
       }));
   const addBtn = add && (
@@ -895,6 +895,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
             off: (x) => !x.deploy,
             hint: "Backed up to the site's backups folder first: lf undo brings it back.",
           },
+          ...hookFields,
         ],
         ok: "Remove",
         danger: true,
@@ -903,7 +904,7 @@ function SiteVolumes({ n, name, dir, edit }: { n: string; name: string; dir?: st
             server: n,
             cwd: edit.path,
             after: then(
-              !!x.deploy,
+              x,
               x.data ? () => run(["volume", "rm", name, v.key, "--data", ...sv(n), "-y", ...env], { server: n, cwd: edit.path, after: ifOk(load) }) : undefined,
             ),
           }),

@@ -34,7 +34,8 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 
 - `ls --others` adds containers landfall did not deploy: `{sites, others}`.
 - `domains` lists the server's addresses under `ips`, and redirect hosts under `redirects`, each with `to`.
-- `redirects` lists `{server, ips, redirects}`; each redirect has `host`, `to`, `permanent`, `path` and its DNS and HTTPS state.
+- `redirects` lists `{server, ips, redirects}`, and `error` when the redirects file is not landfall's; each redirect has `host`, `to`, `permanent`, `path` and its DNS and HTTPS state.
+- `certs` lists each domain under `domains` with its `site`. A server redirect's host has no `site`; its `redirect` is the target.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
 The web UI reads the same JSON, so its shape is stable within a release.

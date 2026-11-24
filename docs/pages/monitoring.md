@@ -3,7 +3,7 @@
 ```sh
 lf traffic                          # last 24h per site: requests, 4xx/5xx, median and 95% response time, bytes sent
 lf traffic blog --since 1h          # one site (or a host): requests per minute, busiest paths, failing requests, clients
-lf certs                            # each site domain's certificate: days left, issuer, why getting one failed
+lf certs                            # each domain's certificate (sites and server redirects): days left, issuer, why getting one failed
 lf check                            # request every site over HTTPS from this machine; exits 1 when one fails
 lf check example.com --resolve 198.51.100.4   # one domain, against an address before DNS points there
 ```

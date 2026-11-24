@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { ruleArgs, specArgs } from "../../src/cli/commands/firewall";
 import { guardSsh, type FirewallState } from "../../src/core/firewall";
-import { journalCmd } from "../../src/cli/cmd";
+import { journalCmd, parse } from "../../src/cli/cmd";
 import { findRun, laterConflicts, parseJournal, pending, removedUsers, stillNeeded } from "../../src/core/journal";
 import { assess, foreignProxy, parseProbe, parseRule, reachability, ruleFor } from "../../src/core/inventory";
 import { hasManagedBlock, removeHostBlock, renderHostBlock, sshAliases, upsertHostBlock } from "../../src/core/sshconfig";
@@ -416,6 +416,22 @@ test("journalCmd keeps flags but not defaults or secrets", () => {
   expect(
     journalCmd(cmd, ["./dist", "TOKEN=abc"], { keep: "5", save: false, server: "vps", yes: true, env: ["A=1"], "dashboard-password": "pw", spa: true }),
   ).toBe("deploy ./dist TOKEN=… --no-save --env A=… --dashboard-password … --spa");
+});
+
+test("--no-<name> of a string option arrives as no-<name>, and excludes --<name>", () => {
+  const cmd = {
+    name: "deploy",
+    summary: "",
+    run: async () => {},
+    options: { domain: { type: "string", short: "d", multiple: true, desc: "", no: "none" }, tag: { type: "string", multiple: true, desc: "" } },
+  } as const;
+  const { values } = parse(cmd, ["--no-domain"]);
+  expect(values).toMatchObject({ "no-domain": true });
+  expect(values.domain).toBeUndefined();
+  expect(journalCmd(cmd, [], values)).toBe("deploy --no-domain");
+  expect(parse(cmd, ["-d", "a.com"]).values.domain).toEqual(["a.com"]);
+  expect(() => parse(cmd, ["--no-domain", "--domain", "a.com"])).toThrow(/exclude each other/);
+  expect(() => parse(cmd, ["--no-tag"])).toThrow(/Unknown option '--no-tag'/);
 });
 
 describe("server facts", () => {

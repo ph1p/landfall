@@ -19,6 +19,7 @@ import { effectiveSsh, findHostBlock, sameMachineLogins, SSH_CONFIG } from "./ss
 import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "./templates";
 import { fail } from "./term";
 import { listUsers } from "./users";
+import { readRedirects } from "./server-redirects";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "./updates";
 
 /** `lf firewall --json`: rules numbered as `lf firewall remove <n>` takes them. */
@@ -86,6 +87,16 @@ export async function dnsView(server: Server, domains: string[]) {
   const ips = await serverIps(server);
   const [dns, https] = await Promise.all([checkDns(domains, ips), Promise.all(domains.map((d) => checkUrl(d)))]);
   return { ips, domains: dns.map((d, i) => ({ ...d, https: https[i] })) };
+}
+
+/** `lf redirects --json`: the server's redirects, each with where its host points and whether it answers on https. */
+export async function redirectsView(server: Server) {
+  const r = await readRedirects(server);
+  const { ips, domains } = await dnsView(
+    server,
+    r.list.map((x) => x.host),
+  );
+  return { ips, redirects: r.list.map((x, i) => ({ ...x, ...domains[i] })), ...(r.error && { error: r.error }) };
 }
 
 /** `lf traffic --json`: Traefik's access log, aggregated per host and site on the server. */

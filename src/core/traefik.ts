@@ -179,10 +179,13 @@ record ${shq(`sites use traefik ${p.container}`)} "$u"`,
 /** Who runs the Traefik for lf sites on the server, and the sites behind it. */
 type TraefikState = { proxy?: string; compose?: "ours" | "foreign"; sites: string[] };
 
-/** Prints `proxy <container>` (another proxy is in use), `compose ours|foreign` (whose Traefik compose file) and `site <name>` lines. */
-export const TRAEFIK_STATE = `[ ! -f ${PROXY_FILE} ] || printf 'proxy\\t%s\\n' "$(sed -n 's/^container=//p' ${PROXY_FILE})"
+/** Prints `proxy <container>` for an adopted proxy, `compose ours|foreign` for a compose file in landfall's Traefik folder. */
+export const TRAEFIK_OWNER = `[ ! -f ${PROXY_FILE} ] || printf 'proxy\\t%s\\n' "$(sed -n 's/^container=//p' ${PROXY_FILE})"
 f=${TRAEFIK_DIR}/docker-compose.yml
-[ ! -f $f ] || { grep -q "managed by landfall" $f && echo compose ours || echo compose foreign; }
+[ ! -f $f ] || { grep -q "managed by landfall" $f && echo compose ours || echo compose foreign; }`;
+
+/** Prints `proxy <container>` (another proxy is in use), `compose ours|foreign` (whose Traefik compose file) and `site <name>` lines. */
+export const TRAEFIK_STATE = `${TRAEFIK_OWNER}
 for d in ${SITES}/*/; do [ -d "$d" ] && printf 'site\\t%s\\n' "$(basename "$d")"; done; true`;
 
 export function traefikStateOf(stdout: string): TraefikState {

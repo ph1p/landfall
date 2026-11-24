@@ -1,13 +1,13 @@
 import { useEffect, type ReactNode } from "react";
 import { S, sv } from "../lib/store";
 import type { DnsCheck } from "../lib/types";
-import { redirectTarget, type ServerRedirect } from "../../../core/redirects";
+import { expandHost, redirectTarget, type ServerRedirect } from "../../../core/redirects";
 import { ensure, fetchInto, load, refreshState } from "../lib/api";
 import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Actions, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
-import { providerDialog, rootLoginDialog } from "./flows";
+import { mainDomain, providerDialog, rootLoginDialog } from "./flows";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError } from "../ui/dialog";
 import { DomainChip, ensureDns } from "./domains";
 
@@ -308,9 +308,12 @@ export function TraefikView({ n }: { n: string }) {
 /** lf redirects: hosts the server's Traefik answers with a redirect, with no site behind them. */
 function RedirectsCard({ n, reload }: { n: string; reload: { server: string; after: ReturnType<typeof ifOk> } }) {
   const o = S.overview[n]?.data;
-  const list = o?.redirects ?? [];
+  const list = o?.redirects.list ?? [];
+  const error = o?.redirects.error;
   const dns = S.dns[n]?.data;
-  const locked = !!o?.redirectsError;
+  const main = mainDomain(n);
+  /** The host as `lf redirect add` expands it. */
+  const hostOf = (v: unknown) => expandHost(String(v ?? "").trim(), main);
   // Checks hosts added since the last check too: each host shows its DNS and HTTPS state.
   useEffect(() => ensureDns(n, o), [n, o]);
   const edit = (r?: ServerRedirect) =>
@@ -327,8 +330,11 @@ function RedirectsCard({ n, reload }: { n: string; reload: { server: string; aft
                 mono: true,
                 placeholder: "old.example.com",
                 required: "Which host? For example old.example.com",
-                check: (v: unknown) => (domainOk(String(v).trim()) || !String(v).includes(".") ? undefined : "not a domain"),
-                hint: "A bare name is a subdomain of the main domain. Point its DNS at this server.",
+                check: (v: unknown) => {
+                  const h = hostOf(v);
+                  return !h ? "@ means the main domain, and this server has none" : domainOk(h) ? undefined : "not a domain";
+                },
+                hint: main ? `A bare name is a subdomain of ${main}. Point its DNS at this server.` : "Point its DNS at this server.",
               },
             ]),
         {
@@ -341,7 +347,7 @@ function RedirectsCard({ n, reload }: { n: string; reload: { server: string; aft
           preview: (v) => {
             const to = String(v.to ?? "").trim();
             if (!to) return null;
-            const host = r?.host ?? (String(v.host ?? "").trim() || "old.example.com");
+            const host = r?.host ?? (hostOf(v.host) || "old.example.com");
             try {
               const url = redirectTarget(host, to, !!v.path);
               return `${host}/a?b=1 → ${url}${v.path ? "/a?b=1" : ""}`;
@@ -382,14 +388,14 @@ function RedirectsCard({ n, reload }: { n: string; reload: { server: string; aft
       <CardHead>
         Redirects <Sub>hosts sent elsewhere, no site behind them</Sub>
         <Actions>
-          <Btn cls="sm" title="lf redirect add" disabled={locked} on={() => edit()}>
+          <Btn cls="sm" title="lf redirect add" disabled={!!error} on={() => edit()}>
             Add…
           </Btn>
         </Actions>
       </CardHead>
-      {o?.redirectsError && (
+      {error && (
         <Body>
-          <Note>{o.redirectsError}. Change it by hand, or remove it, to manage redirects here.</Note>
+          <Note>{error}. Change it by hand, or remove it, to manage redirects here.</Note>
         </Body>
       )}
       {list.length ? (
@@ -415,10 +421,10 @@ function RedirectsCard({ n, reload }: { n: string; reload: { server: string; aft
                   )}
                 </td>
                 <td className="text-right whitespace-nowrap">
-                  <Btn cls="sm" title="lf redirect add" disabled={locked} on={() => edit(r)}>
+                  <Btn cls="sm" title="lf redirect add" disabled={!!error} on={() => edit(r)}>
                     Change…
                   </Btn>{" "}
-                  <Btn cls="sm" title="lf redirect rm" disabled={locked} on={() => remove(r)}>
+                  <Btn cls="sm" title="lf redirect rm" disabled={!!error} on={() => remove(r)}>
                     Remove…
                   </Btn>
                 </td>
@@ -435,7 +441,7 @@ function RedirectsCard({ n, reload }: { n: string; reload: { server: string; aft
           )}
         </>
       ) : (
-        !o?.redirectsError && (
+        !error && (
           <Body className="dim">
             No redirects. Add one to send an old domain to a new one, path and query kept. A site&apos;s own redirects (like www) are in its domain settings.
           </Body>

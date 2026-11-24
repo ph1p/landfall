@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { redirectsFile } from "../../src/core/redirects";
 import { covers, mergeHosts, parseCertError, parseCerts, parseSince, parseTraffic, readCert, siteTraffic, spanLabel, TRAFFIC } from "../../src/core/traffic";
 
 const now = new Date("2026-10-25T15:30:00Z");
@@ -185,6 +186,7 @@ describe("certs", () => {
         `SITE\t{"name":"app","domains":["app.test","www.app.test","other.test"],"releases":[]}`,
         `CERT\t/x/c.pem\t${b64}`,
         'LOG\t2026-10-25T15:00:00Z ERR x error="nope" domains=["other.test"]',
+        `REDIRECTS\tabc\t${JSON.stringify(JSON.parse(redirectsFile([{ host: "old.test", to: "https://app.test", permanent: true, path: true }]).replace(/^#.*\n/, "")))}`,
       ].join("\n"),
       now,
     );
@@ -192,6 +194,8 @@ describe("certs", () => {
       ["app.test", "/x/c.pem", undefined],
       ["other.test", undefined, "nope"],
       ["www.app.test", "/x/c.pem", undefined],
+      ["old.test", undefined, undefined],
     ]);
+    expect(certs.domains.at(-1)?.redirect).toBe("https://app.test");
   });
 });

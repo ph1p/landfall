@@ -9,6 +9,8 @@ type OptSpec = {
   multiple?: boolean;
   desc: string;
   default?: string | boolean;
+  /** A string option's --no-<name>, as help describes it: run sees `"no-<name>": true`. */
+  no?: string;
 };
 
 export interface Command<O extends Record<string, OptSpec> = Record<string, OptSpec>> {
@@ -40,8 +42,22 @@ export function tokenize(cmd: Command, argv: string[]) {
   const own = cmd.passthrough && dd >= 0 ? argv.slice(0, dd) : argv;
   const rest = cmd.passthrough && dd >= 0 ? argv.slice(dd + 1) : [];
   const options: Record<string, Omit<OptSpec, "desc">> = {};
-  for (const [k, { desc, ...spec }] of Object.entries({ ...GLOBAL_OPTS, ...cmd.options })) options[k] = spec;
-  return { ...parseArgs({ args: own, options, allowPositionals: true, allowNegative: true, tokens: true }), rest };
+  for (const [k, { desc, no, ...spec }] of Object.entries({ ...GLOBAL_OPTS, ...cmd.options })) {
+    options[k] = spec;
+    // Node accepts --no-<name> only for an option it knows as a boolean: declaring one lets it through.
+    if (no) options[`no-${k}`] = { type: "boolean" };
+  }
+  const parsed = parseArgs({ args: own, options, allowPositionals: true, allowNegative: true, tokens: true });
+  const values = parsed.values as Record<string, unknown>;
+  // With allowNegative, parseArgs reads --no-<name> as a false among the option's values: every caller gets no-<name> instead.
+  for (const [k, o] of Object.entries(cmd.options ?? {})) {
+    const vals = [values[k]].flat().filter((v) => v !== undefined);
+    if (!o.no || !vals.includes(false)) continue;
+    if (vals.some((v) => v !== false)) throw new Error(`--no-${k} and --${k} exclude each other`);
+    delete values[k];
+    values[`no-${k}`] = true;
+  }
+  return { ...parsed, rest };
 }
 
 export function parse(cmd: Command, argv: string[]) {
@@ -60,10 +76,10 @@ export function parse(cmd: Command, argv: string[]) {
 export function usage(cmd: Command): string {
   const lines = [`${c.bold("Usage:")} lf ${cmd.name}${cmd.args ? " " + cmd.args : ""} [options]`, "", cmd.summary];
   lines.push("", c.bold("Options:"));
-  const rows = Object.entries({ ...cmd.options, yes: GLOBAL_OPTS.yes, "ask-sudo": GLOBAL_OPTS["ask-sudo"] }).map(([k, o]) => {
+  const rows = Object.entries({ ...cmd.options, yes: GLOBAL_OPTS.yes, "ask-sudo": GLOBAL_OPTS["ask-sudo"] }).flatMap(([k, o]) => {
     const flag = `${o.short ? `-${o.short}, ` : "    "}--${k}${o.type === "string" ? ` <${k}>` : ""}`;
     const def = o.default !== undefined && o.default !== false ? c.dim(` (default: ${o.default})`) : "";
-    return [flag, o.desc + (o.multiple ? c.dim(" (repeatable)") : "") + def];
+    return [[flag, o.desc + (o.multiple ? c.dim(" (repeatable)") : "") + def], ...(o.no ? [[`    --no-${k}`, o.no]] : [])];
   });
   const w = Math.max(...rows.map((r) => r[0].length));
   for (const [f, d] of rows) lines.push(`  ${f.padEnd(w)}  ${d}`);

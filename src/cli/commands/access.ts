@@ -1,96 +1,14 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { expandDomain, loadProject, saveProject, type Server } from "../../core/config";
-import { checkDns, serverIps } from "../../core/facts";
+import { expandDomain, loadProject, saveProject } from "../../core/config";
 import { updateProjectDomains, withRedirects } from "../../core/projects";
-import { currentRelease, findRoute, siteDomains, siteHosts, siteMain, siteRedirects, subDomains, type SiteMeta } from "../../core/compose";
-import { changeSite, overview, requireSite } from "../../core/remote";
-import type { Proxy } from "../../core/templates";
-import { c, confirmRemoval, dnsLabel, fail, httpsLabel, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/term";
+import { currentRelease, findRoute, siteDomains, siteMain, siteRedirects, subDomains, type SiteMeta } from "../../core/compose";
+import { changeSite, requireSite } from "../../core/remote";
+import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/term";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 import { target } from "./sites";
 import { dnsView } from "../../core/views";
-import { dropRedirects } from "../../core/server-redirects";
+import { claimDomains, lookupDns } from "../../core/claim";
 import { planDomains } from "../../core/domain-plan";
-
-/**
- * Domains other sites serve that `site` is about to: asks to move them, and returns what
- * takes them away, to run right before `site` is applied (one host, one router).
- * `"redirect"`: they become server redirects (`lf redirect add`).
- * With `refuse`, fails instead of asking, giving it as the way out.
- */
-export async function claimDomains(
-  server: Server,
-  serverName: string,
-  by: { site: string } | "redirect",
-  domains: string[],
-  proxy: Proxy,
-  refuse?: string,
-): Promise<() => Promise<void>> {
-  const site = by === "redirect" ? undefined : by.site;
-  // No domain to claim (--no-domain, a worker): nothing to compare, no need to read every site.
-  if (!domains.length) return async () => {};
-  const all = await overview(server);
-  const to = site ?? "a server redirect";
-  for (const e of all.others) {
-    const both = e.domains.filter((d) => domains.includes(d));
-    if (both.length)
-      warn(
-        `${both.join(", ")} ${both.length > 1 ? "are" : "is"} also routed to ${e.name}${e.dir ? ` (${e.dir})` : ""}, which landfall did not deploy: Traefik sends visitors to only one of them. Remove the labels there to hand ${both.length > 1 ? "them" : "it"} over.`,
-      );
-  }
-  const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && siteHosts(m).some((d) => domains.includes(d)));
-  for (const m of others) {
-    const taken = siteHosts(m).filter((d) => domains.includes(d));
-    // Redirects and the main service's domains can move; what compose files route cannot.
-    const fixed = taken.filter((d) => !m.redirects?.includes(d) && !(siteMain(m) && m.domains.includes(d)));
-    if (fixed.length) {
-      const where = m.adopted
-        ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}`
-        : `its compose.yaml routes ${fixed.length > 1 ? "them" : "it"} (x-landfall.domains)`;
-      fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
-    }
-    if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);
-    const left = m.domains.length && m.domains.every((d) => taken.includes(d)) ? ` ${m.name} keeps running with no domain.` : "";
-    await confirmRemoval(
-      `${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${to}?${left}`,
-    );
-  }
-  // A site takes a host over from the server's redirects.
-  const redirected = site ? all.redirects.filter((r) => domains.includes(r.host)) : [];
-  if (redirected.length) {
-    const many = redirected.length > 1;
-    const now = `${redirected.map((r) => r.host).join(", ")} ${many ? "redirect" : "redirects"} to ${redirected[0].to} now (lf redirects)`;
-    if (refuse) fail(`${now}; ${refuse}`);
-    await confirmRemoval(`${now}. Serve ${many ? "them" : "it"} from ${site} instead?`);
-  }
-  return async () => {
-    for (const m of others) {
-      const moved = siteHosts(m).filter((d) => domains.includes(d));
-      const after = await changeSite(server, m.name, proxy, `moved ${moved.join(", ")} from ${m.name} to ${to}`, (m) => {
-        m.domains = m.domains.filter((d) => !domains.includes(d));
-        if (m.redirects) m.redirects = m.redirects.filter((d) => !domains.includes(d));
-      });
-      const left = after.domains;
-      updateProjectDomains(serverName, m.name, left, after.redirects ?? []);
-      info(c.dim(left.length ? `${m.name} keeps ${left.join(", ")}` : `${m.name} serves no domain now`));
-    }
-    if (redirected.length)
-      await dropRedirects(
-        server,
-        { list: all.redirects, sha: all.redirectsSha },
-        redirected.map((r) => r.host),
-        `${site} serves it now`,
-      );
-  };
-}
-
-/** Warns about each host whose DNS does not point at the server yet. */
-export async function warnDns(server: Server, hosts: string[]) {
-  const ips = await serverIps(server);
-  for (const d of await checkDns(hosts, ips)) {
-    if (!d.ok) warn(`${d.domain} ${d.ips.length ? `points at ${d.ips.join(", ")}` : "has no DNS record"}, not ${ips.join(" or ")}: HTTPS waits for it`);
-  }
-}
 
 export const domains = defineCommand({
   name: "domains",
@@ -128,7 +46,7 @@ permanent redirect to the site's first domain, path and query kept.`,
         console.log(`${c.cyan(`https://${r.domain}`)}${to}  ${dnsLabel(r)}  ${httpsLabel(r.https)}`);
       }
       if (meta.redirects?.length && !to) console.log(c.dim(`redirects of ${site} wait for a domain: ${meta.redirects.join(", ")}`));
-      if ([...rows, ...redirects].some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));
+      dnsHint([...rows, ...redirects], ips, "domain");
       return;
     }
     const main = siteMain(meta);
@@ -144,6 +62,7 @@ permanent redirect to the site's first domain, path and query kept.`,
     const services = currentRelease(meta)?.services ?? [];
     const claim = [...added, ...subDomains(services, added), ...addedRedirects];
     const move = await claimDomains(server, serverName, { site }, claim, proxy);
+    const dns = lookupDns(server, claim);
     await move();
     const what = `domains of ${site}: ${next.join(", ")}${nextRedirects.length ? `; redirects to ${next[0]}: ${nextRedirects.join(", ")}` : ""}`;
     await changeSite(server, site, proxy, what, (m) => {
@@ -158,7 +77,7 @@ permanent redirect to the site's first domain, path and query kept.`,
     if (!next.length && nextRedirects.length) info(c.dim(`${nextRedirects.join(", ")} redirect again once ${site} has a domain`));
     else ok(`${site} serves ${next.map((d) => c.cyan(`https://${d}`)).join(", ")}`);
     if (next.length && nextRedirects.length) ok(`${nextRedirects.map((d) => c.cyan(`https://${d}`)).join(", ")} ${c.dim("→")} https://${next[0]}`);
-    await warnDns(server, claim);
+    (await dns)();
   },
 });
 
