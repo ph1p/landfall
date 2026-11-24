@@ -1,14 +1,15 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { DOMAIN, editList, expandDomain, loadProject, saveProject, type Server } from "../../core/config";
 import { checkDns, serverIps } from "../../core/facts";
-import { updateProjectDomains } from "../../core/projects";
-import { currentRelease, findRoute, siteDomains, siteMain, subDomains, type SiteMeta } from "../../core/compose";
+import { updateProjectDomains, withRedirects } from "../../core/projects";
+import { currentRelease, findRoute, siteDomains, siteMain, siteRedirects, subDomains, type SiteMeta } from "../../core/compose";
 import { changeSite, overview, requireSite } from "../../core/remote";
 import type { Proxy } from "../../core/templates";
 import { c, confirmRemoval, fail, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/term";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 import { target } from "./sites";
 import { dnsView } from "../../core/views";
+import { redirectHosts } from "../../core/redirects";
 
 /**
  * Domains other sites serve that `site` is about to: asks to move them, and returns what
@@ -33,10 +34,12 @@ export async function claimDomains(
         `${both.join(", ")} ${both.length > 1 ? "are" : "is"} also routed to ${e.name}${e.dir ? ` (${e.dir})` : ""}, which landfall did not deploy: Traefik sends visitors to only one of them. Remove the labels there to hand ${both.length > 1 ? "them" : "it"} over.`,
       );
   }
-  const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && siteDomains(m).some((d) => domains.includes(d)));
+  const hosts = (m: SiteMeta) => [...siteDomains(m), ...(m.redirects ?? [])];
+  const others = all.sites.map((s) => s.meta).filter((m) => m.name !== site && hosts(m).some((d) => domains.includes(d)));
   for (const m of others) {
-    const taken = siteDomains(m).filter((d) => domains.includes(d));
-    const fixed = !siteMain(m) ? taken : taken.filter((d) => !m.domains.includes(d));
+    const taken = hosts(m).filter((d) => domains.includes(d));
+    // Redirects and the main service's domains can move; what compose files route cannot.
+    const fixed = taken.filter((d) => !m.redirects?.includes(d) && !(siteMain(m) && m.domains.includes(d)));
     if (fixed.length) {
       const where = m.adopted
         ? `its compose files in ${m.adopted} route ${fixed.length > 1 ? "them" : "it"}`
@@ -44,24 +47,20 @@ export async function claimDomains(
       fail(`${fixed.join(", ")} ${fixed.length > 1 ? "serve" : "serves"} ${m.name} now and cannot move from there: ${where}`);
     }
     if (refuse) fail(`${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now; ${refuse}`);
-    const left = taken.length === m.domains.length ? ` ${m.name} keeps running with no domain.` : "";
+    const left = m.domains.length && m.domains.every((d) => taken.includes(d)) ? ` ${m.name} keeps running with no domain.` : "";
     await confirmRemoval(
       `${taken.join(", ")} ${taken.length > 1 ? "serve" : "serves"} ${m.name} now. Move ${taken.length > 1 ? "them" : "it"} to ${site}?${left}`,
     );
   }
   return async () => {
     for (const m of others) {
-      const moved = m.domains.filter((d) => domains.includes(d));
-      const left = (
-        await changeSite(
-          server,
-          m.name,
-          proxy,
-          `moved ${moved.join(", ")} from ${m.name} to ${site}`,
-          (m) => void (m.domains = m.domains.filter((d) => !domains.includes(d))),
-        )
-      ).domains;
-      updateProjectDomains(serverName, m.name, left);
+      const moved = hosts(m).filter((d) => domains.includes(d));
+      const after = await changeSite(server, m.name, proxy, `moved ${moved.join(", ")} from ${m.name} to ${site}`, (m) => {
+        m.domains = m.domains.filter((d) => !domains.includes(d));
+        if (m.redirects) m.redirects = m.redirects.filter((d) => !domains.includes(d));
+      });
+      const left = after.domains;
+      updateProjectDomains(serverName, m.name, left, after.redirects ?? []);
       info(c.dim(left.length ? `${m.name} keeps ${left.join(", ")}` : `${m.name} serves no domain now`));
     }
   };
@@ -72,23 +71,33 @@ export const domains = defineCommand({
   args: "[site]",
   summary: `Show a site's domains with their DNS and HTTPS state, or change them.
 
-Without flags it lists and checks; --add/--rm/--set change the site (undoable)
-and update .landfall.json of remembered projects.`,
+Without flags it lists and checks; --add/--rm/--set/--redirect change the site (undoable)
+and update .landfall.json of remembered projects. A redirect host answers with a
+permanent redirect to the site's first domain, path and query kept.`,
   options: {
     server: serverOpt,
     add: { type: "string", short: "a", multiple: true, desc: "add a domain (`blog` = blog.<main domain>, `@` = the main domain); another site's moves here" },
-    rm: { type: "string", multiple: true, desc: "remove a domain" },
+    rm: { type: "string", multiple: true, desc: "remove a domain or a redirect" },
     set: { type: "string", multiple: true, desc: "replace all domains" },
+    redirect: {
+      type: "string",
+      multiple: true,
+      desc: "redirect a host permanently to the site's first domain (`www` = www.<first domain>); one of its domains turns into a redirect",
+    },
     json: { type: "boolean", desc: "machine-readable output (listing)" },
   },
   async run([n], o) {
     const { site, name: serverName, server } = target(n, o.server);
-    const changing = !!(o.add || o.rm || o.set);
+    const changing = !!(o.add || o.rm || o.set || o.redirect);
     const { meta, proxy } = await requireSite(server, site, changing ? { deployed: "change the domains of" } : {});
     if (!changing) {
-      const { ips, domains: rows } = await dnsView(server, siteDomains(meta));
-      if (o.json) return void printJson({ site, ips, domains: rows });
-      for (const r of rows) {
+      const { hosts, to } = siteRedirects(meta);
+      const served = siteDomains(meta);
+      const { ips, domains: all } = await dnsView(server, [...served, ...hosts]);
+      const rows = all.slice(0, served.length);
+      const redirects = all.slice(served.length).map((r) => ({ ...r, to: to! }));
+      if (o.json) return void printJson({ site, ips, domains: rows, redirects });
+      for (const r of [...rows, ...redirects]) {
         const dnsState = r.ok ? c.green("dns ok") : r.ips.length ? c.yellow(`dns → ${r.ips.join(", ")}`) : c.red("no dns");
         const { status, error, tls } = r.https;
         const h = !status
@@ -96,37 +105,62 @@ and update .landfall.json of remembered projects.`,
           : tls && !tls.valid
             ? c.red(`https ${status}, certificate: ${tls.error}`)
             : (status < 400 ? c.green : status === 401 ? c.cyan : c.yellow)(`https ${status}`);
-        console.log(`${c.cyan(`https://${r.domain}`)}  ${dnsState}  ${h}`);
+        const to = "to" in r ? ` ${c.dim("→")} ${r.to}` : "";
+        console.log(`${c.cyan(`https://${r.domain}`)}${to}  ${dnsState}  ${h}`);
       }
-      if (rows.some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));
+      if (meta.redirects?.length && !to) console.log(c.dim(`redirects of ${site} wait for a domain: ${meta.redirects.join(", ")}`));
+      if ([...rows, ...redirects].some((r) => !r.ok)) console.log(c.dim(`\npoint an A record at ${ips.join(" or ")} for each domain`));
       return;
     }
     const main = siteMain(meta);
     if (!main) fail(`no service of ${site} serves the site's domains: its compose.yaml sets them (x-landfall.domains)`);
     const lower = (l?: string[]) => (l ?? []).map((d) => expandDomain(d.trim(), server)).filter(Boolean);
-    const next = editList(o.set ? lower(o.set) : meta.domains, lower(o.add), lower(o.rm));
-    const bad = next.filter((d) => !DOMAIN.test(d));
+    const was = meta.redirects ?? [];
+    // A bare name redirects to a subdomain of the site's own first domain: www → www.example.com.
+    const served = editList(o.set ? lower(o.set) : meta.domains, lower(o.add), lower(o.rm));
+    const asked = redirectHosts(o.redirect ?? []);
+    const first = served.find((d) => !asked.includes(d));
+    const redirect = redirectHosts(asked, first);
+    const bare = redirect.find((d) => !d.includes("."));
+    if (bare) fail(`\`${bare}\` means ${bare}.<first domain>, but ${site} serves no domain: give the whole host`);
+    const next = served.filter((d) => !redirect.includes(d));
+    // Hosts served again leave the redirects; removed ones leave either list. `--rm www` takes www.<first domain> too.
+    const rm = [...lower(o.rm), ...redirectHosts(o.rm ?? [], meta.domains[0])];
+    const nextRedirects = editList(was, redirect, [...rm, ...next]);
+    const bad = [...next, ...nextRedirects].filter((d) => !DOMAIN.test(d));
     if (bad.length) fail(`not a domain: ${bad.join(", ")}`);
-    const missing = lower(o.rm).filter((d) => !meta.domains.includes(d));
+    const on = (h: string) => meta.domains.includes(h) || was.includes(h);
+    const missing = (o.rm ?? []).filter((d: string) => ![expandDomain(d.trim(), server), ...redirectHosts([d], meta.domains[0])].some(on));
     if (missing.length) warn(`${missing.join(", ")} not on ${site}`);
-    if (next.join() === meta.domains.join()) return ok("nothing to change");
-    const dropped = meta.domains.filter((d) => !next.includes(d));
+    if (next.join() === meta.domains.join() && nextRedirects.join() === was.join()) return ok("nothing to change");
+    // Redirects kept from before wait for a domain; new ones need one now.
+    if (redirect.length && !next.length) fail(`${redirect.join(", ")} would redirect to nothing: ${site} needs a domain to redirect to`);
+    const dropped = meta.domains.filter((d) => !next.includes(d) && !nextRedirects.includes(d));
     if (dropped.length) {
       const left = next.length ? "" : ` ${site} keeps running, unreachable until it gets a domain again.`;
       await confirmRemoval(`Remove ${dropped.join(", ")} from ${site}? ${dropped.length > 1 ? "They stop" : "It stops"} serving it.${left}`);
     }
     const added = next.filter((d) => !meta.domains.includes(d));
+    const addedRedirects = nextRedirects.filter((d) => !was.includes(d) && !meta.domains.includes(d));
     const services = currentRelease(meta)?.services ?? [];
-    const move = await claimDomains(server, serverName, site, [...added, ...subDomains(services, added)], proxy);
+    const claim = [...added, ...subDomains(services, added), ...addedRedirects];
+    const move = await claimDomains(server, serverName, site, claim, proxy);
     await move();
-    await changeSite(server, site, proxy, `domains of ${site}: ${next.join(", ")}`, (m) => void (m.domains = next));
-    updateProjectDomains(serverName, site, next);
+    const what = `domains of ${site}: ${next.join(", ")}${nextRedirects.length ? `; redirects to ${next[0]}: ${nextRedirects.join(", ")}` : ""}`;
+    await changeSite(server, site, proxy, what, (m) => {
+      m.domains = next;
+      if (nextRedirects.length) m.redirects = nextRedirects;
+      else delete m.redirects;
+    });
+    updateProjectDomains(serverName, site, next, nextRedirects);
     const here = loadProject(process.cwd());
-    if (here?.name === site) saveProject(process.cwd(), { ...here, domains: next });
+    if (here?.name === site) saveProject(process.cwd(), withRedirects({ ...here, domains: next }, nextRedirects));
     if (!next.length) ok(`${site} serves no domain now ${c.dim(`(lf domains ${site} --add <domain> routes it again)`)}`);
+    if (!next.length && nextRedirects.length) info(c.dim(`${nextRedirects.join(", ")} redirect again once ${site} has a domain`));
     else ok(`${site} serves ${next.map((d) => c.cyan(`https://${d}`)).join(", ")}`);
+    if (next.length && nextRedirects.length) ok(`${nextRedirects.map((d) => c.cyan(`https://${d}`)).join(", ")} ${c.dim("→")} https://${next[0]}`);
     const ips = await serverIps(server);
-    for (const d of await checkDns([...added, ...subDomains(services, added)], ips)) {
+    for (const d of await checkDns(claim, ips)) {
       if (!d.ok) warn(`${d.domain} ${d.ips.length ? `points at ${d.ips.join(", ")}` : "has no DNS record"}, not ${ips.join(" or ")}: HTTPS waits for it`);
     }
   },

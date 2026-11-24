@@ -152,7 +152,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
 }
 
 function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
-  const { meta: m, status, services, domains, main, kind } = site;
+  const { meta: m, status, services, domains, redirects, redirectTo, main, kind } = site;
   const cur = m.releases.find((r) => r.id === m.current);
   const name = m.name;
   const open = S.open.has(`${n}/${name}`);
@@ -598,7 +598,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const where = (
     <>
       {domains.length ? (
-        domains.map((d) => <DomainChip key={d} n={n} d={d} />)
+        [...domains.map((d) => <DomainChip key={d} n={n} d={d} />), ...redirects.map((d) => <DomainChip key={d} n={n} d={d} to={redirectTo} />)]
       ) : main && !many ? (
         <span className={CHIP}>
           <span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} />

@@ -27,6 +27,7 @@ import {
   siteDomains,
   type Release,
   type SiteMeta,
+  siteRedirects,
 } from "../../src/core/compose";
 import YAML from "yaml";
 
@@ -75,6 +76,26 @@ describe("templates", () => {
     expect(y).toContain('"traefik.http.routers.blog_admin.rule": "Host(`admin.a.com`)"');
     expect(y).toMatch(/"db":\n    labels:/);
     expect(y).toContain('  landfall-proxy:\n    name: "proxy"\n    external: true');
+  });
+
+  test("redirects: their own router, a permanent redirect to the first domain, no login", () => {
+    const m: SiteMeta = { ...meta, domains: ["a.com"], redirects: ["www.a.com", "old.example"], auth: ["bob:h1"] };
+    const raw = overrideYaml(m, release);
+    expect(raw).toContain('"traefik.http.middlewares.blog_web-redirect.redirectregex.replacement": "https://a.com$${1}"');
+    const y = YAML.parse(raw).services;
+    const l = y.web.labels;
+    expect(l["traefik.http.routers.blog_web.rule"]).toBe("Host(`a.com`)");
+    expect(l["traefik.http.routers.blog_web-redirect.rule"]).toBe("Host(`www.a.com`) || Host(`old.example`)");
+    expect(l["traefik.http.routers.blog_web-redirect.middlewares"]).toBe("blog_web-redirect");
+    expect(l["traefik.http.routers.blog_web-redirect.tls.certresolver"]).toBe("le");
+    expect(l["traefik.http.middlewares.blog_web-redirect.redirectregex.permanent"]).toBe("true");
+    // Only the main service redirects.
+    expect(Object.keys(y.admin.labels).some((k) => k.includes("redirect"))).toBe(false);
+    expect(siteRedirects(m)).toEqual({ hosts: ["www.a.com", "old.example"], to: "a.com" });
+    // No domain to point at: no redirect router.
+    const none = { ...m, domains: [] };
+    expect(Object.keys(YAML.parse(overrideYaml(none, release)).services.web.labels ?? {}).some((k) => k.includes("redirect"))).toBe(false);
+    expect(siteRedirects(none)).toEqual({ hosts: [] });
   });
 
   test("override escapes $ in basic auth", () => {

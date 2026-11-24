@@ -70,7 +70,8 @@ import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, rep
 import { pickIp, serverIps, sslipDomain } from "../../core/facts";
 import { bytes, plural } from "../../core/format";
 import { detectBuild } from "../../core/frameworks";
-import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug } from "../../core/projects";
+import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug, withRedirects } from "../../core/projects";
+import { redirectHosts } from "../../core/redirects";
 import { claimDomains } from "./access";
 import { setupServer } from "./setup";
 import { onStop } from "../../core/job";
@@ -395,7 +396,10 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         }
 
         // Anything that fails from the upload until the site switches takes the half-made release away again.
-        let release: Release, domains: string[], move: () => Promise<void>;
+        let release: Release,
+          domains: string[],
+          redirects: string[] = [],
+          move: () => Promise<void>;
         // Images built here and (maybe partly) sent: a failed deploy takes them off the server again.
         let sent: string[] = [];
         let vols: string[] = [];
@@ -465,12 +469,19 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
               `-d ignored: ${release.services.some(routed) ? `every routed service of ${name} names its own x-landfall.domains` : `${name} serves no domain`}`,
             );
 
+          // Redirects: .landfall.json's when it lists them, else what lf domains --redirect set; `www` = www.<first domain>.
+          if (mainService(release) && domains.length) {
+            redirects = redirectHosts(project.redirects ?? prev?.redirects ?? [], domains[0]).filter((d) => !domains.includes(d));
+            const bad = redirects.filter((d) => !DOMAIN.test(d));
+            if (bad.length) fail(`not a domain: ${bad.join(", ")} (redirects in ${PROJECT_FILE})`);
+            if (redirects.length) info(c.dim(`redirects to ${domains[0]}: ${redirects.join(", ")}`));
+          } else redirects = prev?.redirects ?? [];
           showRoutes(a.services, domains, prev && currentRelease(prev));
           move = await claimDomains(
             server,
             serverName,
             name,
-            [...domains, ...fixed, ...subDomains(a.services, domains)],
+            [...domains, ...fixed, ...subDomains(a.services, domains), ...redirects.filter((d) => !prev?.redirects?.includes(d))],
             proxy,
             fromFile ? `${PROJECT_FILE} lists it; deploy with -d to move it` : undefined,
           );
@@ -504,6 +515,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
           name,
           kind,
           domains,
+          redirects: redirects.length ? redirects : undefined,
           auth: withLogin(prev?.auth, login),
           volumes: vols.length ? vols : undefined,
           current: id,
@@ -538,7 +550,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
 
         const all = siteDomains(meta);
         if (o.save) {
-          const saved: ProjectConfig = { name, server: serverName, domains };
+          const saved = withRedirects({ name, server: serverName, domains }, redirects);
           if (kind === "image") Object.assign(saved, { image, ...(!fromImage && { port }), ...(send && { sendImage: true }) });
           else {
             const rel = relative(cwd, dir) || ".";

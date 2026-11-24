@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
-import { detectStaticDir, slug } from "../../src/core/projects";
+import { detectStaticDir, slug, withRedirects } from "../../src/core/projects";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
 import {
   baseDomain,
@@ -80,6 +80,19 @@ describe("environments", () => {
     expect(environmentOf(d, "shop-staging")).toBe("staging");
     expect(environmentOf(d, "shop")).toBe("");
     expect(environmentOf(d, "other")).toBeUndefined();
+  });
+
+  test("redirects are the project's own: an environment does not inherit them", () => {
+    const d = tmp();
+    saveProject(d, withRedirects({ name: "shop", server: "vps", domains: ["shop.com"] }, ["www.shop.com"]), "");
+    expect(read(d).redirects).toEqual(["www.shop.com"]);
+    expect(loadProject(d, "staging")?.redirects).toBeUndefined();
+    saveProject(d, { name: "shop-staging", server: "vps", domains: ["staging.shop.com"] }, "staging");
+    expect(read(d).redirects).toEqual(["www.shop.com"]);
+    expect(read(d).environments.staging).not.toHaveProperty("redirects");
+    // No redirects left: the key goes.
+    saveProject(d, withRedirects(loadProject(d, "")!, []), "");
+    expect(read(d)).not.toHaveProperty("redirects");
   });
 
   test("a folder first deployed as an environment gets the project name without the suffix", () => {

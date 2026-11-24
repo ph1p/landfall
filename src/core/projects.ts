@@ -461,8 +461,14 @@ export function rememberProject(p: Omit<Remembered, "at">) {
   );
 }
 
-/** Keep remembered projects and their .landfall.json in step after a site's domains changed on the server. */
-export function updateProjectDomains(server: string, name: string, domains: string[]) {
+/** The project with `redirects` set, or without the key when there are none. */
+export function withRedirects(p: ProjectConfig, redirects: string[]): ProjectConfig {
+  const { redirects: _, ...rest } = p;
+  return redirects.length ? { ...rest, redirects } : rest;
+}
+
+/** Keep remembered projects and their .landfall.json in step after a site's domains and redirects changed on the server. */
+export function updateProjectDomains(server: string, name: string, domains: string[], redirects: string[]) {
   const list = readProjects();
   if (!list) return unreadable();
   for (const p of list.filter((p) => p.server === server && p.name === name)) {
@@ -473,7 +479,7 @@ export function updateProjectDomains(server: string, name: string, domains: stri
     try {
       cfg = env === undefined ? undefined : loadProject(p.path, env);
     } catch {}
-    if (cfg?.name === name) saveProject(p.path, { ...cfg, domains }, env);
+    if (cfg?.name === name) saveProject(p.path, withRedirects({ ...cfg, domains }, redirects), env);
   }
   if (list.length) saveProjects(list);
 }

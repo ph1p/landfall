@@ -1,37 +1,40 @@
 # Servers
 
-Prepare a server for landfall, register servers you already have, and look after them.
+Prepare servers, register existing ones, and look after them.
 
 ## Prepare a server
 
 ### A fresh server (only a root password)
 
 ```sh
-lf setup vps --host 203.0.113.7
+lf setup vps --host 203.0.113.7   # asks the root password once
 ```
 
-1. Creates `~/.ssh/landfall_vps` and installs it with `ssh-copy-id`. You type the root password once.
-2. Installs Docker, rsync, ufw (allowing ssh, 80 and 443, plus 443/udp for HTTP/3) and unattended-upgrades.
-   That is on apt (Ubuntu, Debian). Alpine gets ufw; dnf, yum and zypper systems get Docker and
-   rsync, since their base repositories have no ufw or fail2ban.
-   fail2ban is installed on apt only where ssh passwords stay on (`--no-harden`). With keys only there is nothing to guess.
-   `lf harden fail2ban` installs it later.
-   On AWS, Google Cloud, Azure, Oracle Cloud and Alibaba Cloud it leaves ufw out: see [Cloud providers](#cloud-providers).
-3. Creates the user `deploy` in the docker group and disables ssh password login. Root keeps key-only access.
-4. Writes `Host vps` to `~/.ssh/config`, creating the file if needed. `ssh vps` now logs in as `deploy`.
+1. Creates `~/.ssh/landfall_vps` and installs it with `ssh-copy-id`.
+2. Installs packages (see [Packages by system](#packages-by-system)).
+3. Creates user `deploy` (docker group) and disables ssh password login. Root keeps key-only access.
+4. Writes `Host vps` to `~/.ssh/config` (created if needed). `ssh vps` now logs in as `deploy`.
 5. Starts Traefik, which gets Let's Encrypt certificates for every site.
 
-Setup shows what it is about to change and asks once (`-y` skips the question). Key login is checked **before**
-password login is turned off, so a failed key setup can't lock you out.
+Setup shows its changes and asks once (`-y` skips this). It checks key login **before** turning off passwords, so a failed key can't lock you out.
 
-Or deploy right away: a server landfall has not set up yet is set up first, then the site goes up.
+#### Packages by system
+
+- apt (Ubuntu, Debian): Docker, rsync, ufw and unattended-upgrades. ufw allows ssh, 80, 443 and 443/udp (HTTP/3).
+- Alpine: Docker, rsync and ufw.
+- dnf, yum, zypper: Docker and rsync. Their base repositories have no ufw or fail2ban.
+- fail2ban: apt only, where ssh passwords stay on (`--no-harden`); with keys only there is nothing to guess. Add it later with `lf harden fail2ban`.
+- AWS, Google Cloud, Azure, Oracle Cloud, Alibaba Cloud: no ufw (see [Cloud providers](#cloud-providers)).
+
+#### Deploy without setting up first
+
+`lf deploy` sets up a new server first, then deploys.
 
 ```sh
-lf deploy -s vps --host 203.0.113.7     # asks the root password once (--password-stdin, $LANDFALL_PASSWORD)
+lf deploy -s vps --host 203.0.113.7     # asks the root password (--password-stdin, $LANDFALL_PASSWORD)
 ```
 
-Without `--host`, `lf deploy` notices a configured server that isn't set up (or takes no key yet) and asks to
-run setup first.
+Without `--host`, it offers setup when a configured server isn't set up (or takes no key yet).
 
 ### A server you already reach with `ssh vps`
 
@@ -40,52 +43,46 @@ lf setup vps --check        # what is there, what would change
 lf setup vps
 ```
 
-landfall reads host, user, port and key from your ssh config (`ssh -G`) and keeps a key that works. It inspects
-first and prints what is done (`✓`), what it will do (`→`) and what it refuses to touch (`!`):
+landfall reads host, user, port and key from `ssh -G` and keeps a working key. It prints done (`✓`), to do (`→`) and refused (`!`).
 
-| step | skipped when |
-|---|---|
-| firewall | ufw is off and enabling it would block a public port that something listens on (Postgres on 5432, WireGuard on 51820/udp, …). Docker-published ports stay reachable because Docker's NAT bypasses ufw. If Docker uses nftables or has no IPv6 NAT, they would be blocked, so setup skips the firewall. |
-| ssh hardening | other users still log in with a password, or sshd refuses keys (`PubkeyAuthentication no`). landfall reads every sshd setting from `sshd -T`, so `Include` files such as `/etc/ssh/sshd_config.d/*.conf` count. Afterwards setup checks the effective config again, so a drop-in that turns passwords back on is reported. |
-| traefik | 80/443 are held by something that is not Traefik, or by a `traefik` that landfall didn't create. If it is your own Traefik, setup offers `lf traefik use` instead. |
+Setup skips a step when:
 
-Docker that is installed but stopped gets started. A missing compose, or the old v1 `docker-compose`, is replaced
-with the newest release. An existing Docker is never reinstalled. In a terminal, setup asks about each conflict
-(the default is no). `-y` never accepts a conflict. Only `--force` does. Existing sites are never touched.
+- **Firewall:** ufw is off, and enabling it would block a listening public port (Postgres on 5432, WireGuard on 51820/udp, …).
+  Docker-published ports stay reachable (Docker's NAT bypasses ufw), unless Docker uses nftables or lacks IPv6 NAT: then setup skips the firewall too.
+- **ssh hardening:** other users still log in with a password, or sshd refuses keys (`PubkeyAuthentication no`).
+  Settings come from `sshd -T`, so `Include` files such as `/etc/ssh/sshd_config.d/*.conf` count.
+  Afterwards setup rechecks and reports a drop-in that turns passwords back on.
+- **Traefik:** something other than landfall's `traefik` holds 80/443. For your own Traefik, setup offers `lf traefik use`.
 
-Running setup again is safe. If root's key login is gone after hardening, setup logs in as the sudo user it
-remembered from the first run (`--dashboard-user` and `--email` are checked before anything changes).
+- Stopped Docker gets started. An existing Docker is never reinstalled.
+- A missing compose, or the old v1 `docker-compose`, is replaced with the newest release.
+- Existing sites are never touched.
+- In a terminal, setup asks about each conflict (default no). `-y` never accepts a conflict; only `--force` does.
+
+Rerunning setup is safe. If hardening removed root's key login, it logs in as the first run's sudo user.
+`--dashboard-user` and `--email` are checked before anything changes.
 
 ### Minimal setup: Docker only, no Traefik
 
-landfall also works without Traefik. A minimal setup only makes sure Docker runs and creates `/opt/landfall`.
+Minimal setup ensures Docker runs and creates `/opt/landfall` and the Docker network. No Traefik, deploy user,
+packages, firewall or sshd changes. landfall logs in as the user you gave it.
 
 ```sh
-lf setup vps --minimal --check   # what is there, what would change
-lf setup vps --minimal           # Docker (if missing), /opt/landfall and the Docker network: nothing else
-```
-
-It installs no Traefik, no deploy user, no packages and no firewall. It does not change sshd. landfall logs in
-as the user you gave it.
-
-A flag turns one part back on. Running setup without `--minimal` later adds the rest.
-
-```sh
+lf setup vps --minimal --check   # report only
+lf setup vps --minimal           # Docker only if missing
 lf setup vps --minimal --harden  # minimal, plus key-only ssh
-lf setup vps                     # later: the full setup, with Traefik
+lf setup vps                     # later: full setup
 lf traefik setup -s vps          # later: only Traefik
 ```
 
-On a server without Traefik, sites serve no domain. `lf deploy` deploys them without asking for one. You reach
-them through a tunnel.
+Without Traefik, sites get no domain and `lf deploy` asks for none. Use a tunnel:
 
 ```sh
-lf deploy -s vps                 # no Traefik on vps: the site gets no domain
-lf tunnel my-site                # opens the site on a local port, over ssh
-lf tunnel postgres --port 5432   # any other container or Compose project on the server works too
+lf tunnel my-site                # site on a local port, over ssh
+lf tunnel postgres --port 5432   # any container or Compose project
 ```
 
-A deploy with `-d` still works. It warns that nothing answers on the domain until Traefik runs.
+`-d` still works, with a warning that nothing answers until Traefik runs.
 
 ### Setup flags
 
@@ -104,105 +101,122 @@ A deploy with `-d` still works. It warns that nothing answers on the domain unti
 | `--no-http3` | Traefik without HTTP/3 on 443/udp (remembered), see [Traefik](traefik.md) |
 | `--no-firewall` / `--no-harden` / `--no-traefik` / `--no-ssh-config` | skip a step |
 | `--firewall` | install and enable ufw even behind a provider firewall |
-| `--minimal` | only Docker and `/opt/landfall`: no Traefik, deploy user, packages, firewall or ssh hardening. A part's own flag (`--harden`, `--firewall`, `--traefik`, `--deploy-user deploy`) turns it back on |
+| `--minimal` | only Docker and `/opt/landfall` (see [Minimal setup](#minimal-setup-docker-only-no-traefik)) |
 | `--check` / `--key-only` / `--force` | report only / install only the key / apply despite conflicts |
 
-On a first Traefik install, setup asks for the image, host network, e-mail and dashboard in a terminal. `-y`
-takes the defaults. The e-mail is optional, because Let's Encrypt no longer sends expiry mails.
+With `--minimal`, a part's own flag turns it back on: `--harden`, `--firewall`, `--traefik`, `--deploy-user deploy`.
+
+On a first Traefik install in a terminal, setup asks for image, host network, e-mail and dashboard (`-y`: defaults).
+The e-mail is optional: Let's Encrypt no longer sends expiry mails.
 
 ## Managing servers
+
+### Register and configure
 
 ```sh
 lf server add vps                                       # register an existing ssh alias
 lf server add box --host 198.51.100.4 -u ubuntu -i ~/.ssh/box --default
-lf server add web --host 198.51.100.5 -u admin               # asks the password once, installs ~/.ssh/landfall_web
-lf server config vps                                    # landfall entry, Traefik settings, ssh login, keys, Host block
-lf server list --all --check                            # which servers landfall can log in to right now
+lf server add web --host 198.51.100.5 -u admin          # asks the password once, installs ~/.ssh/landfall_web
+lf server config vps                                    # show entry, Traefik settings, ssh login, keys, Host block
+lf server list --all --check                            # which servers accept a login now
 lf server use vps
-lf config --tunnel-only --keep 3                        # defaults for every server; also lists where landfall puts things
+lf config --tunnel-only --keep 3                        # defaults for all servers; also lists landfall's paths
 lf server rm vps                                        # forget locally
-lf server uninstall vps                                 # remove landfall from the server (type the name back)
+lf server uninstall vps                                 # remove landfall from the server (type the name)
 lf ssh vps -- docker ps
-lf stats                                                # CPU, memory, disks, network, busiest processes, every container's usage
-lf stats blog -w                                        # only the containers of one site, refreshed every 5s (--interval)
-lf disk                                                 # where the space goes: images, volumes, build cache, sites, container logs
-lf prune                                                # remove unused images, the build cache and unused networks (--all: unused tagged images too)
-lf prune --logs                                         # also empty container logs and shrink the systemd journal to 100M
-lf prune --volumes                                      # also delete volumes no site owns and removed sites' backups
-lf reboot                                               # reboot, wait until it is back, check its containers run again
+lf reboot                                               # reboot, wait, check containers run again
 ```
 
-`stats` samples the server for one second over ssh; nothing runs on the server between calls. CPU of a
-process counts one core as 100%. `disk` adds up folders, so it takes a few seconds on a full disk; without
-root or passwordless sudo, root-owned folders and container logs may be missing.
+### What `server add` changes
 
-`prune` keeps images any container uses (stopped ones too), images built for a site release (rollback runs
-them without rebuilding) and images an undo in the journal puts back. Containers stay, and so does landfall's
-proxy network while nothing is on it. `--dry-run` shows what would go. `--logs` also empties every container's log (the live file is truncated, rotated ones are
-deleted) and shrinks the systemd journal to its newest 100M; it needs root or passwordless sudo, else root's key login.
-`--volumes` deletes volumes no container mounts (stopped ones count), except those of a site that still exists:
-`lf sites rm` keeps a site's volumes, and they go here once the site is gone. Their data cannot be brought back,
-so it asks you to type the server name (`-y` skips that).
+Nothing on the server. It writes a `Host <name>` block between `# >>> landfall:<name>` markers
+(`--no-ssh-config`: keep details in landfall's config instead).
+
+In your own Host block, landfall acts only when the key fails: it puts the working `IdentityFile` first, drops
+lines whose file is gone, and backs up to `~/.ssh/config.landfall-bak`.
+
+### Usage and disk space
+
+```sh
+lf stats                 # CPU, memory, disks, network, top processes, per-container usage
+lf stats blog -w         # one site's containers, refreshed every 5s (--interval)
+lf disk                  # space by images, volumes, build cache, sites, container logs
+```
+
+`stats` samples one second over ssh; nothing runs on the server between calls. One core = 100% process CPU.
+`disk` adds up folders, so a full disk takes seconds. Without root or passwordless sudo, it may miss root-owned folders and container logs.
+
+### Prune
+
+```sh
+lf prune                 # remove unused images, build cache, unused networks (--all: unused tagged images too)
+lf prune --dry-run       # show what would go
+lf prune --logs          # also empty container logs; keep the systemd journal's newest 100M
+lf prune --volumes       # also volumes no site owns and removed sites' backups
+```
+
+`prune` keeps containers, landfall's proxy network (even when empty), images any container uses (stopped too),
+images built for a site release (rollback runs them without rebuilding) and images a journal undo puts back.
+
+`--logs` truncates live container logs and deletes rotated ones. It needs root, passwordless sudo or root's key login.
+
+`--volumes` deletes volumes no container mounts (stopped ones count), except an existing site's.
+`lf sites rm` keeps a site's volumes; they go here. The data is lost for good, so you type the server name (`-y` skips).
 
 ### Cloud providers
 
-landfall reads the provider from the server's hardware strings (`/sys/class/dmi/id`). It sends no request and
-installs nothing for that. `lf setup` and `lf server info` show the provider.
+landfall reads the provider from `/sys/class/dmi/id`, with no request and nothing installed. `lf setup` and `lf server info` show it.
 
-| provider | firewall in front | setup |
-|---|---|---|
-| AWS (EC2, Lightsail) | security group | no ufw |
-| Google Cloud | VPC firewall | no ufw |
-| Azure | network security group | no ufw |
-| Oracle Cloud | security list | no ufw |
-| Alibaba Cloud | security group | no ufw |
-| Hetzner, DigitalOcean, Vultr, Akamai (Linode), Scaleway, UpCloud | only if you add one | ufw as usual |
+These always have a firewall in front, closed until you open a port, so setup skips ufw:
 
-Where the provider's firewall is always in front, it is closed until you open a port. ufw would repeat its rules,
-so setup does not install it. Open 80 and 443 (and 443/udp for HTTP/3) in the provider's console: landfall cannot
-do that from the server.
+- AWS (EC2, Lightsail): security group
+- Google Cloud: VPC firewall
+- Azure: network security group
+- Oracle Cloud: security list
+- Alibaba Cloud: security group
+
+Open 80, 443 and 443/udp (HTTP/3) in the provider's console; landfall can't from the server.
+
+Hetzner, DigitalOcean, Vultr, Akamai (Linode), Scaleway and UpCloud have one only if you add it; setup installs ufw.
 
 ```sh
 lf setup vps --firewall     # install and enable ufw anyway
 lf firewall enable -s vps   # or later
 ```
 
-Set the provider yourself where landfall reads it wrong or not at all. landfall remembers it for the server.
-`lf security` and `lf server info` use it too.
+#### Set the provider yourself
+
+Use when detection is wrong or empty. It is remembered per server; `lf security` and `lf server info` use it too.
 
 ```sh
 lf setup vps --cloud aws         # treat it as AWS: no ufw
-lf setup vps --cloud none        # no provider: ufw as usual
-lf setup vps --cloud auto        # forget the setting and detect again
+lf setup vps --cloud none        # no provider: ufw
+lf setup vps --cloud auto        # detect again
 lf server add vps --cloud aws    # the same, without running setup
-lf server config vps --cloud aws # the same for a server landfall already knows; connects to nothing
+lf server config vps --cloud aws # the same, offline, for a known server
 ```
 
-The web page sets it too: click the provider in the server's header, or Change in Settings.
-With a provider set, the server's list gets a link to the provider's console.
-Behind a provider firewall, the Firewall section is called Host firewall and says which ports to open at the provider.
+Names: `aws`, `gcp`, `azure`, `oracle`, `alibaba`, `hetzner`, `digitalocean`, `vultr`, `linode`, `scaleway`, `upcloud`.
 
-In the web UI, the setup dialog has the same choice as "Provider".
+In the web UI:
 
-The names are `aws`, `gcp`, `azure`, `oracle`, `alibaba`, `hetzner`, `digitalocean`, `vultr`, `linode`, `scaleway` and `upcloud`.
+- Set it from the provider in the server's header, Change in Settings, or "Provider" in the setup dialog.
+- The server's list links to the provider's console.
+- Behind a provider firewall, the Firewall section is called Host firewall and lists ports to open there.
 
 ### What setup leaves on the server
 
-landfall keeps its own footprint small:
-
-- No agent and no landfall binary. `/opt/landfall` holds plain files: Compose projects, Traefik, the journal, a README.
-- Packages: Docker, rsync, curl and ca-certificates, plus ufw, fail2ban and unattended-upgrades where they apply.
-  ufw is only installed where setup turns it on. fail2ban is only installed where ssh passwords stay on.
-- On apt, landfall empties the package cache (`apt-get clean`) after it installs something.
+- No agent or binary. `/opt/landfall` holds plain files: Compose projects, Traefik, the journal, a README.
+- Packages: Docker, rsync, curl, ca-certificates; ufw, fail2ban, unattended-upgrades where they apply ([Packages by system](#packages-by-system)).
+- On apt, `apt-get clean` runs after each install.
 - A deploy keeps the newest 5 releases of a site (`--keep`), removes untagged images and trims the build cache.
-- File backups made for `lf undo` are capped at 10 per file.
-- `lf prune` shows and frees what is left: unused images, build cache, old logs.
+- File backups for `lf undo` are capped at 10 per file.
+- `lf prune` frees the rest.
 
 ### NAS, Steam Deck and other systems without a package manager
 
-Synology DSM, SteamOS and other systems without apt, dnf, yum, apk or zypper install software their own way.
-`lf setup` refuses on them (`--check` and `--key-only` still work). Register them with `lf server add` and deploy
-to them as they are. `lf server info` shows what landfall can do on a server and why not:
+Systems without apt, dnf, yum, apk or zypper (Synology DSM, SteamOS, …): `lf setup` refuses (`--check` and
+`--key-only` work). Register them with `lf server add` and deploy as is. `lf server info` shows what works, and why not:
 
 ```
 login    root · root or sudo
@@ -211,23 +225,23 @@ docker   24.0.2 · compose 2.20.1
 firewall DSM has its own firewall: Control Panel → Security → Firewall
 ```
 
-On Synology, Docker comes from Container Manager in Package Center, so `lf update --compose` leaves it alone.
-DSM's Control Panel keeps the host name, time zone, swap and Docker's settings, and its own firewall replaces
-ufw, so landfall refuses those changes there. On SteamOS, install Docker in your home directory (landfall does not run podman). A
-login without passwordless sudo can still deploy but not change the system. The web UI shows only the tabs and
-actions that work on the server.
+- Synology: Docker comes from Container Manager in Package Center, so `lf update --compose` leaves it alone.
+  landfall refuses to change host name, time zone, swap or Docker's settings (Control Panel owns them); DSM's firewall replaces ufw.
+- SteamOS: install Docker in your home directory (landfall does not run podman).
+- Without passwordless sudo, a login can deploy but not change the system.
+- The web UI hides tabs and actions that don't work there.
+- landfall adds `/usr/local/sbin` and `/usr/local/bin` to `PATH`: non-interactive ssh often lacks them (DSM keeps `docker` there).
 
 ### Root login
 
-Some work needs root: fail2ban, the firewall, updates, users and `lf undo`. When the server's login has no
-passwordless sudo, landfall logs in another way for that work. It tries these in order:
+fail2ban, firewall, updates, users and `lf undo` need root. Without passwordless sudo, landfall tries in order:
 
 1. the Host set with `lf server config --root-login`;
 2. `root` with the server's own key;
 3. the sudo user setup used (`admin` in landfall's config);
-4. other Hosts in `~/.ssh/config` that reach the same machine (same HostName and port) with another user, root first.
+4. other `~/.ssh/config` Hosts with the same HostName and port, root first.
 
-So a second Host block for root is enough:
+A second Host block for root is enough:
 
 ```
 Host vps
@@ -240,43 +254,33 @@ Host vps-root
 ```
 
 ```sh
-lf server config vps --root-login vps-root   # use vps-root for root work; tries the login once
-lf server config vps --root-login auto       # forget it: landfall tries the order above again
+lf server config vps --root-login vps-root   # use vps-root for root work (tests it once)
+lf server config vps --root-login auto       # back to the order above
 ```
 
-The web page sets it too: Change next to *root work* in the server's Settings. It lists the Hosts that reach the
-same machine.
+Web UI: Change next to *root work* in the server's Settings lists Hosts that reach the same machine.
 
 ### Sudo with a password
 
-A login whose sudo asks for a password can do root work too. Give the password once per command:
+Give a sudo password once per command:
 
 ```sh
 lf setup vps -u anna -K          # asks for anna's sudo password
-lf harden vps -K                 # the same for any other command
+lf harden vps -K                 # works on any command
 LANDFALL_SUDO_PASSWORD=… lf reboot vps -y   # without a terminal
 ```
 
-In a terminal, landfall also asks by itself when root work finds no other way.
-The password stays in memory for that one command. landfall never writes it to its config, the journal or a log.
-It travels inside the script on ssh's stdin, never in a command line.
-In the web UI, a command that needs the password offers **Give the sudo password** and runs again with it.
-On the server, an askpass helper hands it to `sudo`. The helper holds no secret and is removed when the script ends.
+- A terminal prompts by itself when root work has no other way. The web UI offers **Give the sudo password** and reruns.
+- It stays in memory for that command, never in config, journal or log.
+- It travels in the script on ssh's stdin, never in a command line. An askpass helper (no secret, removed at the end) hands it to `sudo`.
 
-Before root work starts, landfall says how it gets root: `runs as root: sudo as anna`, or the root login it uses.
-Setup checks this before it changes anything. Without root, passwordless sudo or `-K`, it stops and names the options.
+Before root work, landfall says how: `runs as root: sudo as anna`, or the root login. Setup checks this first;
+without root, passwordless sudo or `-K`, it stops and names the options.
 
 ### Docker access is root
 
-The deploy user is in the `docker` group, and deploys need nothing more. The docker group is root in all but name:
-anyone in it can start a container that mounts `/` and change any file. So keep the deploy user's key as safe as
-root's. A separate, unprivileged deploy user still helps: it cannot install packages, change sshd or the firewall
-without a sudo password, and its mistakes show up in `lf history` under its name.
+Deploys need only the `docker` group. That group is root in all but name: a member can mount `/` in a container and
+change any file. Guard the deploy user's key like root's.
 
-Non-interactive ssh sessions often lack `/usr/local/bin` (where DSM keeps `docker`), so landfall adds
-`/usr/local/sbin` and `/usr/local/bin` to `PATH` for every command it runs.
-
-`server add` installs nothing on the server. It writes a `Host <name>` block between `# >>> landfall:<name>` markers
-(`--no-ssh-config` keeps the details in landfall's config instead). In a Host block you wrote yourself, landfall
-only steps in when the key does not work. It then puts the working `IdentityFile` first, drops lines whose file is
-gone, and keeps a backup as `~/.ssh/config.landfall-bak`.
+A separate deploy user still helps: without a sudo password it can't install packages or change sshd or the firewall,
+and `lf history` shows its actions under its name.

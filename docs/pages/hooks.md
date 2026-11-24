@@ -1,7 +1,7 @@
 # Lifecycle hooks
 
 Hooks run npm scripts at fixed points of a deploy, a rollback and a removal.
-They live in `package.json`, next to the scripts they run.
+Declare them in `package.json`, next to the scripts.
 landfall runs them with the project's package manager (from the lockfile): npm, pnpm, yarn or bun.
 
 ```json
@@ -29,12 +29,10 @@ landfall runs them with the project's package manager (from the lockfile): npm, 
 }
 ```
 
-A hook is one script name or a list of them.
-A list runs in order and stops at the first script that fails.
-On the server, a hook's scripts share one container.
-landfall checks the section before it runs anything.
-An unknown hook or a script `scripts` does not have is an error.
-The same section can hold the [project settings](/reference#landfalljson) too.
+- A hook is a script name or a list. A list runs in order and stops at the first failure.
+- On the server, a hook's scripts share one container.
+- An unknown hook, or a script missing from `scripts`, is an error before anything runs.
+- The section can also hold the [project settings](/reference#landfalljson).
 
 ## The hooks
 
@@ -51,9 +49,8 @@ The same section can hold the [project settings](/reference#landfalljson) too.
 | `postrollback` | after `lf rollback` switched | the restored release's container | a warning |
 | `predestroy` | before `lf sites rm` removes anything | the running container | nothing is removed |
 
-The `pre` hooks, `release` and `verify` stop what they guard.
-The `post` hooks and `onfailure` only report.
-`onfailure` never runs again because of its own failure.
+- The `pre` hooks, `release` and `verify` stop what they guard.
+- The `post` hooks and `onfailure` only report. A failing `onfailure` does not run itself again.
 
 ## The lifecycle
 
@@ -76,26 +73,21 @@ lf sites rm
 
 ## Where server hooks run
 
-`release`, `verify`, `postdeploy`, `prerollback`, `postrollback` and `predestroy` run on the server, in the site's container.
-The container needs the scripts and the package manager: an app image built from the project has them.
-When the image lacks the package manager, landfall uses `npm` there.
-
-The service is the one that serves the site's domains, else the one landfall builds.
-A compose site with several services can name it:
+`release`, `verify`, `postdeploy`, `prerollback`, `postrollback` and `predestroy` run in the site's container on the server.
+That is the service serving the site's domains, else the one landfall builds.
+It needs the scripts and the package manager, as an app image built from the project has; lacking the package manager, landfall uses `npm`.
+A Compose site with several services can name one:
 
 ```json
 { "landfall": { "service": "web", "hooks": { "release": "db:migrate" } } }
 ```
 
-A static site runs in nginx, without `package.json`.
-It can use `prebuild`, `postbuild`, `predeploy` and `onfailure` only.
+A static site runs in nginx, without `package.json`: it can use only `prebuild`, `postbuild`, `predeploy` and `onfailure`.
 
-`release` runs in a one-off container (`docker compose run --rm`) of the new release.
-Traefik never routes traffic to it, and it runs once however many replicas the service has.
-The services it depends on, like a database, start first.
+`release` runs once in a one-off container of the new release (`docker compose run --rm`), however many replicas the service has.
+Traefik never routes to it. Its dependencies, like a database, start first.
 
-Each release keeps its server hooks in the site's `site.json`.
-So `lf rollback` and `lf sites rm` run the hooks of the releases on the server, from any folder.
+Each release keeps its server hooks in the site's `site.json`, so `lf rollback` and `lf sites rm` run them from any folder.
 
 ## Environment variables
 
@@ -115,36 +107,28 @@ Every hook gets these:
 | `LANDFALL_FAILED_HOOK` | the hook that failed, if one did (`onfailure`) |
 | `LANDFALL_ERROR` | the error message (`onfailure`) |
 
-Server hooks also get the service's own environment, like the app: `release` reaches the database the app uses.
+Server hooks also get the service's own environment, so `release` reaches the app's database.
 
 ## Skipping hooks
 
 ```sh
-# deploy without the verify hook
-lf deploy --skip-hook verify
-
-# deploy without any hook
-lf deploy --skip-hooks
-
-# roll back without prerollback
+lf deploy --skip-hook verify            # without the verify hook; repeatable, any hook
+lf deploy --skip-hooks                  # without any hook
 lf rollback --skip-hook prerollback
 ```
 
-`--skip-hook` takes any hook and can be given more than once.
-A skipped hook is said in the output and in the journal (`lf history`).
+The output and the journal (`lf history`) name skipped hooks.
 
 ## Output and failures
 
 Hook output goes to the deploy log, on stderr.
 A failing hook is named: `hook verify failed: npm run smoke`.
 
-The deploy has no second copy of the site running: the new release replaces the old one in place.
-So `verify` runs right after the start, and a failure brings the previous release back.
-A new site has no previous release: when its `verify` fails, it stays as it is, and `lf undo` removes it.
+The new release replaces the old one in place; no second copy runs.
 
-`release` runs before the new release starts, and the old one still serves traffic meanwhile.
-A failing `verify` does not undo what `release` did.
-Write migrations the previous release can run with: add columns before the code uses them, drop them a release later.
+- A failing `verify` brings the previous release back. A new site has none: it stays, and `lf undo` removes it.
+- `release` runs while the old release still serves traffic, and a failing `verify` does not undo it.
+  Write migrations the previous release can run with: add columns before the code uses them, drop them a release later.
 
 ## Examples
 

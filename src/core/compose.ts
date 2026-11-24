@@ -90,6 +90,8 @@ export interface SiteMeta {
   kind: SiteKind;
   /** Domains of the routed service that names none itself; what `lf domains` changes. */
   domains: string[];
+  /** Hosts that answer with a permanent redirect to the first of `domains`, path and query kept (www.example.com). */
+  redirects?: string[];
   /** htpasswd lines (user:bcrypt): the site asks for a login. */
   auth?: string[];
   /** Logins of single routes by routeKey (\`lf auth --route\`), in place of the site's; [] = public. */
@@ -170,6 +172,12 @@ export const fixedDomains = (services: Service[]) => services.flatMap((s) => [..
 /** The subdomain routes of a release under these site domains: they come and go with them. */
 export const subDomains = (services: Service[], site: string[]) =>
   services.flatMap((s) => (s.routes ?? []).filter((r) => r.subdomain).flatMap((r) => routeDomains(r, site)));
+
+/** The redirect hosts and where they point: none while the site serves no domain of its own. */
+export function siteRedirects(meta: SiteMeta): { hosts: string[]; to?: string } {
+  const to = siteMain(meta) ? meta.domains[0] : undefined;
+  return to ? { hosts: meta.redirects ?? [], to } : { hosts: [] };
+}
 
 /** Every domain a site answers on now. */
 export function siteDomains(meta: SiteMeta): string[] {
@@ -687,6 +695,22 @@ export interface Login {
   users: string[];
 }
 
+/**
+ * A router of its own for the redirect hosts: Traefik answers 301 (308 for other methods than GET) to `to`,
+ * same path and query. No login or address check: it only points elsewhere.
+ */
+export function redirectLabels(site: string, s: Service, port: number, hosts: string[], to: string, proxy: Proxy): Record<string, string> {
+  const r = routerName(site, s, port);
+  const name = `${r}-redirect`;
+  return {
+    ...routerLabels(name, hosts, r, proxy),
+    [`traefik.http.routers.${name}.middlewares`]: name,
+    [`traefik.http.middlewares.${name}.redirectregex.regex`]: "^https?://[^/]+(.*)",
+    [`traefik.http.middlewares.${name}.redirectregex.replacement`]: `https://${to}\${1}`,
+    [`traefik.http.middlewares.${name}.redirectregex.permanent`]: "true",
+  };
+}
+
 /** Traefik's name for the router to port `port` of `s`. */
 function routerName(site: string, s: Service, port: number) {
   // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
@@ -718,6 +742,16 @@ export function findRoute(meta: SiteMeta, name: string): { key: string; domains:
 }
 
 /** Traefik labels for one router of `s`. */
+/** A router `name` for `hosts` over HTTPS, handing requests to `service`. */
+function routerLabels(name: string, hosts: string[], service: string, proxy: Proxy): Record<string, string> {
+  return {
+    [`traefik.http.routers.${name}.rule`]: hosts.map((d) => `Host(\`${d}\`)`).join(" || "),
+    [`traefik.http.routers.${name}.entrypoints`]: proxy.entrypoint,
+    [`traefik.http.routers.${name}.tls.certresolver`]: proxy.resolver,
+    [`traefik.http.routers.${name}.service`]: service,
+  };
+}
+
 export function routeLabels(
   site: string,
   s: Service,
@@ -729,10 +763,7 @@ export function routeLabels(
   const out: Record<string, string> = {
     "traefik.enable": "true",
     "traefik.docker.network": proxy.network,
-    [`traefik.http.routers.${r}.rule`]: domains.map((d) => `Host(\`${d}\`)`).join(" || "),
-    [`traefik.http.routers.${r}.entrypoints`]: proxy.entrypoint,
-    [`traefik.http.routers.${r}.tls.certresolver`]: proxy.resolver,
-    [`traefik.http.routers.${r}.service`]: r,
+    ...routerLabels(r, domains, r, proxy),
     [`traefik.http.services.${r}.loadbalancer.server.port`]: String(port),
   };
   // The address check comes first: a refused address never sees the login prompt.
@@ -780,8 +811,11 @@ function traefikLayer(meta: SiteMeta, r: Release, proxy: Proxy): ServicePart[] {
       // A main service with no domains left stays up, unrouted; so do its subdomain routes.
       else
         for (const router of plan)
-          if (router.service === s.name && router.domains.length)
+          if (router.service === s.name && router.domains.length) {
             Object.assign(labels, routeLabels(meta.name, s, router, proxy, routerLogin(meta, s, router.port)));
+            if (router.main && meta.redirects?.length)
+              Object.assign(labels, redirectLabels(meta.name, s, router.port, meta.redirects, router.domains[0], proxy));
+          }
     }
     return { name: s.name, build: !!s.build, lines, labels };
   });

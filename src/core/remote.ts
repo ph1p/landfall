@@ -16,6 +16,7 @@ import {
   ROUTER_RULE,
   ruleHosts,
   siteDomains,
+  siteRedirects,
   siteMain,
   SITE_LINES,
   STATUS_RANK,
@@ -139,6 +140,10 @@ export interface SiteStatus {
   services: ServiceStatus[];
   /** Every domain it answers on (siteDomains). */
   domains: string[];
+  /** Hosts that redirect to its first domain; none while it serves no domain (siteRedirects). */
+  redirects: string[];
+  /** Where the redirects point: the first domain. */
+  redirectTo?: string;
   /** The service serving the site's own domains: `lf domains` changes them. None: fixed in compose.yaml. */
   main?: string;
   /** kindOf: what lists show. */
@@ -329,8 +334,18 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
     .filter((x) => isUp(x.status) && !known.has(x.container) && !(x.project && siteProjects.has(x.project)))
     .sort((x, y) => x.container.localeCompare(y.container));
   o.sites = metas.map((meta) => {
+    const { hosts, to } = siteRedirects(meta);
     const services = (byProject.get(projectName(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
-    return { meta, status: siteStatus(meta, services), services, domains: siteDomains(meta), main: siteMain(meta)?.name, kind: kindOf(meta) };
+    return {
+      meta,
+      status: siteStatus(meta, services),
+      services,
+      domains: siteDomains(meta),
+      redirects: hosts,
+      redirectTo: to,
+      main: siteMain(meta)?.name,
+      kind: kindOf(meta),
+    };
   });
   return o;
 }

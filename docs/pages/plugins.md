@@ -1,68 +1,67 @@
 # Plugins
 
-A plugin adds commands to `lf` and a section to the server page of `lf ui`. landfall ships two: `fail2ban` and
-`trivy`. Your own plugins are JavaScript files in `~/.config/landfall/plugins`.
+A plugin adds commands to `lf` and a section to the server page of `lf ui`. landfall ships `fail2ban` and
+`trivy`. Yours are JavaScript files in `~/.config/landfall/plugins`.
 
-Plugins follow landfall's rules. There is no agent on the server: a plugin runs bash over ssh, like landfall
-itself. Every button in its web UI section runs an `lf` command, which the page shows as a job.
+A plugin runs bash over ssh, like landfall: no agent on the server. Every button in its web UI section runs an
+`lf` command, shown as a job.
 
 ## Using plugins
 
 ```sh
-lf plugins                        # every plugin: built in or yours, its commands, its web UI section
+lf plugins                        # every plugin, its commands and web UI section
 lf plugin add ./disk-alert.mjs    # install a file, or a folder with index.mjs or package.json "main"
 lf plugin add ./disk-alert.mjs --force   # replace an installed plugin of that name
-lf plugin rm disk-alert           # remove it, with what it keeps on this computer
-lf plugin new disk-alert          # write a plugin to start from, to ~/.config/landfall/plugins/disk-alert.mjs
-lf plugin new disk-alert --out ./disk-alert.mjs   # write it elsewhere; lf plugin add installs it later
+lf plugin rm disk-alert           # remove it; says what it keeps on this computer
+lf plugin new disk-alert          # write a starter to ~/.config/landfall/plugins/disk-alert.mjs
+lf plugin new disk-alert --out ./disk-alert.mjs   # write it elsewhere; install later with lf plugin add
 ```
 
-`lf plugin add` loads the plugin first and refuses it if it is broken. A plugin cannot take a built-in plugin's name.
+- `lf plugin add` loads the plugin first and refuses a broken one, or one with a built-in plugin's name.
+- A plugin that fails to load is skipped with a warning. `lf plugins` shows the error.
+- A plugin whose command or alias is already an `lf` command is skipped as a whole.
+- `LANDFALL_NO_PLUGINS=1` skips your plugins for one run. Built-in ones still load.
 
-A plugin that fails to load does not break landfall. `lf` warns, skips it, and `lf plugins` shows the error. A
-plugin whose command or alias is already an `lf` command is skipped as a whole.
-
-`LANDFALL_NO_PLUGINS=1` skips your plugins for one run. The built-in ones still load.
-
-Plugins run with your user's rights on this computer, like any script you run. Install only plugins you trust.
+Plugins run with your user's rights on this computer. Install only plugins you trust.
 
 ## Built-in plugins
 
 ### fail2ban
 
 ```sh
-lf fail2ban                       # jails, their settings and the banned IPs (alias: lf bans)
-lf fail2ban ban 203.0.113.9       # ban an IP in the sshd jail; --jail for another
-lf fail2ban unban 203.0.113.9     # let it in again, in every jail that bans it (alias: lf unban)
+lf fail2ban                       # jails, their settings and banned IPs (alias: lf bans)
+lf fail2ban ban 203.0.113.9       # ban in the sshd jail; --jail for another
+lf fail2ban unban 203.0.113.9     # unban in every jail (alias: lf unban)
 lf fail2ban config sshd --bantime 1h --maxretry 3   # also --findtime; -1 bans for good
-lf fail2ban install               # install and start fail2ban: lf harden fail2ban
+lf fail2ban install               # same as lf harden fail2ban
 ```
 
-`config` writes `/etc/fail2ban/jail.d/50-landfall-<jail>.local` and reloads fail2ban. It keeps the settings you do
-not give. `ban`, `unban` and `config` are journaled, and `lf undo` takes them back. fail2ban answers root only, so every
-command needs root or passwordless sudo. Without either, landfall uses the server's [root login](servers.md#root-login).
+- `config` writes `/etc/fail2ban/jail.d/50-landfall-<jail>.local`, keeps settings you do not give, and reloads fail2ban.
+- `ban`, `unban` and `config` are journaled; `lf undo` reverts them.
+- fail2ban answers root only, so every command needs root or passwordless sudo, else the server's
+  [root login](servers.md#root-login).
 
-The web UI section *fail2ban* (under Machine) shows the same. It has buttons to ban, unban and change a jail.
+The web UI section *fail2ban* (under Machine) shows the same, with buttons to ban, unban and change a jail.
 
 ### trivy
 
 ```sh
-lf trivy                          # what Trivy keeps on the server and what the last scans found
-lf trivy images                   # scan the running images; keeps a summary (lf scan lists every vulnerability)
-lf trivy files                    # scan the sites' current releases for secrets and misconfigurations
+lf trivy                          # what Trivy keeps on the server, what the last scans found
+lf trivy images                   # scan running images, keep a summary (lf scan lists every vulnerability)
+lf trivy files                    # scan sites' current releases for secrets and misconfigurations
 lf trivy files blog               # only some sites
 lf trivy rm                       # remove Trivy's image and databases from the server
 ```
 
-The first scan downloads Trivy and its databases (several GB), so landfall asks first. `files` skips `.env` files,
-`node_modules` and `.git`. Scans change nothing on the server. The summaries of the last full scans stay on this
-computer, in `~/.config/landfall/plugin-data/trivy/`.
+- The first scan downloads Trivy and its databases (several GB). landfall asks first.
+- `files` skips `.env` files, `node_modules` and `.git`.
+- Scans change nothing on the server. Summaries of the last full scans stay in `~/.config/landfall/plugin-data/trivy/`.
 
 The web UI section *Trivy* (under Machine) shows the summaries, with buttons to scan again.
 
 ## Writing a plugin
 
-A plugin is an ES module whose default export describes it. `lf plugin new <name>` writes a working one. This is a
+A plugin is an ES module whose default export describes it. `lf plugin new <name>` writes a working one. A
 smaller example:
 
 ```js
@@ -88,26 +87,29 @@ export default {
 };
 ```
 
-`lf disk-alert --help` then shows its options, `lf disk-alert -s web1` runs it, and `lf --help` lists it under
-Plugins.
+Now `lf disk-alert --help` shows its options, `lf disk-alert -s web1` runs it, and `lf --help` lists it under Plugins.
 
 ### The plugin object
 
 | field | what |
 |---|---|
-| `name` | the command and section name: lowercase letters, digits and dashes |
+| `name` | command and section name: lowercase letters, digits, dashes; starts with a letter; at most 32 characters |
 | `summary` | one sentence, for `lf --help` and `lf plugins` |
 | `version` | optional, shown by `lf plugins` |
 | `commands` | the commands; see below |
-| `aliases` | shorthands for its commands, e.g. `{ bans: "fail2ban" }`. They must point to its own commands |
-| `panel` | its section in the web UI; see below |
+| `aliases` | shorthands for its own commands, e.g. `{ bans: "fail2ban" }` |
+| `panel` | its web UI section; see below |
 
-A command has a `name` (`""` makes it `lf <plugin>`, else `lf <plugin> <name>`), a `summary`, optional `args`
-(for help, e.g. `"<ip>"`), `options` and `run(ctx, args, opts)`. Options are
-`{ type: "string" | "boolean", desc, short?, default?, multiple? }`. Every command gets `-s <server>`, `-y` and
-`--help`. A command with `local: true` gets no `-s` and no server.
+A command has:
 
-`run` returns nothing, or an exit code.
+- `name`: `""` makes `lf <plugin>`, else `lf <plugin> <name>`
+- `summary`
+- `args`: optional, for help, e.g. `"<ip>"`
+- `options`: each `{ type: "string" | "boolean", desc, short?, default?, multiple? }`
+- `local: true`: no `-s` and no server (`ctx.name` and `ctx.server` are absent)
+- `run(ctx, args, opts)`: returns nothing or an exit code
+
+Every other command gets `-s <server>`; all get `-y` and `--help`.
 
 ### The context
 
@@ -115,8 +117,9 @@ A command has a `name` (`""` makes it `lf <plugin>`, else `lf <plugin> <name>`),
 
 | member | what |
 |---|---|
-| `ctx.script(body, { admin?, env?, capture? })` | runs bash on the server and returns its stdout |
+| `ctx.script(body, { admin?, env?, capture? })` | runs bash on the server, returns stdout; `capture: false` streams it instead |
 | `ctx.shq(value)` | quotes a value for the shell |
+| `ctx.plugin` | the plugin's name |
 | `ctx.name`, `ctx.server` | the server as `-s` named it, and its ssh settings |
 | `ctx.paths.root`, `ctx.paths.sites` | `/opt/landfall` and its `sites` folder |
 | `ctx.log.step/ok/info/warn(msg)` | progress on stderr |
@@ -125,23 +128,22 @@ A command has a `name` (`""` makes it `lf <plugin>`, else `lf <plugin> <name>`),
 | `ctx.table(rows)`, `ctx.json(value)` | results on stdout |
 | `ctx.color.bold/dim/red/green/yellow/blue/cyan` | colors, plain when stdout is not a terminal |
 | `ctx.data.get()`, `ctx.data.set(value)` | JSON the plugin keeps on this computer, per server |
-| `ctx.lf(argv)` | runs another `lf` command on the same server, e.g. `["harden", "fail2ban"]` |
+| `ctx.lf(argv)` | runs another `lf` command on the same server (unless `argv` has `-s`), e.g. `["harden", "fail2ban"]` |
 
 Scripts run with `set -euo pipefail` and landfall's shell helpers: `$SUDO`, `svc`, `pkg_install`, `dc` and more
-(see `PRELUDE` in `src/core/templates.ts`). Put every value into a script through `ctx.shq`, or pass it in `env`.
+(see `PRELUDE` in `src/core/templates.ts`). Put every value in through `ctx.shq`, or pass it in `env`.
 
-`admin` says why the script needs root. It then runs as root or with passwordless sudo, or the command fails with
-that reason.
+`admin` says why the script needs root. It then runs as root or with passwordless sudo, or fails with that reason.
 
 ### Rules your plugin should keep
 
-- **Results on stdout, everything else on stderr.** Use `ctx.table` and `ctx.json` for results and `ctx.log` for
+- **Results on stdout, everything else on stderr.** `ctx.table` and `ctx.json` for results, `ctx.log` for
   progress, so `lf <plugin> --json | jq` works.
-- **Journal every change.** After each change on the server, call `record "<what>" "<shell that undoes it>"`.
-  Back a file up with `undo=$(saved <file>)` before you change it; `$undo` restores it. `lf history` then shows the
-  change and `lf undo` reverts it. Without an undo shell, the change counts as one that cannot be undone.
+- **Journal every change.** After each server change, call `record "<what>" "<shell that undoes it>"`. Before
+  changing a file, run `undo=$(saved <file>)`; `$undo` restores it. `lf history` shows the change, `lf undo`
+  reverts it. No undo shell means it cannot be undone.
 - **Ask only through `ctx.confirm`.** It works with `-y` and without a terminal.
-- **Keep secrets out of argv and the journal.** Pass them in `env`, and write `KEY=…` in `record`.
+- **Keep secrets out of argv and the journal.** Pass them in `env`; write `KEY=…` in `record`.
 
 ```js
 await ctx.script(
@@ -177,7 +179,8 @@ panel: {
 },
 ```
 
-`load` runs each time the section opens, with the same `ctx` as a command, except `ctx.lf`. It returns blocks:
+An unknown `icon` shows a puzzle piece. `load` runs each time the section opens, with the same `ctx` as a
+command except `ctx.lf`. It returns blocks:
 
 | block | fields |
 |---|---|
@@ -187,18 +190,19 @@ panel: {
 | `text` | `title`, `text`, `mono` |
 | `actions` | `items` |
 
-A cell or fact value is a string, a number or `{ text, kind?, mono?, title? }`. A `kind` draws it as a badge.
+A cell or fact value is a string, a number or `{ text, kind?, mono?, title? }`. A `kind` draws a badge.
 
-An action is a button: `{ label, argv, primary?, danger?, confirm?, fields? }`. It runs `lf <argv> -s <server>`
-as a job and reloads the section when the job succeeds. `confirm` asks first. `fields` asks for values first:
-`{ name, label, type?: "text" | "select" | "check", options?, value?, placeholder?, hint?, required?, flag? }`.
-A value goes into the argv after its `flag`, or as a positional argument, in field order. A ticked `check` adds
-its flag.
+An action is a button: `{ label, argv, title?, primary?, danger?, confirm?, fields? }`.
 
-A plugin with a panel and no `""` command gets `lf <plugin>` for free. It prints the panel as text, and
-`--json` prints its blocks.
+- It runs `lf <argv> -s <server>` as a job and reloads the section on success.
+- `confirm` asks first.
+- `fields` asks for values first: `{ name, label, type?: "text" | "select" | "check", options?, value?, placeholder?, hint?, required?, flag? }`.
+  Each value goes in after its `flag`, or as a positional argument, in field order. A ticked `check` adds its flag.
+
+A plugin with a panel and no `""` command gets `lf <plugin>` for free: it prints the panel as text, or its
+blocks with `--json`.
 
 ### Types
 
-The types (`Plugin`, `PluginContext`, `UiBlock`) are in `src/core/plugin-api.ts` of the landfall repository. The
-built-in plugins in `src/plugins/` use the same API and are fuller examples.
+`Plugin`, `PluginContext` and `UiBlock` are in `src/core/plugin-api.ts` of the landfall repository. The built-in
+plugins in `src/plugins/` use the same API and are fuller examples.

@@ -1,7 +1,8 @@
 # Volumes and backups
 
-A site's data lives in its named volumes. `lf volume add` and `lf volume rm` declare them in your project,
-and `lf volume` copies their data in and out as plain `.tar.gz` files:
+A site's data lives in its named volumes.
+`lf volume add` and `lf volume rm` declare them in your project.
+`lf volume` copies their data in and out as plain `.tar.gz` files.
 
 ```sh
 lf volume add /app/data            # keep the app's /app/data across deploys (volume app-data); then lf deploy
@@ -19,47 +20,72 @@ lf volume restore content          # replace it with its newest backup (or name 
 lf volume backup rm content-20261027-181500.tar.gz   # delete a backup (cannot be undone)
 ```
 
-The files of a volume compose.yaml declares plainly (no `external`, `driver`, `driver_opts` or `name:` of its own)
-sit in the site's folder, `/opt/landfall/sites/<site>/volumes/<volume>`, next to its releases: the override binds
-the named volume there (`driver_opts: {type: none, o: bind, device: …}`), so `docker volume ls`, `docker compose`
-and `lf volume` work as before. `lf sites rm` keeps the folder (and the backups); `--volumes` deletes the folder and keeps the backups. `lf volume rm --data` deletes its folder too.
+## Where the data lives
 
-- `add` and `rm` edit the project in the current folder: compose.yaml gets the mount under the service and the
-  volume under the top-level `volumes:` (comments and order kept, plain Compose); an app, Dockerfile or image
-  keeps the path in `.landfall.json` (like `lf deploy --volume`). Neither touches the server: `lf deploy` applies
-  them. `rm --data` refuses a volume a container still uses, so redeploy first.
-- `push` and `restore` stop the services using the volume, back it up first (`…-before-push.tar.gz`), replace its
-  contents and start them again. The step is journaled, so `lf undo` puts the previous contents back. Both ask first.
-- `push` gives the files to the owner of the volume's root folder (your local uid means nothing in the container);
-  `restore` keeps the owners stored in the backup.
-- `backup` reads the volume while the site runs. A database container that mounts it (postgres, mysql, mariadb,
-  mongo, redis, …, by its image) is paused (`docker pause`) while it is copied, and says so: its files hold still,
-  a copy like after a power cut, which a database recovers from. Its requests wait meanwhile. Scheduled backups
-  and `sites rm --volumes` do the same. `pull` does not pause; for a dump you can read, use the database's own
-  tool (`docker compose exec db pg_dump …` in the release folder).
-- `lf volume backup --schedule daily` (or `hourly`, `weekly`) backs up every volume of the site from cron and
-  keeps the newest 7 per volume (`--keep 14`); `--schedule off` stops it, `lf volumes` shows the schedule and
-  whether its last run failed (and for which volumes; details in `backups/backup.log`), `lf undo` restores the previous one. It writes `/opt/landfall/sites/<site>/backup.sh` and one line in the login
-  user's crontab, both plain: they keep working without landfall. `--offsite backup@nas:landfall/blog` mirrors
-  the backups folder's `.tar.gz` files there after each run (rsync over ssh, installed if missing; what is pruned
-  here goes there too). It runs as the login user, who needs an ssh key the target accepts: `--offsite` checks
-  and says so. A failed copy shows in `lf volumes` like a failed volume. The server needs a running cron daemon
-  (`--schedule` warns otherwise; on Alpine, `crontab` for a non-root user needs `busybox-suid`, which
-  `lf setup` installs).
-- Backups made by hand are not pruned: delete them with `lf volume backup rm <file>` (or **Delete a backup…**
-  in `lf ui`). `lf sites rm` keeps them with the volumes and removes the schedule; `lf sites rm --volumes` saves
-  each volume as `<volume>-<time>-before-rm.tar.gz` first, deletes the volumes and journals it: `lf undo` brings
-  them back. The backups stay in `/opt/landfall/sites/<site>/backups`; `lf prune --volumes` lists and deletes
-  the backups of removed sites.
-- After a deploy, an empty volume whose name matches a local folder the upload left out (`exclude`,
-  e.g. `./content` for the volume `content`) gets an offer to push that folder into it. `lf deploy --fill-volumes`
-  pushes it without asking (the deploy dialog in `lf ui` ticks this when it finds such a folder); a volume that
-  already has data is never touched. Without a terminal or the flag, `lf deploy` prints the `lf volume push`
-  command instead. Paths may start with `~`.
-- In `lf ui`, an opened site lists its volumes (marking empty and unused ones) with **Back up**, **Restore…**, **Push…**
-  and **Pull…** (the same commands; push and pull take a path on the machine running `lf ui`). For a site this
-  machine deploys, **Add…** and **Remove…** run `lf volume add`/`rm` in its folder and redeploy; an unused volume
-  has **Delete…**.
-- Nothing here is landfall-specific. Each command prints the `docker` line it runs; by hand it is
-  `docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz` and back
-  `docker run --rm -i -v blog_content:/v alpine:3 sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v' < content.tar.gz`.
+A volume declared plainly (no `external`, `driver`, `driver_opts` or own `name:`) lives in `/opt/landfall/sites/<site>/volumes/<volume>`, next to the releases.
+The override binds it there (`driver_opts: {type: none, o: bind, device: …}`), so `docker volume ls`, `docker compose` and `lf volume` work as before.
+`lf sites rm` keeps the folder and backups; `--volumes` deletes the folder, keeping backups. `lf volume rm --data` deletes it too.
+
+## Add and remove
+
+`add` and `rm` edit the project in the current folder, not the server; `lf deploy` applies them.
+
+- compose.yaml gets the mount under the service and the volume under top-level `volumes:` (comments and order kept, plain Compose).
+- An app, Dockerfile or image keeps the path in `.landfall.json`, like `lf deploy --volume`.
+- `rm --data` refuses a volume a container still uses: redeploy first.
+
+## Push and restore
+
+`push` and `restore` ask first, then stop the services using the volume, back it up (`…-before-push.tar.gz`),
+replace its contents and start the services again.
+The step is journaled, so `lf undo` puts the previous contents back.
+
+`push` gives the files to the owner of the volume's root folder (your local uid means nothing there). `restore` keeps the backup's owners.
+
+## Backups of a running database
+
+`backup` reads the volume while the site runs.
+A database container mounting it (by image: postgres, mysql, mariadb, mongo, redis, …) is paused (`docker pause`) during the copy, and says so.
+Its files hold still, like after a power cut, which a database recovers from. Its requests wait.
+Scheduled backups and `sites rm --volumes` do the same; `pull` does not pause.
+For a readable dump, use the database's own tool (`docker compose exec db pg_dump …` in the release folder).
+
+## Scheduled backups
+
+```sh
+lf volume backup --schedule daily --keep 14      # every volume from cron (or hourly, weekly); newest 14 kept (default 7)
+lf volume backup --schedule off
+```
+
+- It writes `/opt/landfall/sites/<site>/backup.sh` and a line in the login user's crontab, both plain: they work without landfall.
+- `lf volumes` shows the schedule and whether its last run failed, for which volumes (details in `backups/backup.log`). `lf undo` restores the previous one.
+- It needs a running cron daemon (`--schedule` warns). On Alpine, a non-root `crontab` needs `busybox-suid`, which `lf setup` installs.
+- `--offsite backup@nas:landfall/blog` mirrors the backups' `.tar.gz` files there after each run, by rsync over ssh (installed if missing). Pruning applies there too.
+- The mirror runs as the login user, who needs an ssh key the target accepts; `--offsite` checks. A failed copy shows in `lf volumes` like a failed volume.
+
+## Keeping and deleting backups
+
+- Manual backups are not pruned: delete them with `lf volume backup rm <file>` or **Delete a backup…** in `lf ui`.
+- `lf sites rm` removes the schedule. `--volumes` first saves each volume as `<volume>-<time>-before-rm.tar.gz` and journals the removal, so `lf undo` brings them back.
+- Backups stay in `/opt/landfall/sites/<site>/backups`. `lf prune --volumes` lists and deletes those of removed sites.
+
+## Filling a new volume on deploy
+
+After a deploy, `lf deploy` offers to push a folder the upload left out (`exclude`) into an empty volume of that name, like `./content` into `content`.
+`--fill-volumes` pushes without asking (the `lf ui` deploy dialog ticks it when it finds such a folder).
+A volume with data is never touched. Without a terminal or the flag, it prints the `lf volume push` command. Paths may start with `~`.
+
+## In the web UI
+
+An opened site lists its volumes, marking empty and unused ones.
+**Back up**, **Restore…**, **Push…** and **Pull…** run the same commands; push and pull take a path on the `lf ui` machine.
+For a site this machine deploys, **Add…** and **Remove…** run `lf volume add`/`rm` in its folder and redeploy. An unused volume has **Delete…**.
+
+## Without landfall
+
+Each command prints the `docker` line it runs. By hand:
+
+```sh
+docker run --rm -v blog_content:/v:ro alpine:3 tar czf - -C /v . > content.tar.gz   # back up a volume
+docker run --rm -i -v blog_content:/v alpine:3 sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v' < content.tar.gz   # restore it
+```

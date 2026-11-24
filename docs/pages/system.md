@@ -1,6 +1,7 @@
 # Server administration
 
-Firewall, services, SSH keys, users and hardening on a server. Every change is journaled; see [History and undo](history.md) for what can be undone.
+Firewall, services, SSH keys, users and hardening on a server.
+Every change is journaled; [History and undo](history.md) says what can be undone.
 
 ## Firewall
 
@@ -14,11 +15,10 @@ lf firewall rm 3                         # or by text: lf firewall rm "allow 808
 lf firewall enable | disable             # enable installs ufw if needed and allows ssh first
 ```
 
-- Changes run as root or with sudo. If the user has neither (like `deploy`), landfall uses root's key login.
-- A change that would block the ssh port, or `enable` while ports in use have no rule, is refused. `--force` overrides.
-- Docker-published ports bypass ufw, so a deny rule doesn't close them. Bind them to `127.0.0.1` in their compose file instead.
-- `update` replaces the rule in the same place, since ufw stops at the first match. If ufw rejects the new rule,
-  the old one is put back. `rm` and its undo also keep the rule's position.
+- Changes run as root or with sudo, else (like `deploy`) with root's key login.
+- landfall refuses a change that would block the ssh port, and `enable` while ports in use have no rule. `--force` overrides.
+- Docker-published ports bypass ufw, so deny doesn't close them: bind them to `127.0.0.1` in their compose file.
+- ufw stops at the first match, so `update`, `rm` and its undo keep the rule's position. `update` puts the old rule back if ufw rejects the new one.
 
 ## Server system
 
@@ -38,15 +38,14 @@ lf timezone Europe/Berlin
 lf log-limit 10m --files 3        # cap Docker's json-file logs per container; --restart applies it now
 ```
 
-Every change is journaled, and all but `swap off` and `services restart` can be undone: `lf undo` stops a
-started service, puts a removed key back, bans an unbanned IP again or restores the old name, zone or
-`daemon.json`. These commands need root or passwordless sudo, else landfall uses root's key login like the
-firewall does. Services work with systemd and OpenRC. The Docker log limit applies to containers created
-afterwards (and Docker restarts only with `--restart`), so redeploy or restart sites to apply it to them.
+- They need root or passwordless sudo, else root's key login. Services work with systemd and OpenRC.
+- All but `swap off` and `services restart` can be undone: `lf undo` stops a started service, puts a removed key back,
+  bans an unbanned IP again, or restores the old name, zone or `daemon.json`.
+- The log limit applies to containers created afterwards; Docker restarts only with `--restart`. Redeploy or restart sites to apply it.
 
 ## Users
 
-Server accounts, one per person or deploy job, each with their own SSH keys, password and sudo:
+One account per person or deploy job, with its own SSH keys, password and sudo:
 
 ```sh
 lf users                                   # root and uid 1000+: sudo, password set or not, keys; --json
@@ -58,26 +57,23 @@ lf users rm anna                           # with its home (--keep-home keeps it
 lf keys add ~/anna2.pub -u anna            # more keys, as for any user
 ```
 
-These need root or passwordless sudo (or root's key login) and `useradd` or busybox's `adduser`. Where that is
-missing, or on a system that manages its own users (Synology DSM), every `lf users` command fails saying why and
-the web UI has no Users tab. landfall never removes root, the user it logs in as, or the login it manages users
-with, nor takes sudo from them. Adding a user and sudo changes are undoable. Removing a user and passwords are
-not: the journal keeps no hashes. Passwords reach the server on the script's stdin, never on a command line.
+- They need the same, plus `useradd` or busybox's `adduser`.
+  Without these, or where the system manages its own users (Synology DSM), `lf users` commands fail saying why and the web UI has no Users tab.
+- landfall never removes root, its login user, or the login it manages users with, nor takes their sudo.
+- Adding users and sudo changes can be undone. Removing users and passwords cannot: the journal keeps no hashes.
+- Passwords reach the server on the script's stdin, never a command line.
 
 ## Security
 
 ```sh
 lf security                       # ssh passwords, root login, firewall, fail2ban, automatic updates, pending reboot
-                                  # behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall, ufw being off is not a warning
-                                  # with keys only, a missing fail2ban is not a warning
 lf harden                         # all of: ssh (keys only), fail2ban, updates; or name the parts
 lf harden ssh                     # asks first; refuses while a user logs in with a password only (--force)
-                                  # always refuses while sshd refuses keys (PubkeyAuthentication no)
 lf keys add --generate -u anna    # new pair at ~/.ssh/<server>_anna, its public key on the server
 ```
 
-`lf setup` and `lf server add` end with the same advice, and the web UI shows it on the system tab with a
-button per fix. Each fix is journaled, so `lf undo` takes it back. Automatic updates know apt
-(unattended-upgrades), dnf (dnf-automatic) and apk (a daily `apk upgrade` from cron). Without root or sudo landfall only checks sshd's settings.
-landfall reads sshd's settings from `sshd -T`, the configuration sshd really uses: `Include` files and the first value
-wins, as in sshd.
+- `lf security` doesn't warn about ufw being off behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall, nor about missing fail2ban with keys only.
+- `lf harden ssh` always refuses while sshd refuses keys (`PubkeyAuthentication no`), even with `--force`.
+- `lf setup` and `lf server add` end with the same advice; the web UI's system tab has a button per fix. Each fix is journaled: `lf undo` takes it back.
+- Automatic updates know apt (unattended-upgrades), dnf (dnf-automatic) and apk (a daily `apk upgrade` from cron).
+- Without root or sudo, landfall only checks sshd's settings. It reads them from `sshd -T`, what sshd really uses: `Include` files count and the first value wins.

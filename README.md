@@ -1,6 +1,6 @@
 # landfall
 
-Set up Linux servers and deploy sites to them behind [Traefik](https://traefik.io) with automatic HTTPS, from one CLI.
+One CLI to set up Linux servers and deploy sites to them behind [Traefik](https://traefik.io) with automatic HTTPS.
 
 ```sh
 npm i -g landfall
@@ -8,117 +8,107 @@ lf setup vps --host 203.0.113.7     # fresh Ubuntu/Debian box → Docker, firewa
 cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.io
 ```
 
-- **Servers are ssh targets.** Any `~/.ssh/config` alias works. If `ssh vps` works, `lf deploy -s vps` works.
-- **No agent on the server.** Every site is a plain Docker Compose project under `/opt/landfall`, so you can read, run and fix it by hand.
-- **Your compose.yaml is the site.** App, database, worker: `docker compose up` runs it locally, `lf deploy` runs the same file behind HTTPS.
-- **Every change is journaled** on the server and can be undone with `lf undo`.
-- **The CLI is the product.** Every feature is an `lf` command first, usable from scripts, CI and agents.
-  The web UI (`lf ui`) is a front end for those commands: each button runs one and shows it.
+- **Servers are ssh targets.** If `ssh vps` works, `lf deploy -s vps` works.
+- **No agent on the server.** Sites are plain Docker Compose projects under `/opt/landfall`, fixable by hand.
+- **Your compose.yaml is the site.** `docker compose up` runs it locally; `lf deploy` runs the same file behind HTTPS.
+- **Every change is journaled** on the server. `lf undo` reverts it.
+- **The CLI is the product.** Scripts, CI, agents and the web UI (`lf ui`) all run `lf` commands.
 
-`lf` is short for `landfall`. Both commands are installed.
+`lf` is short for `landfall`. Both are installed.
 
 ## Install
 
-You need Node.js 22.4+ plus `ssh`, `ssh-copy-id` and `tar` on your machine (`rsync` makes redeploys faster).
+Your machine needs Node.js 22.4+, `ssh`, `ssh-copy-id` and `tar`. `rsync` makes redeploys faster.
 
-The server needs a login as root or as a user with passwordless sudo. landfall installs Docker itself:
+The server needs a root login, or a user with passwordless sudo. landfall installs Docker itself:
 
-- **Ubuntu and Debian** get the full setup: Docker, ufw and unattended-upgrades. fail2ban only where ssh passwords stay on.
-  Behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall, setup leaves ufw out.
-- **Fedora, RHEL-likes, Alpine and SUSE** (dnf, yum, apk, zypper) get Docker and rsync; their base repositories
-  lack some of the rest.
-- **Systems without a package manager** (Synology DSM, SteamOS) can be deployed to when Docker is already there.
-  See [NAS, Steam Deck and other systems](docs/pages/servers.md#nas-steam-deck-and-other-systems-without-a-package-manager).
+- **Ubuntu and Debian**: Docker, ufw, unattended-upgrades, and fail2ban where ssh passwords stay on. No ufw behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall.
+- **Fedora, RHEL-likes, Alpine, SUSE** (dnf, yum, apk, zypper): Docker and rsync. Their base repositories lack the rest.
+- **No package manager** (Synology DSM, SteamOS): works when Docker is already there. See [NAS, Steam Deck and other systems](docs/pages/servers.md#nas-steam-deck-and-other-systems-without-a-package-manager).
 
 ```sh
 npm i -g landfall            # or: pnpm add -g landfall
 lf --help                    # all commands
-lf <command> --help          # every option of one command
+lf <command> --help          # one command's options
 ```
 
 ## Concepts
 
 | term | meaning |
 |---|---|
-| **server** | An ssh target: a `~/.ssh/config` alias, or one landfall registered with `lf server add`/`lf setup`. Pass it as `-s <name>`. The first server you add becomes the default. |
-| **site** | One Compose project on a server: your `compose.yaml`, or one landfall generates for a static folder, a Dockerfile or a prebuilt image. Services with `x-landfall: { port }` are routed through Traefik. |
-| **project file** | `./.landfall.json`, written by the first `lf deploy`: `{ "name", "server", "domains" }`. Commands that take `[name]` default to this site, and `-s` defaults to its server. |
-| **main domain** | Optional per-server domain (`lf server domain vps example.com`). Sites then default to `<site>.example.com`, and a bare name like `shop` means `shop.example.com`. Without one, sites get `<site>.<ip-with-dashes>.sslip.io` (e.g. `blog.203-0-113-7.sslip.io`), which resolves without any DNS setup. |
-| **release** | Every deploy creates one, with an id like `20260122143005`. The last 5 are kept (`--keep n` for more). `lf rollback` switches between them, back and forth. |
-| **run** | One landfall invocation that changed something on a server. Runs are listed by `lf history` and reverted by `lf undo`. |
+| **server** | An ssh target: a `~/.ssh/config` alias, or one added with `lf server add`/`lf setup`. Pass it as `-s <name>`. The first one added is the default. |
+| **site** | One Compose project on a server: your `compose.yaml`, or one generated for a static folder, Dockerfile or image. Services with `x-landfall: { port }` get Traefik routes. |
+| **project file** | `./.landfall.json`, written by the first `lf deploy`: `{ "name", "server", "domains" }`. |
+| **main domain** | Optional per server (`lf server domain vps example.com`). Sites then default to `<site>.example.com`; `shop` means `shop.example.com`. Without one: `<site>.<ip-with-dashes>.sslip.io`, no DNS needed. |
+| **release** | One per deploy, id like `20260122143005`. The last 5 stay (`--keep n`). `lf rollback` switches between them. |
+| **run** | One `lf` invocation that changed a server. `lf history` lists runs; `lf undo` reverts them. |
 
-How defaults resolve, for every command:
-
-- **site** `[name]`: the argument, else `name` from `./.landfall.json`.
-- **server** `-s`: the flag, else `server` from `./.landfall.json`, else the default server (`lf server use`).
+Defaults: **site** `[name]` comes from the argument, else `./.landfall.json`. **server** `-s` comes from the flag, else `./.landfall.json`, else the default server (`lf server use`).
 
 ## A first deploy
 
 ```sh
 lf setup vps --host 203.0.113.7          # once per server: Docker, firewall, Traefik, an ssh key
-lf setup vps --minimal                   # or only Docker: no Traefik, sites are reached with lf tunnel
+lf setup vps --minimal                   # or only Docker: no Traefik; reach sites with lf tunnel
 cd my-site
 lf deploy -s vps                         # → https://my-site.203-0-113-7.sslip.io, no DNS needed
-lf deploy -s vps -d example.com          # or with your own domain (point its A record at the server first)
-lf deploy                                # later: redeploy with the settings saved in ./.landfall.json
+lf deploy -s vps -d example.com          # or your own domain (point its A record at the server first)
+lf deploy                                # later: redeploy with ./.landfall.json
 ```
 
-`lf deploy` works out what the folder is:
+`lf deploy` detects what the folder is:
 
 | the folder has | landfall |
 |---|---|
-| a `compose.yaml` | runs it as one Compose project: app, database, worker. See [Compose sites](docs/pages/compose.md). |
+| a `compose.yaml` | runs it as one Compose project ([Compose sites](docs/pages/compose.md)) |
 | a `Dockerfile` | builds it on the server and routes its `EXPOSE`d port |
-| an app (Node.js, Bun, Python, Go, Rust, Java/Kotlin, .NET, Ruby, PHP, Elixir) | writes a Dockerfile for it and builds it on the server |
-| static files (or a site generator's build output) | serves them with `nginx:alpine` |
-| (any folder) with `--image ghcr.io/me/app:1.2 --port 8080` | pulls and runs a prebuilt image |
+| an app (Node.js, Bun, Deno, Python, Go, Rust, Java/Kotlin, .NET, Ruby, PHP, Elixir) | writes a Dockerfile and builds it on the server |
+| static files (or a site generator's output) | serves them with `nginx:alpine` |
+| any folder, with `--image ghcr.io/me/app:1.2 --port 8080` | pulls and runs a prebuilt image |
 
-Every deploy is a new release. A release whose containers do not start is rolled back automatically, and
-`lf rollback` switches between releases by hand.
+A release whose containers do not start is rolled back automatically.
 
 ## Everyday commands
 
 ```sh
 lf ls                              # sites with status
 lf logs -f                         # follow a site's logs
-lf env API_KEY=abc                 # set a variable (the services are recreated)
-lf domains --add www.example.com   # another domain
+lf env API_KEY=abc                 # set a variable (recreates the services)
+lf domains --add www.example.com   # add a domain
 lf rollback                        # previous release
 lf volume backup                   # back up the site's data
-lf updates && lf update            # pending OS and image updates, then apply them
-lf history && lf undo              # what landfall changed, and revert the last of it
-lf ui                              # the same in a local web UI
+lf updates && lf update            # list, then apply OS and image updates
+lf history && lf undo              # what landfall changed; revert the last run
+lf ui                              # all of this in a local web UI
 ```
 
 ## Documentation
 
-The full documentation is at [ph1p.github.io/landfall](https://ph1p.github.io/landfall/).
+Full docs: [ph1p.github.io/landfall](https://ph1p.github.io/landfall/).
 
 | guide | covers |
 |---|---|
-| [Servers](docs/pages/servers.md) | `lf setup` for fresh and existing servers, setup flags, registering servers, NAS and other systems |
-| [Deploy a site](docs/pages/deploy.md) | site kinds, env and secrets, CI, what gets uploaded, environments, main domains, running without landfall |
+| [Servers](docs/pages/servers.md) | `lf setup`, its flags, registering servers, NAS and other systems |
+| [Deploy a site](docs/pages/deploy.md) | site kinds, env and secrets, CI, uploads, environments, main domains, running without landfall |
 | [Compose sites](docs/pages/compose.md) | `x-landfall`, routes, private ports, IP allowlists, volumes, published ports |
-| [Day-to-day](docs/pages/sites.md) | logs, env, secrets, domains, logins, tunnels, restart and removal |
-| [Volumes and backups](docs/pages/volumes.md) | volumes, backups, scheduled and offsite backups, push and pull data |
+| [Day-to-day](docs/pages/sites.md) | logs, env, secrets, domains, logins, tunnels, restart, removal |
+| [Volumes and backups](docs/pages/volumes.md) | volumes, scheduled and offsite backups, push and pull data |
 | [Updates](docs/pages/updates.md) | OS packages, images, Docker Compose, vulnerability scans |
-| [Traefik](docs/pages/traefik.md) | landfall's Traefik, HTTP/3, the dashboard, using your own Traefik |
+| [Traefik](docs/pages/traefik.md) | landfall's Traefik, HTTP/3, the dashboard, your own Traefik |
 | [Server administration](docs/pages/system.md) | firewall, services, SSH keys, users, swap, hardening |
 | [Traffic, certificates and checks](docs/pages/monitoring.md) | request stats, certificate state, HTTPS checks |
-| [History and undo](docs/pages/history.md) | the server journal and what `lf undo` can revert |
-| [Plugins](docs/pages/plugins.md) | fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
-| [Web UI](docs/pages/web-ui.md) | `lf ui`, its pages and their commands, security model |
+| [History and undo](docs/pages/history.md) | the server journal, what `lf undo` reverts |
+| [Plugins](docs/pages/plugins.md) | fail2ban, Trivy, installing and writing plugins |
+| [Web UI](docs/pages/web-ui.md) | `lf ui`, its pages and commands, security model |
 | [Scripts, CI and AI agents](docs/pages/automation.md) | non-interactive use, `--json`, secrets, exit codes, recipes |
-| [Reference](docs/pages/reference.md) | every command, local and remote files, environment variables |
-| [Troubleshooting](docs/pages/troubleshooting.md) | error messages and their fixes |
+| [Reference](docs/pages/reference.md) | every command, file and environment variable |
+| [Troubleshooting](docs/pages/troubleshooting.md) | error messages and fixes |
 
 ## Scripts, CI and AI agents
 
-The CLI is built to be driven by other programs: no prompts without a terminal (a command that would ask fails
-and says to pass `-y`), `--json` on every read command, secrets on stdin, and a journal that `lf undo` reverts.
-[docs/pages/automation.md](docs/pages/automation.md) is the full contract. For agents, [llms.txt](llms.txt) indexes the docs.
+No prompts without a terminal (pass `-y`), `--json` on every read command, secrets on stdin, and `lf undo`. [docs/pages/automation.md](docs/pages/automation.md) is the full contract. For agents, [llms.txt](llms.txt) indexes the docs.
 
-Working on landfall itself? See [CONTRIBUTING.md](CONTRIBUTING.md); coding agents read [AGENTS.md](AGENTS.md).
+Working on landfall itself? See [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents read [AGENTS.md](AGENTS.md).
 
 ## License
 

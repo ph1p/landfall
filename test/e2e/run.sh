@@ -518,6 +518,14 @@ for _ in $(seq 1 20); do [ "$(code who.test)" = 200 ] && break; sleep 1; done
 lf domains who --add who2.test >/dev/null 2>&1
 expect who2.test / "Hostname"
 { lf domains who --json | has '"who2.test"'; } || die "domains lists the new one"; pass "domains --add"
+lf domains who --redirect who2.test >/dev/null 2>&1 || die "domains --redirect"
+loc() { curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 --resolve "$1:$HTTPS_PORT:127.0.0.1" "https://$1:$HTTPS_PORT$2"; }
+for _ in $(seq 1 20); do [ "$(loc who2.test '/a/b?c=1')" = "301 https://who.test/a/b?c=1" ] && break; sleep 1; done
+[ "$(loc who2.test '/a/b?c=1')" = "301 https://who.test/a/b?c=1" ] || { loc who2.test '/a/b?c=1'; die "redirect host answers 301 to the first domain"; }
+{ lf domains who --json | tr -d ' \n' | has '"redirects":\[{"domain":"who2.test"'; } || die "domains --json lists redirects"
+lf domains who --add who2.test >/dev/null 2>&1
+for _ in $(seq 1 20); do [ "$(code who2.test)" = 200 ] && break; sleep 1; done
+[ "$(code who2.test)" = 200 ] || die "--add turns a redirect back into a domain"; pass "domains --redirect: 301 with path and query, --add serves it again"
 # A compose project of the user's own, routed by the same Traefik.
 docker exec "$NAME" docker run -d --name ext-web-1 --label com.docker.compose.project=ext --label com.docker.compose.project.working_dir=/root/ext \
   --label 'traefik.http.routers.ext.rule=Host(`ext.test`)' busybox:1.37 sleep 3600 >/dev/null

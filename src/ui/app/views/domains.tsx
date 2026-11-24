@@ -7,6 +7,7 @@ import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
 import { autoDomain, browse, buildForm, mainDomain, openAfter } from "./flows";
 import { Copy } from "lucide-react";
+import { redirectHosts } from "../../../core/redirects";
 import { EnvTable, NO_ENV_CHANGE, type EnvChange } from "./env";
 
 // ---- domains & login ---------------------------------------------------------
@@ -75,6 +76,23 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
               words(x)
                 .filter((d) => !domainOk(d))
                 .map((d) => `Not a domain: ${d}`)[0],
+          },
+          {
+            name: "redirects",
+            label: "Redirect to the first domain (space separated)",
+            value: (m.redirects ?? []).join(" "),
+            mono: true,
+            placeholder: "www",
+            off: (v: Values) => v.noDomain,
+            hint: "These answer with a permanent redirect to the first domain, path and query kept. www means www.<first domain>.",
+            check: (x: string, v: Values) => {
+              const first = words(v.domains)[0];
+              const bad = words(x).find((d) => !domainOk(d) && !/^[a-z0-9-]+$/i.test(d));
+              if (bad) return `Not a domain: ${bad}`;
+              const both = redirectHosts(words(x), first).find((d) => words(v.domains).includes(d));
+              if (both) return `${both} is a domain of the site: take it out there to redirect it`;
+              if (words(x).length && !first) return "Redirects need a domain to point at";
+            },
           },
           {
             name: "noDomain",
@@ -183,11 +201,19 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
         }
       }
       let domains: string[] | undefined;
+      // lf domains --redirect / --rm for the redirects that changed; with no domain they stay as they are.
+      const redirectArgs: string[] = [];
       if (svc && served(v)) {
         const next = v.noDomain ? [] : words(v.domains);
         if (v.free && !v.noDomain) next.push(free);
         if (v.apex && !v.noDomain) next.push(main!);
         if (next.join(" ") !== m.domains.join(" ")) domains = next;
+        if (!v.noDomain) {
+          const was = m.redirects ?? [];
+          const want = redirectHosts(words(v.redirects), next[0]);
+          redirectArgs.push(...want.filter((d) => !was.includes(d)).flatMap((d) => ["--redirect", d]));
+          redirectArgs.push(...was.filter((d) => !want.includes(d) && !next.includes(d)).flatMap((d) => ["--rm", d]));
+        }
       }
       const flags = build?.argv(v) ?? [];
       const rebuild = flags.join("\0") !== untouched;
@@ -195,10 +221,11 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
       if (rebuild) {
         const to = domains && (domains.length ? domains.flatMap((d) => ["-d", d]) : ["--no-domain"]);
         jobs.push({ argv: ["deploy", "-y", ...sv(n), ...(environment ? ["-E", environment] : []), "-n", name, ...flags, ...(to ?? [])], cwd: path });
-      } else if (domains) {
+        if (redirectArgs.length) jobs.push({ argv: ["domains", name, ...sv(n), ...redirectArgs, "-y"], cwd: path });
+      } else if (domains || redirectArgs.length) {
         // None left: the site keeps running, unrouted.
-        const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
-        jobs.push({ argv: ["domains", name, ...sv(n), ...args, "-y"], cwd: path });
+        const args = !domains ? [] : domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
+        jobs.push({ argv: ["domains", name, ...sv(n), ...args, ...redirectArgs, "-y"], cwd: path });
       }
       if (!jobs.length) return void toast("Nothing changed");
       const chain = ([j, ...rest]: typeof jobs): unknown =>
@@ -211,23 +238,24 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
 /** Check the sites' domains (DNS and HTTPS) once, again when forced. Call it from an effect. */
 export function ensureDns(n: string, o: Overview | undefined, force = false) {
   if ((S.dns[n] && !force) || S.dns[n]?.loading || !o?.sites.length) return;
-  const domains = [...new Set(o.sites.flatMap((x) => x.domains))];
+  const domains = [...new Set(o.sites.flatMap((x) => [...x.domains, ...x.redirects]))];
   fetchInto("dns", n, `/dns?domains=${encodeURIComponent(domains.join(","))}`);
 }
 
-/** A site's domain as a link, with a dot for its DNS and HTTPS check and a copy button. */
-export function DomainChip({ n, d }: { n: string; d: string }) {
+/** A site's domain as a link, with a dot for its DNS and HTTPS check and a copy button; `to`: it redirects there. */
+export function DomainChip({ n, d, to }: { n: string; d: string; to?: string }) {
   const c = S.dns[n]?.data?.domains.find((x) => x.domain === d);
   const url = `https://${d}`;
   let dot = "",
     title = "checking…";
   if (c) {
     const { status: st, ms, tls } = c.https;
+    const via = to ? ` · redirects to ${to}` : "";
     const cert = tls ? (tls.valid ? ` · certificate ${plural(tls.days, "day")} left` : ` · certificate: ${tls.error}`) : "";
     if (!c.ips.length) ((dot = "down"), (title = "DNS: does not resolve"));
     else if (!c.ok) ((dot = "warn"), (title = `DNS points at ${c.ips.join(", ")}, not this server`));
     else if (st && st < 500 && tls && (!tls.valid || tls.days < 7)) ((dot = "warn"), (title = `HTTPS ${st}${cert}`));
-    else if (st && st < 500) ((dot = "up"), (title = `HTTPS ${st}${st === 401 ? " (login required)" : ""} in ${ms} ms${cert}`));
+    else if (st && st < 500) ((dot = "up"), (title = `HTTPS ${st}${st === 401 ? " (login required)" : ""} in ${ms} ms${cert}${via}`));
     else ((dot = "down"), (title = `HTTPS: ${st ?? c.https.error}`));
   }
   return (
@@ -243,6 +271,12 @@ export function DomainChip({ n, d }: { n: string; d: string }) {
       >
         {d}
       </a>
+      {to && (
+        <span className="faint whitespace-nowrap" title={`Redirects to ${to}, path and query kept`}>
+          {" "}
+          → {to}
+        </span>
+      )}
       <Btn
         cls="ghost px-[5px]! py-0! text-sm! min-w-6 min-h-6 text-faint! group-hover:text-fg! focus-visible:text-fg!"
         title="Copy the address"

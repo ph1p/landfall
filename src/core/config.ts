@@ -280,6 +280,8 @@ export interface ProjectConfig {
   name: string;
   server?: string;
   domains: string[];
+  /** Hosts that redirect permanently to the first of `domains` (www.example.com); never inherited by environments. */
+  redirects?: string[];
   /** The compose file to deploy (default: compose.yaml, or the one `docker compose` would pick). */
   compose?: string;
   /** Without a compose file: the static folder or Dockerfile folder to deploy. */
@@ -310,7 +312,7 @@ export interface ProjectConfig {
   environments?: Record<string, EnvironmentConfig>;
 }
 
-/** An environment: its name (default <name>-<env>), server, domains (never inherited) and any other setting. */
+/** An environment: its name (default <name>-<env>), server, domains and redirects (never inherited) and any other setting. */
 export type EnvironmentConfig = Partial<Omit<ProjectConfig, "environments">>;
 
 export const ENV_NAME = /^[a-z0-9][a-z0-9-]*$/;
@@ -385,7 +387,7 @@ export function loadProject(cwd: string, env = activeEnvironment()): ProjectConf
   if (!env || !raw) return raw;
   const { environments, ...base } = raw;
   const own = environments?.[env] ?? {};
-  return { ...base, domains: [], ...own, name: own.name ?? envSiteName(base.name, env) };
+  return { ...base, domains: [], redirects: undefined, ...own, name: own.name ?? envSiteName(base.name, env) };
 }
 
 /** The environment of a project folder that deploys this site ("" the project itself), if any. */
@@ -409,7 +411,7 @@ export function saveProject(cwd: string, p: ProjectConfig, env = activeEnvironme
     // First deploy of the folder is an environment's: the project itself gets the name without the suffix.
     const { environments, ...base } = raw ?? { name: p.name.replace(new RegExp(`-${env}$`), ""), server: p.server, domains: [] };
     const own: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(next)) if (k === "domains" || JSON.stringify(v) !== JSON.stringify((base as any)[k])) own[k] = v;
+    for (const [k, v] of Object.entries(next)) if (k === "domains" || k === "redirects" || JSON.stringify(v) !== JSON.stringify((base as any)[k])) own[k] = v;
     if (own.name === envSiteName(base.name, env)) delete own.name;
     out = { ...base, environments: { ...environments, [env]: own } };
   }
