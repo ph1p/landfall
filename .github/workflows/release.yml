@@ -1,7 +1,7 @@
 name: Release
 
-# Every push to main runs CI, then semantic-release: feat, fix and perf commits publish a new npm version,
-# tag it, write a GitHub release and commit the version back to package.json.
+# Every push to main runs CI, then semantic-release: feat, fix, perf, refactor and revert commits publish a new npm
+# version, tag it, write a GitHub release and commit the version back to package.json.
 
 on:
   push:
@@ -42,13 +42,12 @@ jobs:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
       - id: semantic
         run: pnpm release
+        # npm publishes through trusted publishing (OIDC, id-token above): npmjs.com → landfall → Settings →
+        # Trusted publishing must name ph1p/landfall, workflow release.yml, no environment. No NPM_TOKEN.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Only needed until npm trusts this workflow (npmjs.com → landfall → Settings → Trusted publishing).
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   docs:
     name: Docs

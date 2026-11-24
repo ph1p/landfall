@@ -1,4 +1,5 @@
-// semantic-release: every push to main that holds a feat, fix or perf commit publishes a new version to npm.
+// semantic-release: every push to main that holds a feat, fix, perf, refactor or revert commit publishes a new version
+// to npm. npm builds the package itself (prepublishOnly).
 // See .github/workflows/release.yml.
 module.exports = {
   branches: ["main"],
