@@ -155,7 +155,7 @@ const dataFile = (plugin: string, server: string) => join(DATA_DIR, plugin, `${e
 export function pluginContext(plugin: string, on: string | undefined | null, runLf?: (argv: string[]) => Promise<number>): PluginContext {
   const resolved = on === null ? undefined : resolveServer(on);
   const name = resolved?.name;
-  const server: Server | undefined = resolved?.server;
+  const server = resolved?.server;
   const need = () => server ?? fail(`plugin ${plugin}: this command has no server`);
   let admin: Promise<Server> | undefined;
   return {

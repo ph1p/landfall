@@ -3,7 +3,7 @@ import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from ".
 import { bytes } from "../../../core/format";
 import { slug } from "../../../core/slug";
 import { CLOUDS } from "../../../core/clouds";
-import type { Browse, Detected, Redeploy, Remembered, SavedServer } from "../lib/types";
+import type { Browse, Detected, Redeploy, SavedServer } from "../lib/types";
 import type { LocalImage } from "../../../core/buildlocal";
 import { go, load, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
@@ -561,12 +561,12 @@ function ComposePlan({ a }: { a?: Detected["analysis"] }) {
           </span>
         );
       })}
-      {[...(a.errors ?? []), ...(a.warnings ?? [])].map((e: string) => (
+      {[...(a.errors ?? []), ...(a.warnings ?? [])].map((e) => (
         <span key={e} className="block text-warn">
           {e}
         </span>
       ))}
-      {a.notes?.map((n: string) => (
+      {a.notes?.map((n) => (
         <span key={n} className="block dim">
           {n}
         </span>
@@ -628,7 +628,7 @@ export function buildForm(det: Detected) {
   const runs = det.kind === "dockerfile" || image;
   const isApp = (v: Values) => (modal ? (v.mode || (det.start ? "node" : "static")) === "node" : runs);
   const served = (v: Values) => !(isApp(v) && v.worker);
-  const volumes: string[] = det.volumes ?? [];
+  const volumes = det.volumes ?? [];
   const app = [
     {
       name: "worker",
@@ -777,13 +777,13 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const p = det.project;
   const re = o.site;
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
-  const target: string = re?.server ?? p?.server ?? defaultServer() ?? "";
-  const name: string = re?.name ?? o.name ?? det.name;
+  const target = re?.server ?? p?.server ?? defaultServer() ?? "";
+  const name = re?.name ?? o.name ?? det.name;
   const image = det.kind === "image";
   // An image deploy without a name: the image's, as blog for ghcr.io/me/blog:1.2.
   const siteName = (v: Values): string => v.name.trim() || (image ? imageName(v.image ?? "") : "");
   // A redeploy keeps the site's domains unless .landfall.json or the field names others.
-  const keeps: string[] | null = re && !p?.domains ? re.domains : null;
+  const keeps = re && !p?.domains ? re.domains : null;
   const keeping = (v: Values) => keeps && siteName(v) === re?.name && v.server === re?.server;
   const { fields: buildFields, argv: buildArgv, served } = buildForm(det);
   // An example's key with a value is only suggested (askable in core/compose): the CLI says it, the form leaves it out.
@@ -1041,7 +1041,7 @@ export async function deployImage(site?: Redeploy) {
 /** After a deploy: offer the address it printed. */
 export function openAfter(j: Job): JobAction[] | undefined {
   if (j.info.code !== 0) return;
-  const url: string | undefined = rep(j).url;
+  const url = rep(j).url;
   if (url) return [{ label: `Open ${url.replace("https://", "")}`, run: () => void window.open(url, "_blank", "noopener") }];
 }
 
@@ -1105,8 +1105,8 @@ export async function folderDialog(path?: string, site?: Redeploy) {
 }
 
 function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
-  const recent: Remembered[] = site ? [] : (S.state.projects ?? []).slice(0, 8);
-  const parts: string[] = b.path.split("/").filter(Boolean);
+  const recent = site ? [] : (S.state.projects ?? []).slice(0, 8);
+  const parts = b.path.split("/").filter(Boolean);
   const to = (p: string) => () => void folderDialog(p, site);
   const crumb = "px-1.5! py-px!";
   return (
@@ -1162,7 +1162,7 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
           </button>
         )}
         {b.dirs.length ? (
-          b.dirs.map((d: string) => (
+          b.dirs.map((d) => (
             <button key={d} type="button" className={ROW} onClick={to(b.path.replace(/\/$/, "") + "/" + d)}>
               📁 {d}
             </button>

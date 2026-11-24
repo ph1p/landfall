@@ -154,7 +154,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
 function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const { meta: m, status, services, domains, main, kind } = site;
   const cur = m.releases.find((r) => r.id === m.current);
-  const name: string = m.name;
+  const name = m.name;
   const open = S.open.has(`${n}/${name}`);
   const up = isUp(status);
   // Adopted sites: landfall runs them, it does not deploy them.
@@ -486,8 +486,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
       )}
     </>,
   ]);
-  if (managed)
-    facts.push(["Login", m.auth?.length ? `${m.auth.map((a: string) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
+  if (managed) facts.push(["Login", m.auth?.length ? `${m.auth.map((a) => a.split(":")[0]).join(", ")} (basic auth)` : <span className="dim">public</span>]);
   if (!m.adopted)
     facts.push([
       "Source",
@@ -599,7 +598,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const where = (
     <>
       {domains.length ? (
-        domains.map((d: string) => <DomainChip key={d} n={n} d={d} />)
+        domains.map((d) => <DomainChip key={d} n={n} d={d} />)
       ) : main && !many ? (
         <span className={CHIP}>
           <span className="faint">no domain</span> <TunnelBtn n={n} argv={["tunnel", name, ...sv(n)]} />
@@ -1026,7 +1025,7 @@ function SiteFiles({ m }: { m: SiteMeta }) {
 function OthersCard({ n, o }: { n: string; o: Overview }) {
   if (!o.others?.length) return null;
   const links = (e: External) =>
-    e.domains.map((d: string) => (
+    e.domains.map((d) => (
       <span key={d} className={CHIP}>
         <a href={`https://${d}`} target="_blank" rel="noopener">
           {d}

@@ -255,9 +255,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     const domainArgs: string[] | undefined = o.domain?.filter((d: unknown) => typeof d === "string");
     if (noDomain && domainArgs?.length) fail("--no-domain and --domain exclude each other");
     // Domains given up front fail on a typo before the build and the upload.
-    const typos = (domainArgs?.length ? domainArgs : (project.domains ?? []))
-      .map((d: string) => expandDomain(d, server))
-      .filter((d: string) => !DOMAIN.test(d));
+    const typos = (domainArgs?.length ? domainArgs : (project.domains ?? [])).map((d) => expandDomain(d, server)).filter((d) => !DOMAIN.test(d));
     if (typos.length) fail(`not a domain: ${typos.join(", ")}`);
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
@@ -653,7 +651,7 @@ export function planDeploy(
   if ((o.volume?.some(Boolean) || o.worker) && !KINDS[kind].port)
     fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
   const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
-  const volumes: string[] = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
+  const volumes = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
   const notPath = volumes.filter((v) => !CONTAINER_PATH.test(v));
   if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
   const guessed = o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port);

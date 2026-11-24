@@ -155,7 +155,7 @@ const SRV =
 const SRV_ON = "bg-panel! shadow-[0_0_0_1px_var(--line),var(--sh)]";
 
 function Nav() {
-  const all: ServerEntry[] = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
+  const all = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
   // A server shows once the first login check has answered for it; until then a placeholder holds its place.
   const list = all.filter((s) => !awaitingReach(s.name));
   const waiting = all.length - list.length;
@@ -352,7 +352,7 @@ function ReachSummary({ list }: { list: ServerEntry[] }) {
 
 /** Phones: a select instead of the list. */
 function Pick() {
-  const list: ServerEntry[] = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
+  const list = S.state.servers.slice().sort((a, b) => reachRank(a.name) - reachRank(b.name));
   return (
     <div className="hidden max-[760px]:block px-4 pt-3">
       <select aria-label="Server" value={S.sel ?? ""} onChange={(e) => go(e.target.value || null)}>

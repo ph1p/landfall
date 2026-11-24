@@ -116,7 +116,7 @@ export function TraefikView({ n }: { n: string }) {
     });
   // lf traefik setup refuses to touch a Traefik the server already had.
   const o = S.overview[n]?.data;
-  const foreign: string = o?.adopted ? o.proxy : "";
+  const foreign = o?.adopted ? o.proxy : "";
   const ts = S.proxy[n]?.data;
   const ctr = ts ? ts.container : o?.traefik ? { name: o.proxy } : null;
   const sites = o?.sites.length ?? 0;

@@ -328,7 +328,7 @@ export function rebootDlg(n: string) {
 const LEVEL: Record<string, string> = { risk: "bad", warn: "warn", info: "" };
 /** What `lf security` says, with its fixes as buttons. */
 function securityCard(n: string, i: SystemInfo) {
-  const adv: Advice[] = i.advice ?? [];
+  const adv = i.advice ?? [];
   const fix = (a: Advice) => {
     const f = a.fix;
     if (!f) return null;

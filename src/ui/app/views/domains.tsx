@@ -45,12 +45,12 @@ const defaults = (specs: Spec[]): Values =>
 
 function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detected, environment?: string) {
   const { meta: m, main: svc } = site;
-  const name: string = m.name;
+  const name = m.name;
   const managed = !m.adopted;
   const main = mainDomain(n);
   const free = autoDomain(n, name);
-  const ips: string[] = S.dns[n]?.data?.ips ?? [];
-  const users: string[] = (m.auth ?? []).map((a: string) => a.split(":")[0]);
+  const ips = S.dns[n]?.data?.ips ?? [];
+  const users = (m.auth ?? []).map((a) => a.split(":")[0]);
   const build = det && buildForm(det);
   const served = (v: Values) => !build || build.served(v);
   // The untouched form already asks for flags (a detected build not yet saved): only a change from them redeploys.
@@ -197,7 +197,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
         jobs.push({ argv: ["deploy", "-y", ...sv(n), ...(environment ? ["-E", environment] : []), "-n", name, ...flags, ...(to ?? [])], cwd: path });
       } else if (domains) {
         // None left: the site keeps running, unrouted.
-        const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d: string) => ["--rm", d]);
+        const args = domains.length ? domains.flatMap((d) => ["--set", d]) : m.domains.flatMap((d) => ["--rm", d]);
         jobs.push({ argv: ["domains", name, ...sv(n), ...args, "-y"], cwd: path });
       }
       if (!jobs.length) return void toast("Nothing changed");
