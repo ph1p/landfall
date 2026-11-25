@@ -2,7 +2,7 @@
 // laid out in columns. No node imports: the web page builds it from the overviews it already reads.
 import type { Overview, Unrouted } from "./remote";
 import type { Remembered } from "./projects";
-import { STATUS_RANK, statusKind, type StatusKind } from "./status";
+import { statusKind, worse, type StatusKind } from "./status";
 
 export type NodeKind = "machine" | "project" | "server" | "proxy" | "site" | "external" | "container" | "service" | "volume" | "domain" | "redirect" | "add";
 /** What a node shows as its dot: grey when nothing is known. */
@@ -85,8 +85,7 @@ export const columnX = (c: keyof typeof COL) => COL[c];
 const HEALTH: Record<StatusKind, Health> = { up: "up", done: "", warn: "warn", down: "down" };
 export const healthOf = (status: string): Health => (status ? HEALTH[statusKind(status)] : "down");
 /** The worst of a group's statuses. */
-const worst = (statuses: string[]): Health =>
-  statuses.length ? HEALTH[statuses.map(statusKind).reduce((a, b) => (STATUS_RANK[b] > STATUS_RANK[a] ? b : a), "up" as StatusKind)] : "";
+const worst = (statuses: string[]): Health => (statuses.length ? HEALTH[statusKind(statuses.reduce((a, b) => (worse(b, a) ? b : a)))] : "");
 const ORDER: Health[] = ["", "up", "warn", "down"];
 const worstOf = (hs: Health[]): Health => hs.reduce((a, b) => (ORDER.indexOf(b) > ORDER.indexOf(a) ? b : a), "" as Health);
 /** What a folded server stands for: "4 sites · 1 down · 9 domains". */

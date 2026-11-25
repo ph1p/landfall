@@ -12,6 +12,8 @@ import { ErrorsCard } from "./traffic";
 import { DEPLOY_HOOKS, ROLLBACK_HOOKS } from "../../../core/hook-names";
 import { HookList, definedHooks, hookChoice } from "./hooks";
 import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
+import { worse } from "../../../core/status";
+import { MAX_REPLICAS, MAX_WEIGHT } from "../../../core/limits";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
@@ -154,7 +156,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
 }
 
 function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
-  const { meta: m, status, services, domains, redirects, redirectTo, main, kind } = site;
+  const { meta: m, status, services, domains, redirects, redirectTo, main, kind, scale } = site;
   const cur = m.releases.find((r) => r.id === m.current);
   const name = m.name;
   const open = S.open.has(`${n}/${name}`);
@@ -247,9 +249,52 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
                 }),
             }
           : { label: "Start", hint: "lf start", run: () => run(["start", name, x.service, ...sv(n)]) },
+        managed && "-",
+        managed && { label: "Scale…", hint: "lf scale", title: "How many containers of it run behind the load balancer", run: () => scaleDlg(x.service) },
+        managed && scale?.[x.service]?.split && { label: "Traffic split…", hint: "lf weight", run: () => splitDlg(scale[x.service].split!) },
       ]}
     />
   );
+  // Replicas: the count lf scale stores, written into compose.override.yaml; "default" goes back to compose.yaml's.
+  const scaleDlg = (svc: string) => {
+    const r = scale?.[svc];
+    dialog({
+      title: `Scale ${svc} of ${name}`,
+      text: "Containers of it that run behind the load balancer. Changing the count starts or stops containers; running ones are not recreated.",
+      fields: [
+        {
+          name: "n",
+          label: "Replicas",
+          type: "number",
+          value: String(r?.replicas ?? (services.filter((x) => x.service === svc).length || 1)),
+          required: true,
+          check: (v) => (!/^\d+$/.test(v) || +v > MAX_REPLICAS) && `A number from 0 to ${MAX_REPLICAS}`,
+          hint: r?.source === "lf scale" ? "Set with lf scale. Clear it to go back to compose.yaml." : "",
+        },
+        ...(r?.source === "lf scale" ? [{ name: "reset", type: "check" as const, label: "Use compose.yaml's count again" }] : []),
+      ],
+      ok: "Scale",
+      onOk: (v) => run(["scale", name, `${svc}=${v.reset ? "default" : String(v.n).trim()}`, ...sv(n), "-y"]),
+    });
+  };
+  // Weights of a split's services: Traefik sends each the share weight / sum.
+  const splitDlg = (group: string) => {
+    const members = Object.entries(scale ?? {}).filter(([, r]) => r.split === group);
+    dialog({
+      title: `Traffic split of ${name}`,
+      text: "Each service gets its weight's share of the requests. 0 sends it none. Only the routing changes: no container restarts.",
+      fields: members.map(([svc, r]) => ({
+        name: svc,
+        label: svc,
+        type: "number" as const,
+        value: String(r.weight ?? 0),
+        required: true,
+        check: (v: string) => (!/^\d+$/.test(v) || +v > MAX_WEIGHT) && `A number from 0 to ${MAX_WEIGHT}`,
+      })),
+      ok: "Save",
+      onOk: (v) => run(["weight", name, ...members.map(([svc]) => `${svc}=${String(v[svc]).trim()}`), ...sv(n), "-y"]),
+    });
+  };
   const edit = () => siteSettings(n, site);
   const stop = () =>
     confirmDlg({
@@ -377,17 +422,49 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
   const toggle = () => (open ? S.open.delete(`${n}/${name}`) : S.open.add(`${n}/${name}`), render());
   const det = open && deploys ? S.det[proj.path] : undefined;
   // The open row: what runs and what you do with it on the left, how it is built and where it lives on the right.
-  const svcRows = services.map((x) => {
+  // One row per service; replicas show as a count, the row as its worst container.
+  const bySvc = new Map<string, { x: (typeof services)[number]; count: number }>();
+  for (const y of services) {
+    const e = bySvc.get(y.service);
+    if (!e) bySvc.set(y.service, { x: y, count: 1 });
+    else {
+      e.count++;
+      if (worse(y.status, e.x.status)) e.x = y;
+    }
+  }
+  const svcRows = [...bySvc.values()].map(({ x, count }) => {
     const [own, ...named] = svcWays(x.service);
     const live = isUp(x.status);
+    const r = scale?.[x.service];
+    const want = r?.replicas ?? count;
+    const opts = cur?.services.find((y) => y.name === x.service)?.opts;
     return (
       <li key={x.service}>
         <div className={ROW}>
-          <StatusDot status={x.status} />
+          <StatusDot status={r && r.running < want ? "Up (health: starting)" : x.status} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <b>{x.service}</b>
+              {want !== 1 && (
+                <span className="mono text-sm" title={r ? `${r.replicas} wanted (${r.source})` : `${count} containers`}>
+                  ×{want}
+                  {r && (
+                    <span className="faint">
+                      {" "}
+                      · {r.running}/{want} up
+                    </span>
+                  )}
+                </span>
+              )}
               <span className="faint text-sm">{x.status.toLowerCase()}</span>
+              {r?.update === "rolling" && (
+                <Badge title="x-landfall.update: rolling: new containers start and get ready before the old ones stop">rolling</Badge>
+              )}
+              {r?.split && <Badge title={`Traffic split ${r.split}: lf weight`}>weight {r.weight}</Badge>}
+              {r?.match && <Badge title={`Requests with ${r.match} always reach this service: x-landfall.match`}>{r.match}</Badge>}
+              {opts?.sticky && <Badge title="Sticky sessions: a cookie pins a client to one container">sticky</Badge>}
+              {opts?.healthcheck && <Badge title={`Traefik checks ${opts.healthcheck.path}`}>health check</Badge>}
+              {opts?.ratelimit && <Badge title={`${opts.ratelimit.average} requests/s per client`}>rate limit</Badge>}
             </div>
             {own?.domains.length ? (
               <div className="faint text-sm truncate">{own.domains.join(" · ")}</div>

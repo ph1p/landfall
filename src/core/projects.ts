@@ -206,7 +206,7 @@ export interface Detected {
   node?: boolean;
   /** Compose: its services as a deploy reads them (auto mode without x-landfall), or why the file cannot be read. */
   analysis?: Analysis & {
-    routes: { service: string; port: number; domains: string[]; main?: boolean }[];
+    routes: { service: string; port: number; domains: string[]; main?: boolean; members?: string[] }[];
     /** Each service's image or build context and volumes, as the file says: shown before a deploy. */
     about?: Record<string, { image?: string; build?: string; dockerfile?: string; volumes?: string[] }>;
   };

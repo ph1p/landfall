@@ -92,6 +92,8 @@ describe("job display masking", () => {
     ["secret", "blog", "--file", "KEY=/tmp/key"],
     ["deploy", "-n", "my-site", "-d", "example.com"],
     ["ssh", "box", "--", "mkdir", "-p", "/srv/x"],
+    ["scale", "blog", "web=3", "worker=default", "-s", "box", "-y"],
+    ["weight", "blog", "stable=90", "canary=10", "-y"],
   ])("preserves nonsensitive arguments %j", (...argv) => {
     expect(maskJobArgs(argv)).toEqual(argv);
   });

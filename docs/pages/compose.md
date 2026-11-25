@@ -79,6 +79,26 @@ x-landfall:
 
 A route can also have its own login, or none: `lf auth -r admin -u anna`, `lf auth -r hooks --public` ([Day-to-day](sites.md)).
 
+### Replicas, rolling deploys and Traefik options
+
+These keys are optional. Without them a service runs once and is recreated on each deploy.
+
+- `update: rolling`: new containers get ready before the old ones stop.
+- `sticky`, `healthcheck`, `ratelimit`, `headers`, `compress`, `retry`: Traefik's load balancer and middlewares, on `x-landfall` or a route.
+- `weight`: services on the same domains share their traffic by weight.
+- `match`: a cookie or header that sends a request to one service of a split, like `match: { cookie: variant=b }`.
+- `deploy.replicas` runs more containers; `lf scale` changes the count.
+
+```yaml
+x-landfall:
+  port: 3000
+  update: rolling
+  healthcheck: /health
+  ratelimit: 20
+```
+
+See [Scaling and load balancing](scaling.md).
+
 ## A compose.yaml without `x-landfall`
 
 It deploys as it is. landfall routes the HTTP ports its services publish (`ports:`) or `expose:`.

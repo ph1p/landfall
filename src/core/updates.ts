@@ -2,7 +2,7 @@ import { builtImage } from "./compose";
 import type { Server } from "./config";
 import { runScript, shq } from "./ssh";
 import { cmpVersion } from "./version";
-import { COMPOSE_INSTALL, COMPOSE_PLUGIN, kvRecord, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
+import { COMPOSE_INSTALL, COMPOSE_PLUGIN, kvRecord, OWN_TRAEFIK, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 
 // ---------------------------------------------------------------- OS packages
 
@@ -328,7 +328,7 @@ $x
 EOF
   printf 'IMG\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$svc" "$ref" "$(docker image inspect -f '{{range .RepoDigests}}{{.}} {{end}}' "$id" 2>/dev/null)" "$id"
 }
-if [ "$P" = traefik ] && grep -q "managed by landfall" ${TRAEFIK_DIR}/docker-compose.yml 2>/dev/null; then img traefik traefik traefik ${TRAEFIK_DIR}
+if [ "$P" = traefik ] && ${OWN_TRAEFIK}; then img traefik traefik traefik ${TRAEFIK_DIR}
 else img proxy "$P" "$P" ""; fi
 # All containers at once: <name> <service> <project>, the last two empty outside Compose.
 PS=$(docker ps -a --format '{{.Names}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.project"}}' 2>/dev/null)

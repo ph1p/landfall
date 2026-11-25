@@ -707,12 +707,15 @@ function showRoutes(services: Release["services"], domains: string[], live?: Rel
   const before = new Set(live ? routePlan(live.services, domains).map((r) => r.key) : []);
   const isNew = (r: (typeof plan)[number]) => !!live && !before.has(r.key);
   const hidden = services.some((s) => s.private);
-  if (plan.length <= 1 && !plan.some(isNew) && !hidden && !plan.some((r) => r.allow)) return;
+  if (plan.length <= 1 && !plan.some(isNew) && !hidden && !plan.some((r) => r.allow || r.members)) return;
   info("routes:");
   for (const r of plan) {
     const fresh = isNew(r) ? c.yellow(" new") : "";
     const only = r.allow ? c.dim(` only from ${r.allow.join(", ")}`) : "";
-    console.log(`  ${r.key.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${only}${fresh}`);
+    const split = r.members ? c.dim(` split: ${r.members.join(", ")}`) : "";
+    console.log(
+      `  ${r.key.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${only}${split}${fresh}`,
+    );
   }
   for (const s of services)
     for (const [k, p] of Object.entries(s.private ?? {}))

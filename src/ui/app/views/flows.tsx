@@ -535,14 +535,18 @@ function ComposePlan({ a }: { a?: Detected["analysis"] }) {
     <span className="block mt-1.5">
       {(a.services ?? []).map((s) => {
         const about = a.about?.[s.name];
-        const routes = (a.routes ?? []).filter((r) => r.service === s.name);
+        const routes = (a.routes ?? []).filter((r) => r.service === s.name || r.members?.includes(s.name));
         const priv = Object.entries(s.private ?? {});
         return (
           <span key={s.name} className="block">
             <code>{s.name}</code> <span className="dim">{about?.build !== undefined ? `built from ${about.build}` : (about?.image ?? "")}</span>
             {routes.map((r) => (
               <span key={`${r.port}:${r.domains[0]}`} className="block pl-4">
-                <code>:{r.port}</code> <span className="dim">→ {r.domains.join(", ")}</span>
+                <code>:{r.service === s.name ? r.port : s.port}</code>{" "}
+                <span className="dim">
+                  → {r.domains.join(", ")}
+                  {r.members && ` · split with ${r.members.filter((m) => m !== s.name).join(", ")}`}
+                </span>
               </span>
             ))}
             {priv.map(([k, p]) => (

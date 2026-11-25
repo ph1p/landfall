@@ -4,7 +4,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { redirectsFile } from "../../src/core/redirects";
-import { covers, mergeHosts, parseCertError, parseCerts, parseSince, parseTraffic, readCert, siteTraffic, spanLabel, TRAFFIC } from "../../src/core/traffic";
+import { analyze, type SiteMeta } from "../../src/core/compose";
+import {
+  covers,
+  mergeHosts,
+  parseCertError,
+  parseCerts,
+  parseServiceTraffic,
+  parseSince,
+  parseTraffic,
+  readCert,
+  SERVICE_TRAFFIC,
+  siteTraffic,
+  spanLabel,
+  splitStats,
+  TRAFFIC,
+} from "../../src/core/traffic";
 
 const now = new Date("2026-10-25T15:30:00Z");
 
@@ -23,12 +38,12 @@ const line = (o: { host: string; status: number; ms: number; path?: string; ip?:
     msg: "",
   });
 
-/** The TRAFFIC script against a fake `docker` that prints these log lines. */
-function runTraffic(lines: string[], secs = 3600, site?: object) {
+/** The TRAFFIC script (or another) against a fake `docker` that prints these log lines. */
+function runTraffic(lines: string[], secs = 3600, site?: object, base = TRAFFIC(secs)) {
   const dir = fs.mkdtempSync(join(tmpdir(), "lf-traffic-"));
   fs.writeFileSync(join(dir, "log"), lines.join("\n") + "\n");
   const fake = `docker() { case "$1" in inspect) return 0 ;; logs) cat ${dir}/log ;; esac; }\n`;
-  let script = TRAFFIC(secs);
+  let script = base;
   if (site) {
     fs.mkdirSync(join(dir, "sites/app"), { recursive: true });
     fs.writeFileSync(join(dir, "sites/app/site.json"), JSON.stringify(site, null, 2));
@@ -124,6 +139,69 @@ describe("traffic", () => {
       t.total.series.map((s) => s.at),
     );
     expect(m).toMatchObject({ requests: 4, bytes: 30, classes: { "2xx": 3, "5xx": 1 }, p50: 4, p95: 32 });
+  });
+});
+
+describe("split stats", () => {
+  const svc = (service: string, status: number, ms: number, router = "blog-split@docker") =>
+    JSON.stringify({ ...JSON.parse(line({ host: "blog.test", status, ms })), ServiceName: `${service}@docker`, RouterName: router });
+
+  test("per Traefik service of the site: status codes, response times, requests through the match router", () => {
+    const out = runTraffic(
+      [
+        svc("blog_a", 200, 10),
+        svc("blog_a", 200, 12),
+        svc("blog_a", 500, 30),
+        svc("blog_b", 200, 100),
+        svc("blog_b", 404, 2, "blog_b-match@docker"),
+        svc("blogx_a", 200, 1),
+        svc("other_web", 200, 1),
+        line({ host: "blog.test", status: 200, ms: 1 }),
+      ],
+      3600,
+      undefined,
+      SERVICE_TRAFFIC("blog", 3600),
+    );
+    const t = parseServiceTraffic(out);
+    expect(t.format).toBe("json");
+    const by = Object.fromEntries(t.services.map((x) => [x.name, x]));
+    expect(Object.keys(by).sort()).toEqual(["blog_a", "blog_b"]);
+    expect(by.blog_a).toMatchObject({ requests: 3, matched: 0, classes: { "2xx": 2, "3xx": 0, "4xx": 0, "5xx": 1 } });
+    expect(by.blog_b).toMatchObject({ requests: 2, matched: 1, classes: { "2xx": 1, "3xx": 0, "4xx": 1, "5xx": 0 } });
+    expect(by.blog_a.p50).toBeGreaterThan(8);
+    expect(by.blog_a.p50).toBeLessThan(15);
+
+    const a = analyze(
+      {
+        services: {
+          a: { image: "a", "x-landfall": { port: 80, weight: 90 } },
+          b: { image: "b", "x-landfall": { port: 80, weight: 10, match: { cookie: "ab=b" } } },
+          db: { image: "p" },
+        },
+      },
+      "/x",
+    );
+    expect(a.errors).toEqual([]);
+    const meta: SiteMeta = {
+      name: "blog",
+      kind: "compose",
+      domains: ["blog.test"],
+      current: "1",
+      releases: [{ id: "1", at: "", services: a.services }],
+      createdAt: "",
+      updatedAt: "",
+      weights: { a: 80 },
+    };
+    expect(splitStats(meta, t).map(({ service, weight, match, requests, matched }) => ({ service, weight, match, requests, matched }))).toEqual([
+      { service: "a", weight: 80, match: undefined, requests: 3, matched: 0 },
+      { service: "b", weight: 10, match: "cookie ab=b", requests: 2, matched: 1 },
+    ]);
+    expect(splitStats(meta, parseServiceTraffic("N\t0\t0\n"))[0]).toMatchObject({ requests: 0, p50: 0 });
+  });
+
+  test("no proxy, plain-text log", () => {
+    expect(parseServiceTraffic("NOPROXY\n").proxy).toBe(false);
+    expect(parseServiceTraffic("N\t0\t4\n").format).toBe("common");
   });
 });
 

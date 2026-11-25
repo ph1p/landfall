@@ -19,20 +19,40 @@ import {
   siteRedirects,
   siteMain,
   SITE_LINES,
-  STATUS_RANK,
+  scaleView,
+  scales,
+  splitFile,
+  worse,
   statusKind,
   readSiteLine,
   isSiteMeta,
   type Release,
+  type ScaleRow,
   type SiteMeta,
   ENV_NAME,
   volumeDir,
+  wantedReplicas,
 } from "./compose";
 import { hookLines, hookVars, serverCall, type HookCall, type Skipper } from "./hooks";
 import { onStop } from "./job";
 import { backupName, backupTo, recreateFrom } from "./volumes";
 import { runScript, shq, sshExec, writeFileCmd } from "./ssh";
-import { ctrPs, HELPER, JOURNAL, OWN_PROXY, parseProxy, PRELUDE, PROXY_CTR, PROXY_FILE, SITES, TRAEFIK_DIR, TUNNEL_ROUTER, type Proxy } from "./templates";
+import {
+  ctrPs,
+  DYNAMIC_DIR,
+  HELPER,
+  JOURNAL,
+  OWN_PROXY,
+  parseProxy,
+  PRELUDE,
+  PROXY_CTR,
+  PROXY_FILE,
+  SITES,
+  TRAEFIK_DIR,
+  TUNNEL_ROUTER,
+  type Proxy,
+  OWN_TRAEFIK,
+} from "./templates";
 import { fail, readStdin, warn } from "./term";
 import { REDIRECTS_STATE, redirectsStateOf, type RedirectsState } from "./server-redirects";
 import { traefikStateOf, type TraefikState } from "./traefik";
@@ -150,6 +170,19 @@ export interface SiteStatus {
   main?: string;
   /** kindOf: what lists show. */
   kind: string;
+  /**
+   * Per service: replicas wanted and up, update mode, split weight. Only when the site uses replicas,
+   * rolling updates or a traffic split; other sites print as before.
+   */
+  scale?: Record<string, Omit<ScaleRow, "service"> & { running: number }>;
+}
+
+export function replicaState(meta: SiteMeta, services: ServiceStatus[]): SiteStatus["scale"] {
+  const rows = scaleView(meta);
+  if (!rows.some(scales)) return undefined;
+  return Object.fromEntries(
+    rows.map(({ service, ...r }) => [service, { ...r, running: services.filter((x) => x.service === service && isUp(x.status)).length }]),
+  );
 }
 
 export interface Overview {
@@ -251,7 +284,7 @@ export function externals(
     e.containers.push(name);
     const st = status.get(name) ?? "not running";
     // A group shows its worst container.
-    if (!e.status || STATUS_RANK[statusKind(st)] > STATUS_RANK[statusKind(e.status)]) e.status = st;
+    if (!e.status || worse(st, e.status)) e.status = st;
     out.set(key, e);
   }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -345,6 +378,7 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
   o.sites = metas.map((meta) => {
     const { hosts, to } = siteRedirects(meta);
     const services = (byProject.get(projectName(meta)) ?? []).sort((x, y) => x.service.localeCompare(y.service));
+    const scale = replicaState(meta, services);
     return {
       meta,
       status: siteStatus(meta, services),
@@ -354,6 +388,7 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
       redirectTo: to,
       main: siteMain(meta)?.name,
       kind: kindOf(meta),
+      ...(scale && { scale }),
     };
   });
   return o;
@@ -527,13 +562,81 @@ export interface SiteHooks {
 // Not the script on stdin: Compose asks there, e.g. to recreate a volume whose configuration changed.
 const UP = "dc up -d --wait --wait-timeout 300 --remove-orphans </dev/null";
 
+/** Where a site's traffic splits live for Traefik's file provider. */
+export const splitPath = (site: string) => `${DYNAMIC_DIR}/site-${site}.yml`;
+const rmSplit = (site: string) => `_as ${DYNAMIC_DIR} rm -f ${shq(splitPath(site))}`;
+
+/** Shell that writes the site's traffic splits for Traefik's file provider, or removes them; splits need landfall's own Traefik. */
+function splitLines(meta: SiteMeta, release: Release): string[] {
+  const path = splitPath(meta.name);
+  const text = meta.adopted ? undefined : splitFile(meta, release);
+  if (!text) return [rmSplit(meta.name)];
+  return [
+    `{ [ ! -f ${PROXY_FILE} ] && ${OWN_TRAEFIK}; } || { echo ${shq(`${meta.name} splits its traffic by weight, which needs landfall's own Traefik (its file provider): lf traefik setup, or drop x-landfall.weight`)} >&2; exit 1; }`,
+    // _put: Traefik watches the directory and must never read half a file.
+    `printf %s ${shq(Buffer.from(text).toString("base64"))} | base64 -d | _put ${shq(path)}`,
+  ];
+}
+
+/**
+ * Shell for x-landfall.update: rolling: start the rest first, then per rolling service whose config or image
+ * changed, new containers beside the old ones; once they run (and are healthy), the old ones go. Traefik
+ * balances over both in between. Nothing for a service with no container yet, or none wanted.
+ */
+function rollLines(meta: SiteMeta, release: Release, failed: string[] = []): string[] {
+  const rolling = release.services.filter((s) => s.update === "rolling");
+  if (!rolling.length) return [];
+  const others = release.services.filter((s) => s.update !== "rolling").map((s) => shq(s.name));
+  const fail = [...failed, "exit 1"];
+  const lines = others.length
+    ? [
+        `log "starting ${meta.name}'s other services before rolling ${rolling.map((s) => s.name).join(", ")}"`,
+        `(cd -P current && dc up -d --wait --wait-timeout 300 --no-deps ${others.join(" ")} </dev/null) || { log "${meta.name} did not start:"; (cd -P current && dc ps -a >&2) || true; ${fail.join("; ")}; }`,
+      ]
+    : [];
+  // One call for every rolling service's configuration hash: "<service> <hash>" lines.
+  lines.push(`hashes=$(cd -P current && dc config --hash ${shq(rolling.map((s) => s.name).join(","))})`);
+  for (const s of rolling) {
+    const svc = shq(s.name);
+    const want = wantedReplicas(meta, s);
+    if (want < 1) continue;
+    lines.push(
+      `old=$(cd -P current && dc ps -q ${svc}) || old=""`,
+      `n=$(printf '%s\n' "$old" | grep -c . || true)`,
+      `roll=0`,
+      `if [ "$n" -gt 0 ]; then`,
+      `  h=$(printf '%s\n' "$hashes" | awk -v s=${svc} '$1 == s {print $2}')`,
+      `  ref=$(docker inspect -f '{{.Config.Image}}' $(printf '%s\n' "$old" | head -1))`,
+      `  img=$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null || true)`,
+      // Rolls when any running container has another configuration or image than the release wants.
+      `  [ -z "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}} {{.Image}}' $old | grep -vxF "$h $img")" ] || roll=1`,
+      `fi`,
+      `if [ "$roll" = 1 ]; then`,
+      `  log ${shq(`rolling ${s.name}: ${want} new container${want > 1 ? "s" : ""} beside the running ones`)}`,
+      `  (cd -P current && dc up -d --no-deps --no-recreate --scale ${svc}=$((n + ${want})) ${svc} </dev/null) || { ${fail.join("; ")}; }`,
+      `  new=$(cd -P current && dc ps -q ${svc} | grep -vxF "$old" || true)`,
+      `  if ! wait_ready 300 $new; then`,
+      `    log ${shq(`${s.name}'s new containers did not get ready; the old ones keep serving:`)}`,
+      `    for c in $new; do docker logs --tail 30 "$c" >&2 || true; done`,
+      `    docker rm -f $new >/dev/null || true`,
+      ...fail.map((l) => `    ${l}`),
+      `  fi`,
+      // Traefik stops sending to a container once it stops; requests on the way may drop unless the app drains them.
+      `  docker stop -t 30 $old >/dev/null && docker rm $old >/dev/null`,
+      `fi`,
+    );
+  }
+  return lines;
+}
+
 /**
  * Shell that starts the Compose project in `current`, printing its state and logs if it does not come up;
  * then `failed` runs (outside the `||`, where set -e would be ignored) and the script exits 1.
+ * `only` limits it to these services (with --no-deps).
  */
-const upLines = (name: string, failed: string[] = []) => [
+const upLines = (name: string, failed: string[] = [], only: string[] = []) => [
   `log "starting ${name}: waits up to 5 minutes for its containers to run (and be healthy, if they have a healthcheck)"`,
-  `up=1; (cd -P current && ${UP}) || { up=0; log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; }`,
+  `up=1; (cd -P current && ${only.length ? UP.replace(" </dev/null", ` --no-deps ${only.map(shq).join(" ")} </dev/null`) : UP}) || { up=0; log "${name} did not start:"; (cd -P current && dc ps -a >&2; dc logs --tail 30 >&2) || true; }`,
   `if [ "$up" = 0 ]; then`,
   ...failed,
   `exit 1`,
@@ -596,7 +699,17 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
   // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
   lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
   // Swapped in one rename, so `current` always points at a whole release.
-  lines.push(`ln -sfn ${rel} current.new && mv -Tf current.new current`, ...upLines(meta.name, o.failed));
+  lines.push(
+    `ln -sfn ${rel} current.new && mv -Tf current.new current`,
+    ...splitLines(meta, release),
+    ...rollLines(meta, release, o.failed),
+    // After a roll, only the rolling services: rollLines started the others already.
+    ...upLines(
+      meta.name,
+      o.failed,
+      release.services.filter((s) => s.update === "rolling").map((s) => s.name),
+    ),
+  );
   if (o.recreate?.length)
     lines.push(`log "recreating ${o.recreate.join(", ")}"`, `(cd -P current && ${UP} --force-recreate --no-deps ${o.recreate.map(shq).join(" ")}) || exit 1`);
   lines.push(...hookLines(o.hooks?.verify, "exec", "current", o.failed), ...hookLines(o.hooks?.post, "exec", "current"));
@@ -635,6 +748,33 @@ export async function removeReleases(s: Server, name: string, ids: string[]): Pr
     ];
     await runScript(s, lines.join("\n"));
     return gone;
+  } finally {
+    await lock.unlock();
+  }
+}
+
+/**
+ * lf weight: site.json and the split file only. Traefik's file provider reloads it, so no container restarts.
+ * The weights must belong to a split of the current release (the caller checks).
+ */
+export async function setWeights(s: Server, name: string, weights: Record<string, number>, what: string): Promise<SiteMeta> {
+  const lock = await lockSite(s, name);
+  try {
+    const { meta } = await requireSite(s, name, { deployed: "change the traffic split of" });
+    meta.weights = { ...meta.weights, ...weights };
+    meta.updatedAt = new Date().toISOString();
+    const lines = [
+      PRELUDE,
+      `cd ${shq(siteDir(name))}`,
+      "u1=$(saved site.json) || exit 1",
+      `u2=$(saved ${shq(splitPath(name))}) || exit 1`,
+      // The split file first: it checks that landfall's own Traefik reads it.
+      ...splitLines(meta, currentRelease(meta)!),
+      writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"),
+      `record ${shq(what)} "$u1"${shq("\n")}"$u2"`,
+    ];
+    await runScript(s, lines.join("\n"));
+    return meta;
   } finally {
     await lock.unlock();
   }
@@ -772,6 +912,7 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
     // Its files go either way: a container that would not stop is said, with how to find it.
     `{ [ -e current ] && (cd -P current && dc down --remove-orphans${v}); } >/dev/null 2>&1 || dc -p ${shq(projectName(meta))} down --remove-orphans${v} >/dev/null 2>&1 || log ${shq(`could not stop ${meta.name}'s containers: docker ps --filter label=com.docker.compose.project=${projectName(meta)}`)}`,
     ...images.map(rmImage),
+    rmSplit(meta.name),
     // Scheduled backups stop with the site; those already made stay with the volumes.
     `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${shq(cronMark(meta.name))} || crontab -l | grep -vF ${shq(cronMark(meta.name))} | crontab - || true`,
     // The containers' users own the volumes' files (postgres is 999): a container deletes them, no sudo needed.

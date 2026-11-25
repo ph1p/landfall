@@ -13,7 +13,7 @@ vi.mock("../../src/core/ssh", async (orig) => ({
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
-const { applySite, discardRelease, lockSite, overview, removeSite } = await import("../../src/core/remote");
+const { applySite, discardRelease, lockSite, overview, removeSite, setWeights } = await import("../../src/core/remote");
 const { serverCall, skipper } = await import("../../src/core/hooks");
 
 const server = { host: "example.com" } as any;
@@ -83,6 +83,68 @@ describe("deploy scripts", () => {
     const up = at(s, "up -d --wait", at(s, "site.json", mv));
     expect(at(s, "undo=")).toBeGreaterThan(build);
     expect(s.slice(up)).toMatch(/eval "\$undo"[\s\S]*_journal undo "\$jl"[\s\S]*exit 1/);
+  });
+
+  test("rolling: others start first, a changed service gets new containers ready before the old ones stop", async () => {
+    const m = site("2", ["1", "2"]);
+    m.kind = "compose";
+    m.releases[1].services = [{ name: "web", networks: ["default"], port: 8000, update: "rolling", replicas: 2 } as any, { name: "db", networks: ["default"] }];
+    await applySite(server, m, OWN_PROXY, { env: "A=1\n", prev: site("1", ["1"]), what: "deploy blog release 2" });
+    const s = scripts[0];
+    parses(s);
+    const others = at(s, "--no-deps 'db'");
+    const hash = at(s, "dc config --hash 'web'", others);
+    at(s, "awk -v s='web'", hash);
+    const scaleUp = at(s, "--no-recreate --scale 'web'=$((n + 2))", hash);
+    const ready = at(s, "wait_ready 300 $new", scaleUp);
+    const stop = at(s, "docker stop -t 30 $old", ready);
+    // The last start covers only the rolling service: the others are up already.
+    const last = at(s, "--remove-orphans --no-deps 'web' </dev/null", stop);
+    expect(s.slice(at(s, "mv -Tf current.new current"), last).match(/--remove-orphans/g)).toHaveLength(1);
+    // A container that does not get ready goes, the old ones stay, the release goes back.
+    expect(s.slice(ready, stop)).toMatch(/docker rm -f \$new[\s\S]*eval "\$undo"[\s\S]*exit 1/);
+  });
+
+  test("opt-in: no rolling step, wait or split file without x-landfall.update or weight", async () => {
+    await applySite(server, site("2", ["1", "2"]), OWN_PROXY, { env: "A=1\n", prev: site("1", ["1"]), what: "deploy blog release 2" });
+    const s = scripts[0];
+    parses(s);
+    expect(s.slice(s.indexOf("mv -f .env.new .env"))).not.toMatch(/wait_ready \d|--no-recreate|config --hash|managed by landfall/);
+  });
+
+  test("a traffic split writes the dynamic file, only behind landfall's own Traefik", async () => {
+    const m = site("1", ["1"]);
+    m.kind = "compose";
+    m.releases[0].services = [
+      { name: "a", networks: ["default"], port: 80, weight: 90 },
+      { name: "b", networks: ["default"], port: 80, weight: 10 },
+    ];
+    await applySite(server, m, OWN_PROXY, { what: "deploy blog release 1 (new site)" });
+    const s = scripts[0];
+    parses(s);
+    const own = at(s, "managed by landfall");
+    at(s, "site-blog.yml", own);
+    const b64 = /printf %s '([A-Za-z0-9+/=]+)' \| base64 -d \| _put '[^']*site-blog\.yml'/.exec(s)![1];
+    expect(Buffer.from(b64, "base64").toString()).toContain("blog_b@docker");
+  });
+
+  test("lf weight rewrites the split file and site.json only: no container starts, undo restores both", async () => {
+    const m = site("1", ["1"]);
+    m.kind = "compose";
+    m.releases[0].services = [
+      { name: "a", networks: ["default"], port: 80, weight: 90 },
+      { name: "b", networks: ["default"], port: 80, weight: 10 },
+    ];
+    reply.stdout = JSON.stringify(m);
+    await setWeights(server, "blog", { b: 0 }, "weight blog b=0");
+    const s = scripts.find((x) => x.includes("record "))!;
+    parses(s);
+    expect(s).not.toMatch(/\bdc (up|run)|docker (stop|rm)/);
+    const own = at(s, "managed by landfall", at(s, "u2=$(saved"));
+    const put = at(s, "| _put", own);
+    at(s, `record 'weight blog b=0' "$u1"`, at(s, "site.json", put));
+    const b64 = /printf %s '([A-Za-z0-9+/=]+)' \| base64 -d \| _put/.exec(s)![1];
+    expect(Buffer.from(b64, "base64").toString()).toMatch(/blog_b@docker"\s+weight: 0/);
   });
 
   test("a new site that fails to start stays for lf undo", async () => {

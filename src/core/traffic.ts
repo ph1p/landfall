@@ -1,12 +1,12 @@
 import { X509Certificate } from "node:crypto";
 import https from "node:https";
 import type { Server } from "./config";
-import { SITE_LINES, siteHosts, readSiteLine } from "./compose";
+import { currentRelease, MATCH_SUFFIX, matchText, routerName, SITE_LINES, siteHosts, readSiteLine, splitGroups, type SiteMeta } from "./compose";
 import { REDIRECTS_LINE, redirectsOf } from "./server-redirects";
-import { runScript } from "./ssh";
+import { runScript, shq } from "./ssh";
 import { PROXY_CTR, PROXY_FILE } from "./templates";
 import { fail } from "./term";
-import { cls, mergeHosts, percentile, zero, type HostTraffic, type StatusClass, type Summary, type Traffic } from "./traffic-merge";
+import { cls, mergeHosts, summarize, zero, type HostTraffic, type StatusClass, type Summary, type Traffic } from "./traffic-merge";
 
 /** `24h`, `30m`, `7d`, `90s` → seconds; at most 30 days, what a container log keeps at best. */
 export function parseSince(s: string): number {
@@ -23,6 +23,10 @@ export const spanLabel = (secs: number) => (secs % 86400 === 0 ? `${secs / 86400
 /** Up to 6 hours per minute, longer spans per hour: a chart stays at a few hundred points. */
 const bucketLen = (secs: number) => (secs <= 6 * 3600 ? 16 : 13);
 
+/** awk functions that read one field of a Traefik JSON access log line: str("RequestHost"), num("DownstreamStatus"). */
+const AWK_JSON = String.raw`function str(k) { if (!match($0, "\"" k "\":\"[^\"]*")) return ""; v = substr($0, RSTART + length(k) + 4, RLENGTH - length(k) - 4); sub(/\\$/, "", v); return v }
+function num(k) { return match($0, "\"" k "\":-?[0-9]+") ? substr($0, RSTART + length(k) + 3, RLENGTH - length(k) - 3) + 0 : 0 }`;
+
 /**
  * Traefik's JSON access log, aggregated on the server: only counts cross ssh, never a line per request.
  * Per host: requests and bytes by status, a latency histogram (4 buckets per doubling), requests per
@@ -36,8 +40,7 @@ if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi
 ${SITE_LINES}
 T=$(printf '\t')
 docker logs --since ${secs}s "$P" 2>&1 | LC_ALL=C awk -v B=${bucketLen(secs)} '
-function str(k) { if (!match($0, "\"" k "\":\"[^\"]*")) return ""; v = substr($0, RSTART + length(k) + 4, RLENGTH - length(k) - 4); sub(/\\$/, "", v); return v }
-function num(k) { return match($0, "\"" k "\":-?[0-9]+") ? substr($0, RSTART + length(k) + 3, RLENGTH - length(k) - 3) + 0 : 0 }
+${AWK_JSON}
 /^\{.*"RequestHost":/ {
   # The tunnel entrypoint is lf traefik dashboard, not traffic.
   if (str("entryPointName") == "tunnel") next
@@ -156,22 +159,7 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
     }
   }
   t.hosts = [...hosts.values()]
-    .map((x) => {
-      const classes = zero();
-      for (const [code, n] of Object.entries(x.codes)) {
-        const c = cls(Number(code));
-        if (c) classes[c] += n;
-      }
-      const requests = Object.values(x.codes).reduce((a, b) => a + b, 0);
-      return {
-        ...x,
-        requests,
-        classes,
-        p50: percentile(x.hist, 0.5),
-        p95: percentile(x.hist, 0.95),
-        series: keys.map((at) => ({ at, ...(x.series.get(at) ?? zero()) })),
-      };
-    })
+    .map((x) => ({ ...x, ...summarize(x.codes, x.hist), series: keys.map((at) => ({ at, ...(x.series.get(at) ?? zero()) })) }))
     .sort((a, b) => b.requests - a.requests);
   t.total = mergeHosts(t.hosts, keys);
   const bySite = Map.groupBy(
@@ -411,4 +399,102 @@ export function checkUrl(domain: string, o: { resolve?: string; timeout?: number
     req.on("error", (e: any) => done({ domain, ok: false, error: e?.code ?? e?.message ?? String(e) }));
     req.end();
   });
+}
+
+/** One Traefik service's requests (a split member's load balancer, blog_canary), and how many came through its x-landfall.match router. */
+export interface ServiceTraffic extends Omit<Summary, "bytes"> {
+  /** Traefik's name of the service, without @docker. */
+  name: string;
+  matched: number;
+}
+
+export interface SiteServiceTraffic {
+  proxy: boolean;
+  format: Traffic["format"];
+  services: ServiceTraffic[];
+}
+
+/** Per Traefik service of one site (their names start with "<site>_"): status codes, a latency histogram, requests through a -match router. */
+export const SERVICE_TRAFFIC = (site: string, secs: number) => String.raw`
+set +e
+P=${PROXY_CTR}
+if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi
+docker logs --since ${secs}s "$P" 2>&1 | LC_ALL=C awk -v pre=${shq(`${site}_`)} '
+${AWK_JSON}
+# A plain substring test skips lines of other sites before any regex runs.
+index($0, "\"ServiceName\":\"" pre) {
+  # str() sets v: keep the service in its own variable.
+  name = str("ServiceName"); sub(/@.*/, "", name)
+  s = num("DownstreamStatus"); ms = num("Duration") / 1000000
+  C[name SUBSEP s]++; L[name SUBSEP (ms < 1 ? 0 : int(log(ms) / log(2) * 4) + 1)]++
+  if (index(str("RouterName"), "${MATCH_SUFFIX}@")) M[name]++
+  n++; next
+}
+/^\{.*"ServiceName":/ { n++; next }
+/^[0-9a-fA-F.:]+ - [^ ]+ \[[^]]+\] "/ { common++ }
+END {
+  print "N\t" n + 0 "\t" common + 0
+  for (x in C) { split(x, a, SUBSEP); print "C\t" a[1] "\t" a[2] "\t" C[x] }
+  for (x in L) { split(x, a, SUBSEP); print "L\t" a[1] "\t" a[2] "\t" L[x] }
+  for (x in M) print "M\t" x "\t" M[x]
+}'
+exit 0
+`;
+
+export function parseServiceTraffic(out: string): SiteServiceTraffic {
+  const r: SiteServiceTraffic = { proxy: true, format: "none", services: [] };
+  const by = new Map<string, { codes: Record<string, number>; hist: Record<string, number>; matched: number }>();
+  const svc = (name: string) => by.get(name) ?? (by.set(name, { codes: {}, hist: {}, matched: 0 }), by.get(name)!);
+  for (const line of out.split("\n")) {
+    const f = line.split("\t");
+    if (f[0] === "NOPROXY") r.proxy = false;
+    else if (f[0] === "N") r.format = Number(f[1]) ? "json" : Number(f[2]) ? "common" : "none";
+    else if (f[0] === "C") svc(f[1]).codes[f[2]] = Number(f[3]);
+    else if (f[0] === "L") svc(f[1]).hist[f[2]] = Number(f[3]);
+    else if (f[0] === "M") svc(f[1]).matched = Number(f[2]);
+  }
+  r.services = [...by].map(([name, x]) => ({ name, ...summarize(x.codes, x.hist), matched: x.matched }));
+  return r;
+}
+
+/** lf weight --stats: what each Traefik service of a site served, from the access log. */
+export async function serviceTraffic(s: Server, site: string, secs: number): Promise<SiteServiceTraffic> {
+  const { stdout } = await runScript(s, SERVICE_TRAFFIC(site, secs), { capture: true });
+  return parseServiceTraffic(stdout);
+}
+
+/** One member of a traffic split with what it served: lf weight --stats. */
+export interface SplitStat {
+  service: string;
+  split: string;
+  weight: number;
+  match?: string;
+  requests: number;
+  /** Requests its x-landfall.match router sent to it, whatever the weights. */
+  matched: number;
+  classes: Record<StatusClass, number>;
+  /** Milliseconds, within about 20%; 0 without requests. */
+  p50: number;
+  p95: number;
+}
+
+/** The split members of a site's live release, each with its requests from the access log. */
+export function splitStats(meta: SiteMeta, t: SiteServiceTraffic): SplitStat[] {
+  const by = new Map(t.services.map((x) => [x.name, x]));
+  return splitGroups(meta, currentRelease(meta)?.services ?? []).flatMap((g) =>
+    g.members.map(({ service: s, weight }) => {
+      const x = by.get(routerName(meta.name, s, s.port!));
+      return {
+        service: s.name,
+        split: g.name,
+        weight,
+        ...(s.match && { match: matchText(s.match) }),
+        requests: x?.requests ?? 0,
+        matched: x?.matched ?? 0,
+        classes: x?.classes ?? zero(),
+        p50: x?.p50 ?? 0,
+        p95: x?.p95 ?? 0,
+      };
+    }),
+  );
 }

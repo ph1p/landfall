@@ -10,6 +10,8 @@ export const statusKind = (status: string): StatusKind =>
   /^restarting|\((unhealthy|health: starting)\)/i.test(status) ? "warn" : isUp(status) ? "up" : isDone(status) ? "done" : "down";
 /** Higher is worse: what a group of containers shows as its one status. */
 export const STATUS_RANK: Record<StatusKind, number> = { up: 0, done: 1, warn: 2, down: 3 };
+/** Whether status a is worse than b: a group shows its worst container. */
+export const worse = (a: string, b: string) => STATUS_RANK[statusKind(a)] > STATUS_RANK[statusKind(b)];
 
 /** Services worth showing first: what keeps the server and its sites running. */
 export const KEY_SERVICES = [

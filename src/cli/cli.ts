@@ -88,6 +88,8 @@ function help() {
         "logs",
         "env",
         "secret",
+        "scale",
+        "weight",
         "rollback",
         "release rm",
         "restart",

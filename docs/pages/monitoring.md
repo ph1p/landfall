@@ -16,6 +16,7 @@ lf check example.com --resolve 198.51.100.4   # one domain, against an address b
 - Up to 6h counts per minute, longer per hour. Response times come from a histogram, within about 20%.
 - An older Traefik logs plain text: `lf traefik setup` switches it to JSON (brief restart).
 - Your own Traefik (`lf traefik use`) needs `--accesslog=true --accesslog.format=json` in its command.
+- For the services of a traffic split, `lf weight <site> --stats` counts per service ([Scaling](scaling.md)).
 
 ## Certificates
 

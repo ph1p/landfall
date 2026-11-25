@@ -59,6 +59,7 @@ import { pluginAdd, pluginNew, pluginRemove, pluginsList } from "./commands/plug
 import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
 import { update, updatesList } from "./commands/updates";
 import { scanCmd } from "./commands/scan";
+import { scale, weight } from "./commands/scale";
 import { registryList, registryLoginCmd, registryLogoutCmd } from "./commands/registries";
 import { redirectAdd, redirectRemove, redirectsList } from "./commands/redirects";
 import { traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
@@ -74,6 +75,8 @@ export const commands: Command[] = [
   sitesLogs,
   sitesEnv,
   sitesSecret,
+  scale,
+  weight,
   sitesRollback,
   releaseRemove,
   sitesRestart,

@@ -25,7 +25,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 
 | area | commands |
 |---|---|
-| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check` |
+| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight` |
 | servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
@@ -36,6 +36,9 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `domains` lists the server's addresses under `ips`, and redirect hosts under `redirects`, each with `to`.
 - `redirects` lists `{server, ips, redirects}`, and `error` when the redirects file is not landfall's; each redirect has `host`, `to`, `permanent`, `path` and its DNS and HTTPS state.
 - `certs` lists each domain under `domains` with its `site`. A server redirect's host has no `site`; its `redirect` is the target.
+- `scale` and `weight` print `{site, services}`; each service has `replicas`, `source`, `update`, and `weight` and `split` in a traffic split, and `match` when it has one.
+- `weight --stats` prints `{site, since, format, services}`. `since` is in seconds; `format` is `json`, `common` (plain-text log, no counts) or `none`. Each service has `service`, `split`, `weight`, `match`, `requests`, `matched`, `classes` (`2xx` to `5xx`) and `p50` and `p95` in milliseconds.
+- `ls` and `sites info` add `scale` to a site that uses replicas, rolling deploys or a split: per service, its `replicas` wanted and `running`.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
 The web UI reads the same JSON, so its shape is stable within a release.

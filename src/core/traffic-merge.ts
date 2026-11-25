@@ -50,6 +50,16 @@ export interface Traffic {
 export const zero = (): Record<StatusClass, number> => ({ "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0 });
 export const cls = (status: number) => (CLASSES[Math.floor(status / 100) - 2] ?? null) as StatusClass | null;
 
+/** Requests, status classes and response times from status counts and a latency histogram. */
+export function summarize(codes: Record<string, number>, hist: Record<string, number>) {
+  const classes = zero();
+  for (const [code, n] of Object.entries(codes)) {
+    const c = cls(Number(code));
+    if (c) classes[c] += n;
+  }
+  return { requests: Object.values(codes).reduce((a, b) => a + b, 0), classes, codes, p50: percentile(hist, 0.5), p95: percentile(hist, 0.95) };
+}
+
 export function percentile(hist: Record<string, number>, q: number): number {
   const ks = Object.keys(hist)
     .map(Number)

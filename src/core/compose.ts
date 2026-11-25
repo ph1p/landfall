@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
 import { DOMAIN } from "./config";
 import type { ReleaseHooks } from "./hooks";
+import { MAX_REPLICAS, MAX_WEIGHT } from "./limits";
 import { fail } from "./term";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
@@ -54,6 +55,46 @@ export interface Service {
   unpublish?: boolean;
   /** x-landfall.allow: the addresses (IPs, CIDRs) that may reach its port; any when none. */
   allow?: string[];
+  /** x-landfall's Traefik settings for its port's router: load balancer and middlewares. */
+  opts?: RouteOpts;
+  /** deploy.replicas (or scale:) in compose.yaml; `lf scale` overrides it (SiteMeta.scale). */
+  replicas?: number;
+  /** compose.yaml uses the legacy scale: key, so the override sets that one, not deploy.replicas. */
+  scaleKey?: true;
+  /** Has a healthcheck in compose.yaml (one in the image is not seen here). */
+  healthcheck?: true;
+  /** Sets container_name: it cannot run more than once. */
+  named?: true;
+  /** Keeps its ports: on the server (x-landfall.publish): it cannot run more than once either. */
+  published?: true;
+  /** x-landfall.weight: its share of the traffic to hosts it serves together with other weighted services. */
+  weight?: number;
+  /** x-landfall.update: rolling. Deploys start new containers beside the old ones and remove those once ready. */
+  update?: "rolling";
+  /** x-landfall.match: requests with this cookie or header go to this member of a traffic split, whatever the weights. */
+  match?: Match;
+}
+
+/** Each a name=value pair; a request that has either one matches. */
+export interface Match {
+  cookie?: string;
+  header?: string;
+}
+
+/** x-landfall's Traefik settings of one router (opt-in; none: Traefik's defaults). */
+export interface RouteOpts {
+  /** Sticky sessions: a cookie pins a client to one container; a string names the cookie. */
+  sticky?: string | true;
+  /** Traefik's own health check: it sends nothing to a container that fails it. */
+  healthcheck?: { path: string; interval?: string; timeout?: string };
+  /** Requests per second each client IP may make on average, and the burst above that. */
+  ratelimit?: { average: number; burst?: number };
+  /** gzip/brotli responses. */
+  compress?: true;
+  /** Response headers to set; an empty value removes one. */
+  headers?: Record<string, string>;
+  /** Retries a request this many times when the container cannot be reached. */
+  retry?: number;
 }
 
 /** One more port of a service, on a subdomain of every site domain or on fixed domains. */
@@ -64,6 +105,7 @@ export interface Route {
   domains?: string[];
   /** The addresses (IPs, CIDRs) that may reach it; any when none. */
   allow?: string[];
+  opts?: RouteOpts;
 }
 
 export interface Release {
@@ -108,6 +150,10 @@ export interface SiteMeta {
   secrets?: string[];
   /** Named volumes kept in the site's folder, volumes/<key>, not in Docker's. Never shrinks: a rollback or undo finds them there too. */
   volumes?: string[];
+  /** Containers per service (lf scale), over compose.yaml's deploy.replicas. */
+  scale?: Record<string, number>;
+  /** Traffic shares per service of a split (lf weight), over compose.yaml's x-landfall.weight. */
+  weights?: Record<string, number>;
   createdAt: string;
   updatedAt: string;
 }
@@ -137,6 +183,43 @@ export function folderVolumes(config: any, prev: string[] = []): string[] {
   return [...new Set([...prev.filter((k) => !(k in vols) || own(k)), ...Object.keys(vols).filter(own)])].sort();
 }
 
+/** How many containers each service runs and how it updates: what \`lf scale --json\` prints. */
+export interface ScaleRow {
+  service: string;
+  replicas: number;
+  /** Where the count comes from: lf scale, compose.yaml's deploy.replicas (or scale:), or Compose's default of 1. */
+  source: "lf scale" | "compose.yaml" | "default";
+  update: "rolling" | "recreate";
+  /** Its share of a traffic split, and the split's name. */
+  weight?: number;
+  split?: string;
+  /** What sends a request to it whatever the weights: "cookie ab=b", "header X-Variant=b". */
+  match?: string;
+}
+
+/** The services of the live release with their container counts, update mode and traffic shares. */
+export function scaleView(meta: SiteMeta): ScaleRow[] {
+  const services = currentRelease(meta)?.services ?? [];
+  const members = new Map(
+    splitGroups(meta, services).flatMap((g) =>
+      g.members.map((m) => [m.service.name, { weight: m.weight, split: g.name, ...(m.service.match && { match: matchText(m.service.match) }) }] as const),
+    ),
+  );
+  return services.map((s) => ({
+    service: s.name,
+    replicas: wantedReplicas(meta, s),
+    source: meta.scale?.[s.name] !== undefined ? "lf scale" : s.replicas !== undefined ? "compose.yaml" : "default",
+    update: s.update ?? "recreate",
+    ...members.get(s.name),
+  }));
+}
+
+/** How many containers of `s` should run: lf scale's count, else compose.yaml's, else one. */
+export const wantedReplicas = (meta: Pick<SiteMeta, "scale">, s: Service) => meta.scale?.[s.name] ?? s.replicas ?? 1;
+
+/** A row that uses replicas, rolling deploys or a split: worth showing. */
+export const scales = (r: Pick<ScaleRow, "replicas" | "update" | "split">) => r.replicas !== 1 || r.update === "rolling" || !!r.split;
+
 /** The live release. */
 export const currentRelease = (meta: SiteMeta) => meta.releases.find((r) => r.id === meta.current);
 
@@ -144,6 +227,30 @@ export const routed = (s: Service) => !!(s.port || s.own || s.routes?.length);
 
 /** The routed service serving the site's own domains, if any. */
 const isMain = (s: Service) => !!s.port && !s.domains && !s.own;
+/** The hosts a routed port serves, as a key: "" for the site's own domains. */
+const hostsKey = (s: Service) => (s.domains ? [...s.domains].sort().join(",") : "");
+
+/** Services that split the traffic to the same hosts by weight (x-landfall.weight): Traefik's file provider routes them. */
+export interface SplitGroup {
+  /** The router, and the weighted service in the dynamic file (name@file). */
+  name: string;
+  members: { service: Service; weight: number }[];
+}
+
+/** A release's traffic splits: two or more weighted services on the same hosts. lf weight's shares win over x-landfall.weight. */
+export function splitGroups(meta: Pick<SiteMeta, "name" | "weights">, services: Service[]): SplitGroup[] {
+  return splitSets(services).map((ss) => ({
+    name: `${meta.name}-split${ss[0].domains ? `-${ss[0].name.toLowerCase().replace(/\./g, "-")}` : ""}`,
+    members: ss.map((s) => ({ service: s, weight: meta.weights?.[s.name] ?? s.weight! })),
+  }));
+}
+
+/** Services that split their traffic: two or more weighted ones routed on the same hosts. Each set sorted by name; the first leads. */
+function splitSets(services: Service[]): Service[][] {
+  const by = new Map<string, Service[]>();
+  for (const s of services) if (s.weight !== undefined && s.port && !s.own) by.set(hostsKey(s), [...(by.get(hostsKey(s)) ?? []), s]);
+  return [...by.values()].filter((ss) => ss.length > 1).map((ss) => [...ss].sort((a, b) => a.name.localeCompare(b.name)));
+}
 export const mainService = (r?: Release) => r?.services.find(isMain);
 /** The service that serves the site's own domains; none for adopted sites. */
 export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainService(currentRelease(meta)));
@@ -151,7 +258,7 @@ export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainServ
 /** compose, static, … ; or adopted. */
 export const kindOf = (meta: { kind: string; adopted?: string }) => (meta.adopted ? "adopted" : meta.kind);
 
-export { isDone, isUp, STATUS_RANK, statusKind, type StatusKind } from "./status";
+export { isDone, isUp, STATUS_RANK, statusKind, worse, type StatusKind } from "./status";
 /** Shell that prints each site's site.json on one line, after SITE and a tab. */
 export const SITE_LINES = `for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done`;
 /** The site.json in a SITE_LINES line; undefined for other lines and when it is corrupt. */
@@ -202,6 +309,9 @@ export interface Router {
   subdomain?: string;
   /** The addresses it serves; none: every one. */
   allow?: string[];
+  opts?: RouteOpts;
+  /** A traffic split's one router: every service in it, the leading `service` first. Its allow, options and login are the lead's. */
+  members?: string[];
 }
 
 /** How \`lf auth --route\` names a router: the service and the port it routes to. */
@@ -209,30 +319,39 @@ export const routeKey = (service: string, port: number) => `${service}:${port}`;
 
 /** What a release routes, port by port: the main service on the site's domains, each route on its own. */
 export function routePlan(services: Service[], site: string[]): Router[] {
-  return services.flatMap((s) => [
-    ...(s.port && !s.own
-      ? [
-          {
-            key: routeKey(s.name, s.port),
-            service: s.name,
-            port: s.port,
-            domains: s.domains ?? site,
-            ...(isMain(s) && { main: true }),
-            ...(s.allow && { allow: s.allow }),
-          },
-        ]
-      : []),
-    ...(s.own
-      ? []
-      : (s.routes ?? []).map((r) => ({
-          key: routeKey(s.name, r.port),
-          service: s.name,
-          port: r.port,
-          domains: routeDomains(r, site),
-          ...(r.subdomain && { subdomain: r.subdomain }),
-          ...(r.allow && { allow: r.allow }),
-        }))),
-  ]);
+  const split = new Map(splitSets(services).flatMap((ss) => ss.map((s) => [s, ss] as const)));
+  return services.flatMap((s) => {
+    if (s.own) return [];
+    const ss = split.get(s);
+    // A split routes through its lead: the other members get no router of their own.
+    const main: Router[] =
+      s.port && (!ss || ss[0] === s)
+        ? [
+            {
+              key: routeKey(s.name, s.port),
+              service: s.name,
+              port: s.port,
+              domains: s.domains ?? site,
+              ...(isMain(s) && { main: true }),
+              ...(s.allow && { allow: s.allow }),
+              ...(s.opts && { opts: s.opts }),
+              ...(ss && { members: ss.map((m) => m.name) }),
+            },
+          ]
+        : [];
+    return [
+      ...main,
+      ...(s.routes ?? []).map((r) => ({
+        key: routeKey(s.name, r.port),
+        service: s.name,
+        port: r.port,
+        domains: routeDomains(r, site),
+        ...(r.subdomain && { subdomain: r.subdomain }),
+        ...(r.allow && { allow: r.allow }),
+        ...(r.opts && { opts: r.opts }),
+      })),
+    ];
+  });
 }
 
 /** Image a service built for release `id` is tagged with. */
@@ -287,7 +406,12 @@ const SIDE_TOOLS =
 /** One or more DNS labels: admin, api.v2. */
 const SUBDOMAIN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 const PRIVATE_NAME = /^[a-z0-9][a-z0-9_.-]*$/i;
-const X_KEYS = ["port", "domains", "publish", "routes", "private", "allow"];
+const OPT_KEYS = ["sticky", "healthcheck", "ratelimit", "compress", "headers", "retry"];
+const X_KEYS = ["port", "domains", "publish", "routes", "private", "allow", ...OPT_KEYS, "weight", "match", "update"];
+const DURATION = /^\d+(ms|s|m|h)$/;
+/** An HTTP token (RFC 7230): header and cookie names. */
+const TOKEN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+export { MAX_REPLICAS, MAX_WEIGHT };
 
 /** An IPv4 or IPv6 address, or a CIDR range of one. */
 export function isCidr(v: string): boolean {
@@ -305,6 +429,102 @@ function readAllow(where: string, value: unknown, errors: string[]): string[] | 
   if (bad.length) return void errors.push(`${where}: allow takes IP addresses or CIDR ranges, like allow: [10.0.0.0/8, 203.0.113.7], not ${bad.join(", ")}`);
   if (!list.length) return void errors.push(`${where}: allow is empty, so nobody could reach it; leave it out to allow everyone`);
   return list;
+}
+
+/** A cookie name, a header name, and either one's value in x-landfall.match: no character a Traefik rule must escape. */
+const MATCH_NAME = /^[A-Za-z0-9_-]+$/;
+const MATCH_VALUE = /^[A-Za-z0-9._-]+$/;
+
+/** x-landfall.match: { cookie: ab=b, header: X-Variant=b }, either or both. */
+function readMatch(where: string, x: any, errors: string[]): Match | undefined {
+  const form = `${where}: match is { cookie: name=value } or { header: Name=value }, or both, like match: { cookie: ab=b }`;
+  if (!x || typeof x !== "object" || Array.isArray(x)) return void errors.push(form);
+  const bad = Object.keys(x).filter((k) => k !== "cookie" && k !== "header");
+  const m: Match = {};
+  for (const k of ["cookie", "header"] as const) {
+    if (x[k] === undefined) continue;
+    const [name, value, more] = String(x[k]).split("=");
+    if (more !== undefined || !MATCH_NAME.test(name ?? "") || !MATCH_VALUE.test(value ?? ""))
+      return void errors.push(`${where}: match.${k} is name=value (letters, digits, - and _; the value may have dots), not ${JSON.stringify(x[k])}`);
+    m[k] = `${name}=${value}`;
+  }
+  if (bad.length || !Object.keys(m).length) return void errors.push(form);
+  return m;
+}
+
+/** "cookie ab=b or header X-Variant=b" */
+export const matchText = (m: Match) => [m.cookie && `cookie ${m.cookie}`, m.header && `header ${m.header}`].filter(Boolean).join(" or ");
+
+/** The Traefik (v3) rule that tells a matching request: the cookie among the Cookie header's pairs, or the header's exact value. */
+function matchRule(m: Match): string {
+  const re = (v: string) => v.replace(/\./g, "\\.");
+  const parts: string[] = [];
+  if (m.cookie) parts.push(`HeaderRegexp(\`Cookie\`, \`(^|;\\s*)${re(m.cookie)}(;|$)\`)`);
+  if (m.header) {
+    const [k, v] = m.header.split("=");
+    parts.push(`Header(\`${k}\`, \`${v}\`)`);
+  }
+  return parts.join(" || ");
+}
+
+const posInt = (v: unknown, min = 1) => {
+  const n = typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : v;
+  return typeof n === "number" && Number.isInteger(n) && n >= min ? n : undefined;
+};
+
+/** The Traefik settings of a service's port or a route (sticky, healthcheck, ratelimit, compress, headers, retry); `where` names it in errors. */
+function readOpts(where: string, x: any, errors: string[]): RouteOpts | undefined {
+  const o: RouteOpts = {};
+  if (x.sticky !== undefined && x.sticky !== false) {
+    if (x.sticky === true) o.sticky = true;
+    else if (typeof x.sticky === "string" && TOKEN.test(x.sticky)) o.sticky = x.sticky;
+    else errors.push(`${where}: sticky is true or a cookie name, like sticky: true, not ${JSON.stringify(x.sticky)}`);
+  }
+  if (x.healthcheck !== undefined) {
+    const h = typeof x.healthcheck === "string" ? { path: x.healthcheck } : x.healthcheck;
+    const bad = h && typeof h === "object" ? Object.keys(h).filter((k) => !["path", "interval", "timeout"].includes(k)) : [];
+    if (!h || typeof h !== "object" || typeof h.path !== "string" || !h.path.startsWith("/"))
+      errors.push(`${where}: healthcheck is a path, like healthcheck: /health, or { path: /health, interval: 10s, timeout: 3s }`);
+    else if (bad.length) errors.push(`${where}: healthcheck knows path, interval and timeout, not ${bad.join(", ")}`);
+    else {
+      const durs = (["interval", "timeout"] as const).filter((k) => h[k] !== undefined && !DURATION.test(String(h[k])));
+      if (durs.length) errors.push(`${where}: healthcheck ${durs.join(" and ")} must be a duration, like 10s`);
+      else
+        o.healthcheck = {
+          path: h.path,
+          ...(h.interval !== undefined && { interval: String(h.interval) }),
+          ...(h.timeout !== undefined && { timeout: String(h.timeout) }),
+        };
+    }
+  }
+  if (x.ratelimit !== undefined) {
+    const r = typeof x.ratelimit === "object" && x.ratelimit ? x.ratelimit : { average: x.ratelimit };
+    const average = posInt(r.average);
+    const burst = r.burst === undefined ? undefined : posInt(r.burst);
+    if (average === undefined || (r.burst !== undefined && burst === undefined))
+      errors.push(`${where}: ratelimit is requests per second per client, like ratelimit: 20 or { average: 20, burst: 50 }`);
+    else o.ratelimit = { average, ...(burst !== undefined && { burst }) };
+  }
+  if (x.compress !== undefined && x.compress !== false) {
+    if (x.compress === true) o.compress = true;
+    else errors.push(`${where}: compress is true or false`);
+  }
+  if (x.headers !== undefined) {
+    if (!x.headers || typeof x.headers !== "object" || Array.isArray(x.headers))
+      errors.push(`${where}: headers is a mapping of response headers, like headers: { X-Frame-Options: DENY }`);
+    else {
+      const bad = Object.keys(x.headers).filter((k) => !TOKEN.test(k));
+      if (bad.length) errors.push(`${where}: not a header name: ${bad.join(", ")}`);
+      else if (Object.keys(x.headers).length)
+        o.headers = Object.fromEntries(Object.entries<unknown>(x.headers).map(([k, v]) => [k, v == null ? "" : String(v)]));
+    }
+  }
+  if (x.retry !== undefined) {
+    const n = posInt(x.retry);
+    if (n === undefined || n > 10) errors.push(`${where}: retry is how many times to try again, 1 to 10`);
+    else o.retry = n;
+  }
+  return Object.keys(o).length ? o : undefined;
 }
 
 const toPort = (v: unknown) => {
@@ -390,9 +610,10 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
       errors.push(`${name}: each x-landfall.routes entry needs a port, like { port: 3001, subdomain: admin }; got ${JSON.stringify(r)}`);
       continue;
     }
-    const unknown = Object.keys(r).filter((k) => !["port", "subdomain", "domains", "allow"].includes(k));
-    if (unknown.length) errors.push(`${name}: a route knows port, subdomain, domains and allow, not ${unknown.join(", ")}`);
+    const unknown = Object.keys(r).filter((k) => !["port", "subdomain", "domains", "allow", ...OPT_KEYS].includes(k));
+    if (unknown.length) errors.push(`${name}: a route knows port, subdomain, domains, allow and ${OPT_KEYS.join(", ")}, not ${unknown.join(", ")}`);
     const allow = readAllow(`${name}: the route to ${port}`, r.allow, errors);
+    const opts = readOpts(`${name}: the route to ${port}`, r, errors);
     if ((r.subdomain === undefined) === (r.domains === undefined)) {
       errors.push(
         `${name}: the route to ${port} needs a subdomain (admin: admin.<each site domain>) or domains, not ${r.subdomain === undefined ? "neither" : "both"}`,
@@ -402,13 +623,13 @@ function readRoutes(name: string, value: unknown, expand: (d: string) => string,
     if (r.subdomain !== undefined) {
       const sub = String(r.subdomain).trim().toLowerCase();
       if (!SUBDOMAIN.test(sub)) errors.push(`${name}: not a subdomain: ${r.subdomain}`);
-      routes.push({ port, subdomain: sub, ...(allow && { allow }) });
+      routes.push({ port, subdomain: sub, ...(allow && { allow }), ...(opts && { opts }) });
     } else {
       const ds = (Array.isArray(r.domains) ? r.domains : [r.domains]).map((d: unknown) => expand(String(d).trim()));
       const bad = ds.filter((d: string) => !DOMAIN.test(d));
       if (bad.length) errors.push(`${name}: not a domain in the route to ${port}: ${bad.join(", ")}`);
       if (!ds.length) errors.push(`${name}: the route to ${port} has no domains`);
-      routes.push({ port, domains: ds, ...(allow && { allow }) });
+      routes.push({ port, domains: ds, ...(allow && { allow }), ...(opts && { opts }) });
     }
   }
   return routes;
@@ -494,6 +715,29 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
       const allow = readAllow(`${name}: x-landfall`, x.allow, errors);
       if (allow && s.port === undefined) errors.push(`${name}: x-landfall.allow guards x-landfall.port, which it has none of; put allow on its routes`);
       else if (allow) s.allow = allow;
+      const opts = readOpts(`${name}: x-landfall`, x, errors);
+      if (opts && s.port === undefined)
+        errors.push(`${name}: x-landfall's ${Object.keys(opts).join(", ")} apply to x-landfall.port, which it has none of; put them on its routes`);
+      else if (opts) s.opts = opts;
+      if (x.weight !== undefined) {
+        const w = posInt(x.weight, 0);
+        if (w === undefined || w > MAX_WEIGHT) errors.push(`${name}: x-landfall.weight is its share of the traffic, 0 to ${MAX_WEIGHT}`);
+        else if (s.port === undefined) errors.push(`${name}: x-landfall.weight splits the traffic to x-landfall.port, which it has none of`);
+        else s.weight = w;
+      }
+      if (x.match !== undefined) {
+        const m = readMatch(`${name}: x-landfall`, x.match, errors);
+        if (m) {
+          if (x.weight === undefined)
+            errors.push(`${name}: x-landfall.match picks this service out of a traffic split, so it needs x-landfall.weight too (0: only matching requests)`);
+          else s.match = m;
+        }
+      }
+      if (x.update !== undefined && x.update !== "recreate") {
+        if (x.update === "rolling") s.update = "rolling";
+        else errors.push(`${name}: x-landfall.update is rolling or recreate, not ${JSON.stringify(x.update)}`);
+      }
+      if (x.publish) s.published = true;
       if (priv && Object.keys(priv.ports).length) s.private = priv.ports;
       if (priv && Object.keys(priv.paths).length) s.paths = priv.paths;
       const ports = [s.port, ...routes.map((r) => r.port)].filter((p) => p !== undefined);
@@ -522,8 +766,34 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
         );
       }
     }
-    if (svc.container_name)
+    if (svc.container_name) {
+      s.named = true;
       warnings.push(`${name} sets container_name ${svc.container_name}: names are global on the server, leave it out unless something needs it`);
+    }
+    const replicas = svc.deploy?.replicas ?? svc.scale;
+    if (replicas !== undefined && replicas !== null) {
+      const n = posInt(replicas, 0);
+      if (n === undefined) errors.push(`${name}: replicas must be a whole number, got ${JSON.stringify(replicas)}`);
+      else if (n !== 1) s.replicas = n;
+      if (svc.scale !== undefined && svc.deploy?.replicas === undefined) s.scaleKey = true;
+    }
+    if (svc.healthcheck && !svc.healthcheck.disable) s.healthcheck = true;
+    const many = (s.replicas ?? 1) > 1;
+    if (many && s.named) errors.push(`${name} runs ${s.replicas} containers but sets container_name: names are unique, leave it out`);
+    if (many && svc.ports?.some((p: any) => p?.published))
+      errors.push(`${name} runs ${s.replicas} containers but publishes ports on the server: only one can bind a port`);
+    if (s.update === "rolling") {
+      const why = !s.port
+        ? "it has no x-landfall.port"
+        : s.own
+          ? "it has its own traefik labels"
+          : s.named
+            ? "it sets container_name"
+            : s.published
+              ? "it publishes ports"
+              : "";
+      if (why) errors.push(`${name}: x-landfall.update: rolling needs a second container beside the first, and ${why}`);
+    }
     services.push(s);
   }
   if (auto) autoRoute(config, services, notes);
@@ -532,15 +802,44 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
       `no service is routed: it runs without a domain (a worker); ${auto ? "publish or expose an HTTP port, or add " : ""}x-landfall: { port: <port> } on a service routes it through Traefik`,
     );
   const mains = services.filter(isMain);
-  if (mains.length > 1) errors.push(`${mains.map((s) => s.name).join(" and ")} both serve the site's domains: give all but one their own x-landfall.domains`);
+  const split = (a: Service, b?: Service) => a.weight !== undefined && b?.weight !== undefined && hostsKey(a) === hostsKey(b);
+  if (mains.length > 1 && !mains.every((s) => split(s, mains[0])))
+    errors.push(
+      `${mains.map((s) => s.name).join(" and ")} both serve the site's domains: give all but one their own x-landfall.domains, or each an x-landfall.weight to split the traffic`,
+    );
+  for (const s of services.filter((s) => s.weight !== undefined))
+    if (!services.some((o) => o !== s && split(s, o)))
+      warnings.push(`${s.name} has x-landfall.weight, but no other service serves the same domains with one: it gets all the traffic`);
   const seen = new Map<string, string>();
   for (const s of services) {
     for (const d of [...(s.domains ?? []), ...(s.routes ?? []).flatMap((r) => r.domains ?? [])]) {
-      if (seen.has(d) && seen.get(d) !== s.name) errors.push(`${d} is routed to both ${seen.get(d)} and ${s.name}`);
+      if (
+        seen.has(d) &&
+        seen.get(d) !== s.name &&
+        split(
+          s,
+          services.find((o) => o.name === seen.get(d)),
+        )
+      )
+        continue;
+      if (seen.has(d) && seen.get(d) !== s.name)
+        errors.push(
+          `${d} is routed to both ${seen.get(d)} and ${s.name}${s.weight !== undefined ? ": a split needs the same domains and a weight on each" : ""}`,
+        );
       else if (seen.has(d)) errors.push(`${d} is routed twice on ${s.name}`);
       seen.set(d, s.name);
     }
   }
+  for (const g of splitGroups({ name: "site" }, services))
+    if (!g.members.some((m) => m.weight > 0)) errors.push(`${g.members.map((m) => m.service.name).join(", ")} split the traffic, but every weight is 0`);
+  // The members share the lead's router: a router setting on another member would be ignored.
+  for (const [lead, ...rest] of splitSets(services))
+    for (const s of rest)
+      for (const k of ["allow", "ratelimit", "headers", "compress", "retry"] as const) {
+        const get = (x: Service) => (k === "allow" ? x.allow : x.opts?.[k]);
+        if (get(s) !== undefined && JSON.stringify(get(s)) !== JSON.stringify(get(lead)))
+          errors.push(`${s.name}: x-landfall.${k} differs from ${lead.name}'s; their traffic split has one router, ${lead.name}'s: set ${k} there only`);
+      }
   if (!mains.length && services.some((s) => s.routes?.some((r) => r.subdomain)))
     errors.push("a subdomain route hangs off the site's domains, but no service serves them: give one x-landfall.port, or the route its own domains");
   const subs = new Map<string, string>();
@@ -716,8 +1015,8 @@ export function redirectLabels(site: string, s: Service, port: number, hosts: st
   };
 }
 
-/** Traefik's name for the router to port `port` of `s`. */
-function routerName(site: string, s: Service, port: number) {
+/** Traefik's name for the router to port `port` of `s`, and for its load balancer service. */
+export function routerName(site: string, s: Service, port: number) {
   // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
   // A route's router carries its port: blog_web_3001 next to blog_web.
   return `${site}_${s.name.toLowerCase().replace(/\./g, "-")}${port === s.port ? "" : `_${port}`}`;
@@ -742,47 +1041,100 @@ export function findRoute(meta: SiteMeta, name: string): { key: string; domains:
     all.find((r) => r.key === want) ??
     all.find((r) => r.subdomain === want) ??
     all.find((r) => r.domains.includes(want)) ??
-    all.find((r) => r.service === want);
+    all.find((r) => r.service === want) ??
+    // A service in a traffic split: the split's one router.
+    all.find((r) => r.members?.includes(want));
   return hit ? { key: hit.key, domains: hit.domains } : { routes: all.map((r) => r.key) };
 }
 
 /** Traefik labels for one router of `s`. */
 /** A router `name` for `hosts` over HTTPS, handing requests to `service`. */
+const hostRule = (hosts: string[]) => hosts.map((d) => `Host(\`${d}\`)`).join(" || ");
+
 function routerLabels(name: string, hosts: string[], service: string, proxy: Proxy): Record<string, string> {
   return {
-    [`traefik.http.routers.${name}.rule`]: hosts.map((d) => `Host(\`${d}\`)`).join(" || "),
+    [`traefik.http.routers.${name}.rule`]: hostRule(hosts),
     [`traefik.http.routers.${name}.entrypoints`]: proxy.entrypoint,
     [`traefik.http.routers.${name}.tls.certresolver`]: proxy.resolver,
     [`traefik.http.routers.${name}.service`]: service,
   };
 }
 
+/** The load balancer settings of Traefik service `svc`: sticky sessions and Traefik's health check. */
+function balancerLabels(svc: string, o: RouteOpts = {}): Record<string, string> {
+  const lb = `traefik.http.services.${svc}.loadbalancer`;
+  return {
+    ...(o.sticky && {
+      [`${lb}.sticky.cookie`]: "true",
+      ...(typeof o.sticky === "string" && { [`${lb}.sticky.cookie.name`]: o.sticky }),
+      [`${lb}.sticky.cookie.secure`]: "true",
+      [`${lb}.sticky.cookie.httponly`]: "true",
+    }),
+    ...(o.healthcheck && {
+      [`${lb}.healthcheck.path`]: o.healthcheck.path,
+      ...(o.healthcheck.interval && { [`${lb}.healthcheck.interval`]: o.healthcheck.interval }),
+      ...(o.healthcheck.timeout && { [`${lb}.healthcheck.timeout`]: o.healthcheck.timeout }),
+    }),
+  };
+}
+
+/**
+ * Traefik labels for one router of `s`. In a traffic split, `split` names the router every member shares;
+ * it hands requests to the weighted service of the file provider, and each member keeps its own load balancer.
+ */
 export function routeLabels(
   site: string,
   s: Service,
-  { port, domains, allow }: Pick<Router, "port" | "domains" | "allow">,
+  { port, domains, allow, opts }: Pick<Router, "port" | "domains" | "allow" | "opts">,
   proxy: Proxy,
   login?: Login,
+  split?: string,
 ): Record<string, string> {
-  const r = routerName(site, s, port);
+  const svc = routerName(site, s, port);
+  const r = split ?? svc;
   const out: Record<string, string> = {
     "traefik.enable": "true",
     "traefik.docker.network": proxy.network,
-    ...routerLabels(r, domains, r, proxy),
-    [`traefik.http.services.${r}.loadbalancer.server.port`]: String(port),
+    ...routerLabels(r, domains, split ? `${split}@file` : svc, proxy),
+    [`traefik.http.services.${svc}.loadbalancer.server.port`]: String(port),
+    ...balancerLabels(svc, opts),
   };
-  // The address check comes first: a refused address never sees the login prompt.
+  // The address check comes first: a refused address never sees the login prompt, nor counts against the rate limit.
   const chain: string[] = [];
-  if (allow?.length) {
-    out[`traefik.http.middlewares.${r}-allow.ipallowlist.sourcerange`] = allow.join(",");
-    chain.push(`${r}-allow`);
-  }
-  if (login) {
-    out[`traefik.http.middlewares.${login.middleware}.basicauth.users`] = login.users.join(",");
-    chain.push(login.middleware);
-  }
+  const mw = (name: string, set: Record<string, string>) => {
+    for (const [k, v] of Object.entries(set)) out[`traefik.http.middlewares.${name}.${k}`] = v;
+    chain.push(name);
+  };
+  if (allow?.length) mw(`${r}-allow`, { "ipallowlist.sourcerange": allow.join(",") });
+  if (opts?.ratelimit)
+    mw(`${r}-ratelimit`, {
+      "ratelimit.average": String(opts.ratelimit.average),
+      ...(opts.ratelimit.burst !== undefined && { "ratelimit.burst": String(opts.ratelimit.burst) }),
+    });
+  if (login) mw(login.middleware, { "basicauth.users": login.users.join(",") });
+  if (opts?.headers) mw(`${r}-headers`, Object.fromEntries(Object.entries(opts.headers).map(([k, v]) => [`headers.customresponseheaders.${k}`, v])));
+  if (opts?.compress) mw(`${r}-compress`, { compress: "true" });
+  if (opts?.retry) mw(`${r}-retry`, { "retry.attempts": String(opts.retry) });
   if (chain.length) out[`traefik.http.routers.${r}.middlewares`] = chain.join(",");
+  if (split && s.match) Object.assign(out, matchLabels(svc, s.match, domains, proxy, chain));
   return out;
+}
+
+/** The name of a split member's x-landfall.match router: its own router name plus this. */
+export const MATCH_SUFFIX = "-match";
+
+/**
+ * x-landfall.match: a second router to one member of a traffic split, for requests with its cookie or header.
+ * Its rule is longer than the split's, so Traefik tries it first. It runs the split router's middlewares:
+ * a cookie must never get around the address check or the login.
+ */
+function matchLabels(svc: string, m: Match, hosts: string[], proxy: Proxy, middlewares: string[]): Record<string, string> {
+  const r = `${svc}${MATCH_SUFFIX}`;
+  return {
+    ...routerLabels(r, hosts, svc, proxy),
+    [`traefik.http.routers.${r}.rule`]: `(${hostRule(hosts)}) && (${matchRule(m)})`,
+    ...(middlewares.length && { [`traefik.http.routers.${r}.middlewares`]: middlewares.join(",") }),
+  };
 }
 
 /** One service in an override: the image it runs, its lines before the labels, and its labels. */
@@ -804,26 +1156,68 @@ const overrideSecrets = (meta: SiteMeta) => (meta.kind === "dockerfile" || meta.
 function traefikLayer(meta: SiteMeta, r: Release, proxy: Proxy): ServicePart[] {
   const plan = routePlan(r.services, meta.domains);
   const secrets = overrideSecrets(meta);
+  const groups = splitGroups(meta, r.services);
   return r.services.map((s) => {
     const lines: string[] = [];
     const labels: Record<string, string> = {};
     // A plain compose.yaml publishes its ports for local use; Traefik routes them.
     if (s.unpublish) lines.push("    ports: !reset []");
     if (secrets.length) lines.push("    secrets:", ...secrets.map((k) => `      - ${q(k)}`));
+    // lf scale: the key compose.yaml uses, so Compose never sees two counts.
+    const scale = meta.scale?.[s.name];
+    if (scale !== undefined) lines.push(...(s.scaleKey ? [`    scale: ${scale}`] : ["    deploy:", `      replicas: ${scale}`]));
     if (routed(s)) {
       lines.push("    networks:", ...s.networks.map((n) => `      ${q(n)}: {}`), `      ${PROXY_KEY}: {}`);
       if (s.own) labels["traefik.docker.network"] = proxy.network;
       // A main service with no domains left stays up, unrouted; so do its subdomain routes.
       else
         for (const router of plan)
-          if (router.service === s.name && router.domains.length) {
-            Object.assign(labels, routeLabels(meta.name, s, router, proxy, routerLogin(meta, s, router.port)));
-            if (router.main && meta.redirects?.length)
+          if ((router.service === s.name || router.members?.includes(s.name)) && router.domains.length) {
+            // A split's members carry its one router (the lead's); each keeps its own load balancer,
+            // with its own port, sticky cookie and Traefik health check.
+            const g = router.members && groups.find((g) => g.members[0].service.name === router.service);
+            const lead = g ? g.members[0].service : s;
+            const at = g ? { ...router, port: s.port!, opts: compact({ ...router.opts, sticky: s.opts?.sticky, healthcheck: s.opts?.healthcheck }) } : router;
+            Object.assign(labels, routeLabels(meta.name, s, at, proxy, routerLogin(meta, lead, router.port), g?.name));
+            if (router.main && lead === s && meta.redirects?.length)
               Object.assign(labels, redirectLabels(meta.name, s, router.port, meta.redirects, router.domains[0], proxy));
           }
     }
     return { name: s.name, build: !!s.build, lines, labels };
   });
+}
+
+/** `o` without its undefined keys; undefined when none is left. */
+const compact = (o: RouteOpts): RouteOpts | undefined => {
+  const out = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+  return Object.keys(out).length ? out : undefined;
+};
+
+/**
+ * The file provider's part of a release's traffic splits (traefik/dynamic/site-<site>.yml): one weighted
+ * service per split over its members' load balancers. Undefined when it splits nothing.
+ */
+export function splitFile(meta: SiteMeta, r: Release): string | undefined {
+  const groups = splitGroups(meta, r.services);
+  if (!groups.length) return undefined;
+  const lines = [`# generated by landfall for site ${meta.name}: rewritten on every deploy and lf weight.`, "http:", "  services:"];
+  for (const g of groups) {
+    lines.push(`    ${q(g.name)}:`, "      weighted:", "        services:");
+    for (const m of g.members)
+      lines.push(`          - name: ${q(`${routerName(meta.name, m.service, m.service.port!)}@docker`)}`, `            weight: ${m.weight}`);
+    const sticky = g.members.map((m) => m.service.opts?.sticky).find(Boolean);
+    if (sticky)
+      lines.push(
+        "        sticky:",
+        "          cookie:",
+        ...(typeof sticky === "string" ? [`            name: ${q(sticky)}`] : []),
+        "            secure: true",
+        "            httpOnly: true",
+      );
+    // Traefik skips a member whose health check fails only when every member has one.
+    if (g.members.every((m) => m.service.opts?.healthcheck)) lines.push("        healthCheck: {}");
+  }
+  return lines.join("\n") + "\n";
 }
 
 /** An override file: `header`, the project name, the services that add something, and what they use. */
@@ -868,6 +1262,11 @@ export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROX
 
 /** lf eject's compose.traefik.yaml: the part of the override that runs anywhere; compose.yaml builds its images, Docker keeps its volumes. */
 export function ejectYaml(meta: SiteMeta, r: Release, proxy: Proxy): string {
+  const g = splitGroups(meta, r.services)[0];
+  if (g)
+    fail(
+      `${g.members.map((m) => m.service.name).join(" and ")} split the traffic by weight, which needs Traefik's file provider on landfall's server: lf eject cannot write it as labels`,
+    );
   const header = [
     `# What landfall added to ${meta.name} on its server (lf eject): the Traefik labels, the proxy network and the`,
     `# project name, for your own Traefik. docker compose -f compose.yaml -f ${EJECT_FILE} up -d`,

@@ -13,6 +13,8 @@ export const TUNNEL_ROUTER = "dashboard-tunnel";
 export const DEFAULT_TRAEFIK_IMAGE = "traefik:v3";
 /** Present when sites go through a Traefik the server already had instead of landfall's own. */
 export const PROXY_FILE = `${ROOT}/proxy.env`;
+/** Shell test: the Traefik in TRAEFIK_DIR is landfall's own (its compose file carries landfall's mark). */
+export const OWN_TRAEFIK = `grep -qs "managed by landfall" ${TRAEFIK_DIR}/docker-compose.yml`;
 /** Append-only log of every change landfall made, each with the shell that reverts it (lf log, lf undo). */
 export const JOURNAL = `${ROOT}/journal.log`;
 /** Backups `saved` keeps per file; undo of an older change leaves that file as it is. */
@@ -235,6 +237,21 @@ DC=""
 dc() {
   [ -n "$DC" ] || DC=$(docker compose version >/dev/null 2>&1 && echo "docker compose" || echo docker-compose)
   $DC "$@"
+}
+# wait_ready <seconds> <container...>: until each runs, and is healthy if it has a healthcheck; 1 when one exits, turns unhealthy or time runs out.
+wait_ready() {
+  _end=$(( $(date +%s) + $1 )); shift
+  for _c in "$@"; do
+    while :; do
+      _s=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$_c" 2>/dev/null || echo gone)
+      case "$_s" in
+        "running healthy"|"running ") break ;;
+        exited*|dead*|gone|*unhealthy) return 1 ;;
+      esac
+      [ "$(date +%s)" -lt "$_end" ] || return 1
+      sleep 1
+    done
+  done
 }
 # The compose plugin's version, and whether a version has what sites need (2.24+: optional env_file, up --wait).
 compose_v() { docker compose version --short 2>/dev/null | sed 's/^v//'; }
@@ -588,7 +605,7 @@ kv password_users "$(password_users)"
 kv key_users "$(key_users)"
 f=${TRAEFIK_DIR}/docker-compose.yml
 if [ ! -f "$f" ]; then kv traefik_compose none
-elif grep -q "managed by landfall" "$f"; then kv traefik_compose landfall
+elif ${OWN_TRAEFIK}; then kv traefik_compose landfall
 else kv traefik_compose foreign; fi
 kv traefik_container "$(S docker inspect -f '{{.State.Status}} {{index .Config.Labels "com.docker.compose.project.working_dir"}}' traefik 2>/dev/null)"
 kv publish_80 "$(S docker ps --filter publish=80 --format '{{.Names}}' 2>/dev/null | tr '

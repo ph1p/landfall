@@ -73,6 +73,9 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf logs [name] [service] [-f] [-n 100]` | All services, or one. |
 | `lf env [name] [K=V...] [--dotenv f\|-] [-u K] [--reveal] [--keys] [--json] [--pull f]` | Shows `.env` (values hidden unless `--reveal`), `--pull`s it to a file, or changes it. Changes recreate services. |
 | `lf secret [name] [K=V...] [--file K=path] [--dotenv f\|-] [-u K] [--json] [--force]` | Lists or changes secret files, read at `/run/secrets/<K>`. Changes restart services using them. |
+| `lf scale [name] [service=n…] [--json]` | Shows or changes how many containers each service runs (0–100). `service=default` goes back to compose.yaml's count. Undoable. [Scaling](scaling.md) |
+| `lf weight [name] [service=w…] [--json]` | Shows or changes a traffic split's weights (0–1000). Only Traefik's routing changes. Undoable. [Scaling](scaling.md) |
+| `lf weight [name] --stats [--since 24h] [--json]` | Each service of a split: requests, matched requests, 4xx, 5xx, p50 and p95 from Traefik's access log. [Scaling](scaling.md) |
 | `lf rollback [name] [--to id] [--skip-hook name...] [--skip-hooks]` | Previous release, or `--to` one. Runs `prerollback`/`postrollback` [hooks](hooks.md). |
 | `lf release rm [name] [id…] [--keep n]` | Deletes the given releases and their images, else all but `--keep n` newest. The live one stays. Journaled, not undoable. Alias: `releases rm`. |
 | `lf restart` / `stop` / `start [name] [service]` | The site, or one service. |

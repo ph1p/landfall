@@ -12,7 +12,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | Overview    | `lf server list --check`, recent deploys, `lf config` (defaults, where landfall puts things) |
 | Map         | every server and what runs on it, as connected nodes; adds a server, a site or a domain, and deploys a dropped project (see below) |
 | Server menu | `lf server info`, `server use`, `reboot`, `server rm`, `server uninstall` |
-| Sites       | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm`. A site's menu runs `lf check <site>`, `lf stats <site>`, and opens its traffic |
+| Sites       | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `scale`, `weight`, `sites rm`. A site's menu runs `lf check <site>`, `lf stats <site>`, and opens its traffic |
 | Stats       | `lf stats` (new sample every 5s while open), `lf disk` on request, Clean up… (`lf prune`) |
 | Traffic     | `lf traffic --since 1h/24h/7d`, `lf certs`; a site's `lf traffic <site>`. The Sites tab shows failing requests of the last 24h and whether each domain answers over HTTPS |
 | Traefik     | `lf traefik status` (routes), `traefik logs`, `traefik restart`, `traefik use`, `traefik rm` |

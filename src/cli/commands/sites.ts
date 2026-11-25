@@ -8,6 +8,7 @@ import {
   OVERRIDE_FILES,
   projectName,
   routed,
+  scales,
   SECRET_NAME,
   SECRETS_DIR,
   secretUsers,
@@ -113,6 +114,20 @@ export const sitesInfo = defineCommand({
     if (st!.services.length) {
       console.log(`\n${c.bold("Services")}`);
       table(st!.services.map((x) => [`  ${x.service}`, c.dim(x.container), paintStatus(x.status)]));
+    }
+    // Only sites that use replicas, rolling updates or a traffic split: the rest print as before.
+    const scaled = Object.entries(st!.scale ?? {}).filter(([, r]) => scales(r));
+    if (scaled.length) {
+      console.log(`\n${c.bold("Scaling")}`);
+      table(
+        scaled.map(([svc, r]) => [
+          `  ${svc}`,
+          `×${r.replicas}${c.dim(` ${r.running}/${r.replicas} up`)}`,
+          c.dim(r.source),
+          r.update === "rolling" ? "rolling" : c.dim("recreate"),
+          r.split ? `weight ${r.weight}` : "",
+        ]),
+      );
     }
     if (!meta.releases.length) return;
     console.log(`\n${c.bold("Releases")}`);
