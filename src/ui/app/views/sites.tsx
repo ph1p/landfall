@@ -15,6 +15,8 @@ import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
 import { worse } from "../../../core/status";
 import { MAX_REPLICAS, MAX_WEIGHT } from "../../../core/limits";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
+import { gitParts } from "../../../core/refs";
+import { CiLink, CommitLink } from "./pipeline";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";
 const CHIP = "inline-flex items-center gap-0.5 max-w-full";
@@ -518,14 +520,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           {ago(r.at)}
           {r.services && ` · ${r.services.map((x) => x.name).join(", ")}`}
           {r.hooks && ` · hooks ${definedHooks(r.hooks.run).join(", ")}`}
-          {r.git && (
-            <span className="mono" title={r.by ? `deployed by ${r.by}` : undefined}>
-              {" "}
-              · {r.git.commit.slice(0, 7)}
-              {r.git.branch ? ` ${r.git.branch}` : ""}
-              {r.git.dirty ? "*" : ""}
-            </span>
-          )}
+          {r.git && <ReleaseGitLine g={r.git} by={r.by} />}
           {r.landfall && ` · landfall ${r.landfall}`}
         </div>
       </div>
@@ -1214,4 +1209,24 @@ function adoptDialog(n: string, e: External) {
     ok: "Adopt",
     onOk: (v) => run(["adopt", e.name, ...sv(n), "--name", v.name.trim()], { server: n }),
   });
+}
+
+/** A release's commit: its tag or commit, linked to the forge, how it was taken, the CI run, and uncommitted changes. */
+function ReleaseGitLine({ g, by }: { g: NonNullable<Release["git"]>; by?: string }) {
+  const p = gitParts(g, 7);
+  return (
+    <span title={[by && `deployed by ${by}`, g.sha ?? g.commit, g.branch && `branch ${g.branch}`].filter(Boolean).join(" · ") || undefined}>
+      {" · "}
+      <CommitLink url={g.remote} sha={g.sha ?? g.commit} text={p.name} />
+      {p.beside && <span className="mono"> {p.beside}</span>}
+      {p.dirty && (
+        <span className="text-bad" title="Deployed with uncommitted changes">
+          {" "}
+          dirty
+        </span>
+      )}
+      {p.source && <> · {p.source}</>}
+      <CiLink g={g} />
+    </span>
+  );
 }

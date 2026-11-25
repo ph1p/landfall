@@ -1,7 +1,7 @@
 // What the API returns: the CLI's --json shapes, taken from core. Type-only imports: no node code reaches the page.
 import type { browse } from "../../server/local";
 import type { state } from "../../server/server";
-import type { configView, dnsView, factsView, firewallView, historyBrief, systemView, updatesView } from "../../../core/views";
+import type { configView, dnsView, gitView, factsView, firewallView, historyBrief, systemView, updatesView } from "../../../core/views";
 export type { ProjectConfig } from "../../../core/config";
 import type { Stats } from "../../../core/stats";
 import type { Advice } from "../../../core/security";
@@ -25,6 +25,13 @@ export type { Cert, CertError, Certs } from "../../../core/traffic";
 export type { Detail, HostTraffic, StatusClass, Summary, Traffic } from "../../../core/traffic-merge";
 export type { Account, Users } from "../../../core/users";
 export type { TraefikRoute, TraefikStatus } from "../../../core/traefik";
+export type { EnvRefs, RefsView } from "../../../core/views";
+export type { Ref, RefKind, RefRule } from "../../../core/refs";
+
+// ---- a project's git (lf git track, lf refs) ----------------------------------
+
+/** GET /api/git?path=: the checkout, its branches and tags, and the rules of .landfall.json. */
+export type GitInfo = Awaited<ReturnType<typeof gitView>>;
 
 // ---- /api/state ---------------------------------------------------------------
 

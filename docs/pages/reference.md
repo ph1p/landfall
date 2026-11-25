@@ -64,7 +64,11 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | command | what it does |
 |---|---|
 | `lf init [dir] [--postgres] [--port n]` | Writes `compose.yaml` and `compose.override.yaml` to run locally and deploy. |
-| `lf deploy [dir] [-d domain...] [--no-domain] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f\|-] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--redirect host...] [--no-redirect] [--no-save] [--auth-user u] [--auth-password p] [--host ip [-u user] [--ssh-port p] [--password-stdin]] [--skip-hook name...] [--skip-hooks]` | Deploys a Compose project, app (Node.js, Bun, Deno, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile or image. Sets the server up if needed. Runs [hooks](hooks.md). `--no-save`: no `.landfall.json`. `--redirect`: the site's redirect hosts, as `lf domains --redirect`; `--no-redirect` removes them. `--auth-user`: a login, as `lf auth`. |
+| `lf deploy [dir] [-d domain...] [--no-domain] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f\|-] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--redirect host...] [--no-redirect] [--no-save] [--auth-user u] [--auth-password p] [--host ip [-u user] [--ssh-port p] [--password-stdin]] [--skip-hook name...] [--skip-hooks] [--ref r \| --tag t\|latest \| --for-ref r] [--force]` | Deploys a Compose project, app (Node.js, Bun, Deno, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile or image. Sets the server up if needed. Runs [hooks](hooks.md). `--no-save`: no `.landfall.json`. `--redirect`: the site's redirect hosts, as `lf domains --redirect`; `--no-redirect` removes them. `--auth-user`: a login, as `lf auth`. |
+| `lf deploy … --ref <ref>` / `--tag <tag\|latest>` / `--for-ref <ref>` / `--force` | [Git deploys](git.md): `--ref` and `--tag` deploy a clean export of the commit. `--tag latest`: the newest tag the environment's rule allows. `--for-ref`: the environment whose git rule matches (CI). `--force`: deploy past the git rule. |
+| `lf git track [-E env] [--branch glob...] [--tag glob...] [--prerelease] [--require-clean] [--url u] [--off] [--json]` | Which refs an environment deploys, in `.landfall.json`. Without options: every rule. Changes nothing on a server. |
+| `lf refs [-E env] [--json]` | Per environment: its git rule, what runs, the newest matching ref and how many commits it is ahead (read only). |
+| `lf promote <from-env> <to-env> [--force]` | Deploys the commit running in one environment to another, after checking the target's git rule. |
 | `lf ls [--json] [--others]` | Sites and status, plus other containers Traefik routes (read only). `--json --others` gives `{sites, others}`. Alias: `sites list`. |
 | `lf sites info [name] [--json]` | Services, domains, release history. |
 | `lf domains [name] [-a d] [--rm d] [--set d] [--redirect d] [--json]` | Domains and redirects with DNS and HTTPS state, or changes them. No domains: unrouted. `--redirect www`: `www.<first domain>` redirects to the first domain. |
@@ -197,6 +201,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `gitignore` | leave out of the upload what the folder's `.gitignore` files ignore |
 | `exclude` / `include` | more to leave out / to send anyway, in `.gitignore` syntax |
 | `buildLocal` | build images on this machine and send them; the server only runs them |
+| `git` | [git rules](git.md): `branch`, `tag` (globs or lists), `prerelease`, `requireClean`; `url` at the top level. Per environment under `environments` |
 | `environments` | named targets like `staging`: any keys above that differ. The name defaults to `<name>-<env>`. Domains are never inherited. Pick one with `-E` or `$LANDFALL_ENV` |
 
 ```json

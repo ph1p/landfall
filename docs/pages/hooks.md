@@ -101,6 +101,7 @@ Every hook gets these:
 | `LANDFALL_SERVER` | the server's name (hooks on this machine) |
 | `LANDFALL_RELEASE` | the release id (server hooks) |
 | `LANDFALL_VERSION` | the git commit, else the release id |
+| `LANDFALL_TAG` | the git tag the release was deployed as, if any (see [Git deploys](git.md)) |
 | `LANDFALL_PREVIOUS_VERSION` | the version that ran before (server hooks of a redeploy and a rollback) |
 | `LANDFALL_URL` | the app inside its container, like `http://127.0.0.1:3000` (`verify`, `postdeploy`, `postrollback`) |
 | `LANDFALL_FAILED_STEP` | what failed: the hook's name, or `build`, `deploy` (`onfailure`) |

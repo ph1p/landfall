@@ -6,6 +6,7 @@ import { ifOk, run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/j
 import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, badgeClass, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
+import { PipelineView, pipelineProjects } from "./pipeline";
 import {
   awaitingReach,
   ReachDot,
@@ -57,6 +58,7 @@ import {
   ExternalLink,
   Gauge,
   Globe,
+  GitBranch,
   History,
   LayoutGrid,
   Network,
@@ -267,11 +269,11 @@ function Nav() {
       <div className="px-2 pb-4">
         <button
           type="button"
-          className={cx(SRV, "grid-cols-[14px_minmax(0,1fr)] gap-x-1 mt-1.5", !S.sel && !S.map && SRV_ON)}
-          aria-current={S.sel || S.map ? undefined : "page"}
+          className={cx(SRV, "grid-cols-[14px_minmax(0,1fr)] gap-x-1 mt-1.5", !S.sel && !S.map && !S.pipeline && SRV_ON)}
+          aria-current={S.sel || S.map || S.pipeline ? undefined : "page"}
           onClick={() => go(null)}
         >
-          <LayoutGrid className={cx("size-3.5", S.sel || S.map ? "text-faint" : "text-accent")} aria-hidden="true" />
+          <LayoutGrid className={cx("size-3.5", S.sel || S.map || S.pipeline ? "text-faint" : "text-accent")} aria-hidden="true" />
           <div className="col-start-2 font-[550]">Overview</div>
         </button>
         <button
@@ -284,6 +286,18 @@ function Nav() {
           <Network className={cx("size-3.5", S.map ? "text-accent" : "text-faint")} aria-hidden="true" />
           <div className="col-start-2 font-[550]">Map</div>
         </button>
+        {pipelineProjects().map((p) => (
+          <a
+            key={p.path}
+            href={`#git/${encodeURIComponent(p.path)}`}
+            className={cx(SRV, "grid-cols-[14px_minmax(0,1fr)] gap-x-1 mb-0.5 no-underline text-fg", S.pipeline === p.path && SRV_ON)}
+            aria-current={S.pipeline === p.path ? "page" : undefined}
+            title={`${tilde(p.path)}: each environment's git rule, what runs there and what is newer`}
+          >
+            <GitBranch className={cx("size-3.5", S.pipeline === p.path ? "text-accent" : "text-faint")} aria-hidden="true" />
+            <div className="col-start-2 font-[550] truncate">{p.name}</div>
+          </a>
+        ))}
         {group("own", "Servers", own)}
         {group("ssh", "From ~/.ssh/config", aliases)}
         {group("down", "Unreachable", down)}
@@ -522,6 +536,7 @@ function Main() {
   useEffect(() => {
     if (wrong) location.replace(`#/${encodeURIComponent(n!)}/${shown[0][0]}`);
   });
+  if (S.pipeline) return <PipelineView path={S.pipeline} />;
   if (S.map) return <MapView />;
   if (!n) return <HomeView />;
   if (!s) {

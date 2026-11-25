@@ -4,12 +4,13 @@ import { bytes } from "../../../core/format";
 import { slug } from "../../../core/slug";
 import { expandHost, redirectHosts } from "../../../core/redirects";
 import { CLOUDS } from "../../../core/clouds";
-import type { Browse, Detected, Redeploy, SavedServer } from "../lib/types";
+import type { Browse, Detected, GitInfo, Redeploy, SavedServer } from "../lib/types";
 import type { LocalImage } from "../../../core/buildlocal";
-import { go, load, refreshState } from "../lib/api";
+import { go, load, loadGit, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
-import { Badge, Btn, cx } from "../ui/kit";
+import { Badge, Btn, BtnGroup, cx } from "../ui/kit";
+import { allows, hasRule, namesAt, ruleText } from "../../../core/refs";
 import {
   dialog,
   promptDlg,
@@ -33,6 +34,7 @@ import {
 import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "./env";
 import { DEPLOY_HOOKS } from "../../../core/hook-names";
 import { HookList, hookChoice } from "./hooks";
+import { refArgs, refField, type PickedRef } from "./pipeline";
 
 // ---- server flows ----------------------------------------------------------
 
@@ -598,13 +600,27 @@ export function UsedImages({ d }: { d: Detected }) {
 }
 
 /** The deploy dialog's right column: what landfall found, the services it runs and the images it pulls. */
-function DeployAside({ d }: { d: Detected }) {
+function DeployAside({ d, g }: { d: Detected; g?: GitInfo }) {
+  const repo = g?.repo;
   return (
     <>
       <div>
         <Stack d={d} className="mb-2" />
         <Describe d={d} plan={false} />
       </div>
+      {repo && (
+        <div>
+          <h3 className={ASIDE_HEAD}>Git</h3>
+          <p className="m-0">
+            <span className="font-mono text-sm">{repo.branch ?? "detached HEAD"}</span>{" "}
+            <span className="font-mono text-sm text-faint">{repo.commit.slice(0, 7)}</span>
+          </p>
+          {repo.subject && <p className="m-0 text-dim wrap-anywhere">{repo.subject}</p>}
+          <p className={cx("m-0", repo.dirty ? "text-bad" : "text-faint")}>
+            {repo.dirty ? `${plural(repo.dirty, "file")} with uncommitted changes` : "No uncommitted changes"}
+          </p>
+        </div>
+      )}
       {d.kind === "compose" && d.analysis ? (
         <div>
           <h3 className={ASIDE_HEAD}>Services</h3>
@@ -830,6 +846,9 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   // What the deploy redirects without --redirect: .landfall.json's, else the site's.
   const savedRedirects = (p?.redirects ?? re?.redirects ?? []).join(" ");
   const sends = p?.sendImage === true ? "send" : p?.sendImage === false ? "pull" : "";
+  // A git checkout: deploy its working tree, as always, or a clean export of a branch or tag (lf deploy --ref/--tag).
+  const g = o.upload || o.images ? undefined : await loadGit(det.path, true);
+  const source = g?.repo ? sourceFields(g) : undefined;
   dialog({
     title: re ? `Redeploy ${name}` : name ? `Deploy ${name}` : "Deploy a Docker image",
     text:
@@ -839,9 +858,10 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
           ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.`
           : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`) +
       (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data, and Roll back returns to the current one.` : ""),
-    aside: <DeployAside d={det} />,
+    aside: <DeployAside d={det} g={g} />,
     sidebar: true,
     fields: [
+      ...(source ? [source] : []),
       ...(image
         ? [
             {
@@ -1058,9 +1078,58 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
       // An upload or an image's empty folder is thrown away: nothing to save .landfall.json in.
       if (o.upload || o.images) argv.push("--no-save");
       argv.push(...hooks.skip(v));
+      if (source && v.source === "ref") argv.push(...refArgs(v.ref as PickedRef));
       run(argv, { server: v.server, cwd: det.path, after: openAfter });
     },
   });
+}
+
+/** Why the project's git rule refuses the working tree (lf deploy without --ref), if it does. */
+function treeRefused(g: GitInfo): string | undefined {
+  const repo = g.repo!;
+  const rule = g.rules[""];
+  if (!hasRule(rule)) return undefined;
+  if (!allows(rule, namesAt(repo.sha, g.refs, [{ name: repo.branch, kind: "branch" }])))
+    return `The project deploys ${ruleText(rule)}; ${repo.branch ? `HEAD on ${repo.branch}` : "HEAD"} is not one`;
+  if (rule.requireClean && repo.dirty) return `The project deploys only committed files, and ${plural(repo.dirty, "file")} changed: commit them or pick a ref`;
+  return undefined;
+}
+
+/** The deploy form's Source section: the working tree, or a branch or tag of the checkout. */
+function sourceFields(g: GitInfo) {
+  const repo = g.repo!;
+  const refused = treeRefused(g);
+  const rule = g.rules[""];
+  const tree = `Working tree${repo.dirty ? ` (${plural(repo.dirty, "change")})` : ""}`;
+  return {
+    legend: "Source",
+    fields: [
+      {
+        name: "source",
+        label: "Deploy",
+        type: "custom" as const,
+        value: refused ? "ref" : "tree",
+        render: (x: string, set: (v: string) => void) => (
+          <div className="grid gap-1">
+            <BtnGroup label="What to deploy">
+              <Btn cls={cx("sm", x === "tree" && "primary")} aria-pressed={x === "tree"} disabled={!!refused} title={refused} on={() => set("tree")}>
+                {tree}
+              </Btn>
+              <Btn cls={cx("sm", x === "ref" && "primary")} aria-pressed={x === "ref"} on={() => set("ref")}>
+                Git ref
+              </Btn>
+            </BtnGroup>
+            <span className="text-sm text-dim">
+              {x === "tree"
+                ? `The folder as it is now, on ${repo.branch ?? "a detached HEAD"}${repo.dirty ? ", uncommitted changes included" : ""}.`
+                : (refused ?? "A clean copy of a commit: nothing uncommitted, nothing ignored.")}
+            </span>
+          </div>
+        ),
+      },
+      refField(g.refs, rule, { when: (v: Values) => v.source === "ref", hint: hasRule(rule) ? `The project deploys ${ruleText(rule)}.` : undefined }),
+    ],
+  };
 }
 
 /**

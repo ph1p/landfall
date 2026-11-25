@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { expandHost } from "./redirects";
+import { ENVIRONMENT_NAME, type GitConfig, type RefRule } from "./refs";
 import { fail } from "./term";
 
 /**
@@ -309,6 +310,8 @@ export interface ProjectConfig {
   include?: string[];
   /** Images are built on this machine and sent to the server, which then only runs them. */
   buildLocal?: boolean;
+  /** Which git refs may deploy (branch/tag globs), and the repository's URL. An environment's rule is its own: never inherited. */
+  git?: GitConfig;
   /** Named targets (staging…): the same project deployed again as its own site, with what differs here. */
   environments?: Record<string, EnvironmentConfig>;
 }
@@ -316,7 +319,7 @@ export interface ProjectConfig {
 /** An environment: its name (default <name>-<env>), server, domains and redirects (never inherited) and any other setting. */
 export type EnvironmentConfig = Partial<Omit<ProjectConfig, "environments">>;
 
-export const ENV_NAME = /^[a-z0-9][a-z0-9-]*$/;
+export const ENV_NAME = ENVIRONMENT_NAME;
 
 /** The environment picked with -E/--environment or LANDFALL_ENV; "" is the project itself. */
 export function activeEnvironment(): string {
@@ -373,8 +376,8 @@ function readFile(cwd: string): ProjectConfig | undefined {
   }
 }
 
-/** package.json's "landfall" settings with .landfall.json's on top, key by key. */
-function readProject(cwd: string): ProjectConfig | undefined {
+/** package.json's "landfall" settings with .landfall.json's on top, key by key: both files, read once. */
+export function readProjectFiles(cwd: string): ProjectConfig | undefined {
   const [pkg, file] = [packageProject(cwd), readFile(cwd)];
   return pkg || file ? ({ ...pkg, ...file } as ProjectConfig) : undefined;
 }
@@ -385,16 +388,54 @@ export const projectSources = (cwd: string) =>
 
 /** The settings of a project folder, or of one of its environments: the project's with the environment's on top. */
 export function loadProject(cwd: string, env = activeEnvironment()): ProjectConfig | undefined {
-  const raw = readProject(cwd);
+  return projectFor(readProjectFiles(cwd), env);
+}
+
+/** The settings of one environment ("" the project) from what readProjectFiles read: no file read. */
+export function projectFor(raw: ProjectConfig | undefined, env: string): ProjectConfig | undefined {
   if (!env || !raw) return raw;
   const { environments, ...base } = raw;
   const own = environments?.[env] ?? {};
-  return { ...base, domains: [], redirects: undefined, ...own, name: own.name ?? envSiteName(base.name, env) };
+  // The repository is the project's; the rule is the environment's own.
+  const url = own.git?.url ?? base.git?.url;
+  const git = own.git || url ? { ...own.git, ...(url && { url }) } : undefined;
+  return { ...base, domains: [], redirects: undefined, ...own, git, name: own.name ?? envSiteName(base.name, env) };
+}
+
+/** Every environment's git rule, the project's own under "". */
+export function gitRules(cwd: string, raw = readProjectFiles(cwd)): Record<string, GitConfig | undefined> {
+  if (!raw) return {};
+  const { url: _, ...base } = raw.git ?? {};
+  return { "": Object.keys(base).length ? base : undefined, ...Object.fromEntries(Object.entries(raw.environments ?? {}).map(([e, c]) => [e, c.git])) };
+}
+
+/** Sets (or with undefined, drops) the git rule of the project ("") or of one environment, keeping the URL and everything else. */
+export function saveGitRule(cwd: string, env: string, rule: RefRule | undefined, url?: string) {
+  const file = readFile(cwd) ?? ({} as Partial<ProjectConfig>);
+  if (!readProjectFiles(cwd)) fail(`no ${PROJECT_FILE} here: deploy once (lf deploy), or lf init, first`);
+  const keep = (g: GitConfig | undefined, setUrl: boolean): GitConfig | undefined => {
+    const next: GitConfig = { ...(g?.url && { url: g.url }), ...rule };
+    if (setUrl && url) next.url = url;
+    return Object.keys(next).length ? next : undefined;
+  };
+  if (!env) {
+    file.git = keep(file.git, true);
+    if (!file.git) delete file.git;
+  } else {
+    if (url) file.git = { ...file.git, url };
+    const envs = { ...file.environments };
+    const own: EnvironmentConfig = { ...envs[env] };
+    own.git = keep(own.git, false);
+    if (!own.git) delete own.git;
+    envs[env] = own;
+    file.environments = envs;
+  }
+  writeAtomic(projectFile(cwd), JSON.stringify(file, null, 2) + "\n");
 }
 
 /** The environment of a project folder that deploys this site ("" the project itself), if any. */
 export function environmentOf(cwd: string, site: string): string | undefined {
-  const raw = readProject(cwd);
+  const raw = readProjectFiles(cwd);
   if (!raw) return undefined;
   if (raw.name === site) return "";
   return Object.keys(raw.environments ?? {}).find((e) => loadProject(cwd, e)?.name === site);
@@ -405,16 +446,18 @@ export const projectServer = (server?: string) => resolveServer(server ?? loadPr
 
 /** Writes a project's settings; in an environment only what differs from the project goes in its block. */
 export function saveProject(cwd: string, p: ProjectConfig, env = activeEnvironment()) {
-  const raw = readProject(cwd);
-  const { environments: _, ...next } = p;
+  const raw = readProjectFiles(cwd);
+  // git is written by hand or by lf git track: a deploy keeps it as it is.
+  const { environments: _, git: _g, ...next } = p;
   let out: ProjectConfig;
-  if (!env) out = { ...next, ...(raw?.environments ? { environments: raw.environments } : {}) };
+  if (!env) out = { ...next, ...(raw?.git && { git: raw.git }), ...(raw?.environments ? { environments: raw.environments } : {}) };
   else {
     // First deploy of the folder is an environment's: the project itself gets the name without the suffix.
     const { environments, ...base } = raw ?? { name: p.name.replace(new RegExp(`-${env}$`), ""), server: p.server, domains: [] };
     const own: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(next)) if (k === "domains" || k === "redirects" || JSON.stringify(v) !== JSON.stringify((base as any)[k])) own[k] = v;
     if (own.name === envSiteName(base.name, env)) delete own.name;
+    if (environments?.[env]?.git) own.git = environments[env].git;
     out = { ...base, environments: { ...environments, [env]: own } };
   }
   // What package.json's "landfall" already says stays there; .landfall.json gets the rest.

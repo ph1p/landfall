@@ -25,7 +25,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 
 | area | commands |
 |---|---|
-| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight` |
+| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track` |
 | servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
@@ -41,6 +41,8 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `traffic` and `traffic <site>` include `accessLog`: how the proxy's flags configure its access log. It is `json`, `common` (plain text), `off`, `file` (written inside the container) or `unknown` (a config file landfall does not read). `lf traefik access-log on` fixes `off` and `common`. `log` is the proxy's container log: `driver`, `maxSize` and `maxFile` (its cap, missing when there is none) and `bytes` (on disk, only when the login can read it).
 - `traefik access-log` prints `{container, own, accessLog, log}`. `log` is as in `traffic`, or `null` without a proxy.
 - `ls` and `sites info` add `scale` to a site that uses replicas, rolling deploys or a split: per service, its `replicas` wanted and `running`.
+- `refs` prints `{repo, url, envs}`. Each environment has `env`, `site`, `server`, `rule`, `ruleText`, `matching` (tags newest first, then branches), `running` (`null`: no release; missing: never deployed), `newest`, `behind` (commits) and `error` when its server cannot be read.
+- `git track` prints `{url, rules}`, keyed by environment; `""` is the project itself.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
 The web UI reads the same JSON, so its shape is stable within a release.
@@ -86,6 +88,7 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 | what did landfall change? | `lf history --json` |
 | which registries can the server pull from? | `lf registries --json` |
 | which landfall changed the server, what upgrades are pending? | `lf server upgrade --json` (changes nothing) |
+| what runs in each environment, what is newer? | `lf refs --json` (see [Git deploys](git.md)) |
 | what can the server do? | `lf server info --json` (OS support, cloud provider as `cloud`, login, init system, Docker) |
 
 ## What cannot be undone

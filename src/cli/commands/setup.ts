@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { defineCommand } from "../cmd";
+import { defineCommand, runWith } from "../cmd";
 import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, updateConfig, patchServer, tildify, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
 import { migrateScript } from "../../core/migrations";
@@ -58,10 +58,7 @@ async function askTraefik(server: Server, o: TraefikInstall) {
 }
 
 /** Runs setup from another command, with setup's defaults for what `o` leaves out. */
-export function setupServer(name: string, o: Record<string, unknown>) {
-  const defaults = Object.fromEntries(Object.entries(setup.options!).flatMap(([k, v]) => ("default" in v ? [[k, v.default]] : [])));
-  return setup.run([name], { ...defaults, ...o }, []);
-}
+export const setupServer = (name: string, o: Record<string, unknown>) => runWith(setup, [name], o);
 
 export const setup = defineCommand({
   name: "setup",

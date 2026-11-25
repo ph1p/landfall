@@ -2,6 +2,7 @@ import { S, ago, plural, tilde } from "../lib/store";
 import { go } from "../lib/api";
 import { Badge, Bone, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
 import { addServer, defaultsDialog, deployFrom, folderDialog, redeploy } from "./flows";
+import { GitLink } from "./pipeline";
 import { awaitingReach, ReachDot, REACH_KIND, REACH_WORD, Star, reachCount, reachRank } from "./shared";
 
 const H3 = "m-0 mb-2 text-xs font-medium text-faint uppercase tracking-[.04em]";
@@ -125,6 +126,12 @@ export function HomeView() {
                         {r.server}
                       </a>
                       {r.domains[0] ? ` · ${r.domains[0]}` : " · tunnel only"}
+                      {r.inGit && (
+                        <>
+                          {" · "}
+                          <GitLink p={r} />
+                        </>
+                      )}
                     </span>
                     <div className="faint mono text-xs! overflow-hidden text-ellipsis whitespace-nowrap" title={r.path}>
                       {tilde(r.path)} · {ago(r.at)}

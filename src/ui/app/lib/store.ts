@@ -18,6 +18,9 @@ export const S = {
   tab: "sites",
   overview: {} as Store<T.Overview>, // name -> {data} | {error} | {loading}
   firewall: {} as Store<T.Firewall>,
+  git: {} as Store<T.GitInfo>, // project folder -> {data: /api/git}: its checkout and git rules
+  refs: {} as Store<T.RefsView>, // project folder -> {data: /api/git/envs}: what runs in each environment (lf refs --json)
+  pipeline: null as string | null, // the project folder whose pipeline (#git/<folder>) is shown
   det: {} as Record<string, T.Detected | null | false>, // project folder -> what /api/fs detected there (null while reading, false if it failed)
   system: {} as Store<T.SystemInfo>, // name -> {data: lf system --json}
   users: {} as Store<T.Users>, // name -> {data: lf users --json}

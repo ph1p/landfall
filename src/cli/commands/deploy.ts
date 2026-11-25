@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
+import { installCommand } from "../../core/git";
+import { deploySource, pickEnvironmentForRef } from "./git";
 import {
   activeEnvironment,
   checkImage,
@@ -99,19 +101,6 @@ function withLogin(auth: string[] | undefined, login?: string) {
 }
 
 export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
-
-/** The commit a deploy is made from, if `dir` is in a git checkout. */
-export function gitSource(dir: string): Release["git"] {
-  const git = (...a: string[]) => {
-    const r = spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" });
-    return r.status === 0 ? r.stdout.trim() : undefined;
-  };
-  const commit = git("rev-parse", "--short=12", "HEAD");
-  if (!commit) return;
-  const branch = git("symbolic-ref", "--short", "-q", "HEAD");
-  const dirty = !!git("status", "--porcelain", "--untracked-files=no");
-  return { commit, ...(branch && { branch }), ...(dirty && { dirty }) };
-}
 
 /** A release id not in `taken`: ids have one-second resolution, so a second deploy within it moves on a second. */
 export function nextReleaseId(taken: string[], now: Date | string = new Date()): string {
@@ -223,17 +212,37 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     "password-stdin": { type: "boolean", desc: "setting up first: read the login password from stdin (also: $LANDFALL_PASSWORD)" },
     "auth-user": { type: "string", desc: "protect the site with this login (HTTP basic auth, as lf auth; default with --auth-password: admin)" },
     "auth-password": { type: "string", desc: "password of the login (asked when only --auth-user is given)" },
+    ref: { type: "string", desc: "deploy a branch, tag or commit: a clean export of it, without uncommitted or ignored files" },
+    tag: { type: "string", desc: "deploy a tag; latest = the newest one the environment's git rule allows" },
+    "for-ref": { type: "string", desc: "CI: deploy this ref (refs/heads/main, refs/tags/v1.2.0) to the environment whose git rule matches it" },
+    force: { type: "boolean", desc: "deploy what the environment's git rule (lf git track) does not allow" },
     ...SKIP_OPTIONS,
   },
   async run([dirArg], o) {
     const cwd = process.cwd();
     // Read before any ssh: one with the inherited stdin would swallow `--dotenv -`.
     const dotenv = o.dotenv ? await readEnvFile(o.dotenv) : undefined;
+    if (o["for-ref"]) pickEnvironmentForRef(cwd, o["for-ref"]);
     const project: Partial<ProjectConfig> = loadProject(cwd) ?? {};
     const environment = activeEnvironment();
     // A typo in package.json's hooks or --skip-hook fails before anything runs.
     const skip = skipper(o);
-    const hooks = readHooks([resolve(cwd, dirArg ?? project.dir ?? "."), cwd]);
+    // The working tree, or with --ref/--tag/--for-ref a clean export of the commit: what is planned, built and sent.
+    const source = await deploySource(cwd, project, environment, o);
+    const src = source.dir;
+    // A clean export has no node_modules: installed once, before the first local hook or build needs them.
+    let installed = !source.exported;
+    const install = () => {
+      if (installed) return;
+      installed = true;
+      const cmd = installCommand(src);
+      if (!cmd) return;
+      step(`installing the export's dependencies: ${cmd}`);
+      const r = spawnSync(cmd, { cwd: src, shell: true, stdio: ["ignore", 2, 2] });
+      if (r.status !== 0) fail(`${cmd} failed (exit ${r.status}) in the export of ${source.git?.tag ?? source.git?.commit}`);
+    };
+    const hooks = readHooks([resolve(src, dirArg ?? project.dir ?? "."), src]);
+    if (hooks && (["prebuild", "postbuild", "predeploy"] as const).some((h) => hooks.run[h])) install();
     if (project.name) info(c.dim(`using ${projectSources(cwd).join(" and ")}${environment ? `, environment ${environment}` : ""}`));
 
     let { name: serverName, server } = resolveServer(o.server ?? project.server);
@@ -268,8 +277,9 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     const authUser = o["auth-user"] ?? (o["auth-password"] ? DEFAULT_USER : undefined);
     const login = authUser ? await newLogin(authUser, o["auth-password"], "--auth-user") : undefined;
 
-    const git = gitSource(cwd);
-    const vars = { ...hookVars(name), LANDFALL_SERVER: serverName, LANDFALL_VERSION: git?.commit };
+    const git = source.git;
+    // The app's version is its commit, as on the server; its tag is LANDFALL_TAG (landfall's own version is Release.landfall).
+    const vars = { ...hookVars(name), LANDFALL_SERVER: serverName, LANDFALL_VERSION: git?.commit, LANDFALL_TAG: git?.tag };
     // Where it got to: what onfailure is told failed, unless a hook did.
     let stage = "prebuild";
     try {
@@ -279,11 +289,12 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
       // --send-image without an image: pick one of this machine's.
       if (o["send-image"] && !o.image && !project.image) o.image = await pickLocalImage();
       let { buildCmd, forceStatic, image, compose, beside, layered, app, detected, dir, kind, worker, volumes, port, appBuild, spa, root } = planDeploy(
-        cwd,
+        src,
         dirArg,
         o,
         project,
         environment,
+        install,
       );
       // A static site runs in nginx, without package.json: its server hooks are refused before anything is sent.
       refuseStaticServerHooks(hooks, kind);
@@ -393,7 +404,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         const files = KINDS[kind].files;
         const gitignore = !!(o.gitignore ?? project.gitignore);
         const buildLocal = !!(o["build-local"] ?? project.buildLocal);
-        const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: cwd, gitignore, rules: project });
+        const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: src, gitignore, rules: project });
         // The first upload of a site says what it sends: a folder of data or a build cache is easy to miss.
         if (files !== undefined && !prev) {
           const { total, files: n, largest } = uploadSize(list);
@@ -415,7 +426,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         try {
           if (files !== undefined) {
             const size = uploadSize(list);
-            step(`uploading ${relative(cwd, dir) || "."} (${plural(size.files, "file")}, ${bytes(size.total)})`);
+            step(`uploading ${relative(src, dir) || "."} (${plural(size.files, "file")}, ${bytes(size.total)})`);
             // A redeploy starts from the live release's files and sends only what changed.
             const seedRelease = prev?.kind === kind ? prev.current : undefined;
             const uploaded = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
@@ -570,11 +581,11 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
           const saved = withRedirects({ name, server: serverName, domains }, redirects);
           if (kind === "image") Object.assign(saved, { image, ...(!fromImage && { port }), ...(send && { sendImage: true }) });
           else {
-            const rel = relative(cwd, dir) || ".";
+            const rel = relative(src, dir) || ".";
             if (kind !== "static") {
               if (rel !== ".") saved.dir = rel;
               if (kind === "compose" && (o.file || project.compose)) saved.compose = compose;
-            } else if (rel !== detectStaticDir(cwd, detected)) saved.dir = rel;
+            } else if (rel !== detectStaticDir(src, detected)) saved.dir = rel;
             if (kind === "dockerfile") saved.port = port;
             if (app && (o.start || project.start)) saved.start = app.start;
             if (spa) saved.spa = true;
@@ -622,6 +633,8 @@ export function planDeploy(
   o: { start?: string; static?: boolean; build?: string; image?: string; file?: string; volume?: string[]; worker?: boolean; port?: string; spa?: boolean },
   project: Partial<ProjectConfig>,
   environment?: string,
+  /** Installs a clean export's dependencies before the local build. */
+  install?: () => void,
 ) {
   if (o.start && o.static) fail("--start and --static exclude each other");
   let buildCmd: string | undefined = o.build ?? project.build;
@@ -666,6 +679,7 @@ export function planDeploy(
   // Publishing where the tool builds to: build first, or a redeploy would send the last build again (--build '' skips it).
   if (tool && buildCmd === undefined && detected.build) buildCmd = detected.build;
   if (buildCmd && !app) {
+    install?.();
     step(`building locally: ${buildCmd}`);
     const r = spawnSync(buildCmd, { cwd, shell: true, stdio: "inherit" });
     if (r.status !== 0) fail(`build failed (exit ${r.status})`);

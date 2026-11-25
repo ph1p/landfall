@@ -108,6 +108,7 @@ export function hookVars(project: string, r: { release?: Release; prev?: Release
     LANDFALL_PROJECT: project,
     LANDFALL_RELEASE: r.release?.id,
     LANDFALL_VERSION: releaseVersion(r.release),
+    LANDFALL_TAG: r.release?.git?.tag,
     LANDFALL_PREVIOUS_VERSION: releaseVersion(r.prev),
   };
 }

@@ -79,6 +79,9 @@ function help() {
       [
         "init",
         "deploy",
+        "refs",
+        "promote",
+        "git track",
         "sites list",
         "sites info",
         "domains",

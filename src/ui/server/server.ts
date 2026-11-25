@@ -10,7 +10,6 @@ import { updateCommand, VERSION } from "../../core/version";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
 import { ENV_NAME, SECRET_NAME } from "../../core/compose";
 import { listServers, reachAll, target } from "../../core/dashboard";
-import { loadProjects } from "../../core/projects";
 import { browse, emptyFolder, jobCwd, pruneUploads, receiveUpload } from "./local";
 import { localImages } from "../../core/buildlocal";
 import { startJob, type Job } from "../../core/job";
@@ -39,6 +38,9 @@ import {
   traefikView,
   updatesView,
   usersView,
+  refsView,
+  gitView,
+  projectsView,
 } from "../../core/views";
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
@@ -199,7 +201,7 @@ export function state() {
     updateCommand: updateCommand(),
     cwd: process.cwd(),
     project: projectHere(),
-    projects: loadProjects(),
+    projects: projectsView(),
     defaultImage: DEFAULT_TRAEFIK_IMAGE,
     ownProxy: OWN_PROXY,
     // The CLI's own input rules, so forms reject what the command would.
@@ -372,6 +374,15 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
   if (what === "fs" && method === "GET") return json(browse(new URL(req.url).searchParams.get("path") ?? undefined));
   // This machine's Docker images, for lf deploy --image (and --send-image); none when Docker is not running here.
   if (what === "images" && method === "GET") return json(localImages());
+  // A project folder's git: its checkout, branches and tags, and the rules of .landfall.json (lf git track).
+  // envs adds what runs in each environment (lf refs --json), which reads the servers and takes longer: the pipeline's one request.
+  if (what === "git" && method === "GET") {
+    const cwd = jobCwd(new URL(req.url).searchParams.get("path") ?? "");
+    if (!cwd) throw new Error("path is required");
+    const g = await gitView(cwd);
+    if (name === "envs") return json({ ...g, envs: (await refsView(cwd, undefined, g)).envs });
+    return json(g);
+  }
   if (what === "image-folder" && method === "POST") return json({ path: emptyFolder() });
   if (what === "upload" && method === "POST") {
     const up = await receiveUpload(await req.formData());

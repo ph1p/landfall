@@ -28,6 +28,7 @@ export default defineConfig({
         { text: "Scaling and load balancing", link: "/scaling" },
         { text: "Lifecycle hooks", link: "/hooks" },
         { text: "Volumes and backups", link: "/volumes" },
+        { text: "Git deploys", link: "/git" },
       ],
     },
     {

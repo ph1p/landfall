@@ -1,5 +1,5 @@
 import { S, http, render, server, errorMessage, type Slot, type StoreName } from "./store";
-import type { Reach, State } from "./types";
+import type { GitInfo, Reach, RefsView, State } from "./types";
 import { pluginTab, type PluginTab, type UiBlock } from "../../../core/plugin-api";
 import { toast } from "../ui/toast";
 import { closeDialog, dialogOpen } from "../ui/dialog";
@@ -17,12 +17,24 @@ export function go(sel: string | null, tab = S.tab) {
 export function goMap() {
   if (location.hash !== "#map") ((ours = true), (location.hash = "#map"));
 }
+/** A project's pipeline: its environments side by side (#git/<folder>). */
+export function goPipeline(path: string) {
+  const hash = `#git/${encodeURIComponent(path)}`;
+  if (location.hash !== hash) ((ours = true), (location.hash = hash));
+  else route();
+}
 export function route() {
   // Back or forward leaves the page a dialog was opened on: a dialog left open would act on what is no longer shown.
   if (!ours && dialogOpen()) closeDialog();
   ours = false;
-  const [, name, tab] = location.hash.split("/");
   S.map = location.hash === "#map";
+  S.pipeline = location.hash.startsWith("#git/") ? decodeURIComponent(location.hash.slice(5)) : null;
+  if (S.pipeline) {
+    S.sel = null;
+    loadRefs(S.pipeline);
+    return render();
+  }
+  const [, name, tab] = location.hash.split("/");
   S.sel = name ? decodeURIComponent(name) : null;
   S.tab = tab && (tab in STORE || pluginNameOf(tab)) ? tab : "sites";
   if (S.sel && server()) load(S.sel, S.tab);
@@ -144,6 +156,36 @@ export function loadPlugin(n: string, plugin: string) {
 }
 const fetchTab = (name: string, t: CoreTab) =>
   fetchInto(STORE[t], name, `${URLS[t]}${t === "traffic" ? `?since=${S.since}` : ""}`, t === "stats" ? (data) => logStats(name, data as never) : undefined);
+// ---- a project's git: GET /api/git?path= and /api/git/envs?path= ------------------
+
+const gitQuery = (path: string) => `?path=${encodeURIComponent(path)}`;
+/** A folder's checkout and git rules into S.git (again when forced); cheap, nothing connects to a server. Resolves to undefined on failure. */
+export function loadGit(path: string, force = false): Promise<GitInfo | undefined> {
+  if (!force && S.git[path]) return Promise.resolve(S.git[path].data);
+  S.git[path] = { ...S.git[path], loading: true, error: undefined };
+  return http<GitInfo>(`/api/git${gitQuery(path)}`).then(
+    (data) => ((S.git[path] = { data }), render(), data),
+    (e) => ((S.git[path] = { error: errorMessage(e) }), render(), undefined),
+  );
+}
+/** What runs in each of a folder's environments (lf refs --json) into S.refs, and its checkout into S.git: one request, reads every environment's server. */
+export function loadRefs(path: string, force = false) {
+  if (!force && S.refs[path]?.data) return;
+  S.refs[path] = { ...S.refs[path], loading: true, error: undefined };
+  render();
+  const key = `refs\0${path}`;
+  const me = {};
+  latest.set(key, me);
+  http<GitInfo & Pick<RefsView, "envs">>(`/api/git/envs${gitQuery(path)}`).then(
+    ({ envs, ...g }) =>
+      void (
+        latest.get(key) === me &&
+        ((S.git[path] = { data: g }), (S.refs[path] = { data: { repo: g.repo ?? undefined, url: g.url ?? undefined, envs } }), render())
+      ),
+    (e) => void (latest.get(key) === me && ((S.refs[path] = { error: errorMessage(e) }), render())),
+  );
+}
+
 export function invalidate(name: string) {
   delete S.dns[name];
   delete S.errs[name];

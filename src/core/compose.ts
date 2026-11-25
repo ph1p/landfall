@@ -5,6 +5,7 @@ import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, typ
 import { DOMAIN } from "./config";
 import type { ReleaseHooks } from "./hooks";
 import { MAX_REPLICAS, MAX_WEIGHT } from "./limits";
+import { gitParts } from "./refs";
 import { fail } from "./term";
 import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "./templates";
 
@@ -108,12 +109,28 @@ export interface Route {
   opts?: RouteOpts;
 }
 
+/** Where a release's files came from, in git terms. Every field past commit is optional: older releases lack them. */
+export interface ReleaseGit {
+  /** Short SHA (12). */
+  commit: string;
+  sha?: string;
+  branch?: string;
+  /** The tag deployed, or one at the commit. */
+  tag?: string;
+  dirty?: boolean;
+  /** origin's URL, without credentials. */
+  remote?: string;
+  /** local: the working tree; ref: a clean export of --ref/--tag; ci: a CI run; server, auto: fetched on the server. */
+  source?: "local" | "ref" | "server" | "ci" | "auto";
+  ci?: { provider: string; url?: string };
+}
+
 export interface Release {
   id: string;
   at: string;
   services: Service[];
   /** The commit it was deployed from, when the project is a git checkout; dirty: with uncommitted changes. */
-  git?: { commit: string; branch?: string; dirty?: boolean };
+  git?: ReleaseGit;
   /** Who deployed it: user@machine. */
   by?: string;
   /** The landfall version that deployed it; missing on releases by landfall before 0.17. */
@@ -123,7 +140,11 @@ export interface Release {
 }
 
 /** "a1b2c3d4e5f6 main, uncommitted changes" for a release deployed from git. */
-export const gitLabel = (g: Release["git"]) => (g ? `${g.commit}${g.branch ? ` ${g.branch}` : ""}${g.dirty ? ", uncommitted changes" : ""}` : "");
+export function gitLabel(g: Release["git"]) {
+  if (!g) return "";
+  const { source } = gitParts(g);
+  return `${g.tag ? `${g.tag} ` : ""}${g.commit}${g.branch ? ` ${g.branch}` : ""}${g.dirty ? ", uncommitted changes" : ""}${source ? `, ${source}` : ""}`;
+}
 
 /** What the site was deployed from: static, image and dockerfile get a generated compose.yaml. */
 export type SiteKind = "compose" | "static" | "image" | "dockerfile";

@@ -237,21 +237,25 @@ describe("externals", () => {
 
 describe("release source", () => {
   test("the commit, branch and uncommitted changes of a git checkout", async () => {
-    const { gitSource } = await import("../../src/cli/commands/deploy");
+    const { releaseGit, repoInfo } = await import("../../src/core/git");
+    const gitSource = async (d: string) => {
+      const r = await repoInfo(d);
+      return r && releaseGit(r);
+    };
     const { gitLabel } = await import("../../src/core/compose");
     const dir = fs.mkdtempSync(join(tmpdir(), "lf-git-"));
-    expect(gitSource(dir)).toBeUndefined();
+    expect(await gitSource(dir)).toBeUndefined();
     const git = (...a: string[]) => spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", ...a]);
     git("init", "-q", "-b", "main");
     fs.writeFileSync(join(dir, "a"), "1");
     git("add", "a");
     git("commit", "-qm", "a");
-    const g = gitSource(dir)!;
+    const g = (await gitSource(dir))!;
     expect(g).toMatchObject({ branch: "main" });
     expect(g.commit).toMatch(/^[0-9a-f]{12}$/);
     expect(g.dirty).toBeUndefined();
     fs.writeFileSync(join(dir, "a"), "2");
-    expect(gitLabel(gitSource(dir))).toBe(`${g.commit} main, uncommitted changes`);
+    expect(gitLabel(await gitSource(dir))).toBe(`${g.commit} main, uncommitted changes`);
   });
 });
 

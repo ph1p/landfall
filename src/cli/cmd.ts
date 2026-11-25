@@ -26,6 +26,12 @@ export interface Command<O extends Record<string, OptSpec> = Record<string, OptS
 
 export const defineCommand = <O extends Record<string, OptSpec>>(cmd: Command<O>) => cmd;
 
+/** Runs a command from another one, with its option defaults for what `o` leaves out. */
+export function runWith(cmd: Command, pos: string[], o: Record<string, unknown>) {
+  const defaults = Object.fromEntries(Object.entries(cmd.options ?? {}).flatMap(([k, v]) => ("default" in v ? [[k, v.default]] : [])));
+  return cmd.run(pos, { ...defaults, ...o }, []);
+}
+
 export const serverOpt = { type: "string", short: "s", desc: "server name or ssh alias" } as const;
 
 /** Accepted by every command. */

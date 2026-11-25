@@ -271,6 +271,7 @@ jobs:
 - Pass secrets with `--dotenv -` from a CI secret (`echo "$PROD_ENV" | lf deploy --dotenv - -y`), never as `-e`.
 - The release records the checked-out commit; the journal names the runner as deployer.
 - A failed start restores the previous release and exits non-zero: the job fails, the site stays up.
+- With [git rules](git.md), `--for-ref "$GITHUB_REF"` deploys each branch or tag to the environment whose rule matches.
 
 ## What gets uploaded
 
@@ -316,6 +317,7 @@ An environment inherits the project's settings and overrides what its block name
 `server`, or any setting like `compose: "compose.staging.yaml"`. Domains and redirects are never inherited.
 Without `-E`, commands act on the project itself.
 On the server it is a plain site: nothing knows about environments, and deleting `.landfall.json` loses nothing.
+[Git rules](git.md) can say which branches or tags each environment deploys.
 
 A compose site can add a standard override per environment: `compose.staging.yaml` beside `compose.yaml`
 (or `docker-compose.staging.yml` beside `docker-compose.yml`).
