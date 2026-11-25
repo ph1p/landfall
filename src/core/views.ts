@@ -168,6 +168,7 @@ function locations() {
     ],
     server: [
       { path: `${ROOT}/README`, what: "how to run it all by hand, without landfall" },
+      { path: `${ROOT}/landfall.json`, what: "the newest landfall that changed the server, and the upgrades it has" },
       { path: `${SITES}/<site>`, what: "a site: .env, site.json, current -> releases/<id>" },
       { path: TRAEFIK_DIR, what: "landfall's Traefik: docker-compose.yml, letsencrypt/" },
       { path: DYNAMIC_DIR, what: "Traefik file provider; files you add here are kept" },

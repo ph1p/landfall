@@ -47,7 +47,8 @@ export async function guardUndo(server: Server, todo: Step[], force?: boolean) {
   await guardSsh({ ...fw, ufw }, rules, force);
 }
 
-const runLine = (r: Run) => `${c.bold(`#${r.n}`.padEnd(5))} ${c.dim(ago(r.time).padEnd(9))} ${c.bold(r.cmd || "?")}  ${c.dim(`${r.actor} · ${r.id}`)}`;
+const runLine = (r: Run) =>
+  `${c.bold(`#${r.n}`.padEnd(5))} ${c.dim(ago(r.time).padEnd(9))} ${c.bold(r.cmd || "?")}  ${c.dim(`${r.actor} · ${r.id}${r.landfall ? ` · landfall ${r.landfall}` : ""}`)}`;
 
 export const historyLog = defineCommand({
   name: "history",

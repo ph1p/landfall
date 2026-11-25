@@ -17,6 +17,52 @@ export const PROXY_FILE = `${ROOT}/proxy.env`;
 export const JOURNAL = `${ROOT}/journal.log`;
 /** Backups `saved` keeps per file; undo of an older change leaves that file as it is. */
 const KEEP_BACKUPS = 10;
+/** Which landfall changed the server last, the newest one that ever did, and the migrations applied (lf server upgrade). */
+export const STAMP_FILE = `${ROOT}/landfall.json`;
+
+/**
+ * Shell for STAMP_FILE, part of PRELUDE: {"newest": <the newest landfall that ever changed the server>, "migration": <applied>}.
+ * LANDFALL_CLI (this lf's version) and LANDFALL_MIGRATION (the migrations it knows) come from runScript. Which landfall
+ * changed the server last is the journal's last line.
+ */
+const STAMP_SH = String.raw`
+# ver_gt <a> <b>: version a is newer than b (dotted numbers; a -prerelease suffix is ignored).
+ver_gt() {
+  awk -v a="$1" -v b="$2" 'BEGIN { sub(/-.*/, "", a); sub(/-.*/, "", b); n = split(a, x, "."); m = split(b, y, "."); if (m > n) n = m
+    for (i = 1; i <= n; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 }; exit 1 }'
+}
+_stamp_get() { [ -f ${STAMP_FILE} ] || return 0; sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p" ${STAMP_FILE} 2>/dev/null | head -n1 || true; }
+# _stamp_level: the migrations applied. Without landfall.json: $_stamp_fresh, which setup sets on a fresh server (nothing to migrate), else 0.
+_stamp_fresh=
+_stamp_level() { local l; l=$(_stamp_get migration); [ -f ${STAMP_FILE} ] || l=$_stamp_fresh; case "$l" in ''|*[!0-9]*) l=0 ;; esac; printf %s "$l"; }
+# _stamp_write <level> <newest>: never fails a script.
+_stamp_write() {
+  printf '{"newest":"%s","migration":%s}\n' "$2" "$1" | _put ${STAMP_FILE} 2>/dev/null || log "warning: could not write ${STAMP_FILE}"
+}
+# _stamp: _journal calls it after a script's first change. Warns once per lf run (an earlier script of the run journaled
+# the line before) when a newer landfall changed the server; raises newest when this lf is newer.
+_STAMPED=
+_stamp() {
+  [ -z "$_STAMPED" ] || return 0
+  _STAMPED=1
+  [ "$(tail -n2 ${JOURNAL} 2>/dev/null | cut -f2)" != "$LANDFALL_RUN"$'\n'"$LANDFALL_RUN" ] || return 0
+  local level newest
+  level=$(_stamp_level)
+  newest=$(_stamp_get newest)
+  if { [ -n "$newest" ] && ver_gt "$newest" "$LANDFALL_CLI"; } || [ "$level" -gt "$LANDFALL_MIGRATION" ]; then
+    log "warning: a newer landfall changed this server ($newest, migration $level), yours is $LANDFALL_CLI (migration $LANDFALL_MIGRATION). Update it: $LANDFALL_UPDATE"
+  elif [ -z "$newest" ] || ver_gt "$LANDFALL_CLI" "$newest"; then
+    _stamp_write "$level" "$LANDFALL_CLI"
+  fi
+}
+# _set_migration <level> [what]: the migrations applied; newest stays. With <what> it is journaled, and its undo sets the level back.
+_set_migration() {
+  local prev
+  prev=$(_stamp_level)
+  _stamp_write "$1" "$(_stamp_get newest)"
+  [ $# -lt 2 ] || record "landfall migration $1: $2" "_set_migration $prev"
+}`;
+
 /** sshd drop-in written by setup's hardening. */
 export const SSHD_CONF = "/etc/ssh/sshd_config.d/00-landfall.conf";
 
@@ -229,11 +275,11 @@ user_del() {
 user_nopw() { $SUDO usermod -p '*' "$1" 2>/dev/null || { e=$(printf '%s:*\n' "$1" | $SUDO chpasswd -e 2>&1) || { log "$e"; return 1; }; }; }
 sshd_reload() { $SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd 2>/dev/null || $SUDO service ssh reload 2>/dev/null || true; }
 
-# Journal. LANDFALL_RUN/LANDFALL_ACTOR/LANDFALL_CMD come from runScript. Writing it never fails a script.
+# Journal. LANDFALL_RUN/LANDFALL_ACTOR/LANDFALL_CMD/LANDFALL_CLI (and LANDFALL_UPDATE, how to update lf) come from runScript. Writing it never fails a script.
 _clean() { printf %s "$1" | tr '\t\n' '  '; }
 _journal() { # _journal <do|undo> <what> <undo shell>
   line=$(printf '%s\t' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$LANDFALL_RUN" "$(_clean "$LANDFALL_ACTOR")" "$(id -un)" "$(_clean "$LANDFALL_CMD")" "$1" "$(_clean "$2")")
-  line="$line$(printf %s "$3" | base64 | tr -d '\n')"
+  line="$line$(printf %s "$3" | base64 | tr -d '\n')"$'\t'"$LANDFALL_CLI"
   if [ -w ${JOURNAL} ] || { [ ! -e ${JOURNAL} ] && [ -w ${ROOT} ]; }; then
     printf '%s\n' "$line" >> ${JOURNAL}
   elif [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then false
@@ -243,7 +289,9 @@ _journal() { # _journal <do|undo> <what> <undo shell>
   # A root (or sudo) first entry would leave the file root-owned, and deploy users could no longer
   # append; it belongs to whoever owns ${ROOT}.
   [ -O ${JOURNAL} ] && [ "$(id -u)" -ne 0 ] || $([ -z "$SUDO" ] || echo sudo -n) chown "$(stat -c %u:%g ${ROOT})" ${JOURNAL} 2>/dev/null || true
+  [ "$1" != do ] || _stamp
 }
+${STAMP_SH}
 # record <what> [undo shell]: journal a change; no undo shell = not reversible.
 # Under the web UI it also says so (a report line): the UI offers lf undo for exactly the runs that can be undone.
 record() {
@@ -252,6 +300,13 @@ record() {
 }
 # Run as $SUDO only when <dir> is not writable: deploy users own ${ROOT} and need no sudo.
 _as() { if [ -w "$1" ]; then shift; "$@"; else shift; $SUDO "$@"; fi; }
+# _put <file>: stdin to <file>, mode 644. A temp file, then mv: readers never see half a file, and a root-owned one is replaced too.
+_put() {
+  local d t
+  d=$(dirname "$1")
+  t=$(_as "$d" mktemp "$d/.$(basename "$1").XXXXXX") || return 1
+  { _as "$d" tee "$t" >/dev/null && _as "$d" chmod 644 "$t" && _as "$d" mv -f "$t" "$1"; } || { _as "$d" rm -f "$t"; return 1; }
+}
 # saved <file>: back the file up, print the shell that puts it back (or removes it if it was new).
 saved() {
   d=$(dirname "$1"); b="$d/.$(basename "$1").landfall-$LANDFALL_RUN-$RANDOM"
@@ -364,6 +419,7 @@ ${SITES}/<site>/        one Compose project per site
   releases/<id>/compose.yaml           the site's compose file as deployed
   releases/<id>/compose.override.yaml  landfall's: Traefik labels, proxy network, project name
 ${JOURNAL}           every change landfall made, with the shell that undoes it
+${STAMP_FILE}        the newest landfall that changed this server, and the upgrades applied (lf server upgrade)
 
 Run a site by hand:
   cd ${SITES}/<site>/current && docker compose ps     (logs, restart, up -d, down …)
@@ -379,6 +435,8 @@ deploys and rollbacks. "lf sites rm" keeps them; "lf sites rm --volumes" deletes
  * Env: PUBKEY DEPLOY_USER SSH_PORT HARDEN FIREWALL
  */
 export const BOOTSTRAP = String.raw`
+# A fresh server (no sites dir yet) needs no migration: its first journaled change stamps the latest level.
+[ -d ${SITES} ] || _stamp_fresh=$LANDFALL_MIGRATION
 ${COMPOSE_INSTALL}
 if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
   echo "setup needs root or sudo for $(id -un) (try: lf setup <name> --user root, or -K for the sudo password)" >&2
@@ -459,7 +517,7 @@ new_sites=$([ -d ${SITES} ] || echo 1)
 new_traefik=$([ -d ${TRAEFIK_DIR} ] || echo 1)
 $SUDO install -d -o "$OWNER" -g "$OWNER" ${ROOT} ${SITES} ${TRAEFIK_DIR}
 $SUDO chown "$OWNER:$OWNER" ${JOURNAL} 2>/dev/null || true
-$SUDO tee ${ROOT}/README >/dev/null <<'LANDFALL_README'
+_put ${ROOT}/README <<'LANDFALL_README'
 ${SERVER_README}LANDFALL_README
 # ${ROOT} itself stays: it holds the journal. Each dir is only removed if setup created it.
 [ -z "$new_sites" ] || record "created ${SITES}" "_as ${ROOT} rmdir ${SITES}"

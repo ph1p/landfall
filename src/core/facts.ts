@@ -8,6 +8,8 @@ import { effectiveSsh } from "./sshconfig";
 import { CLOUD, KV, kvRecord, OS_RELEASE, PRELUDE } from "./templates";
 import { fail } from "./term";
 import { CLOUDS, type Cloud } from "./clouds";
+import { READ_STAMP, stampOf } from "./migrations";
+import type { StampStatus } from "./version";
 export type { Cloud } from "./clouds";
 
 /** What a server runs on: distro, hardware, addresses. Read-only. */
@@ -41,6 +43,7 @@ kv usertool "$(PATH="$PATH:/usr/sbin:/sbin"; command -v useradd >/dev/null 2>&1 
 kv ip4 "$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
 kv ip6 "$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | sed -n 's/.* src \([0-9a-fA-F:]*\).*/\1/p' | head -n1)"
 kv reboot "$(reboot_needed && echo 1)"
+kv landfall "$(${READ_STAMP})"
 exit 0
 `;
 
@@ -97,6 +100,8 @@ export interface Facts {
   ip6: string;
   reboot: boolean;
   support: Support;
+  /** The landfall that changed the server, compared with this one (/opt/landfall/landfall.json). */
+  landfall?: StampStatus;
 }
 
 export function parseFacts(out: string, today = new Date()): Facts {
@@ -130,6 +135,7 @@ export function parseFacts(out: string, today = new Date()): Facts {
     ip4: v.ip4 ?? "",
     ip6: v.ip6 ?? "",
     reboot: v.reboot === "1",
+    landfall: stampOf(v.landfall),
     support: support(v.id ?? "", v.version ?? "", v.pkg || "none", today, v.platform),
   };
 }

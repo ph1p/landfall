@@ -28,7 +28,8 @@ describe("layers", () => {
       seen.add(file);
       for (const s of values(file)) {
         if (s.startsWith("node:")) return file;
-        const hit = s.startsWith(".") ? nodeOnly(resolve(dirname(file), `${s}.ts`), seen) : undefined;
+        // Only extensionless imports are TypeScript modules; JSON and assets import nothing.
+        const hit = s.startsWith(".") && !/\.\w+$/.test(s) ? nodeOnly(resolve(dirname(file), `${s}.ts`), seen) : undefined;
         if (hit) return hit;
       }
     };

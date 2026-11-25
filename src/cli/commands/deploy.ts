@@ -75,6 +75,7 @@ import { deployRedirects } from "../../core/domain-plan";
 import { claimDomains } from "../../core/claim";
 import { setupServer } from "./setup";
 import { onStop } from "../../core/job";
+import { VERSION } from "../../core/version";
 import { offerSeed } from "./volume";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
 import { failedHook, hookVars, readHooks, refuseStaticServerHooks, releaseHooks, runLocalHook, serverCall, SKIP_OPTIONS, skipper } from "../../core/hooks";
@@ -432,7 +433,15 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
           for (const n of a.notes) info(c.dim(n));
           if (a.errors.length) fail(`${compose ?? "compose.yaml"} cannot be deployed:\n${a.errors.map((e) => `  - ${e}`).join("\n")}`);
           const rh = releaseHooks(hooks, a.services, kind);
-          release = { id, at: new Date().toISOString(), services: a.services, ...(git && { git }), by: journal.actor, ...(rh && { hooks: rh }) };
+          release = {
+            id,
+            at: new Date().toISOString(),
+            services: a.services,
+            ...(git && { git }),
+            by: journal.actor,
+            landfall: VERSION,
+            ...(rh && { hooks: rh }),
+          };
           const fixed = fixedDomains(a.services);
 
           // Domains of the service that serves the site's own: -d, .landfall.json, the server's, or asked.

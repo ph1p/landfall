@@ -6,8 +6,10 @@ import { Transform } from "node:stream";
 import { envVar, expandHome, type Server } from "./config";
 import { bytes } from "./format";
 import type { Entry } from "./ignore";
+import { LATEST_MIGRATION } from "./migrations";
 import { ROOT } from "./templates";
 import { c, CliError, fail, REPORT } from "./term";
+import { updateCommand, VERSION } from "./version";
 
 let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
@@ -273,7 +275,16 @@ const staleCheck = (say: boolean) =>
   `if [ "$(id -u)" -ne 0 ]; then _have=" $(id -G) "; for _g in $(id -G "$(id -un)" 2>/dev/null || true); do case "$_have" in *" $_g "*) ;; *) ${say ? `echo ${STALE} >&2; ` : ""}exit ${STALE_CODE} ;; esac; done; unset _have _g; fi`;
 
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
-  const env = { LANDFALL_RUN: journal.run, LANDFALL_ACTOR: journal.actor, LANDFALL_CMD: journal.cmd, LANDFALL_REPORT: process.env.LANDFALL_REPORT, ...o.env };
+  const env = {
+    LANDFALL_RUN: journal.run,
+    LANDFALL_ACTOR: journal.actor,
+    LANDFALL_CMD: journal.cmd,
+    LANDFALL_REPORT: process.env.LANDFALL_REPORT,
+    LANDFALL_CLI: VERSION,
+    LANDFALL_MIGRATION: String(LATEST_MIGRATION),
+    LANDFALL_UPDATE: updateCommand(),
+    ...o.env,
+  };
   const header = Object.entries(env)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}=${shq(typeof v === "boolean" ? (v ? 1 : 0) : v!)}`)

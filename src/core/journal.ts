@@ -28,6 +28,8 @@ export interface Run {
   time: string;
   actor: string;
   cmd: string;
+  /** The landfall version that made the run; undefined for runs by landfall before 0.17. */
+  landfall?: string;
   steps: Step[];
 }
 
@@ -39,10 +41,10 @@ export function parseJournal(text: string): Run[] {
   const runs = new Map<string, Run>();
   const byLine = new Map<number, Step>();
   text.split("\n").forEach((raw, i) => {
-    const [time, id, actor, user, cmd, kind, what, undo64] = raw.split("\t");
+    const [time, id, actor, user, cmd, kind, what, undo64, landfall] = raw.split("\t");
     if (undo64 === undefined || (kind !== "do" && kind !== "undo")) return;
     let run = runs.get(id);
-    if (!run) runs.set(id, (run = { n: runs.size + 1, id, time, actor, cmd, steps: [] }));
+    if (!run) runs.set(id, (run = { n: runs.size + 1, id, time, actor, cmd, ...(landfall && { landfall }), steps: [] }));
     const step: Step = { line: i + 1, time, user, what, undone: false };
     if (kind === "undo") {
       const target = byLine.get(Number(what));

@@ -1,6 +1,7 @@
 import { builtImage } from "./compose";
 import type { Server } from "./config";
 import { runScript, shq } from "./ssh";
+import { cmpVersion } from "./version";
 import { COMPOSE_INSTALL, COMPOSE_PLUGIN, kvRecord, PRELUDE, PROXY_CTR, SITES, TRAEFIK_DIR } from "./templates";
 
 // ---------------------------------------------------------------- OS packages
@@ -190,17 +191,6 @@ async function remoteTags(ref: string): Promise<string[]> {
     next = link ? `https://${r.registry}${link}` : undefined;
   }
   return tags;
-}
-
-/** Compares dotted version numbers: 3.10 > 3.9. */
-export function cmpVersion(a: string, b: string): number {
-  const x = a.replace(/^v/, "").split(/[.+-]/).map(Number);
-  const y = b.replace(/^v/, "").split(/[.+-]/).map(Number);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] || 0) - (y[i] || 0);
-    if (d) return d;
-  }
-  return 0;
 }
 
 const VERSION_TAG = /^(v?)(\d+(?:\.\d+){0,2})$/;

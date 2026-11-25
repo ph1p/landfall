@@ -21,16 +21,19 @@ import {
 import { securityNotes } from "../../core/security";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
-import { pct } from "../../core/format";
+import { plural, pct } from "../../core/format";
+import { adminLogin } from "../../core/privilege";
 import { bytes, checkCloud, CLOUD_IDS, cloudFirewall, cloudOf, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
 import { listServers, reachAll } from "../../core/dashboard";
 import { overview, removeLines, siteDir } from "../../core/remote";
 import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
-import { c, confirmRemoval, dnsLabel, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
+import { c, confirm, confirmRemoval, dnsLabel, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
 import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/login";
 import { configView, factsView, serverSettings } from "../../core/views";
+import { stampSummary, type StampStatus } from "../../core/version";
+import { LATEST_MIGRATION, migrateScript, READ_STAMP, stampOf } from "../../core/migrations";
 
 export const serverAdd = defineCommand({
   name: "server add",
@@ -257,6 +260,11 @@ export const serverSsh = defineCommand({
   },
 });
 
+const stampRow = (st: StampStatus) => {
+  const { text, note } = stampSummary(st);
+  return `${text}${note ? c.yellow(` · ${note}`) : ""}`;
+};
+
 export const serverInfo = defineCommand({
   name: "server info",
   args: "[name]",
@@ -283,6 +291,7 @@ export const serverInfo = defineCommand({
       ["init", f.init === "other" ? c.dim("no systemd or OpenRC") : f.init],
       ["docker", f.docker ? `${f.docker}${f.compose ? c.dim(` · compose ${f.compose}`) : c.yellow(" · no compose")}` : caps.why.docker!],
       ["firewall", f.ufw ? "ufw" : caps.can.firewall ? c.dim("none (lf setup installs ufw)") : c.dim(caps.why.firewall!)],
+      ["landfall", f.landfall ? stampRow(f.landfall) : c.dim("not set up (lf setup)")],
     ];
     for (const [k, v] of rows) console.log(`${c.dim(k.padEnd(8))} ${v}`);
     if (f.support.note) (f.support.level === "eol" || f.support.level === "unsupported" ? warn : info)(f.support.note);
@@ -290,6 +299,38 @@ export const serverInfo = defineCommand({
       console.log();
       await runScript(server, `docker ps --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}' 2>/dev/null || true`);
     }
+  },
+});
+
+export const serverUpgrade = defineCommand({
+  name: "server upgrade",
+  args: "[name]",
+  summary: `Bring a server up to date with this landfall: run the upgrades it lacks.
+
+The server notes in /opt/landfall/landfall.json the newest landfall that changed it and the upgrades it has.
+When a newer landfall changes how files on the server look, it brings an upgrade. Each one is journaled:
+\`lf undo\` reverts it. A server upgraded by a newer landfall than yours is refused: update lf first.`,
+  options: {
+    json: { type: "boolean", desc: "machine-readable output; changes nothing" },
+    "dry-run": { type: "boolean", desc: "only show the pending upgrades" },
+  },
+  async run([name], o) {
+    const { name: n, server } = resolveServer(name);
+    const { stdout } = await runScript(server, READ_STAMP, { capture: true });
+    const st = stampOf(stdout);
+    if (!st) return fail(`landfall has not set up ${n}: run \`lf setup ${n}\``);
+    if (o.json) return printJson(st);
+    const { text, note } = stampSummary(st);
+    if (st.migration > LATEST_MIGRATION) fail(`${n}: ${note}. Update lf first.`);
+    if (!st.pending.length) return ok(`${n} is up to date (landfall ${text})`);
+    info(`${n}: landfall ${text}`);
+    table(st.pending.map((m) => [`  ${m.id}`, m.what, c.dim(`since ${m.since}`)]));
+    if (o["dry-run"] || !(await confirm(`run ${plural(st.pending.length, "upgrade")} on ${n}?`))) return;
+    // Each migration checks the server's level itself: the script holds them all.
+    const login = st.pending.some((m) => m.admin) ? await adminLogin(server, "upgrading the server") : server;
+    step(`upgrading ${n}`);
+    await runScript(login, PRELUDE + migrateScript());
+    ok(`${n} is up to date (${plural(st.pending.length, "upgrade")} applied; \`lf undo\` reverts them)`);
   },
 });
 

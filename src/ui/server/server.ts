@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
-import pkg from "../../../package.json";
+import { updateCommand, VERSION } from "../../core/version";
 import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
 import { ENV_NAME, SECRET_NAME } from "../../core/compose";
 import { listServers, reachAll, target } from "../../core/dashboard";
@@ -43,7 +43,7 @@ import {
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
 import { c, CliError, openUrl } from "../../core/term";
-import { availableUpdate, updateCheckOff, updateCommand } from "../../core/self-update";
+import { availableUpdate, updateCheckOff } from "../../core/self-update";
 
 interface WebJob {
   id: string;
@@ -185,16 +185,18 @@ function projectHere() {
 
 // `lf ui` runs through the CLI, which refreshes the cached answer; this only reads it.
 function updateLine() {
-  const latest = updateCheckOff() ? undefined : availableUpdate(pkg.version);
-  return latest ? { latest, command: updateCommand() } : null;
+  const latest = updateCheckOff() ? undefined : availableUpdate(VERSION);
+  return latest ? { latest } : null;
 }
 
 export function state() {
   const cfg = loadConfig();
   return {
-    version: pkg.version,
+    version: VERSION,
     // A newer landfall on npm, from the daily check, and how to install it.
     update: updateLine(),
+    // How to update this landfall, wherever it was installed (a server a newer one changed says so).
+    updateCommand: updateCommand(),
     cwd: process.cwd(),
     project: projectHere(),
     projects: loadProjects(),
@@ -485,7 +487,7 @@ export async function webUi(o: { port?: number; open: boolean; args: JobArgsPoli
   if (port !== want) console.log(c.dim(`port ${want} is in use by another program: using ${port}`));
 
   const link = `http://127.0.0.1:${port}/login?t=${secret}`;
-  console.log(`${c.bold("lf ui")} ${c.dim(pkg.version)} on ${c.cyan(link)}`);
+  console.log(`${c.bold("lf ui")} ${c.dim(VERSION)} on ${c.cyan(link)}`);
   console.log(c.dim("Only this machine can reach it, and only with that link. Ctrl-C stops it (and any running commands)."));
   if (o.open) openUrl(link);
 

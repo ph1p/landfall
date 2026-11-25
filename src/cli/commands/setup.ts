@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { defineCommand } from "../cmd";
 import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, updateConfig, patchServer, tildify, type Server } from "../../core/config";
 import { securityNotes } from "../../core/security";
+import { migrateScript } from "../../core/migrations";
 import { canLogin, runScript } from "../../core/ssh";
 import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/sshconfig";
 import { assess, printChecks, probeServer, type Check, type Part } from "../../core/inventory";
@@ -222,7 +223,8 @@ dashboard unless given as flags.`,
     const bootstrap: Part[] = ["packages", "docker", "layout", "user", "firewall", "harden"];
     if (checks.some((ch) => bootstrap.includes(ch.part) && ch.status !== "done" && apply.has(ch.part))) {
       next("bootstrapping (docker, firewall, users, ssh hardening)");
-      await runScript(login, PRELUDE + BOOTSTRAP, {
+      // A fresh server starts at the latest migration (BOOTSTRAP); an existing one gets the migrations it lacks.
+      await runScript(login, PRELUDE + BOOTSTRAP + migrateScript(), {
         env: {
           PUBKEY: pubkey,
           DEPLOY_USER: deployUser,

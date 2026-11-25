@@ -74,6 +74,8 @@ export interface Release {
   git?: { commit: string; branch?: string; dirty?: boolean };
   /** Who deployed it: user@machine. */
   by?: string;
+  /** The landfall version that deployed it; missing on releases by landfall before 0.17. */
+  landfall?: string;
   /** package.json's server hooks as deployed: rollback and removal run the ones of the release they leave or reach. */
   hooks?: ReleaseHooks;
 }

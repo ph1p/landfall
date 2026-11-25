@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { join } from "node:path";
 import { configDir, envVar, writeAtomic } from "./config";
-import { cmpVersion } from "./updates";
+import { updateCommand, versionGt } from "./version";
 
 // Once a day landfall asks the npm registry for its newest version and remembers the answer here. The CLI mentions a
 // newer one on stderr at most once a day; `lf ui` shows it in its header. Nothing is installed by itself.
@@ -35,9 +35,6 @@ const write = (c: Cache) => {
   }
 };
 
-/** Releases come only from main, so npm's `latest` carries no prerelease tag to weigh. */
-export const newer = (a: string, b: string) => cmpVersion(a, b) > 0;
-
 /** Off with LANDFALL_NO_UPDATE_CHECK, NO_UPDATE_NOTIFIER or in CI, and when run from source (`pnpm dev`). */
 export function updateCheckOff(): boolean {
   const e = process.env;
@@ -64,15 +61,7 @@ export async function refreshUpdate(timeout = 3000): Promise<void> {
 
 /** The newest version the registry named, when it is newer than `current`. */
 export function availableUpdate(current: string, cache = read()): string | undefined {
-  return cache.latest && newer(cache.latest, current) ? cache.latest : undefined;
-}
-
-/** How to update, guessed from where this `lf` was installed. */
-export function updateCommand(bin = process.argv[1] ?? ""): string {
-  if (/[\\/]pnpm[\\/]/.test(bin)) return "pnpm add -g landfall@latest";
-  if (/[\\/]\.bun[\\/]/.test(bin)) return "bun add -g landfall@latest";
-  if (/[\\/]yarn[\\/]/.test(bin)) return "yarn global add landfall@latest";
-  return "npm i -g landfall@latest";
+  return cache.latest && versionGt(cache.latest, current) ? cache.latest : undefined;
 }
 
 /** The line the CLI prints, at most once a day while an update is waiting; undefined otherwise. */

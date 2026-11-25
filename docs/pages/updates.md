@@ -30,6 +30,33 @@ LANDFALL_NO_UPDATE_CHECK=1 lf ls   # one run without the check; export it to tur
 - No check without a terminal, in CI (`$CI`), or with `LANDFALL_NO_UPDATE_CHECK` or `NO_UPDATE_NOTIFIER` set.
 - Without network, it asks again after an hour. The answer lives in `~/.config/landfall/update-check.json`.
 
+## Servers and landfall versions
+
+```sh
+lf server info                     # the row "landfall": version that changed the server last, its upgrades
+lf server upgrade                  # run the upgrades this server lacks (asks first)
+lf server upgrade --dry-run        # only list them
+lf server upgrade --json           # version, newest, migration, pending, newer
+lf history                         # each run names the landfall version that made it
+```
+
+- Each line of the server journal names the landfall version that wrote it.
+  The last line tells which landfall changed the server last.
+- `/opt/landfall/landfall.json` holds two fields: `newest` and `migration`.
+- `newest` is the highest landfall that ever changed the server. It never goes down.
+- `migration` counts the upgrades the server has. Only `lf setup`, `lf server upgrade` and `lf undo` change it.
+- Each release in a site's `site.json` names the landfall that deployed it. `lf sites info` shows it.
+- When a newer landfall changed the server than the one you run, landfall warns on stderr and keeps going.
+  It warns once per command. Update with `npm i -g landfall@latest`.
+- An upgrade changes files landfall wrote before, in the shape a newer landfall expects. Each one is journaled.
+  `lf undo` reverts it and sets the count back.
+- `lf setup` runs the missing upgrades too. A fresh server starts with all of them.
+- `lf server upgrade` refuses a server that a newer landfall upgraded. Update lf first.
+- The web UI shows the version in the server's facts line. It turns yellow when the server needs attention.
+- When upgrades are pending, the web UI shows a note with an Upgrade button. It runs `lf server upgrade`.
+- When a newer landfall changed the server, the note offers to copy the update command instead.
+- The web UI's history names the landfall version of each run.
+
 ## Vulnerabilities
 
 ```sh

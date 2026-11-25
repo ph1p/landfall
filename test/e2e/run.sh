@@ -24,11 +24,12 @@ die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 # E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
 SECTIONS="static spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
-  system security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
+  system versions security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
 needs() {
   case $1 in
     environments) echo secrets ;;
     updates | traffic | prune) echo dockerfile ;;
+    versions) echo static ;;
     domains | traefik | remove) echo image ;;
     # main's traefik setup is the later run that keeps undo from reverting setup's traefik.
     undo) echo static dockerfile main firewall ;;
@@ -726,6 +727,32 @@ out=$(LANDFALL_SUDO_PASSWORD=e2e-sudo lf undo -s box -y 2>&1) || die "undo throu
 { ! docker exec "$NAME" sh -c 'ls /tmp/landfall-askpass.* 2>/dev/null' | has askpass; } || die "askpass helper left behind"
 pass "sudo with a password: hostname, undo"
 docker exec "$NAME" sh -c "sed -i '/^deploy:/d' /etc/shadow && printf '%s\n' '$shadow' >> /etc/shadow && rm /etc/sudoers.d/e2e"
+fi
+
+if want versions; then echo "== landfall versions"
+ver=$(node -p "require('$ROOT/package.json').version")
+stamp() { srv cat /opt/landfall/landfall.json; }
+restore() { printf '%s\n' "$saved" | docker exec -i "$NAME" sh -c 'cat > /opt/landfall/landfall.json'; }
+{ stamp | has "\"newest\":\"$ver\"" && lf server upgrade box --json | has -E '"pending": \[\]'; } || { stamp; die "setup stamps the server, up to date"; }
+pass "setup writes landfall.json with this version and every upgrade"
+{ srv cat /opt/landfall/sites/site/site.json | has -E "\"landfall\": *\"$ver\""; } || die "a release names the landfall that deployed it"
+pass "a release names the landfall that deployed it"
+{ lf history -s box | has "landfall $ver"; } || die "history names the landfall of each run"; pass "history names the landfall of each run"
+saved=$(stamp)
+srv sed -i 's/"migration":[0-9]*/"migration":99/' /opt/landfall/landfall.json
+{ lf server upgrade box --json | has '"newer": true'; } || die "server upgrade --json sees a newer server"
+{ lf server info box | has "a newer landfall"; } || die "server info names the newer landfall"
+out=$(lf server upgrade box -y 2>&1) && die "server upgrade refuses a server a newer landfall upgraded"
+{ grep -q "Update lf first" <<<"$out"; } || die "server upgrade says to update lf: $out"
+restore
+pass "server upgrade refuses a server a newer landfall upgraded"
+srv sed -i 's/"newest":"[^"]*"/"newest":"99.0.0"/' /opt/landfall/landfall.json
+out=$(lf log-limit 10m --files 2 -s box 2>&1) || die "log-limit with a newer landfall on the server: $out"
+{ grep -q "a newer landfall changed this server (99.0.0" <<<"$out" && [ "$(grep -c "a newer landfall" <<<"$out")" = 1 ] && stamp | has '"newest":"99.0.0"'; } \
+  || die "an older lf warns once, newest stays: $out"
+lf undo -s box -y >/dev/null 2>&1 || die "undo log-limit"
+restore
+pass "an older lf warns and keeps going"
 fi
 
 if want security; then echo "== security"

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lf-update-"));
 process.env.LANDFALL_CONFIG_DIR = dir;
-const { availableUpdate, newer, refreshUpdate, updateCommand, updateFile, updateNotice } = await import("../../src/core/self-update");
+const { availableUpdate, refreshUpdate, updateFile, updateNotice } = await import("../../src/core/self-update");
+const { updateCommand, versionGt: newer } = await import("../../src/core/version");
 
 const cache = () => JSON.parse(fs.readFileSync(updateFile(), "utf8"));
 const answer = (version: string) => vi.fn(async () => new Response(JSON.stringify({ version }), { status: 200 }));

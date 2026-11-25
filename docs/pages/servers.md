@@ -207,6 +207,7 @@ In the web UI:
 ### What setup leaves on the server
 
 - No agent or binary. `/opt/landfall` holds plain files: Compose projects, Traefik, the journal, a README.
+- `/opt/landfall/landfall.json` names the newest landfall that changed the server and the upgrades it has. `lf server info` shows it; `lf server upgrade` brings the server up to date ([Servers and landfall versions](updates.md#servers-and-landfall-versions)).
 - Packages: Docker, rsync, curl, ca-certificates; ufw, fail2ban, unattended-upgrades where they apply ([Packages by system](#packages-by-system)).
 - On apt, `apt-get clean` runs after each install.
 - A deploy keeps the newest 5 releases of a site (`--keep`), removes untagged images and trims the build cache.

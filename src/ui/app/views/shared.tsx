@@ -6,6 +6,7 @@ import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
 import { bytes as size, duration, pct } from "../../../core/format";
 import { isUp, statusKind } from "../../../core/status";
+import { stampSummary } from "../../../core/version";
 import { providerDialog } from "./flows";
 
 export { bytes as size, pct } from "../../../core/format";
@@ -147,6 +148,16 @@ export function FactsLine({ n }: { n: string }) {
       ""
     ),
     f.docker ? `docker ${f.docker}` : <span className="faint">no docker</span>,
+    f.landfall ? (
+      <span
+        className={cx(stampSummary(f.landfall, S.state.updateCommand).note && "text-warn")}
+        title={`Changed last by landfall ${f.landfall.version ?? "unknown"}, newest ${f.landfall.newest ?? "unknown"}, migration ${f.landfall.migration}; this landfall is ${S.state.version}`}
+      >
+        landfall {f.landfall.version ?? "unknown"}
+      </span>
+    ) : (
+      ""
+    ),
     f.reboot ? <Badge kind="warn">reboot required</Badge> : "",
   ];
   return (

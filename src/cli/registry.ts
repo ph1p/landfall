@@ -3,7 +3,18 @@ import { auth, domains, open } from "./commands/access";
 import { config } from "./commands/config";
 import { deploy } from "./commands/deploy";
 import { eject, init } from "./commands/init";
-import { serverAdd, serverConfig, serverDomain, serverInfo, serverList, serverRemove, serverSsh, serverUninstall, serverUse } from "./commands/server";
+import {
+  serverAdd,
+  serverConfig,
+  serverDomain,
+  serverInfo,
+  serverList,
+  serverRemove,
+  serverSsh,
+  serverUninstall,
+  serverUpgrade,
+  serverUse,
+} from "./commands/server";
 import { firewallAllow, firewallDeny, firewallDisable, firewallEnable, firewallRemove, firewallStatus, firewallUpdate } from "./commands/firewall";
 import { historyLog, historyUndo } from "./commands/history";
 import { keygen, setup } from "./commands/setup";
@@ -95,6 +106,7 @@ export const commands: Command[] = [
   serverAdd,
   serverList,
   serverInfo,
+  serverUpgrade,
   statsCmd,
   diskCmd,
   trafficCmd,

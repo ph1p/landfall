@@ -449,6 +449,7 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
               {r.git.dirty ? "*" : ""}
             </span>
           )}
+          {r.landfall && ` · landfall ${r.landfall}`}
         </div>
       </div>
       {r.id !== m.current && managed && (

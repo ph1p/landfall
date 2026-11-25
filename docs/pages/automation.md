@@ -26,7 +26,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | area | commands |
 |---|---|
 | sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check` |
-| servers | `server list`, `server info`, `server config`, `server domain`, `config` |
+| servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `redirects`, `history` |
@@ -80,6 +80,7 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 | what would prune remove? | `lf prune --dry-run --json` |
 | what did landfall change? | `lf history --json` |
 | which registries can the server pull from? | `lf registries --json` |
+| which landfall changed the server, what upgrades are pending? | `lf server upgrade --json` (changes nothing) |
 | what can the server do? | `lf server info --json` (OS support, cloud provider as `cloud`, login, init system, Docker) |
 
 ## What cannot be undone

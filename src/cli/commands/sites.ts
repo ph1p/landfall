@@ -122,7 +122,8 @@ export const sitesInfo = defineCommand({
       console.log(
         `${mark}${r.id}  ${c.dim(ago(r.at))}  ${c.dim(r.services.map((x) => x.name).join(", "))}${routes.length ? c.dim(`  → ${routes.join(", ")}`) : ""}`,
       );
-      if (r.git || r.by) console.log(c.dim(`    ${[gitLabel(r.git), r.by && `by ${r.by}`].filter(Boolean).join("  ")}`));
+      if (r.git || r.by || r.landfall)
+        console.log(c.dim(`    ${[gitLabel(r.git), r.by && `by ${r.by}`, r.landfall && `landfall ${r.landfall}`].filter(Boolean).join("  ")}`));
     }
   },
 });

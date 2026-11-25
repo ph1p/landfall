@@ -15,7 +15,8 @@ import { parsePrunePlan } from "../../src/core/manage";
 import { JOURNAL_KEEP_BYTES, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/reclaim";
 import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/users";
-import { cmpVersion, engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/updates";
+import { engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/updates";
+import { cmpVersion } from "../../src/core/version";
 import { BOOTSTRAP, CLOUD, PRELUDE, PROBE } from "../../src/core/templates";
 import { statusKind } from "../../src/core/compose";
 

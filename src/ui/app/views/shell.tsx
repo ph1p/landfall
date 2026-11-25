@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { S, render, plural, server, sv, tilde, useStore, type Slot } from "../lib/store";
 import type { Overview, ServerEntry } from "../lib/types";
 import { go, goMap, load, loadReach, needs, pluginNameOf, SECTIONS, STORE, type CoreTab, type Tab } from "../lib/api";
-import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
+import { ifOk, run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
 import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, badgeClass, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
@@ -36,6 +36,7 @@ import { HomeView } from "./home";
 import { MapView } from "./map";
 import { PluginView } from "./plugin";
 import type { PanelIcon } from "../../../core/plugin-api";
+import { stampSummary } from "../../../core/version";
 import { SitesView } from "./sites";
 import {
   Activity,
@@ -110,8 +111,8 @@ function Header() {
         <button
           type="button"
           className={cx(badgeClass("accent"), "cursor-pointer hover:brightness-110 max-[760px]:hidden")}
-          title={`landfall ${st.update.latest} is available. Click to copy: ${st.update.command}`}
-          onClick={() => copy(st.update!.command)}
+          title={`landfall ${st.update.latest} is available. Click to copy: ${st.updateCommand}`}
+          onClick={() => copy(st.updateCommand)}
         >
           {st.update.latest} available
         </button>
@@ -627,11 +628,40 @@ function Main() {
         </div>
       </div>
       <FactsNote n={n} />
+      <LandfallNote n={n} />
       <div className="hidden max-[760px]:flex gap-1 p-1 bg-hover rounded-md mb-[18px] overflow-x-auto [scrollbar-width:none] sticky -top-3.5 z-2">
         <SectionButtons n={n} />
       </div>
       <View n={n} ov={ov} />
     </>
+  );
+}
+
+/** The server's landfall is ahead of this one (update lf), or behind it (lf server upgrade). */
+function LandfallNote({ n }: { n: string }) {
+  const st = S.facts[n]?.data?.landfall;
+  const note = st && stampSummary(st, S.state.updateCommand).note;
+  if (!st || !note) return null;
+  return (
+    <Note kind="warn" className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <span className="flex-1 min-w-0">
+        landfall on {n}: {note}
+        {!st.newer && <span className="dim"> ({st.pending.map((m) => m.what).join("; ")})</span>}
+      </span>
+      {st.newer ? (
+        <Btn cls="sm" title={`Copy: ${S.state.updateCommand}`} on={() => copy(S.state.updateCommand)}>
+          Copy update command
+        </Btn>
+      ) : (
+        <Btn
+          cls="sm"
+          title="lf server upgrade: journaled, lf undo reverts it"
+          on={() => void run(["server", "upgrade", n, "-y"], { server: n, after: ifOk(() => load(n, S.tab, true)) })}
+        >
+          Upgrade
+        </Btn>
+      )}
+    </Note>
   );
 }
 

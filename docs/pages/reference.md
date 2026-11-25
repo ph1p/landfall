@@ -21,7 +21,8 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf setup <name> --key-only` | Only installs landfall's ssh key. |
 | `lf server add <name> [--host ip] [-u user] [-p port] [-i key] [--password-stdin] [--domain d] [--email e] [--cloud provider] [--no-ssh-config] [--default]` | Registers a server, installs nothing. Writes `Host <name>` to `~/.ssh/config`. |
 | `lf server list [-a] [-c] [--json]` | Registered servers. `--all` adds ssh aliases except git hosts (github.com, `gitlab.*`, `User git` …). `--check` tries a key login: `ok`, `login` (key refused) or `down`. Alias: `servers`. |
-| `lf server info [name] [--json]` | OS and release support, kernel, uptime, CPU, RAM, disk, addresses, containers. Alias: `info`. |
+| `lf server info [name] [--json]` | OS and release support, kernel, uptime, CPU, RAM, disk, addresses, containers, the landfall version that changed the server last. Alias: `info`. |
+| `lf server upgrade [name] [--dry-run] [--json]` | Runs the upgrades a server written by an older landfall lacks. Journaled, `lf undo` reverts each. Refuses a server a newer landfall upgraded. `--json` changes nothing. |
 | `lf stats [site] [-w] [--interval 5] [--json]` | Live CPU, memory, swap, disks, network, top processes, per-container usage and restarts. A site limits it to its containers. `-w` refreshes every `--interval` seconds. Alias: `server stats`. |
 | `lf disk [--json]` | Disk use: filesystems, Docker images, containers, volumes, build cache (reclaimable), sites and releases, largest volumes and logs, systemd journal. Alias: `server disk`. |
 | `lf traffic [site] [--since 24h] [--json]` | Requests, 4xx/5xx, median and 95% response time, bytes per site, from Traefik's access log. A site or host adds requests per minute/hour, top paths, failures, clients. Alias: `server traffic`. |

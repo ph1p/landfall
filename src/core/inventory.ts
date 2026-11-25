@@ -2,7 +2,7 @@ import type { Server } from "./config";
 import { runScript } from "./ssh";
 import { passwordOnly } from "./security";
 import { kvLine, parseProxy, PRELUDE, PROBE, ROOT, TRAEFIK_DIR, type Proxy } from "./templates";
-import { cmpVersion } from "./updates";
+import { cmpVersion } from "./version";
 import { c, info } from "./term";
 
 export interface Listener {

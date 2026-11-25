@@ -69,6 +69,7 @@ export function HistoryView({ n }: { n: string }) {
               <span className="dim">{ago(r.time)}</span>
               <span className={cx("faint mono", HIDE)}>
                 {r.actor} · {r.id}
+                {r.landfall && ` · landfall ${r.landfall}`}
               </span>
               <Actions>
                 {r.pending ? (

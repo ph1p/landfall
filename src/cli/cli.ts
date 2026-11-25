@@ -11,7 +11,7 @@ import { exitWithParent } from "../core/job";
 import { journal, setSudoPassword } from "../core/ssh";
 import { askSecret, c, CliError, report, setAssumeYes } from "../core/term";
 import { refreshUpdate, updateCheckOff, updateNotice } from "../core/self-update";
-import pkg from "../../package.json";
+import { VERSION } from "../core/version";
 
 function help() {
   const groups: [string, string[]][] = [
@@ -22,6 +22,7 @@ function help() {
         "server add",
         "server list",
         "server info",
+        "server upgrade",
         "stats",
         "disk",
         "prune",
@@ -112,7 +113,7 @@ function help() {
   const rest = [...byName.keys()].filter((n) => !listed.has(n));
   if (rest.length) groups.push(["More", rest]);
   const lines = [
-    `${c.bold("landfall")} ${c.dim(pkg.version)} — set up servers and deploy sites behind Traefik + HTTPS`,
+    `${c.bold("landfall")} ${c.dim(VERSION)} — set up servers and deploy sites behind Traefik + HTTPS`,
     "",
     `${c.bold("Usage:")} lf <command> [options]       ${c.dim("lf <command> --help for details")}`,
     `       lf ui                        ${c.dim("web dashboard in your browser")}`,
@@ -149,7 +150,7 @@ async function main(argv: string[], sudoPassword?: string): Promise<number> {
     return 0;
   }
   if (argv[0] === "-v" || argv[0] === "--version" || argv[0] === "version") {
-    console.log(pkg.version);
+    console.log(VERSION);
     return 0;
   }
   const { cmd, rest } = find(argv);
@@ -191,7 +192,7 @@ async function run(argv: string[]): Promise<number> {
   const code = await runCommand(argv);
   // A quick command would exit before the registry answers: give it a moment, never more.
   if (check) await Promise.race([check, delay(800)]);
-  const notice = updates ? updateNotice(pkg.version) : undefined;
+  const notice = updates ? updateNotice(VERSION) : undefined;
   if (notice) console.error(`\n${c.dim(notice)}`);
   return code;
 }
