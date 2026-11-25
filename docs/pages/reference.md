@@ -66,7 +66,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf deploy [dir] [-d domain...] [--no-domain] [-n name] [-f file] [-b cmd] [--start cmd] [--volume path...] [--worker] [--spa] [--image img [--send-image]] [--port n] [-e K=V] [--dotenv f\|-] [--local-env] [--fill-volumes] [--build-local] [--static] [--gitignore] [--keep n] [--redirect host...] [--no-redirect] [--no-save] [--auth-user u] [--auth-password p] [--host ip [-u user] [--ssh-port p] [--password-stdin]] [--skip-hook name...] [--skip-hooks]` | Deploys a Compose project, app (Node.js, Bun, Deno, Python, Go, Rust, Java, .NET, Ruby, PHP, Elixir), static folder, Dockerfile or image. Sets the server up if needed. Runs [hooks](hooks.md). `--no-save`: no `.landfall.json`. `--redirect`: the site's redirect hosts, as `lf domains --redirect`; `--no-redirect` removes them. `--auth-user`: a login, as `lf auth`. |
 | `lf ls [--json] [--others]` | Sites and status, plus other containers Traefik routes (read only). `--json --others` gives `{sites, others}`. Alias: `sites list`. |
 | `lf sites info [name] [--json]` | Services, domains, release history. |
-| `lf domains [name] [-a d] [--rm d] [--set d] [--redirect d] [--json]` | Domains and redirects with DNS and HTTPS state, or changes them. No domains: unrouted. `--redirect www`: www.<first domain> redirects to the first domain. |
+| `lf domains [name] [-a d] [--rm d] [--set d] [--redirect d] [--json]` | Domains and redirects with DNS and HTTPS state, or changes them. No domains: unrouted. `--redirect www`: `www.<first domain>` redirects to the first domain. |
 | `lf auth [name] [-r route] -u user [-p pw \| --password-stdin]` / `--rm-user u` / `--off` / `-r route --public` | Basic-auth login for a site; `-r` for one route, or none. |
 | `lf open [name]` | In the browser. |
 | `lf logs [name] [service] [-f] [-n 100]` | All services, or one. |
@@ -178,7 +178,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `name` | the site name |
 | `server` | the server to deploy to (`-s`) |
 | `domains` | the site's domains; empty means the default (`<site>.<main domain>` or sslip.io) |
-| `redirects` | hosts that redirect permanently to the first domain (`www` = www.<first domain>); not inherited by environments |
+| `redirects` | hosts that redirect permanently to the first domain (`www` = `www.<first domain>`); not inherited by environments |
 | `compose` | the compose file to deploy (default: `compose.yaml`, or the one `docker compose` would pick) |
 | `dir` | without a compose file: the static folder or Dockerfile folder to deploy |
 | `static` / `spa` | serve the folder as static files / with an SPA fallback to `index.html` |
