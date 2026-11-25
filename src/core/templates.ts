@@ -36,7 +36,7 @@ ver_gt() {
 _stamp_get() { [ -f ${STAMP_FILE} ] || return 0; sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p" ${STAMP_FILE} 2>/dev/null | head -n1 || true; }
 # _stamp_level: the migrations applied. Without landfall.json: $_stamp_fresh, which setup sets on a fresh server (nothing to migrate), else 0.
 _stamp_fresh=
-_stamp_level() { local l; l=$(_stamp_get migration); [ -f ${STAMP_FILE} ] || l=$_stamp_fresh; case "$l" in ''|*[!0-9]*) l=0 ;; esac; printf %s "$l"; }
+_stamp_level() { local l=$_stamp_fresh; [ ! -f ${STAMP_FILE} ] || l=$(_stamp_get migration); case "$l" in ''|*[!0-9]*) l=0 ;; esac; printf %s "$l"; }
 # _stamp_write <level> <newest>: never fails a script.
 _stamp_write() {
   printf '{"newest":"%s","migration":%s}\n' "$2" "$1" | _put ${STAMP_FILE} 2>/dev/null || log "warning: could not write ${STAMP_FILE}"
@@ -455,7 +455,8 @@ deploys and rollbacks. "lf sites rm" keeps them; "lf sites rm --volumes" deletes
  */
 export const BOOTSTRAP = String.raw`
 # A fresh server (no sites dir yet) needs no migration: its first journaled change stamps the latest level.
-[ -d ${SITES} ] || _stamp_fresh=$LANDFALL_MIGRATION
+new_sites=$([ -d ${SITES} ] || echo 1)
+[ -z "$new_sites" ] || _stamp_fresh=$LANDFALL_MIGRATION
 ${COMPOSE_INSTALL}
 if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
   echo "setup needs root or sudo for $(id -un) (try: lf setup <name> --user root, or -K for the sudo password)" >&2
@@ -532,7 +533,6 @@ else
 fi
 
 log "preparing ${ROOT}"
-new_sites=$([ -d ${SITES} ] || echo 1)
 new_traefik=$([ -d ${TRAEFIK_DIR} ] || echo 1)
 $SUDO install -d -o "$OWNER" -g "$OWNER" ${ROOT} ${SITES} ${TRAEFIK_DIR}
 $SUDO chown "$OWNER:$OWNER" ${JOURNAL} 2>/dev/null || true

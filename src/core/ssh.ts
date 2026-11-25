@@ -12,13 +12,13 @@ import { ROOT } from "./templates";
 import { c, CliError, fail, REPORT } from "./term";
 import { updateCommand, VERSION } from "./version";
 
+export { shq };
+
 let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
 export const setQuiet = (v: boolean) => (quiet = v);
 /** How to update this CLI; it depends only on the binary's path, so it is computed once. */
 const UPDATE = updateCommand();
-
-export { shq } from "./quote";
 
 export interface SshOpts {
   /** Allocate a TTY (interactive commands). */
