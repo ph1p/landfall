@@ -507,6 +507,9 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
   });
 }
 
-/** Shell snippet that writes `content` to `path` byte-exact (base64 avoids any quoting issues). */
+/**
+ * Shell snippet that writes `content` to `path` byte-exact (base64 avoids any quoting issues), through PRELUDE's
+ * _put: atomically, and never readable by others before it has its mode.
+ */
 export const writeFileCmd = (path: string, content: string, mode = "644") =>
-  `printf %s ${shq(Buffer.from(content).toString("base64"))} | base64 -d > ${shq(path)} && chmod ${mode} ${shq(path)}`;
+  `printf %s ${shq(Buffer.from(content).toString("base64"))} | base64 -d | _put ${shq(path)} ${mode}`;

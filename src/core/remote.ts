@@ -573,8 +573,8 @@ function splitLines(meta: SiteMeta, release: Release): string[] {
   if (!text) return [rmSplit(meta.name)];
   return [
     `{ [ ! -f ${PROXY_FILE} ] && ${OWN_TRAEFIK}; } || { echo ${shq(`${meta.name} splits its traffic by weight, which needs landfall's own Traefik (its file provider): lf traefik setup, or drop x-landfall.weight`)} >&2; exit 1; }`,
-    // _put: Traefik watches the directory and must never read half a file.
-    `printf %s ${shq(Buffer.from(text).toString("base64"))} | base64 -d | _put ${shq(path)}`,
+    // Atomic (_put): Traefik watches the directory and must never read half a file.
+    writeFileCmd(path, text),
   ];
 }
 

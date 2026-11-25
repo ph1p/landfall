@@ -20,11 +20,20 @@ describe("shell quoting", () => {
     expect(out).toBe(nasty);
   });
 
-  test("writeFileCmd writes bytes exactly", () => {
+  test("writeFileCmd writes bytes exactly, replacing the file, in its mode", () => {
     const dir = tmp();
+    const f = join(dir, "f");
+    const write = (content: string, mode?: string) =>
+      spawnSync("bash", ["-c", `set -euo pipefail\n${PRELUDE}\n${writeFileCmd(f, content, mode)}`], { env: { PATH: process.env.PATH } }).status;
     const content = "a $b `c` 'd'\n\\e\n";
-    spawnSync("sh", ["-c", writeFileCmd(join(dir, "f"), content)]);
-    expect(fs.readFileSync(join(dir, "f"), "utf8")).toBe(content);
+    expect(write("old, and longer than the new content\n")).toBe(0);
+    expect(write(content, "600")).toBe(0);
+    expect(fs.readFileSync(f, "utf8")).toBe(content);
+    expect(fs.statSync(f).mode & 0o777).toBe(0o600);
+    expect(write(content)).toBe(0);
+    expect(fs.statSync(f).mode & 0o777).toBe(0o644);
+    // No temp file is left behind.
+    expect(fs.readdirSync(dir)).toEqual(["f"]);
   });
 
   test("compose_ok wants compose 2.24 or newer", () => {

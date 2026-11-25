@@ -317,12 +317,14 @@ record() {
 }
 # Run as $SUDO only when <dir> is not writable: deploy users own ${ROOT} and need no sudo.
 _as() { if [ -w "$1" ]; then shift; "$@"; else shift; $SUDO "$@"; fi; }
-# _put <file>: stdin to <file>, mode 644. A temp file, then mv: readers never see half a file, and a root-owned one is replaced too.
+# _put <file> [mode]: stdin to <file>, mode 644 unless given. A temp file, then mv: readers never see half a file,
+# a root-owned one is replaced too, and a secret is never readable by others (mktemp makes the temp file 600).
 _put() {
-  local d t
+  local d t m=644
+  [ $# -lt 2 ] || m=$2
   d=$(dirname "$1")
   t=$(_as "$d" mktemp "$d/.$(basename "$1").XXXXXX") || return 1
-  { _as "$d" tee "$t" >/dev/null && _as "$d" chmod 644 "$t" && _as "$d" mv -f "$t" "$1"; } || { _as "$d" rm -f "$t"; return 1; }
+  { _as "$d" tee "$t" >/dev/null && _as "$d" chmod "$m" "$t" && _as "$d" mv -f "$t" "$1"; } || { _as "$d" rm -f "$t"; return 1; }
 }
 # saved <file>: back the file up, print the shell that puts it back (or removes it if it was new).
 saved() {
