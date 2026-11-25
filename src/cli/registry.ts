@@ -65,7 +65,17 @@ import { scanCmd } from "./commands/scan";
 import { scale, weight } from "./commands/scale";
 import { registryList, registryLoginCmd, registryLogoutCmd } from "./commands/registries";
 import { redirectAdd, redirectRemove, redirectsList } from "./commands/redirects";
-import { traefikAccessLog, traefikDashboard, traefikLogs, traefikRemove, traefikRestart, traefikSetup, traefikStatus, traefikUse } from "./commands/traefik";
+import {
+  traefikAccessLog,
+  traefikDashboard,
+  traefikLogs,
+  traefikRemove,
+  traefikRestart,
+  traefikSetup,
+  traefikStatus,
+  traefikStrictTls,
+  traefikUse,
+} from "./commands/traefik";
 
 /** Registration only: importing commands must never start the CLI. */
 export const commands: Command[] = [
@@ -158,6 +168,7 @@ export const commands: Command[] = [
   traefikDashboard,
   traefikRestart,
   traefikAccessLog,
+  traefikStrictTls,
   traefikLogs,
   traefikRemove,
   firewallStatus,

@@ -34,7 +34,7 @@ lp=$(printf '%s
 ' "$($S sh -c '[ -r "$1" ] && du -kc "$1" "$1".* 2>/dev/null | tail -n 1 | cut -f1' sh "$lp")"`;
 
 /** `--accesslog.format=json` → ["accesslog.format", "json"]; `TRAEFIK_ACCESSLOG_FORMAT=json` the same. */
-function setting(s: string, env: boolean): [string, string] {
+export function setting(s: string, env: boolean): [string, string] {
   const i = s.indexOf("=");
   const k = (i < 0 ? s : s.slice(0, i)).toLowerCase();
   return [env ? k.replace(/^traefik_/, "").replace(/_/g, ".") : k.replace(/^-+/, ""), i < 0 ? "" : s.slice(i + 1)];
@@ -89,40 +89,58 @@ export function parseProxyLog(out: string): ProxyLog | undefined {
 const isAccessLog = (k: string) => k === "accesslog" || k.startsWith("accesslog.");
 
 /**
- * The compose file with ACCESS_LOG_FLAGS added to `service`'s command list. Only new lines are inserted, after the
- * last item and in its indent and quoting: comments and formatting stay byte for byte. An error says why not.
+ * The compose file with `add` appended to the block list at `path` (a service's command or volumes). Only new lines
+ * are inserted, after the last item and in its indent and quoting: comments and formatting stay byte for byte.
+ * `what` names the list in errors.
  */
-export function withAccessLog(text: string, service: string): { text: string; added: string[] } | { error: string } {
+export function appendItems(text: string, path: string[], add: string[], what: string): { text: string } | { error: string } {
+  if (!add.length) return { text };
+  const seq = parseDocument(text).getIn(path, true);
+  if (!isSeq(seq) || seq.flow || !seq.items.length || !seq.items.every(isScalar)) return { error: `${what} is not a list, one item per line` };
+  const items = seq.items as Scalar[];
+  const last = items[items.length - 1];
+  const [start, end] = last.range!;
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  const prefix = text.slice(lineStart, start);
+  if (!/^[ \t]*-[ \t]+$/.test(prefix)) return { error: `${what} is not a list, one item per line` };
+  const nl = text.indexOf("\n", end);
+  const at = nl < 0 ? text.length : text[nl - 1] === "\r" ? nl - 1 : nl;
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const quote = last.type === Scalar.QUOTE_DOUBLE ? '"' : last.type === Scalar.QUOTE_SINGLE ? "'" : "";
+  const next = text.slice(0, at) + add.map((f) => `${eol}${prefix}${quote}${f}${quote}`).join("") + text.slice(at);
+  // The new file must say what we meant: the old list plus the new items, nothing else.
+  const check = parseDocument(next).getIn(path);
+  const want = [...items.map((x) => String(x.value)), ...add];
+  if (!isSeq(check) || JSON.stringify(check.toJSON()) !== JSON.stringify(want)) return { error: `landfall could not add to ${what} safely` };
+  return { text: next };
+}
+
+/** The flags of `service`'s command, one scalar per line, or why it has none landfall can edit. */
+export function commandOf(text: string, service: string): { items: Scalar[] } | { error: string } {
   const doc = parseDocument(text);
   if (doc.errors.length) return { error: `it is not valid YAML (${doc.errors[0].message.split("\n")[0]})` };
   if (!doc.hasIn(["services", service])) return { error: `it has no service ${service}` };
   const cmd = doc.getIn(["services", service, "command"], true);
   if (cmd === undefined) return { error: `${service} has no command: its traefik is configured by a file` };
-  if (!isSeq(cmd) || cmd.flow || !cmd.items.length || !cmd.items.every(isScalar))
-    return { error: `the command of ${service} is not a list of flags, one per line` };
-  const items = cmd.items as Scalar[];
-  const set = new Map(items.map((x) => setting(String(x.value), false)));
+  if (!isSeq(cmd) || cmd.flow || !cmd.items.every(isScalar)) return { error: `the command of ${service} is not a list of flags, one per line` };
+  return { items: cmd.items as Scalar[] };
+}
+
+/**
+ * The compose file with ACCESS_LOG_FLAGS added to `service`'s command list. Only new lines are inserted, after the
+ * last item and in its indent and quoting: comments and formatting stay byte for byte. An error says why not.
+ */
+export function withAccessLog(text: string, service: string): { text: string; added: string[] } | { error: string } {
+  const cmd = commandOf(text, service);
+  if ("error" in cmd) return cmd;
+  const set = new Map(cmd.items.map((x) => setting(String(x.value), false)));
   const clash = [...set].find(
     ([k, v]) => (k === "accesslog" && v.toLowerCase() === "false") || k === "accesslog.filepath" || (k === "accesslog.format" && v.toLowerCase() !== "json"),
   );
   if (clash) return { error: `its command already sets --${clash[0]}=${clash[1]}` };
   const added = ACCESS_LOG_FLAGS.filter((f) => !set.has(setting(f, false)[0]));
-  if (!added.length) return { text, added };
-  const last = items[items.length - 1];
-  const [start, end] = last.range!;
-  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  const prefix = text.slice(lineStart, start);
-  if (!/^[ \t]*-[ \t]+$/.test(prefix)) return { error: `the command of ${service} is not a list of flags, one per line` };
-  const nl = text.indexOf("\n", end);
-  const at = nl < 0 ? text.length : text[nl - 1] === "\r" ? nl - 1 : nl;
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const quote = last.type === Scalar.QUOTE_DOUBLE ? '"' : last.type === Scalar.QUOTE_SINGLE ? "'" : "";
-  const next = text.slice(0, at) + added.map((f) => `${eol}${prefix}${quote}${f}${quote}`).join("") + text.slice(at);
-  // The new file must say what we meant: the old command plus the flags, nothing else.
-  const check = parseDocument(next).getIn(["services", service, "command"]);
-  const want = [...items.map((x) => String(x.value)), ...added];
-  if (!isSeq(check) || JSON.stringify(check.toJSON()) !== JSON.stringify(want)) return { error: `landfall could not add the flags to ${service} safely` };
-  return { text: next, added };
+  const r = appendItems(text, ["services", service, "command"], added, `the command of ${service}`);
+  return "error" in r ? r : { text: r.text, added };
 }
 
 /**
@@ -130,13 +148,9 @@ export function withAccessLog(text: string, service: string): { text: string; ad
  * An error says why not, for example when the log is set by variables or a config file.
  */
 export function withoutAccessLog(text: string, service: string): { text: string; removed: string[] } | { error: string } {
-  const doc = parseDocument(text);
-  if (doc.errors.length) return { error: `it is not valid YAML (${doc.errors[0].message.split("\n")[0]})` };
-  if (!doc.hasIn(["services", service])) return { error: `it has no service ${service}` };
-  const cmd = doc.getIn(["services", service, "command"], true);
-  if (cmd === undefined) return { error: `${service} has no command: its traefik is configured by a file` };
-  if (!isSeq(cmd) || cmd.flow || !cmd.items.every(isScalar)) return { error: `the command of ${service} is not a list of flags, one per line` };
-  const items = cmd.items as Scalar[];
+  const cmd = commandOf(text, service);
+  if ("error" in cmd) return cmd;
+  const items = cmd.items;
   const drop = items.filter((x) => isAccessLog(setting(String(x.value), false)[0]));
   const removed = drop.map((x) => String(x.value));
   if (!drop.length) return { text, removed };
@@ -222,9 +236,8 @@ esac`,
 /** What `lf traefik access-log --json` prints: the proxy, its access log and Docker's log of it. */
 export const accessLogStatus = (p: ProxyCompose) => ({ container: p.container, own: p.own, accessLog: p.accessLog, log: p.log ?? null });
 
-/** The compose file `lf traefik access-log on|off` writes, and what it needs to recreate the proxy from it. */
-export interface AccessLogPlan {
-  on: boolean;
+/** Where your own Traefik's compose service lives, as read: what landfall needs to rewrite it and recreate the proxy. */
+export interface ComposeTarget {
   container: string;
   project: string;
   dir: string;
@@ -232,32 +245,53 @@ export interface AccessLogPlan {
   file: string;
   /** Of the file as read: writing refuses when it changed since. */
   sha256: string;
+  /** The file as read. */
   text: string;
-  /** The flags added (on) or removed (off); empty when there is nothing to change. */
-  changed: string[];
 }
 
-/** What `lf traefik access-log on|off` would write to your own Traefik's compose file, or why it cannot. */
-export function planAccessLog(p: ProxyCompose, on = true): AccessLogPlan | { error: string } {
+/** The proxy's compose file landfall may rewrite, or why it cannot. */
+export function composeTarget(p: ProxyCompose): ComposeTarget | { error: string } {
   const { container, project, dir, service, files, text, sha256 } = p;
   if (!files.length || !project || !service || !dir) return { error: `${container} was not started by Docker Compose` };
   if (files.length > 1) return { error: `${container} comes from several compose files (${files.join(", ")})` };
   const file = files[0];
   if (text === undefined || sha256 === undefined)
     return { error: p.root ? `${file} is not on the server (was ${container} started from another machine?)` : `${file} needs root to read` };
-  const r = on ? withAccessLog(text, service) : withoutAccessLog(text, service);
-  if ("error" in r) return { error: `${file}: ${r.error}` };
+  return { container, project, dir, service, file, sha256, text };
+}
+
+/** The compose file `lf traefik access-log on|off` writes, and what it needs to recreate the proxy from it. */
+export interface AccessLogPlan extends ComposeTarget {
+  on: boolean;
+  /** The flags added (on) or removed (off); empty when there is nothing to change. */
+  changed: string[];
+}
+
+/** What `lf traefik access-log on|off` would write to your own Traefik's compose file, or why it cannot. */
+export function planAccessLog(p: ProxyCompose, on = true): AccessLogPlan | { error: string } {
+  const t = composeTarget(p);
+  if ("error" in t) return t;
+  const r = on ? withAccessLog(t.text, t.service) : withoutAccessLog(t.text, t.service);
+  if ("error" in r) return { error: `${t.file}: ${r.error}` };
   const changed = "added" in r ? r.added : r.removed;
   // Off, but the log comes from variables or a config file: removing no flags would change nothing.
-  if (!on && !changed.length && p.accessLog !== "off") return { error: `${file}: the access log of ${service} is not set by flags in its command` };
-  return { on, container, project, dir, service, file, sha256, text: r.text, changed };
+  if (!on && !changed.length && p.accessLog !== "off") return { error: `${t.file}: the access log of ${t.service} is not set by flags in its command` };
+  return { ...t, on, text: r.text, changed };
 }
 
 /** Shell: recreate the proxy's compose service, with sudo when the compose file is not readable. */
-const composeUp = (p: AccessLogPlan) => {
+export const composeUp = (p: Omit<ComposeTarget, "sha256" | "text" | "container">) => {
   const args = `-p ${shq(p.project)} --project-directory ${shq(p.dir)} -f ${shq(p.file)} up -d ${shq(p.service)}`;
   return `if [ -r ${shq(p.file)} ]; then dc ${args}; else $SUDO docker compose ${args}; fi`;
 };
+
+/** Shell: write `text` over the compose file at `$f` (dir `$d`) only if it did not change since landfall read it; `$u` restores it. */
+export const rewriteCompose = (t: { file: string; sha256: string; text: string }) => `f=${shq(t.file)}; d=$(dirname "$f")
+[ "$(_as "$d" sha256sum "$f" | cut -d' ' -f1)" = ${shq(t.sha256)} ] || { echo "$f changed since landfall read it; run the command again" >&2; exit 1; }
+read -r m o < <(_as "$d" stat -c '%a %u:%g' "$f")
+u=$(saved "$f")
+${writeFileCmd(t.file, t.text, '"$m"')}
+_as "$d" chown "$o" "$f" 2>/dev/null || true`;
 
 /** Writes the planned compose file (only if it did not change since it was read), journals it, recreates the proxy. */
 export async function writeAccessLog(server: Server, plan: AccessLogPlan) {
@@ -265,12 +299,7 @@ export async function writeAccessLog(server: Server, plan: AccessLogPlan) {
   await runScript(
     server,
     `${PRELUDE}
-f=${shq(plan.file)}; d=$(dirname "$f")
-[ "$(_as "$d" sha256sum "$f" | cut -d' ' -f1)" = ${shq(plan.sha256)} ] || { echo "$f changed since landfall read it; run the command again" >&2; exit 1; }
-read -r m o < <(_as "$d" stat -c '%a %u:%g' "$f")
-u=$(saved "$f")
-${writeFileCmd(plan.file, plan.text, '"$m"')}
-_as "$d" chown "$o" "$f" 2>/dev/null || true
+${rewriteCompose(plan)}
 record ${shq(`turned ${plan.on ? "on the JSON" : "off the"} access log of traefik ${plan.container} (${plan.file})`)} "$u"${shq(` && ${up}`)}
 log ${shq(`recreating ${plan.container}`)}
 ${up}

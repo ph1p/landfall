@@ -1,5 +1,6 @@
 import { defineCommand, logOpts, serverOpt } from "../cmd";
-import { accessLogStatus, clearProxyLog, planAccessLog, readProxyCompose, writeAccessLog } from "../../core/accesslog";
+import { accessLogStatus, clearProxyLog, composeTarget, planAccessLog, readProxyCompose, writeAccessLog } from "../../core/accesslog";
+import { DEFAULT_CERT_HINT, fileProvider, planStrictTls, readDynamicDir, unknownHostsOf, writeStrictTls, type UnknownHostsCheck } from "../../core/stricttls";
 import { bytes } from "../../core/format";
 import { adminLogin } from "../../core/privilege";
 import { ACCESS_LOG_HINT, logLimitText, type AccessLog } from "../../core/traffic";
@@ -10,7 +11,7 @@ import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikSt
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/tunnel";
 import { runScript, shq, sshExec } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/templates";
-import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table } from "../../core/term";
+import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table, warn } from "../../core/term";
 
 /** lf traefik setup: install or reconfigure landfall's Traefik, after the checks that keep it from breaking the server. */
 async function setupTraefik(name: string, server: Server, opts: Parameters<typeof installTraefik>[2]) {
@@ -92,6 +93,7 @@ except for lf traefik access-log when you run it.`,
     const missing = (["network", "entrypoint", "resolver"] as const).filter((k) => !p[k]);
     if (missing.length) fail(`could not read the ${missing.join(", ")} of ${container}; pass ${missing.map((m) => `--${m}`).join(" ")}`);
     await useProxy(server, p as Proxy);
+    if ((await unknownHostsOf(server)).state === "default-cert") warnDefaultCert(o.server ? ` -s ${name}` : "");
   },
 });
 
@@ -129,15 +131,17 @@ export const traefikStatus = defineCommand({
   summary: "Show traefik container state and the routes it serves.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { server } = resolveServer(o.server);
+    const { name, server } = resolveServer(o.server);
     const st = await traefikStatusOf(server);
-    if (o.json) return void printJson(st);
+    const unknownHosts = st.container ? await unknownHostsOf(server) : undefined;
+    if (o.json) return void printJson({ ...st, unknownHosts });
     if (st.foreign) console.log(`${st.foreign} is a traefik landfall does not use: lf traefik use ${st.foreign} routes sites through it`);
     if (!st.container) return void console.log("traefik is not installed (lf traefik setup)");
     if (st.own) console.log(`your own traefik, landfall only routes sites through it (${PROXY_FILE})`);
     const x = st.container;
     console.log(`${x.name}  ${x.image}  ${x.status}  network ${x.networks.join(",")}\n\nroutes:`);
     for (const r of st.routes) console.log(`  ${r.container}  ${r.rule}  (${r.entrypoints.join(",")})`);
+    if (unknownHosts?.state === "default-cert") warnDefaultCert(o.server ? ` -s ${name}` : "");
   },
 });
 
@@ -238,6 +242,86 @@ const ACCESS_LOG_TEXT: Record<AccessLog, string> = {
   file: "on, written to a file in the container (lf traffic reads stdout)",
   unknown: "set by a config file landfall does not read",
 };
+
+/** Unknown hostnames get Traefik's default certificate: say so and how to refuse them. */
+function warnDefaultCert(via: string) {
+  warn(DEFAULT_CERT_HINT);
+  info(c.dim(`lf traefik strict-tls${via} on refuses them: browsers say the site cannot be reached`));
+}
+
+/** How `lf traefik strict-tls` names what the probe found. */
+const UNKNOWN_HOSTS_TEXT: Record<UnknownHostsCheck["state"], string> = {
+  refused: "refused (sniStrict): browsers say the site cannot be reached",
+  "default-cert": "answered with traefik's default certificate: browsers show a certificate warning",
+  cert: "answered with a certificate",
+  unreachable: "could not connect to port 443 from here",
+};
+
+export const traefikStrictTls = defineCommand({
+  name: "traefik strict-tls",
+  args: "[on|off]",
+  summary: `Show, turn on or turn off refusing HTTPS for hostnames no site serves (Traefik's sniStrict).
+
+Without it, Traefik answers such a hostname with its self-signed default certificate and browsers warn.
+Without an argument it connects to port 443 with a made-up hostname and shows what Traefik answers.
+landfall's own Traefik always refuses. on and off are for your own Traefik (lf traefik use): they write
+or remove landfall-tls.yml in its file provider folder, adding the folder to its compose file and
+recreating the container when it has none. lf undo reverts both.`,
+  options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output (status)" } },
+  async run([action], o) {
+    if (action && !["on", "off"].includes(action)) fail(`unknown action ${action}: on or off`);
+    const { name, server: login } = resolveServer(o.server);
+    let server = login;
+    let p = await readProxyCompose(server);
+    if (!p) return fail(`no traefik on ${name} (lf traefik setup)`);
+    if (!action) {
+      const check = await unknownHostsOf(server);
+      if (o.json) return void printJson({ container: p.container, own: p.own, unknownHosts: check });
+      table([
+        ["traefik", `${p.container} (${p.own ? "yours" : "landfall's"})`],
+        ["unknown hosts", `${UNKNOWN_HOSTS_TEXT[check.state]}${check.subject && check.state === "cert" ? ` (${check.subject})` : ""}`],
+      ]);
+      if (check.state === "default-cert" && p.own) info(c.dim(`lf traefik strict-tls${o.server ? ` -s ${name}` : ""} on refuses them`));
+      if (check.error) info(c.dim(check.error));
+      return;
+    }
+    const on = action === "on";
+    if (!p.own) {
+      if (on) return ok(`landfall's traefik on ${name} already refuses hostnames no site serves`);
+      return fail(`landfall's traefik always refuses hostnames no site serves; there is nothing to turn off`);
+    }
+    // A compose file under /root: read and write it as root (a root key login, or the sudo password).
+    if (p.text === undefined && p.files.length === 1 && !p.root) {
+      server = await adminLogin(server, "lf traefik strict-tls");
+      p = (await readProxyCompose(server)) ?? p;
+    }
+    const t = composeTarget(p);
+    if ("error" in t) return fail(`cannot change ${p.container} for you: ${t.error}; ${STRICT_TLS_HINT}`);
+    const prov = fileProvider(t.text, t.service, t.dir);
+    if ("error" in prov) return fail(`cannot change ${p.container} for you: ${prov.error}; ${STRICT_TLS_HINT}`);
+    const plan = planStrictTls(p, prov, await readDynamicDir(server, prov.hostDir), on);
+    if ("already" in plan) return ok(plan.already);
+    if ("error" in plan) return fail(`cannot change ${p.container} for you: ${plan.error}`);
+    if (plan.compose !== undefined) {
+      step(`adding a file provider folder (${plan.provider.hostDir}) to ${c.bold(plan.service)}:`);
+      showDiff(plan.file, t.text, plan.compose, console.error);
+    }
+    step(`${on ? "writing" : "removing"} ${plan.path}${plan.reload === "none" ? c.dim(" (traefik reloads it by itself)") : ""}`);
+    const reload = { recreate: "Recreate", restart: "Restart", none: "" }[plan.reload];
+    const q = reload ? `${reload} ${p.container}? Requests through it fail for a moment.` : `${on ? "Write" : "Remove"} ${plan.path}?`;
+    if (!(await confirm(q))) return;
+    await writeStrictTls(server, plan);
+    ok(
+      on
+        ? `${p.container} refuses hostnames no site serves: browsers say the site cannot be reached`
+        : `${p.container} answers hostnames no site serves with its default certificate again`,
+    );
+    info(c.dim(`lf undo puts ${plan.compose === undefined ? "it" : "the compose file and it"} back`));
+  },
+});
+
+/** What to do by hand when landfall cannot turn sniStrict on. */
+const STRICT_TLS_HINT = "set tls.options.default.sniStrict: true in its dynamic config, then reload it";
 
 export const traefikRestart = defineCommand({
   name: "traefik restart",

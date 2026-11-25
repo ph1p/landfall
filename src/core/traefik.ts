@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { UnknownHostsCheck } from "./stricttls";
 import bcrypt from "bcryptjs";
 import {
   checkEmail,
@@ -270,6 +271,8 @@ export interface TraefikStatus {
   routes: TraefikRoute[];
   /** A Traefik landfall does not use yet that publishes 443: `lf traefik use <it>` routes sites through it. */
   foreign: string | null;
+  /** What port 443 answers for a hostname no site serves; the CLI adds it when there is a container. */
+  unknownHosts?: UnknownHostsCheck;
 }
 
 /** `lf traefik status --json`: the proxy container and every route Traefik serves. */

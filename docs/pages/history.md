@@ -10,7 +10,7 @@ lf undo 4.2             # only its second step
 lf undo --all           # everything, newest first
 ```
 
-**Undoable:** setup (packages and Docker stay installed), firewall rules and on/off, deploys and rollbacks (previous release and env), env and secret changes, stop/start, domains, logins, Traefik setup, `traefik use`, `traefik access-log on/off`, `traefik rm`, image and compose updates.
+**Undoable:** setup (packages and Docker stay installed), firewall rules and on/off, deploys and rollbacks (previous release and env), env and secret changes, stop/start, domains, logins, Traefik setup, `traefik use`, `traefik access-log on/off`, `traefik strict-tls on/off`, `traefik rm`, image and compose updates.
 
 **Not undoable:** `sites rm` (its volumes are: `--volumes` backs them up first), `volume backup rm`, restarts, package upgrades, a firewall rule that replaced an existing one.
 

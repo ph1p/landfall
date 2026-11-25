@@ -22,7 +22,7 @@ By default Docker publishes 80/443 to it. Sites work the same in both modes:
 
 **HTTP/3** (QUIC): Traefik also listens on 443/udp; browsers switch after their first HTTP/2 request. Setup's firewall opens 443/udp only with HTTP/3 on. With `--host-network` and active ufw, `lf traefik setup` opens 80/tcp, 443/tcp and 443/udp.
 
-**Unknown hosts.** Traefik only answers hosts it has a certificate for (`sniStrict`). A domain pointed at the server but served by no site fails the TLS handshake, as if nothing listened: no 404, no Traefik certificate. Plain HTTP redirects to HTTPS and fails the same way. So does a new site's domain until Let's Encrypt issues its certificate, a few seconds.
+**Unknown hosts.** Traefik only answers hosts it has a certificate for (`sniStrict`). A domain pointed at the server but served by no site fails the TLS handshake, as if nothing listened: no 404, no Traefik certificate. Plain HTTP redirects to HTTPS and fails the same way. So does a new site's domain until Let's Encrypt issues its certificate, a few seconds. A Traefik of your own does this only after `lf traefik strict-tls on` (see [below](#refusing-unknown-hosts-on-your-own-traefik)).
 
 **Server redirects.** A host can redirect to any URL with no site behind it:
 
@@ -55,9 +55,26 @@ lf traefik use proxy-traefik-1 -s vps          # or name it
 ```
 
 - landfall reads network, HTTPS entrypoint and cert resolver from the container's flags. For a file-configured Traefik, pass `--network proxy --entrypoint websecure --resolver letsencrypt`.
-- The choice is stored in `/opt/landfall/proxy.env`. landfall does not change that Traefik. The exception is `lf traefik access-log on|off`, when you run it: it adds or removes the JSON access log flags in its compose file ([Monitoring](monitoring.md#traffic)).
+- The choice is stored in `/opt/landfall/proxy.env`. landfall does not change that Traefik. The exceptions are `lf traefik access-log on|off` ([Monitoring](monitoring.md#traffic)) and `lf traefik strict-tls on|off` (below), when you run them.
+- `lf traefik use` and `lf traefik status` connect to port 443 with a made-up hostname. If your Traefik answers with its self-signed default certificate, they warn: browsers show a certificate warning for every hostname no site serves.
 - Your containers behind it (Compose projects with `traefik.http.routers.*.rule` labels) show in `lf ls` and the web UI as "not deployed by landfall", with domains and folder. landfall never touches them.
 - Deploying one of their domains warns: Traefik would send visitors to only one.
 - `lf adopt <project>` turns one into a site (see [Running without landfall](deploy.md#running-without-landfall)).
+
+**Refusing unknown hosts on your own Traefik.** Without `sniStrict`, your Traefik answers a hostname no site serves with its self-signed `TRAEFIK DEFAULT CERT`. With a wildcard DNS record, any typo then shows a certificate warning. `lf traefik strict-tls` turns `sniStrict` on, like landfall's own Traefik:
+
+```sh
+lf traefik strict-tls -s vps                   # what port 443 answers for an unknown hostname
+lf traefik strict-tls on -s vps                # refuse them; browsers say the site cannot be reached
+lf traefik strict-tls off -s vps               # answer them with the default certificate again
+```
+
+- `on` writes `landfall-tls.yml` into the folder of Traefik's file provider (`--providers.file.directory`).
+- Without a file provider, it first adds `--providers.file.directory=/etc/traefik/dynamic`, `--providers.file.watch=true` and the volume `./dynamic:/etc/traefik/dynamic:ro` to the compose file. It shows the diff, asks, and recreates the container.
+- With a watched folder, Traefik reloads the file by itself. Without `--providers.file.watch`, landfall restarts the container.
+- `off` removes only `landfall-tls.yml`. The file provider stays.
+- landfall refuses when another file already sets `tls.options.default`, or when Traefik reads a config file (`--configfile`, a mounted `traefik.yml`). Set `sniStrict: true` there yourself.
+- Every change is journaled. `lf undo` puts the files back.
+- landfall's own Traefik always refuses unknown hosts. `on` changes nothing there.
 
 **Removing Traefik.** `lf traefik rm` stops landfall's Traefik and removes its config. Sites stay, unreachable until `lf undo` or `lf traefik setup`. Certificates stay unless `--certs`. After `traefik use`, it only detaches sites from your Traefik, which keeps running.

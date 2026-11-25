@@ -110,6 +110,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 |---|---|
 | `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--dashboard-user admin] [--dashboard-password p] [--staging] [--image img] [--host-network] [--no-http3] [--no-access-log] [--force]` | Installs or reconfigures Traefik. Dashboard password default: generated. `--force` overwrites hand edits. |
 | `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Use your own Traefik. |
+| `lf traefik strict-tls [on\|off] [--json]` | Alone: what port 443 answers for a hostname no site serves (refused, Traefik's default certificate, another certificate). `on` / `off`: on your own Traefik, writes or removes `landfall-tls.yml` with `sniStrict: true` in its file provider folder, adding the folder to its compose file and recreating it when it has none. Undoable. [Traefik](traefik.md#refusing-unknown-hosts-on-your-own-traefik) |
 | `lf traefik access-log [on\|off\|clear] [--json]` | Alone: whether Traefik writes the JSON access log `lf traffic` reads, the log's size and its cap. `on` / `off`: turns it on or off; on your own Traefik, adds or removes two flags in its compose file and recreates it. Undoable. `clear`: empties the container log (json-file only); cannot be undone. [Monitoring](monitoring.md#traffic) |
 | `lf traefik rm [--certs]` | Removes landfall's Traefik (undoable), or stops using yours. |
 | `lf traefik dashboard [-l local] [--lan] [--port p]` | Dashboard on localhost via SSH tunnel. |

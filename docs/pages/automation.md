@@ -29,7 +29,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
-| maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `redirects`, `history` |
+| maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `traefik strict-tls`, `redirects`, `history` |
 | plugins | `plugins`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
 
 - `ls --others` adds containers landfall did not deploy: `{sites, others}`.
@@ -42,6 +42,8 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `ci rm` prints `{repo, servers, secretsRemoved}`.
 - `weight --stats` prints `{site, since, format, services}`. `since` is in seconds; `format` is `json`, `common` (plain-text log, no counts) or `none`. Each service has `service`, `split`, `weight`, `match`, `requests`, `matched`, `classes` (`2xx` to `5xx`) and `p50` and `p95` in milliseconds.
 - `traffic` and `traffic <site>` include `accessLog`: how the proxy's flags configure its access log. It is `json`, `common` (plain text), `off`, `file` (written inside the container) or `unknown` (a config file landfall does not read). `lf traefik access-log on` fixes `off` and `common`. `log` is the proxy's container log: `driver`, `maxSize` and `maxFile` (its cap, missing when there is none) and `bytes` (on disk, only when the login can read it).
+- `traefik status` includes `unknownHosts` when there is a container: what port 443 answers for a made-up hostname. `state` is `refused`, `default-cert` (browsers warn), `cert` (with `subject`) or `unreachable` (with `error`).
+- `traefik strict-tls` prints `{container, own, unknownHosts}`, with `unknownHosts` as in `traefik status`.
 - `traefik access-log` prints `{container, own, accessLog, log}`. `log` is as in `traffic`, or `null` without a proxy.
 - `ls` and `sites info` add `scale` to a site that uses replicas, rolling deploys or a split: per service, its `replicas` wanted and `running`.
 - `refs` prints `{repo, url, envs}`. Each environment has `env`, `site`, `server`, `rule`, `ruleText`, `matching` (tags newest first, then branches), `running` (`null`: no release; missing: never deployed), `newest`, `behind` (commits) and `error` when its server cannot be read.
