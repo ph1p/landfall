@@ -4,7 +4,7 @@ allowBuilds:
   vue-demi: false
 minimumReleaseAgeExclude:
   - tsdown@0.23.2
-  - lucide-react@1.73.0 || 1.77.0 || 1.78.0
+  - lucide-react@1.73.0 || 1.77.0 || 1.78.0 || 1.80.0
   - "@oxfmt/binding-android-arm-eabi@0.79.0 || 0.80.0"
   - "@oxfmt/binding-android-arm64@0.79.0 || 0.80.0"
   - "@oxfmt/binding-darwin-arm64@0.79.0 || 0.80.0"
@@ -45,3 +45,8 @@ minimumReleaseAgeExclude:
   - "@oxlint/binding-win32-x64-msvc@1.94.0 || 1.95.0"
   - oxfmt@0.79.0 || 0.80.0
   - oxlint@1.94.0 || 1.95.0
+  - "@types/node@26.6.10"
+  - "@types/react@19.3.3"
+  - "@vitest/mocker@5.1.2"
+  - "@vitest/spy@5.1.2"
+  - vitest@5.1.2
