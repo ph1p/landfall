@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { expandHome, type Server } from "./config";
-import { runScript, shq } from "./ssh";
+import { runScript, shq, writeFileCmd } from "./ssh";
 import { rootLogin } from "./privilege";
 import { effectiveSsh } from "./sshconfig";
 import { CLOUD, KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "./templates";
@@ -436,7 +436,7 @@ export async function setDaemon(s: Server, daemon: Record<string, unknown>, what
   const script = String.raw`
 $SUDO install -d /etc/docker
 undo=$(saved /etc/docker/daemon.json) || exit 1
-printf %s ${shq(Buffer.from(json).toString("base64"))} | base64 -d | $SUDO tee /etc/docker/daemon.json >/dev/null
+${writeFileCmd("/etc/docker/daemon.json", json)}
 ${restart ? `log "restarting docker"\n${DOCKER_RESTART}\nrecord ${shq(what)} "$undo; ${DOCKER_RESTART.replace(/\$/g, "\\$")}"` : `record ${shq(what)} "$undo"`}
 `;
   await runScript(s, PRELUDE + script);
