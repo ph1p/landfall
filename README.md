@@ -2,6 +2,11 @@
 
 One CLI to set up Linux servers and deploy sites to them behind [Traefik](https://traefik.io) with automatic HTTPS.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/public/landfall-dark.png">
+  <img alt="landfall: a laptop terminal runs lf setup, lf deploy, lf domains and lf env over ssh; the server runs a firewall, Traefik with four sites and a journal of every change; browsers reach the sites over HTTPS" src="docs/public/landfall.png">
+</picture>
+
 ```sh
 npm i -g landfall
 lf setup vps --host 203.0.113.7     # fresh Ubuntu/Debian box → Docker, firewall, Traefik, ssh key
@@ -11,10 +16,20 @@ cd my-site && lf deploy -s vps      # live at https://my-site.203-0-113-7.sslip.
 - **Servers are ssh targets.** If `ssh vps` works, `lf deploy -s vps` works.
 - **No agent on the server.** Sites are plain Docker Compose projects under `/opt/landfall`, fixable by hand.
 - **Your compose.yaml is the site.** `docker compose up` runs it locally; `lf deploy` runs the same file behind HTTPS.
-- **Every change is journaled** on the server. `lf undo` reverts it.
+- **Every change is journaled** on the server. `lf undo` reverts most of them; [History and undo](docs/pages/history.md) lists the rest.
 - **The CLI is the product.** Scripts, CI, agents and the web UI (`lf ui`) all run `lf` commands.
 
 `lf` is short for `landfall`. Both are installed.
+
+## Why landfall
+
+- **Setting up a VPS by hand takes many steps.** `lf setup` installs Docker, a firewall, Traefik and an ssh key in one command.
+- **Certificates and DNS slow down the first deploy.** A new site gets HTTPS on sslip.io right away. Your own domain is one flag: `-d example.com`.
+- **Many deploy tools run a control plane on your server.** landfall installs no agent. It leaves plain Compose projects that you can fix by hand.
+- **Server changes can break things.** Every change is journaled on the server, and `lf undo` reverts most of them. A release whose containers do not start rolls back by itself.
+- **Deploys should follow git.** Rules say which branches and tags each environment takes. `lf deploy --tag latest`, `lf promote test prod`, `lf ci init` and `lf autodeploy` all keep to them.
+- **Day-to-day work is spread over many tools.** Logs, env and secrets, domains, backups, updates, firewall and scans are all `lf` commands.
+- **Scripts and agents need stable output.** Read commands print `--json`, and `lf` never prompts without a terminal.
 
 ## Install
 
@@ -76,6 +91,7 @@ lf logs -f                         # follow a site's logs
 lf env API_KEY=abc                 # set a variable (recreates the services)
 lf domains --add www.example.com   # add a domain
 lf rollback                        # previous release
+lf deploy -E prod --tag latest     # the newest tag its git rule allows
 lf volume backup                   # back up the site's data
 lf updates && lf update            # list, then apply OS and image updates
 lf history && lf undo              # what landfall changed; revert the last run
@@ -90,8 +106,11 @@ Full docs: [ph1p.github.io/landfall](https://ph1p.github.io/landfall/).
 |---|---|
 | [Servers](docs/pages/servers.md) | `lf setup`, its flags, registering servers, NAS and other systems |
 | [Deploy a site](docs/pages/deploy.md) | site kinds, env and secrets, CI, uploads, environments, main domains, running without landfall |
+| [Git deploys](docs/pages/git.md) | branch and tag rules per environment, `--ref`/`--tag`, promote, server fetch, CI, auto-deploy |
 | [Compose sites](docs/pages/compose.md) | `x-landfall`, routes, private ports, IP allowlists, volumes, published ports |
 | [Day-to-day](docs/pages/sites.md) | logs, env, secrets, domains, logins, tunnels, restart, removal |
+| [Scaling and load balancing](docs/pages/scaling.md) | replicas, rolling deploys, load balancer options, traffic split |
+| [Lifecycle hooks](docs/pages/hooks.md) | npm scripts before and after build, deploy, rollback and removal |
 | [Volumes and backups](docs/pages/volumes.md) | volumes, scheduled and offsite backups, push and pull data |
 | [Updates](docs/pages/updates.md) | OS packages, images, Docker Compose, vulnerability scans |
 | [Traefik](docs/pages/traefik.md) | landfall's Traefik, HTTP/3, the dashboard, your own Traefik |

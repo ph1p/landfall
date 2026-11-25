@@ -10,6 +10,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | page        | commands |
 | ----------- | -------- |
 | Overview    | `lf server list --check`, recent deploys, `lf config` (defaults, where landfall puts things) |
+| Pipeline    | one entry per project with git rules (`#git/<folder>`): `lf refs`, `deploy --tag`/`--ref`, `promote`, `git track`, `ci init`/`ci rm`, `autodeploy`. See [Git deploys](git.md#in-the-web-ui) |
 | Map         | every server and what runs on it, as connected nodes; adds a server, a site or a domain, and deploys a dropped project (see below) |
 | Server menu | `lf server info`, `server use`, `reboot`, `server rm`, `server uninstall` |
 | Sites       | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `scale`, `weight`, `sites rm`. A site's menu runs `lf check <site>`, `lf stats <site>`, and opens its traffic |
@@ -34,6 +35,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 - **Deploy folder…** browses local folders, or takes a dropped folder or `.zip` (up to 512 MiB; archives with symlinks or hard links are refused).
 - Its **a Docker image** link deploys an image (`lf deploy --image`) and suggests images from this machine's Docker. It runs in an empty folder with `--no-save`, so the folder `lf ui` started in adds no `.landfall.json` settings.
 - **Redeploy** on an image site asks for the image again.
+- In a git checkout the deploy dialog offers *Working tree* (the default) or a branch, tag or commit. *Deploy from git…* deploys a repository the server fetches. See [Git deploys](git.md#in-the-web-ui).
 - Deploy, Redeploy, Roll back and Delete list the [hooks](hooks.md) they run, each with a box to skip it (`--skip-hook`).
 - So do a build change in **Edit** and a volume change with **Redeploy now**: both redeploy the site.
 - The deploy dialog takes redirect hosts next to the domains (`lf deploy --redirect`).

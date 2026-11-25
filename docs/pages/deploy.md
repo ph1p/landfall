@@ -179,7 +179,8 @@ One deploy of a site runs at a time. A second stops with `another deploy or chan
 A lock left by a cut-off deploy expires after an hour.
 
 Release ids use the server's clock, so deploys from skewed machines still sort.
-`lf sites info` shows each release's git commit and branch (`, uncommitted changes` when the tree was dirty) and who deployed it.
+`lf sites info` shows each release's git commit, branch or tag (`, uncommitted changes` when the tree was dirty), where it came from (`ref`, `server`, `ci`, `auto`) and who deployed it.
+To deploy a branch or tag, or to let a site follow one, see [Git deploys](git.md).
 
 A cloned `.landfall.json` may name a server you do not have (`lf server ls`): deploy asks before sending the project there.
 A server landfall has not set up is offered `lf setup` first.
