@@ -6,6 +6,7 @@ import { defineCommand, serverOpt } from "../cmd";
 import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, projectServer, saveGitRule } from "../../core/config";
 import { repoInfo, safeRemote } from "../../core/git";
 import { hasRule, one, ruleText, sameRule, type RefRule } from "../../core/refs";
+import { FORGES, loggedIn } from "../../core/forge";
 import { forgeOf, keyRemoveScript, keyScript, parseGitUrl, type GitUrl } from "../../core/remote-git";
 import { runScript } from "../../core/ssh";
 import { c, canConfirm, confirm, confirmRemoval, fail, info, ok, printJson, step, table, warn } from "../../core/term";
@@ -68,23 +69,6 @@ changes on a server.`,
   },
 });
 
-/** The forges' CLIs: how each adds a deploy key, and where its page for one is. */
-const FORGES = {
-  github: {
-    cli: "gh",
-    add: (file: string, repo: string, title: string) => ["repo", "deploy-key", "add", file, "-R", repo, "-t", title],
-    page: (p: string) => `https://github.com/${p}/settings/keys/new`,
-  },
-  gitlab: {
-    cli: "glab",
-    add: (file: string, repo: string, title: string) => ["deploy-key", "add", file, "-R", repo, "-t", title],
-    page: (p: string) => `https://gitlab.com/${p}/-/settings/repository#js-deploy-keys-settings`,
-  },
-} as const;
-
-/** gh or glab, installed and logged in. */
-const loggedIn = (cli: string) => spawnSync(cli, ["auth", "status"], { stdio: "ignore" }).status === 0;
-
 /** Adds the public key as a read-only deploy key through gh or glab: true when it did. */
 async function addDeployKey(g: GitUrl, publicKey: string, title: string): Promise<boolean> {
   const forge = forgeOf(g);
@@ -95,7 +79,7 @@ async function addDeployKey(g: GitUrl, publicKey: string, title: string): Promis
   try {
     const file = join(dir, "key.pub");
     fs.writeFileSync(file, publicKey + "\n");
-    const r = spawnSync(f.cli, f.add(file, g.path, title), { stdio: ["ignore", 2, "pipe"], encoding: "utf8" });
+    const r = spawnSync(f.cli, f.addKey(file, g.path, title), { stdio: ["ignore", 2, "pipe"], encoding: "utf8" });
     if (r.status === 0) return true;
     warn(`${f.cli} could not add the key: ${(r.stderr || `exit ${r.status}`).trim()}`);
     return false;
@@ -138,7 +122,7 @@ otherwise add it by hand. The private key never leaves the server.`,
       const forge = forgeOf(g);
       if (o.json) return printJson({ url: shown, server: serverName, removed: true });
       ok(`removed ${serverName}'s deploy key for ${shown}`);
-      if (forge) info(c.dim(`remove it from the repository's deploy keys too: ${FORGES[forge].page(g.path).replace(/\/new$/, "")}`));
+      if (forge) info(c.dim(`remove it from the repository's deploy keys too: ${FORGES[forge].keyPage(g.path).replace(/\/new$/, "")}`));
       return;
     }
 
@@ -157,7 +141,7 @@ otherwise add it by hand. The private key never leaves the server.`,
     else
       info(
         forge
-          ? `add it to ${g.path} as a read-only deploy key: ${FORGES[forge].page(g.path)}${loggedIn(FORGES[forge].cli) ? "" : ` (or log in with ${FORGES[forge].cli} auth login and run this again)`}`
+          ? `add it to ${g.path} as a read-only deploy key: ${FORGES[forge].keyPage(g.path)}${loggedIn(FORGES[forge].cli) ? "" : ` (or log in with ${FORGES[forge].cli} auth login and run this again)`}`
           : `add it to ${shown} as a read-only deploy key (the host's repository settings)`,
       );
     if (o.json) return printJson({ url: shown, server: serverName, publicKey, created, added });

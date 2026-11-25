@@ -1,6 +1,7 @@
 // What the API returns: the CLI's --json shapes, taken from core. Type-only imports: no node code reaches the page.
 import type { browse } from "../../server/local";
 import type { state } from "../../server/server";
+import type { ciView } from "../../../core/ci";
 import type { configView, dnsView, gitView, factsView, firewallView, historyBrief, systemView, updatesView } from "../../../core/views";
 export type { ProjectConfig } from "../../../core/config";
 import type { Stats } from "../../../core/stats";
@@ -32,6 +33,9 @@ export type { Ref, RefKind, RefRule } from "../../../core/refs";
 
 /** GET /api/git?path=: the checkout, its branches and tags, and the rules of .landfall.json. */
 export type GitInfo = Awaited<ReturnType<typeof gitView>>;
+
+/** GET /api/ci?path=&forge=: what lf ci init would write and set (lf ci init --dry-run --json). */
+export type CiView = Awaited<ReturnType<typeof ciView>>;
 
 // ---- /api/state ---------------------------------------------------------------
 

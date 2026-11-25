@@ -250,7 +250,13 @@ lf deploy --send-image                                  # pick one of this machi
 
 ## Deploy from CI
 
-With `-y`, `lf deploy` runs unattended. It needs an ssh key for the server landfall set up, named so ssh reaches it without your `~/.ssh/config`:
+```sh
+lf ci init      # write a GitHub Actions or GitLab CI job, give it its own ssh key, set its secrets
+```
+
+`lf ci init` does the steps below for you. See [Set up CI](git.md#set-up-ci-with-lf-ci-init).
+
+To write the job by hand: with `-y`, `lf deploy` runs unattended. It needs an ssh key for the server landfall set up, named so ssh reaches it without your `~/.ssh/config`:
 
 ```yaml
 # .github/workflows/deploy.yml

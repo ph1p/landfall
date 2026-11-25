@@ -120,7 +120,40 @@ npx landfall deploy --for-ref "${CI_COMMIT_TAG:-$CI_COMMIT_BRANCH}" -y
 - When the checkout already is that commit (CI's detached HEAD), it deploys the working tree, without an export.
 - The release links to the CI run.
 
-See [Deploy from CI](deploy.md#deploy-from-ci) for the ssh key the runner needs.
+`lf ci init` writes this job for you, with its own ssh key.
+
+### Set up CI with `lf ci init`
+
+```sh
+lf ci init --dry-run      # show the job's file and what it deploys; change nothing
+lf ci init                # GitHub or GitLab, from origin
+lf ci init gitlab         # name the forge
+lf ci rm                  # stop: remove the CI key and the secrets
+```
+
+- It writes `.github/workflows/landfall.yml`, or `.gitlab-ci.yml` on GitLab. Commit and push it; it prints the `git add` line.
+- The job runs on a push of a branch or tag that some environment's rule allows. It runs `lf deploy --for-ref`, which picks the environment.
+- Without rules, pushes to the current branch deploy the project.
+- Tags with a pre-release suffix (`v1.2.0-rc.1`) start no run, unless a tag rule sets `prerelease`.
+- It makes a new ed25519 key for the job. The private key never stays on this computer.
+- It adds the public key to the deploy login on each server the rules name, with `restrict`. `lf undo` removes it.
+- It reads each server's host keys over ssh. The job checks them strictly.
+- It sets the secrets `LANDFALL_SSH_KEY` and `LANDFALL_KNOWN_HOSTS` with `gh` or `glab`, when one is installed and logged in.
+- Without them, it writes the two values to files under the config folder. Add them on the repository's secrets page, then delete the files.
+- The job gets the servers' settings from `.landfall.json` and a config it writes on the runner. Your local logins and admin keys stay here.
+- `.landfall.json` must be in git: the job reads it. `lf ci init` warns when it is not.
+- The job runs `npx landfall@^<this version>`.
+- On GitLab, when `.gitlab-ci.yml` is not landfall's, it writes `.gitlab/landfall.yml`. Add the `include` it prints to your `.gitlab-ci.yml`.
+- A GitHub workflow file of the same name that landfall did not write stops it. `--force` replaces it.
+- Running it again makes a new key and replaces the old one on the servers.
+- `lf ci rm` removes the key from the servers (journaled) and deletes the secrets. Deleting the secrets cannot be undone. Delete the job's file in git yourself.
+- Secrets your app needs go in as usual: `--dotenv -` from a CI secret, never `-e`.
+
+**Security.** The CI key can do what the deploy login can. That login is in the docker group, which is as strong as root.
+`restrict` blocks a terminal and port forwarding, but landfall cannot limit the key to one command.
+Whoever can push a matching ref, or read the repository's secrets, can deploy to these servers.
+
+See [Deploy from CI](deploy.md#deploy-from-ci) to write the job by hand.
 
 ## Deploy from the server
 
@@ -165,6 +198,7 @@ lf git key gh:acme/shop --rm        # remove the server's key
 - The deploy dialog of a git checkout offers *Working tree* (the default) or a branch, tag or commit.
 - *Deploy from git…* (on an empty server, and in the folder picker) deploys a repository the server fetches. It can make the deploy key first.
 - A site deployed that way shows *Redeploy*, which fetches the same branch or tag again.
+- *Deploy from CI…* on the pipeline board shows what `lf ci init` would write: the forge, whether `gh` or `glab` is logged in, what deploys, the servers' keys and the job's file. *Set up* runs `lf ci init`, then shows the `git add` line. When CI is set up, it offers *Remove CI…* (`lf ci rm`).
 
 ## landfall version and app version
 

@@ -12,6 +12,7 @@ import { ENV_NAME, SECRET_NAME } from "../../core/compose";
 import { listServers, reachAll, target } from "../../core/dashboard";
 import { browse, emptyFolder, jobCwd, pruneUploads, receiveUpload } from "./local";
 import { localImages } from "../../core/buildlocal";
+import { ciView } from "../../core/ci";
 import { startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
@@ -382,6 +383,13 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
     const g = await gitView(cwd);
     if (name === "envs") return json({ ...g, envs: (await refsView(cwd, undefined, g)).envs });
     return json(g);
+  }
+  // What lf ci init would write and set (lf ci init --dry-run --json): the CI wizard's preview.
+  if (what === "ci" && method === "GET") {
+    const q = new URL(req.url).searchParams;
+    const cwd = jobCwd(q.get("path") ?? "");
+    if (!cwd) throw new Error("path is required");
+    return json(await ciView(cwd, q.get("forge") || undefined));
   }
   if (what === "image-folder" && method === "POST") return json({ path: emptyFolder() });
   if (what === "upload" && method === "POST") {

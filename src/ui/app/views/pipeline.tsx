@@ -29,6 +29,7 @@ import {
 import type { ReleaseGit } from "../../../core/compose";
 import type { EnvRefs } from "../lib/types";
 import { openAfter } from "./flows";
+import { ciDialog } from "./ci";
 
 const envArgs = (env: string) => (env ? ["-E", env] : []);
 const envLabel = (env: string) => env || "project";
@@ -90,6 +91,9 @@ export function PipelineView({ path }: { path: string }) {
         </Btn>
         <Btn cls="sm" on={() => rulesEditor(path)} title="Which branches or tags each environment deploys (lf git track)">
           Rules…
+        </Btn>
+        <Btn cls="sm" on={() => ciDialog(path)} title="Deploy the pushes the rules allow from GitHub Actions or GitLab CI (lf ci init)">
+          Deploy from CI…
         </Btn>
       </Actions>
     </div>

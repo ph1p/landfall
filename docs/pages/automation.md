@@ -25,7 +25,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 
 | area | commands |
 |---|---|
-| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track`, `git key` |
+| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track`, `git key`, `ci init`, `ci rm` |
 | servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
@@ -38,6 +38,8 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `certs` lists each domain under `domains` with its `site`. A server redirect's host has no `site`; its `redirect` is the target.
 - `scale` and `weight` print `{site, services}`; each service has `replicas`, `source`, `update`, and `weight` and `split` in a traffic split, and `match` when it has one.
 - `git key` prints `{url, server, publicKey, created, added}`; with `--rm`, `{url, server, removed}`. It never prints the private key.
+- `ci init --dry-run` prints the plan: `forge`, `cli`, `name`, `repo`, `file` (from the repository's root), `here` (from this folder), `exists` (`false`, `ours` or `other`), `yaml`, `secrets` (names only), `servers`, `targets`, `loggedIn`, `runsPage`, `secretsPage`, and `fallbackBranch`, `include` and `untracked` when they apply. `ci init` prints the same, plus `secretsSet`, and `secretFiles` when it wrote the secrets to files. It never prints the private key.
+- `ci rm` prints `{repo, servers, secretsRemoved}`.
 - `weight --stats` prints `{site, since, format, services}`. `since` is in seconds; `format` is `json`, `common` (plain-text log, no counts) or `none`. Each service has `service`, `split`, `weight`, `match`, `requests`, `matched`, `classes` (`2xx` to `5xx`) and `p50` and `p95` in milliseconds.
 - `traffic` and `traffic <site>` include `accessLog`: how the proxy's flags configure its access log. It is `json`, `common` (plain text), `off`, `file` (written inside the container) or `unknown` (a config file landfall does not read). `lf traefik access-log on` fixes `off` and `common`. `log` is the proxy's container log: `driver`, `maxSize` and `maxFile` (its cap, missing when there is none) and `bytes` (on disk, only when the login can read it).
 - `traefik access-log` prints `{container, own, accessLog, log}`. `log` is as in `traffic`, or `null` without a proxy.
@@ -107,6 +109,7 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 - `lf registry logout` (log in again with `lf registry login`)
 - `lf git key --rm` (the private key is gone: make a new one and add it to the repository again)
 - installing git on the server (`lf git key`, `lf deploy --git`)
+- the forge secrets `lf ci init` sets (it overwrites earlier values), and `lf ci rm` deleting them
 - whatever a plugin does without journaling it; `lf plugin add` and `lf plugin rm` change only this computer
 - a firewall rule that replaced an existing one
 - what a [lifecycle hook](hooks.md) did (a migration, a notification)

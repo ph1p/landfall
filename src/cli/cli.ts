@@ -83,6 +83,8 @@ function help() {
         "promote",
         "git track",
         "git key",
+        "ci init",
+        "ci rm",
         "sites list",
         "sites info",
         "domains",
