@@ -1,25 +1,17 @@
 // lf autodeploy: a cron line runs sites/<name>/autodeploy.sh, which fetches the site's repository, picks the newest
 // branch head or tag its rule allows and deploys it like lf deploy would, with no landfall on the server. The script is
 // generated from site.json here, so every change to the site (deploy, rollback, scale, weight) writes it again.
-import { type AutodeploySetting, COMPOSE_FILES, currentRelease, envComposeFile, OVERRIDE_FILES, type Release, type SiteMeta } from "../site/compose";
+import { type AutodeploySetting, currentRelease, type Release, type SiteMeta } from "../site/meta";
+import { COMPOSE_FILES, envComposeFile, OVERRIDE_FILES } from "../site/compose-config";
 import { fail } from "../lib/fail";
 import { safeRemote } from "./git";
 import { hookVars, serverCall, skipper } from "../site/hooks";
 import { shq } from "../lib/quote";
 import { globRe } from "./refs";
-import {
-  CRON_RUNNING,
-  cronChange,
-  cronMinute,
-  dropRelease,
-  noSite,
-  parseSiteMeta,
-  plainWrite,
-  siteDir,
-  siteLines,
-  switchJournal,
-  withSite,
-} from "../site/remote";
+import { CRON_RUNNING, cronChange, cronMinute } from "../server/cron";
+import { dropRelease } from "../site/releases";
+import { noSite, parseSiteMeta, siteDir, withSite } from "../site/site";
+import { plainWrite, siteLines, switchJournal } from "../site/switch";
 import { DEFAULT_KEEP, type Server } from "../lib/config";
 import { ensureTools } from "../ssh/privilege";
 import { fetchLines, gitEnv, parseGitUrl } from "./remote-git";

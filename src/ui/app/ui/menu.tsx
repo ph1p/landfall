@@ -100,7 +100,7 @@ export function MenuHost() {
       ref={el}
       id="menu"
       role="menu"
-      className="fixed z-30 min-w-[190px] bg-panel border border-line rounded-md shadow-lg p-[5px] grid animate-pop"
+      className="fixed z-30 min-w-47.5 bg-panel border border-line rounded-md shadow-lg p-1.25 grid animate-pop"
       onKeyDown={(e) => {
         const all = [...e.currentTarget.querySelectorAll("button")];
         const i = all.indexOf(document.activeElement as HTMLButtonElement);

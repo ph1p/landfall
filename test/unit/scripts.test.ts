@@ -1,7 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SiteMeta } from "../../src/core/site/compose";
-import { OWN_PROXY } from "../../src/core/ssh/templates";
+import type { SiteMeta } from "../../src/core/site/meta";
+import { OWN_PROXY, PRELUDE } from "../../src/core/ssh/templates";
 
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
@@ -13,7 +16,12 @@ vi.mock("../../src/core/ssh/ssh", async (orig) => ({
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
-const { applySite, discardRelease, lockSite, overview, removeSite, setWeights } = await import("../../src/core/site/remote");
+const { applySite, setWeights } = await import("../../src/core/site/apply");
+const { discardRelease } = await import("../../src/core/site/releases");
+const { lockSite } = await import("../../src/core/site/site");
+const { overview } = await import("../../src/core/server/overview");
+const { removeSite } = await import("../../src/core/site/lifecycle");
+const { rmSplit, siteLines, switchJournal } = await import("../../src/core/site/switch");
 const { serverCall, skipper } = await import("../../src/core/site/hooks");
 
 const server = { host: "example.com" } as any;
@@ -177,5 +185,39 @@ describe("deploy scripts", () => {
     expect(o).toMatchObject({ ready: true, unrouted: [], docker: "permission denied while trying to connect to the docker API" });
     reply.stdout = "READY\t1\nCTR\tweb\tUp 1 second\t\t\tnginx:alpine\t80/tcp\n";
     expect((await overview(server)).docker).toBeUndefined();
+  });
+});
+
+describe("site shell run here", () => {
+  /** Runs shell with bash in a temp folder: its stderr and exit code. */
+  const sh = (script: string, cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lf-sh-"))) => {
+    const r = spawnSync("bash", ["-c", script], { cwd, encoding: "utf8" });
+    return { code: r.status, stderr: r.stderr, cwd };
+  };
+
+  test("a lock refuses a name that is not a site name, before any shell runs", async () => {
+    scripts.length = 0;
+    await expect(lockSite(server, "x$(touch pwned)")).rejects.toThrow(/invalid site name/);
+    await expect(lockSite(server, "../etc")).rejects.toThrow(/invalid site name/);
+    expect(scripts).toEqual([]);
+  });
+
+  test("a failed recreate puts the site back like a failed start", () => {
+    const lines = siteLines(site("2", ["1", "2"]), OWN_PROXY, { recreate: ["web"], failed: ["put_back"] });
+    const at = lines.findIndex((l) => l.includes("--force-recreate"));
+    expect(lines.slice(at, at + 4)).toEqual([expect.stringMatching(/^if ! \(cd -P current/), "put_back", "exit 1", "fi"]);
+  });
+
+  test("counting the journal before it exists says nothing on stderr", () => {
+    const jn = switchJournal("blog", "deploy blog", "''", true).before!.find((l) => l.startsWith("jn="))!;
+    const r = sh(`${jn.replace("/opt/landfall/", "./")}; echo "$jn"`);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toBe("");
+  });
+
+  test("no split file to remove needs no sudo, even when Traefik's folder is missing", () => {
+    const as = PRELUDE.split("\n").find((l) => l.startsWith("_as()"))!;
+    const r = sh(`set -euo pipefail\nSUDO=false\n${as}\n${rmSplit("blog")}`);
+    expect(r.code).toBe(0);
   });
 });

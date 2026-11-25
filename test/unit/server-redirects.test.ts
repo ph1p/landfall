@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SiteMeta } from "../../src/core/site/compose";
+import type { SiteMeta } from "../../src/core/site/meta";
 
 const scripts: string[] = [];
 vi.mock("../../src/core/ssh/ssh", async (orig) => ({

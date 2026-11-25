@@ -7,7 +7,7 @@ import { Star as StarIcon } from "lucide-react";
 import { bytes as size, duration, pct } from "../../../core/lib/format";
 import { isUp, statusKind } from "../../../core/site/status";
 import { stampSummary } from "../../../core/lib/version";
-import { providerDialog } from "./flows";
+import { providerDialog } from "./flows/server-dialogs";
 
 export { bytes as size, pct } from "../../../core/lib/format";
 export { isUp };

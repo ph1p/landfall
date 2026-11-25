@@ -1,6 +1,6 @@
 // Which git refs may deploy where. Pure: no node: imports, so the web page uses it too.
 
-import type { ReleaseGit } from "../site/compose";
+import type { ReleaseGit } from "../site/meta";
 
 /** What an environment deploys: branches or tags by glob (`*` stays within a /, `**` crosses it). */
 export interface RefRule {

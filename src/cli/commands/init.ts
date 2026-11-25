@@ -2,11 +2,15 @@ import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, loadProject } from "../../core/lib/config";
-import { adoptCompose, currentRelease, EJECT_FILE, localCompose, ejectYaml, OVERRIDE_FILES, routed, volumeName } from "../../core/site/compose";
+import { adoptCompose, volumeName } from "../../core/site/compose-edit";
+import { currentRelease } from "../../core/site/meta";
+import { EJECT_FILE, localCompose, OVERRIDE_FILES } from "../../core/site/compose-config";
+import { ejectYaml } from "../../core/site/override";
+import { routed } from "../../core/site/routing";
 import { composeFile, detectApp, detectProject } from "../../core/deploy/projects";
-import { requireSite } from "../../core/site/remote";
+import { requireSite } from "../../core/site/site";
 import { c, confirm, fail, info, ok, showDiff, showStack, warn } from "../../core/lib/term";
-import { target } from "./sites";
+import { siteTarget } from "../target";
 
 export const init = defineCommand({
   name: "init",
@@ -176,7 +180,7 @@ there, and lf deploy goes on as before.`,
     resolver: { type: "string", desc: "your Traefik's certificate resolver (default: landfall's)" },
   },
   async run([n], o) {
-    const { site, server, name: serverName } = target(n, o.server);
+    const { site, server, name: serverName } = siteTarget(n, o.server);
     const root = process.cwd();
     const file = composeFile(root, loadProject(root));
     const { meta, proxy } = await requireSite(server, site, { deployed: "eject" });

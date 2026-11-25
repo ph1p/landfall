@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { noSiteMessage } from "../../src/core/site/remote";
+import { noSiteMessage } from "../../src/core/site/site";
 
 describe("a site the server does not have", () => {
   test("lists the server's sites", () => {

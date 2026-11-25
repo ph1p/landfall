@@ -1,8 +1,11 @@
 import { S, ago, plural, tilde } from "../lib/store";
 import { go } from "../lib/api";
 import { Badge, Bone, Btn, Card, CardHead, Actions, Body, Kv, Spin, Dot, Sub, cx } from "../ui/kit";
-import { addServer, defaultsDialog, deployFrom, folderDialog, redeploy } from "./flows";
-import { GitLink } from "./pipeline";
+import { addServer } from "./flows/setup";
+import { defaultsDialog } from "./flows/server-dialogs";
+import { deployFrom, redeploy } from "./flows/deploy";
+import { folderDialog } from "./flows/folder";
+import { GitLink } from "./pipeline/links";
 import { awaitingReach, ReachDot, REACH_KIND, REACH_WORD, Star, reachCount, reachRank } from "./shared";
 
 const H3 = "m-0 mb-2 text-xs font-medium text-faint uppercase tracking-[.04em]";
@@ -48,8 +51,8 @@ export function HomeView() {
   );
   const cols = "grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))]";
   return (
-    <div className="max-w-[880px] mx-auto pt-6">
-      <h1 className="m-0 mb-1.5 text-[28px] font-[650] tracking-[-.025em] max-[760px]:text-[24px]">Overview</h1>
+    <div className="max-w-220 mx-auto pt-6">
+      <h1 className="m-0 mb-1.5 text-[28px] font-[650] tracking-tight max-[760px]:text-[24px]">Overview</h1>
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-dim text-md mb-5">
         {plural(own.length, "server")}
         {own.length < list.length && <span className="faint">+ {list.length - own.length} from ~/.ssh/config</span>}
@@ -69,7 +72,7 @@ export function HomeView() {
               <button
                 key={s.name}
                 type="button"
-                className="block text-left px-[18px] py-4 rounded-lg bg-panel border border-line shadow-xs w-full transition-[border-color,box-shadow,transform] hover:bg-panel hover:border-line-strong hover:shadow-lg hover:-translate-y-px"
+                className="block text-left px-4.5 py-4 rounded-lg bg-panel border border-line shadow-xs w-full transition-[border-color,box-shadow,transform] hover:bg-panel hover:border-line-strong hover:shadow-lg hover:-translate-y-px"
                 onClick={() => go(s.name, "sites")}
               >
                 <div className="font-semibold text-[15px] flex items-center gap-1.5">
@@ -87,14 +90,14 @@ export function HomeView() {
         {own
           .filter((s) => awaitingReach(s.name))
           .map((s) => (
-            <div key={s.name} role="presentation" className="px-[18px] py-4 rounded-lg bg-panel border border-line shadow-xs">
+            <div key={s.name} role="presentation" className="px-4.5 py-4 rounded-lg bg-panel border border-line shadow-xs">
               <Bone className="w-28 h-3.5" />
               <Bone className="block w-40 h-2.5 mt-2" />
             </div>
           ))}
         <button
           type="button"
-          className="grid place-items-center min-h-[68px] w-full rounded-lg border-[1.5px] border-dashed border-line-strong bg-transparent shadow-none text-dim hover:text-accent hover:border-accent hover:bg-accent-bg"
+          className="grid place-items-center min-h-17 w-full rounded-lg border-[1.5px] border-dashed border-line-strong bg-transparent shadow-none text-dim hover:text-accent hover:border-accent hover:bg-accent-bg"
           onClick={addServer}
         >
           + Add server
@@ -117,7 +120,7 @@ export function HomeView() {
           {recent.length ? (
             <ul className="list-none m-0 p-0">
               {recent.map((r) => (
-                <li key={r.path} className="flex items-center gap-3 px-[18px] py-2.5 border-b border-line last:border-b-0">
+                <li key={r.path} className="flex items-center gap-3 px-4.5 py-2.5 border-b border-line last:border-b-0">
                   <div className="flex-1 min-w-0">
                     <b>{r.name}</b>{" "}
                     <span className="dim">
@@ -183,17 +186,17 @@ export function HomeView() {
           Where landfall puts things <Sub>nothing it installs is hidden</Sub>
         </CardHead>
         <div className={cols}>
-          <div className="pt-3.5 px-[18px] pb-4">
+          <div className="pt-3.5 px-4.5 pb-4">
             <h3 className={H3}>On this machine</h3>
             {paths(d.locations.local)}
           </div>
-          <div className="pt-3.5 px-[18px] pb-4 border-l border-line narrow:border-l-0 narrow:border-t">
+          <div className="pt-3.5 px-4.5 pb-4 border-l border-line narrow:border-l-0 narrow:border-t">
             <h3 className={H3}>On each server</h3>
             {paths(d.locations.server)}
           </div>
         </div>
       </Card>
-      <div className="mt-5 px-[18px] py-4 rounded-lg border border-line bg-hover text-md text-dim">
+      <div className="mt-5 px-4.5 py-4 rounded-lg border border-line bg-hover text-md text-dim">
         Everything here runs an <span className="mono">lf</span> command, shown above its output, so you can do the same in a terminal:
         <pre className="mt-2.5 mb-0 font-mono text-[12.5px] leading-[1.7] text-fg whitespace-pre-wrap [&_span]:text-faint">
           lf deploy ./dist -d blog <span># a folder, Dockerfile project or image, with HTTPS</span>

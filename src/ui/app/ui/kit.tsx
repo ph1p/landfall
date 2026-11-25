@@ -104,7 +104,7 @@ export const Card = ({ className, children, ...rest }: HTMLAttributes<HTMLDivEle
   </div>
 );
 export const CardHead = ({ className, children }: { className?: string; children: ReactNode }) => (
-  <h2 className={cx("m-0 px-[18px] py-3.5 text-[14px] font-semibold border-b border-line flex flex-wrap items-center gap-x-2.5 gap-y-1.5", className)}>
+  <h2 className={cx("m-0 px-4.5 py-3.5 text-[14px] font-semibold border-b border-line flex flex-wrap items-center gap-x-2.5 gap-y-1.5", className)}>
     {children}
   </h2>
 );
@@ -116,11 +116,11 @@ export const Actions = ({ children, className }: { children: ReactNode; classNam
   <span className={cx("flex flex-wrap gap-1.5 ml-auto font-normal", className)}>{children}</span>
 );
 export const Body = ({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) => (
-  <div className={cx("px-[18px] py-4", className)} {...rest}>
+  <div className={cx("px-4.5 py-4", className)} {...rest}>
     {children}
   </div>
 );
-export const Lede = ({ children }: { children: ReactNode }) => <div className="px-[18px] py-2.5 text-dim text-md border-b border-line">{children}</div>;
+export const Lede = ({ children }: { children: ReactNode }) => <div className="px-4.5 py-2.5 text-dim text-md border-b border-line">{children}</div>;
 export const Scroll = ({ className, children }: { className?: string; children: ReactNode }) => (
   <div className={cx("overflow-x-auto", className)}>{children}</div>
 );
@@ -163,7 +163,7 @@ const WIDTHS = ["w-[38%]", "w-[52%]", "w-[30%]", "w-[46%]", "w-[24%]"];
 export const BoneRows = ({ rows = 3 }: { rows?: number }) => (
   <div aria-hidden="true">
     {Array.from({ length: rows }, (_, i) => (
-      <div key={i} className="flex items-center gap-4 px-[18px] py-3.5 border-b border-line last:border-0">
+      <div key={i} className="flex items-center gap-4 px-4.5 py-3.5 border-b border-line last:border-0">
         <Bone className="w-24 flex-none" />
         <Bone className={WIDTHS[i % WIDTHS.length]} />
         <Bone className="w-14 ml-auto flex-none" />
@@ -179,7 +179,7 @@ export const Placeholder = ({ children, cards = 2 }: { children: ReactNode; card
     </div>
     {Array.from({ length: cards }, (_, i) => (
       <Card key={i}>
-        <div className="px-[18px] py-[17px] border-b border-line">
+        <div className="px-4.5 py-4.25 border-b border-line">
           <Bone className="w-36 h-3.5" />
         </div>
         <BoneRows rows={i ? 2 : 4} />
@@ -210,7 +210,7 @@ export function pending(st: Slot | undefined, what: ReactNode, retry?: () => voi
 
 /** Label/value rows. */
 export const Kv = ({ pairs, className }: { pairs: [string, ReactNode][]; className?: string }) => (
-  <dl className={cx("grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-1.5 text-md m-0", className)}>
+  <dl className={cx("grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4.5 gap-y-1.5 text-md m-0", className)}>
     {pairs.map(([k, v]) => [
       <dt key={`k${k}`} className="text-faint">
         {k}

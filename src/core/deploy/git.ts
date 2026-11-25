@@ -3,7 +3,7 @@ import { execFile, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Release } from "../site/compose";
+import type { Release } from "../site/meta";
 import { fail } from "../lib/fail";
 import { newestTag, parseRefName, type Ref, type RefKind } from "./refs";
 
@@ -14,7 +14,6 @@ export function git(cwd: string, ...args: string[]): Promise<string | undefined>
   );
 }
 
-/** A remote URL without the user's password or token (https://user:token@host/…). */
 /** Whether a folder is in a git checkout, from the files alone: no git runs. A .git folder, or a worktree's .git file. */
 export function inCheckout(dir: string): boolean {
   for (let d = dir; ; d = dirname(d)) {
@@ -23,6 +22,7 @@ export function inCheckout(dir: string): boolean {
   }
 }
 
+/** A remote URL without the user's password or token (https://user:token@host/…). */
 export const safeRemote = (url: string | undefined) => url?.replace(/^(https?:\/\/)[^@/]+@/, "$1") || undefined;
 
 export interface RepoInfo {

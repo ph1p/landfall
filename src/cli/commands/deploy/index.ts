@@ -1,11 +1,9 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { basename, dirname, join, normalize, relative, resolve } from "node:path";
-import { defineCommand, serverOpt } from "../cmd";
-import { deploySource, pickEnvironmentForRef, type Connect } from "../../core/deploy/source";
+import { basename, join, relative, resolve } from "node:path";
+import { defineCommand, serverOpt } from "../../cmd";
+import { deploySource, pickEnvironmentForRef, type Connect } from "../../../core/deploy/source";
 import {
   activeEnvironment,
-  checkImage,
   checkInt,
   DEFAULT_KEEP,
   defaults,
@@ -21,93 +19,56 @@ import {
   resolveServer,
   saveProject,
   type ProjectConfig,
-} from "../../core/lib/config";
+} from "../../../core/lib/config";
+import { analyze, WEB_PORTS } from "../../../core/site/analyze";
+import { builtImage, currentRelease, type Release, type SiteMeta } from "../../../core/site/meta";
+import { askable, missingVars, wantedVars } from "../../../core/site/env-vars";
+import { folderVolumes } from "../../../core/site/compose-config";
+import { fixedDomains, subDomains, routed, mainService, siteDomains, siteMain } from "../../../core/site/routing";
+import { besideCompose, besideName, generatedCompose, nginxConf } from "../../../core/site/generate";
+import { applySite } from "../../../core/site/apply";
+import { builtImages, discardRelease, prepareRelease, imagePorts } from "../../../core/site/releases";
+import { lockSite, readSite, siteDir, validName } from "../../../core/site/site";
+import { dotenvLines, localEnv, mergeEnv, parseEnvPairs, readEnvFile } from "../../../core/site/dotenv";
+import { buildLocally, buildTmp, localBuilds, localImage, localImages, sendImage } from "../../../core/deploy/buildlocal";
+import { uploadList, uploadSize } from "../../../core/deploy/ignore";
+import { journal, setUpState } from "../../../core/ssh/ssh";
+import { ask, askSecret, c, confirm, fail, info, interactive, ok, report, step, warn } from "../../../core/lib/term";
+import { pickIp, serverIps, sslipDomain } from "../../../core/server/facts";
+import { bytes, plural } from "../../../core/lib/format";
+import { detectStaticDir } from "../../../core/deploy/projects";
+import { rememberProject, withRedirects } from "../../../core/deploy/remembered";
+import { slug } from "../../../core/lib/slug";
+import { deployRedirects } from "../../../core/site/domain-plan";
+import { claimDomains } from "../../../core/site/claim";
+import { setupServer } from "../setup";
+import { onStop } from "../../../core/lib/job";
+import { VERSION } from "../../../core/lib/version";
+import { offerSeed } from "../volume";
+import { DEFAULT_USER, loginUser, newLogin } from "../../../core/traefik/traefik";
 import {
-  analyze,
-  builtImage,
-  askable,
-  CONTAINER_PATH,
-  currentRelease,
-  envComposeFile,
-  folderVolumes,
-  missingVars,
-  wantedVars,
-  fixedDomains,
-  routePlan,
-  subDomains,
-  besideCompose,
-  besideName,
-  generatedCompose,
-  WEB_PORTS,
-  routed,
-  mainService,
-  nginxConf,
-  siteDomains,
-  siteMain,
-  type Release,
-  type SiteKind,
-  type SiteMeta,
-} from "../../core/site/compose";
-import {
-  applySite,
-  builtImages,
-  discardRelease,
-  lockSite,
-  dotenvLines,
-  localEnv,
-  mergeEnv,
-  parseEnvPairs,
-  prepareRelease,
-  readEnvFile,
-  readSite,
-  siteDir,
-  validName,
-  imagePorts,
-} from "../../core/site/remote";
-import { buildLocally, buildTmp, localBuilds, localImage, localImages, sendImage } from "../../core/deploy/buildlocal";
-import { uploadList, uploadSize } from "../../core/deploy/ignore";
-import { journal, setUpState } from "../../core/ssh/ssh";
-import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/lib/term";
-import { pickIp, serverIps, sslipDomain } from "../../core/server/facts";
-import { bytes, plural } from "../../core/lib/format";
-import { detectBuild } from "../../core/deploy/frameworks";
-import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug, withRedirects } from "../../core/deploy/projects";
-import { deployRedirects } from "../../core/site/domain-plan";
-import { claimDomains } from "../../core/site/claim";
-import { setupServer } from "./setup";
-import { onStop } from "../../core/lib/job";
-import { VERSION } from "../../core/lib/version";
-import { offerSeed } from "./volume";
-import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik/traefik";
-import { failedHook, hookVars, readHooks, refuseStaticServerHooks, releaseHooks, runLocalHook, serverCall, SKIP_OPTIONS, skipper } from "../../core/site/hooks";
+  failedHook,
+  hookVars,
+  readHooks,
+  refuseStaticServerHooks,
+  releaseHooks,
+  runLocalHook,
+  serverCall,
+  SKIP_OPTIONS,
+  skipper,
+} from "../../../core/site/hooks";
+import { KINDS, planDeploy } from "./plan";
+import { checkLive, showRoutes } from "./output";
+import { nextReleaseId } from "./release";
 
 /** The first upload of a site above this size asks first. */
 const BIG_UPLOAD = 100 * 1024 * 1024;
-
-/** Per kind: where its files go in the release (none: nothing is uploaded), and whether it takes --port. */
-const KINDS: Record<SiteKind, { files?: string; port?: boolean }> = {
-  compose: { files: "" },
-  dockerfile: { files: "", port: true },
-  static: { files: "/public" },
-  image: { port: true },
-};
 
 /** The site's htpasswd lines with `login` added, replacing that user's old one. */
 function withLogin(auth: string[] | undefined, login?: string) {
   if (!login) return auth;
   const user = loginUser(login);
   return [...(auth ?? []).filter((l) => loginUser(l) !== user), login];
-}
-
-export const releaseId = (d = new Date()) => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
-
-/** A release id not in `taken`: ids have one-second resolution, so a second deploy within it moves on a second. */
-export function nextReleaseId(taken: string[], now: Date | string = new Date()): string {
-  // A release id itself: the server's clock (lockSite).
-  if (typeof now === "string") now = /^\d{14}$/.test(now) ? new Date(now.replace(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/, "$1-$2-$3T$4:$5:$6Z")) : new Date();
-  let t = now.getTime();
-  while (taken.includes(releaseId(new Date(t)))) t += 1000;
-  return releaseId(new Date(t));
 }
 
 /** One of this machine's Docker images, picked in a terminal. */
@@ -627,131 +588,5 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
   },
 });
 
-/** What deploy's options and the project folder say is deployed from here, and how; the local build command runs. */
-export function planDeploy(
-  cwd: string,
-  dirArg: string | undefined,
-  o: { start?: string; static?: boolean; build?: string; image?: string; file?: string; volume?: string[]; worker?: boolean; port?: string; spa?: boolean },
-  project: Partial<ProjectConfig>,
-  environment?: string,
-  /** Installs a clean export's dependencies before the local build. */
-  install?: () => void,
-) {
-  if (o.start && o.static) fail("--start and --static exclude each other");
-  let buildCmd: string | undefined = o.build ?? project.build;
-  // --start turns a site saved as static into an app.
-  const forceStatic = o.static ?? (o.start ? false : project.static);
-  const imageArg: string | undefined = o.image ?? (forceStatic ? undefined : project.image);
-  const image = imageArg && checkImage(imageArg);
-  const root = resolve(cwd, dirArg ?? project.dir ?? ".");
-  const named = image || forceStatic ? undefined : (o.file ?? composeFile(root, project));
-  let compose = named && normalize(named);
-  // The file becomes the release's compose.yaml, at the root of the upload: from a subfolder its relative
-  // paths (build: ., ./data:/data) would point elsewhere.
-  if (compose?.includes("/"))
-    fail(
-      `${named} is not in the folder deployed; deploy its folder instead: lf deploy ${dirname(join(relative(cwd, root) || ".", compose))} -f ${basename(compose)}`,
-    );
-  if (compose && !fs.existsSync(join(root, compose))) fail(`no ${compose} in ${relative(cwd, root) || "."}`);
-  // compose.staging.yaml next to compose.yaml: what -E staging changes, merged in on the server.
-  const layer = compose && environment ? envComposeFile(compose, environment) : undefined;
-  const layered = layer && fs.existsSync(join(root, layer)) ? layer : undefined;
-  if (layered) info(c.dim(`layering ${layered} over ${compose}`));
-  // A compose file of databases and caches next to an app (a Next.js app with Redis): the app is what deploys,
-  // with them beside it. Named with -f or in .landfall.json, the file deploys as it is.
-  const beside = compose && !o.file && !project.compose ? besideApp(root, compose, o.start ?? project.start, forceStatic) : undefined;
-  if (beside) {
-    compose = undefined;
-    info(
-      c.dim(
-        `${beside.file} runs no app of its own (${beside.services.join(", ")}): deploying the app with them beside it (-f ${beside.file} deploys only the file)`,
-      ),
-    );
-  }
-  const ownDockerfile = !compose && !image && !forceStatic && fs.existsSync(join(root, "Dockerfile"));
-  if (ownDockerfile && o.start) warn("--start ignored: the Dockerfile says how the app starts");
-  // Without a Dockerfile of its own: an app landfall writes one for.
-  const app = compose || image || forceStatic || ownDockerfile ? undefined : detectApp(root, o.start ?? project.start);
-  if (app?.fix) fail(`${app.fix}; or say how it starts: --start <command>`);
-  const detected = detectBuild(cwd);
-  const dir = compose || image || ownDockerfile || app ? root : resolve(cwd, dirArg ?? project.dir ?? detectStaticDir(cwd, detected));
-  const kind: SiteKind = compose ? "compose" : image ? "image" : ownDockerfile || app ? "dockerfile" : "static";
-  const tool = kind === "static" && !dirArg && !project.dir ? detected.tool : undefined;
-  // Publishing where the tool builds to: build first, or a redeploy would send the last build again (--build '' skips it).
-  if (tool && buildCmd === undefined && detected.build) buildCmd = detected.build;
-  if (buildCmd && !app) {
-    install?.();
-    step(`building locally: ${buildCmd}`);
-    const r = spawnSync(buildCmd, { cwd, shell: true, stdio: "inherit" });
-    if (r.status !== 0) fail(`build failed (exit ${r.status})`);
-  }
-  // A compose file or Dockerfile runs it, but the app inside still names the framework.
-  const shown = app ?? (compose || ownDockerfile ? detectApp(root, o.start ?? project.start) : undefined);
-  showStack(detectStack(root, shown?.name, shown?.tool ?? tool));
-  if (tool) info(c.dim(`publishing ${relative(cwd, dir)}: where ${tool} builds the site (another folder: lf deploy <dir>)`));
-  if (kind === "static" && !fs.existsSync(join(dir, "index.html"))) {
-    warn(`no index.html in ${relative(cwd, dir) || "."}${tool && !buildCmd ? `: build first, or let deploy do it (--build "${detected.build}")` : ""}`);
-  }
-  if ((o.volume?.some(Boolean) || o.worker) && !KINDS[kind].port)
-    fail(`--volume and --worker are for apps, Dockerfiles and images${kind === "compose" ? `: ${compose} names its volumes and routes itself` : ""}`);
-  const worker = !!KINDS[kind].port && !!(o.worker ?? project.worker);
-  const volumes = KINDS[kind].port ? [...new Set<string>(o.volume ?? project.volumes ?? app?.volumes ?? [])].filter(Boolean) : [];
-  const notPath = volumes.filter((v) => !CONTAINER_PATH.test(v));
-  if (notPath.length) fail(`--volume takes a folder in the container, like /app/data: not ${notPath.join(", ")}`);
-  const guessed = o.port ?? project.port ?? (ownDockerfile ? exposedPort(join(dir, "Dockerfile")) : app?.port);
-  // Traefik would send visitors to a port nothing listens on, and the deploy still say live: say the guess.
-  // An image says its port itself (EXPOSE): deploy reads it on the server.
-  if (KINDS[kind].port && guessed === undefined && !worker && kind !== "image")
-    warn(`${ownDockerfile ? "the Dockerfile has no EXPOSE with a number" : "no port known"}: routing to 3000; pass --port if the app listens elsewhere`);
-  const port = KINDS[kind].port && (guessed !== undefined || kind !== "image") ? checkInt(guessed ?? 3000, "--port", 1, 65535) : undefined;
-  const appBuild = app && (buildCmd ?? app.build);
-  if (app)
-    info(
-      c.dim(
-        `${app.name} ${worker ? "worker" : "app"}${app.tool ? ` (${app.tool})` : ""}: built on the server${appBuild ? ` with ${appBuild}` : ""}, started with ${app.start}${worker ? "" : ` on port ${port}`}`,
-      ),
-    );
-  if (volumes.length) info(c.dim(`kept across deploys: ${volumes.join(", ")}`));
-  const spa = kind === "static" && !!(o.spa ?? project.spa);
-  return { buildCmd, forceStatic, image, root, compose, beside, layered, ownDockerfile, app, detected, dir, kind, tool, worker, volumes, port, appBuild, spa };
-}
-
-/** What goes where, port by port; a route the live release did not have is marked new. */
-function showRoutes(services: Release["services"], domains: string[], live?: Release) {
-  const plan = routePlan(services, domains);
-  const before = new Set(live ? routePlan(live.services, domains).map((r) => r.key) : []);
-  const isNew = (r: (typeof plan)[number]) => !!live && !before.has(r.key);
-  const hidden = services.some((s) => s.private);
-  if (plan.length <= 1 && !plan.some(isNew) && !hidden && !plan.some((r) => r.allow || r.members)) return;
-  info("routes:");
-  for (const r of plan) {
-    const fresh = isNew(r) ? c.yellow(" new") : "";
-    const only = r.allow ? c.dim(` only from ${r.allow.join(", ")}`) : "";
-    const split = r.members ? c.dim(` split: ${r.members.join(", ")}`) : "";
-    console.log(
-      `  ${r.key.padEnd(18)} ${r.domains.length ? r.domains.map((d) => c.cyan(d)).join(", ") : c.dim("no domain: lf tunnel")}${only}${split}${fresh}`,
-    );
-  }
-  for (const s of services)
-    for (const [k, p] of Object.entries(s.private ?? {}))
-      console.log(`  ${`${s.name}:${p}`.padEnd(18)} ${c.dim(`private: lf tunnel <site> ${k}${s.paths?.[k] ? ` opens ${s.paths[k]}` : ""}`)}`);
-}
-
-async function checkLive(domain: string) {
-  info(c.dim(`checking https://${domain}`));
-  try {
-    const get = () => fetch(`https://${domain}`, { signal: AbortSignal.timeout(15000), redirect: "manual" });
-    let res = await get();
-    // Traefik answers 404 until its Docker provider has seen the recreated container: give it a few seconds.
-    for (let i = 0; res.status === 404 && i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      res = await get();
-    }
-    if (res.status < 400) ok(`https://${domain} responded ${res.status}`);
-    else if (res.status === 401) ok(`https://${domain} responded 401: it asks for its login`);
-    else warn(`https://${domain} responded ${res.status}`);
-  } catch (e: any) {
-    const msg = e?.cause?.code ?? e?.code ?? e?.message ?? String(e);
-    warn(`could not reach https://${domain} yet (${msg}). DNS or the first certificate may still be pending.`);
-  }
-}
+export { planDeploy } from "./plan";
+export { nextReleaseId, releaseId } from "./release";

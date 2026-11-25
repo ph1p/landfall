@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { registries, registryLogin, registryLogout } from "../../core/server/registries";
 import { askSecret, c, fail, info, ok, passwordOption, printJson, step } from "../../core/lib/term";
-import { target } from "./system";
+import { serverTarget } from "../target";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 
@@ -10,7 +10,7 @@ export const registryList = defineCommand({
   summary: "List the registries the server's docker is logged in to (lf deploy --image pulls private images from them).",
   options: { server: serverOpt, json },
   async run(_, o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const list = await registries(server);
     if (o.json) return void printJson(list);
     if (!list.length) return void info(c.dim(`docker on ${name} is logged in to no registry: lf registry login <host> -u <user>`));
@@ -31,7 +31,7 @@ export const registryLoginCmd = defineCommand({
   async run([host], o) {
     if (!host) fail("usage: lf registry login <host> -u <user> [--password-stdin]");
     if (!o.user) fail("--user is required: the registry user (for ghcr.io, your GitHub name)");
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const pw = (await passwordOption(o)) ?? (await askSecret(`password or token for ${o.user}@${host}:`));
     if (!pw) fail("no password given");
     step(`logging docker on ${name} in to ${host}`);
@@ -47,7 +47,7 @@ export const registryLogoutCmd = defineCommand({
   options: { server: serverOpt },
   async run([host], o) {
     if (!host) fail("usage: lf registry logout <host>");
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     await registryLogout(server, host);
     ok(`docker on ${name} is logged out of ${host}`);
   },

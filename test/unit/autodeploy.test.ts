@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SiteMeta } from "../../src/core/site/compose";
+import type { SiteMeta } from "../../src/core/site/meta";
 import { fail } from "../../src/core/lib/fail";
 import { OWN_PROXY } from "../../src/core/ssh/templates";
 
@@ -15,7 +15,9 @@ vi.mock("../../src/core/ssh/ssh", async (orig) => ({
     return { code: 0, stdout: answers.find(([re]) => re.test(script))?.[1] ?? "20260101120000\n", stderr: "" };
   },
 }));
-const { applySite, removeSite, SEP } = await import("../../src/core/site/remote");
+const { applySite } = await import("../../src/core/site/apply");
+const { removeSite } = await import("../../src/core/site/lifecycle");
+const { SEP } = await import("../../src/core/site/site");
 const { skipper } = await import("../../src/core/site/hooks");
 const ad = await import("../../src/core/deploy/autodeploy");
 

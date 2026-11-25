@@ -1,5 +1,5 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer } from "../../core/lib/config";
+import { serverTarget } from "../target";
 import { noUfw } from "../../core/server/facts";
 import { firewallState, guardSsh, type FirewallState } from "../../core/server/firewall";
 import { parseRule, type Rule } from "../../core/server/inventory";
@@ -88,7 +88,7 @@ function addCommand(action: "allow" | "deny") {
     async run([port], o) {
       if (!port) fail(`usage: lf firewall ${action} <port[/proto]> [--from ip]`);
       const args = ruleArgs({ action, port, from: o.from, comment: o.comment });
-      const fw = await firewallState(resolveServer(o.server).server);
+      const fw = await firewallState(serverTarget(o).server);
       ufwUsable(fw);
       if (action === "deny") await guardSsh(fw, [asRule(args), ...fw.rules], o.force);
       await runScript(fw.login, `${PRELUDE}\n${NEEDS_UFW}\n${addRule(args)}`);
@@ -105,7 +105,7 @@ export const firewallStatus = defineCommand({
   summary: "Show the firewall (ufw): on or off, its rules, and who can reach each listening port.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     if (o.json) return void printJson(await firewallView(server));
     const fw = await firewallState(server);
     const state = fw.ufw === "active" ? c.green("on") : fw.ufw === "missing" ? c.yellow("not installed") : c.yellow("off");
@@ -135,7 +135,7 @@ export const firewallEnable = defineCommand({
   summary: "Turn ufw on (installs it if missing). Always allows the ssh port first; refuses if it would block a port in use.",
   options: { server: serverOpt, force: { type: "boolean", desc: "turn it on even if it blocks ports in use" } },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const fw = await firewallState(server);
     ufwUsable(fw);
     if (fw.ufw === "active") return ok(`firewall on ${name} is already on`);
@@ -161,7 +161,7 @@ export const firewallDisable = defineCommand({
   summary: "Turn ufw off. Rules are kept and apply again after `lf firewall enable`.",
   options: { server: serverOpt },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const fw = await firewallState(server);
     if (fw.ufw !== "active") return ok(`firewall on ${name} is already off`);
     if (!(await confirm(`Turn the firewall on ${name} off? Every listening port becomes reachable.`, false))) fail("cancelled");
@@ -177,7 +177,7 @@ export const firewallRemove = defineCommand({
   options: { server: serverOpt, force: { type: "boolean", desc: "even if it blocks ssh" } },
   async run([which], o) {
     if (!which) fail("usage: lf firewall rm <number|rule>");
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const fw = await firewallState(server);
     const { rule, n } = pick(fw, which);
     await guardSsh(
@@ -204,7 +204,7 @@ export const firewallUpdate = defineCommand({
   },
   async run([which], o) {
     if (!which) fail("usage: lf firewall update <number|rule> [--port p] [--from ip|any] [--action allow|deny|limit]");
-    const fw = await firewallState(resolveServer(o.server).server);
+    const fw = await firewallState(serverTarget(o).server);
     const { rule, n } = pick(fw, which);
     const action = o.action ?? rule.action;
     if (!["allow", "deny", "limit"].includes(action)) fail(`--action must be allow, deny or limit, not ${action}`);

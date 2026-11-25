@@ -1,5 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, projectServer } from "../../core/lib/config";
+import { serverTarget } from "../target";
+import { checkInt } from "../../core/lib/config";
 import { bytes, plural } from "../../core/lib/format";
 import { prune, prunePlan, reboot } from "../../core/server/manage";
 import { JOURNAL_KEEP, kept, pruneSummary, reclaimable, removable, removableVolumes, shortName, type PrunePlan } from "../../core/server/reclaim";
@@ -59,7 +60,7 @@ export const pruneCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     if (!o.json) step(`measuring what can go on ${name}`);
     const plan = await prunePlan(server, { all: o.all, logs: o.logs, volumes: o.volumes });
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
@@ -91,7 +92,7 @@ export const rebootCmd = defineCommand({
     timeout: { type: "string", desc: "seconds to wait for it to come back", default: "300" },
   },
   async run(_, o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     const timeout = checkInt(o.timeout, "--timeout", 30, 3600);
     const admin = await adminLogin(server, "rebooting");
     if (!(await confirm(`Reboot ${name}? Its sites are offline for a minute or two.`, false))) return;

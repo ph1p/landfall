@@ -82,7 +82,7 @@ function ScanCard({ n }: { n: string }) {
   const tv = trivy.get(n);
   if (!st) return null;
   const wait = waiting(st) ? (
-    <div role="status" className="px-[18px] py-4 text-dim text-sm flex items-center gap-2">
+    <div role="status" className="px-4.5 py-4 text-dim text-sm flex items-center gap-2">
       <Spin /> Scanning every image. This takes a minute or more; the first scan also downloads Trivy's databases (several GB).
     </div>
   ) : (

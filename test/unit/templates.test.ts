@@ -5,30 +5,17 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { portScheme, routerPort } from "../../src/core/ssh/tunnel";
 import { htpasswd, traefikSettings } from "../../src/core/traefik/traefik";
-import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/site/remote";
+import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/server/overview";
 import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/ssh/templates";
-import {
-  adoptCompose,
-  analyze,
-  besideCompose,
-  findRoute,
-  isCidr,
-  generatedCompose,
-  localCompose,
-  routePlan,
-  mainService,
-  nginxConf,
-  overrideYaml,
-  ejectYaml,
-  folderVolumes,
-  routeLabels,
-  ruleHosts,
-  secretUsers,
-  siteDomains,
-  type Release,
-  type SiteMeta,
-  siteRedirects,
-} from "../../src/core/site/compose";
+import { adoptCompose } from "../../src/core/site/compose-edit";
+import { analyze, ruleHosts } from "../../src/core/site/analyze";
+import { besideCompose, generatedCompose, nginxConf } from "../../src/core/site/generate";
+import { findRoute, routePlan, mainService, siteDomains, siteRedirects } from "../../src/core/site/routing";
+import { isCidr } from "../../src/core/site/x-landfall";
+import { localCompose, folderVolumes, secretUsers } from "../../src/core/site/compose-config";
+import { overrideYaml, ejectYaml } from "../../src/core/site/override";
+import { routeLabels } from "../../src/core/site/traefik-labels";
+import type { Release, SiteMeta } from "../../src/core/site/meta";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
@@ -521,5 +508,43 @@ describe("templates", () => {
     const off = traefikCompose({ image: "traefik:v3", staging: false });
     expect(off).not.toContain("http3");
     expect(off).not.toContain("/udp");
+  });
+});
+
+describe("compose edge cases", () => {
+  const xl = (x: unknown, extra: object = {}) => analyze({ services: { web: { image: "w", ...extra, "x-landfall": x } } }, "/x");
+
+  test("a .env value drops its inline comment unless quoted", () => {
+    const dir = tmp();
+    fs.writeFileSync(join(dir, ".env"), 'PORT=4000 # web\nNAME="a # b"\n');
+    fs.writeFileSync(join(dir, "compose.yaml"), 'services:\n  web:\n    image: "w:${NAME}"\n    ports: ["${PORT}:3000"]\n');
+    const c = localCompose(dir, "compose.yaml");
+    expect(c.services.web.image).toBe("w:a # b");
+    expect(c.services.web.ports[0].published).toBe("4000");
+  });
+
+  test("x-landfall.port takes a port number only", () => {
+    expect(xl({ port: true }).errors.join()).toMatch(/port must be a port number, got true/);
+    expect(xl({ port: [80] }).errors.join()).toMatch(/port must be a port number/);
+    expect(xl({ port: "3000" }).services[0].port).toBe(3000);
+  });
+
+  test("a lone expose with /tcp is the port", () => {
+    const a = xl({}, { expose: ["3000/tcp"] });
+    expect(a.errors).toEqual([]);
+    expect(a.services[0].port).toBe(3000);
+  });
+
+  test("an empty subdomain or domains on a route is missing, not the text null", () => {
+    expect(xl({ port: 3000, routes: [{ port: 3001, subdomain: null }] }).errors.join()).toMatch(/needs a subdomain .* or domains, not neither/);
+    expect(xl({ port: 3000, routes: [{ port: 3001, domains: null }] }).errors.join()).toMatch(/route to 3001 has no domains/);
+    expect(xl({ port: 3000, domains: null }).errors.join()).toMatch(/x-landfall.domains is empty/);
+  });
+
+  test("findRoute finds a service whatever its case", () => {
+    const r: Release = { id: "1", at: "", services: [{ name: "API", networks: ["default"], port: 3000 }] };
+    const m: SiteMeta = { name: "s", kind: "compose", domains: ["a.com"], current: "1", releases: [r], createdAt: "", updatedAt: "" };
+    expect(findRoute(m, "API")).toMatchObject({ key: "API:3000" });
+    expect(findRoute(m, "api:3000")).toMatchObject({ key: "API:3000" });
   });
 });

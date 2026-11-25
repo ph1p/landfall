@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BOX, infraGraph, NODE_H, NODE_W, STEP, type ServerInput } from "../../src/core/views/infra-graph";
-import type { Overview, SiteStatus } from "../../src/core/site/remote";
-import type { Remembered } from "../../src/core/deploy/projects";
+import type { Overview, SiteStatus } from "../../src/core/server/overview";
+import type { Remembered } from "../../src/core/deploy/remembered";
 
 const site = (name: string, o: Partial<SiteStatus> = {}): SiteStatus =>
   ({

@@ -42,7 +42,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf users [--json]` | Root and uid 1000+ accounts: sudo (passwordless?), password set/locked/none, keys, shell. ★ marks landfall's login. Alias: `users ls`. |
 | `lf users add <name> [-k key\|file.pub] [--generate-key] [-p pw \| --password-stdin] [--sudo [--nopasswd]] [--shell s]` | Adds an account with a home, given a key, new pair or password. Undoable. |
 | `lf users rm <name> [--keep-home]` | Removes an account and its home. Refuses root, landfall's and the admin login. Not undoable. |
-| `lf users passwd <name> [-p pw \| --password-stdin \| --generate \| --remove]` | Sets (asked twice), generates or removes a password. Not undoable. Alias: `users password`. |
+| `lf users passwd <name> [-p pw \| --password-stdin \| --generate \| --remove]` | Sets (asked twice), generates or removes a password. Removing the password of a sudo user without NOPASSWD needs `--force`. Not undoable. Alias: `users password`. |
 | `lf users sudo <name> [--nopasswd \| --off]` | Grants sudo via `/etc/sudoers.d/landfall-<name>`; `--off` removes it and the sudo/wheel groups. Undoable. |
 | `lf swap [size\|off] [--json]` | Shows, adds (`/swapfile`, min 64M, keeps 2 GB disk free) or removes swap. Adding is undoable. Alias: `server swap`. |
 | `lf hostname [name]` | Shows or sets it (and `/etc/hosts`). Undoable. Alias: `server hostname`. |

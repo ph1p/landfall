@@ -11,11 +11,11 @@ import {
   setAutodeploy,
   type AutodeployView,
 } from "../../core/deploy/autodeploy";
-import { currentRelease, type AutodeploySetting } from "../../core/site/compose";
+import { currentRelease, type AutodeploySetting } from "../../core/site/meta";
 import { repoInfo, safeRemote } from "../../core/deploy/git";
 import { list, ruleText, type RefRule } from "../../core/deploy/refs";
 import { parseGitUrl } from "../../core/deploy/remote-git";
-import { noSite } from "../../core/site/remote";
+import { noSite } from "../../core/site/site";
 import { runScript } from "../../core/ssh/ssh";
 import { c, fail, info, ok, printJson, table, warn } from "../../core/lib/term";
 

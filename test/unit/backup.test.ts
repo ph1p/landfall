@@ -14,8 +14,8 @@ vi.mock("../../src/core/ssh/ssh", async (orig) => ({
     return { code: 0, stdout: "", stderr: "" };
   },
 }));
-vi.mock("../../src/core/site/remote", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/site/remote")>()),
+vi.mock("../../src/core/site/site", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/site/site")>()),
   requireSite: async (_s: unknown, name: string) => ({ meta: { name, releases: [], domains: [] }, env: "", proxy: {} }),
 }));
 const { backupScript, scheduleBackups } = await import("../../src/cli/commands/volume");

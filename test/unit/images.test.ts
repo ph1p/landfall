@@ -14,10 +14,10 @@ vi.mock("../../src/core/ssh/ssh", async (orig) => ({
   },
 }));
 const { parseRegistries, registryLogin, registryLogout, registryOf } = await import("../../src/core/server/registries");
-const { imagePorts } = await import("../../src/core/site/remote");
-const { exposedPorts } = await import("../../src/core/site/compose");
+const { imagePorts } = await import("../../src/core/site/releases");
+const { exposedPorts } = await import("../../src/core/site/analyze");
 const { parseLocalImages, samePlatform } = await import("../../src/core/deploy/buildlocal");
-const { generatedCompose } = await import("../../src/core/site/compose");
+const { generatedCompose } = await import("../../src/core/site/generate");
 
 const server = { host: "example.com" } as any;
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });

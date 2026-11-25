@@ -1,23 +1,18 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, projectServer, tildify, type Server } from "../../core/lib/config";
+import { serverTarget } from "../target";
+import { checkInt, tildify, type Server } from "../../core/lib/config";
 import { generateKey } from "../../core/server/security";
 import { bytes } from "../../core/server/facts";
 import { sshExec } from "../../core/ssh/ssh";
 import { effectiveSsh } from "../../core/ssh/sshconfig";
 import {
-  KEY_SERVICES,
   LOG_SIZE,
   UNIT,
-  addKey,
   addSwap,
-  parseKeyLine,
   parseSwapSize,
-  readKey,
-  removeKey,
   removeSwap,
   serviceAction,
   serviceLogs,
-  serviceName,
   setDaemon,
   setHostname,
   setTimezone,
@@ -27,13 +22,14 @@ import {
   type Service,
   type SystemInfo,
 } from "../../core/server/system";
+import { addKey, parseKeyLine, readKey, removeKey } from "../../core/server/keys";
+import { KEY_SERVICES, serviceName } from "../../core/site/status";
 import { adminLogin } from "../../core/ssh/privilege";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn, printJson } from "../../core/lib/term";
 
-export const target = (o: Record<string, any>) => projectServer(o.server);
 /** The target server's name and everything `lf system` knows about it. */
 const inspect = async (o: Record<string, any>) => {
-  const { name, server } = target(o);
+  const { name, server } = serverTarget(o);
   return { name, server, i: await fullSystem(server) };
 };
 const json = { type: "boolean", desc: "machine-readable output" } as const;
@@ -95,7 +91,7 @@ export const servicesList = defineCommand({
   summary: "List services: the ones landfall relies on and failed ones; --all for every one.",
   options: { server: serverOpt, all: { type: "boolean", desc: "every service, inactive ones too" }, json },
   async run(_, o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const i = await system(server);
     if (o.json) return void printJson(i.services);
     if (i.init === "other") fail(`no systemd or OpenRC on ${name}`);
@@ -119,7 +115,7 @@ function serviceCommand(verb: "restart" | "start" | "stop") {
     async run([unit], o) {
       if (!unit) fail(`usage: lf services ${verb} <service>`);
       if (!UNIT.test(unit)) fail(`not a service name: ${unit}`);
-      const { name, server } = target(o);
+      const { name, server } = serverTarget(o);
       const svc = serviceName(unit);
       if (verb === "stop" && /^sshd?$/.test(svc) && !o.force && !(await confirmRisky(`Stopping ${svc} can lock you out of ${name}. Do it anyway?`)))
         fail(`stopping ${svc} can lock you out (--force to do it anyway)`);
@@ -152,7 +148,7 @@ export const servicesLogs = defineCommand({
   },
   async run([unit], o) {
     if (!unit) fail("usage: lf services logs <service>");
-    const { server } = target(o);
+    const { server } = serverTarget(o);
     return sshExec(server, [serviceLogs(unit, { lines: checkInt(o.tail, "--tail", 1, 100000), follow: o.follow })]);
   },
 });
@@ -201,7 +197,7 @@ whoever logs in as that user, or keep it if that is you.`,
   },
   async run([arg], o) {
     if (!arg && !o.generate) fail("usage: lf keys add <key|file.pub>, or --generate");
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const eff = effectiveSsh(server);
     const user = o.user ?? eff.user;
     const made = o.generate ? generateKey(name, user) : undefined;
@@ -256,7 +252,7 @@ export const swapCmd = defineCommand({
   summary: "Show swap, add a swap file (e.g. 2G) or remove the one landfall made (off).",
   options: { server: serverOpt, json },
   async run([arg], o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const i = await system(server);
     if (!arg) {
       if (o.json) return void printJson({ swap: i.swap, swappiness: i.swappiness, mem: i.mem });
@@ -290,7 +286,7 @@ export const hostnameCmd = defineCommand({
   summary: "Show or change the host name.",
   options: { server: serverOpt },
   async run([nw], o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const i = await system(server);
     if (!nw) return void console.log(i.hostname);
     if (nw === i.hostname) return ok(`already ${nw}`);
@@ -307,7 +303,7 @@ export const timezoneCmd = defineCommand({
   summary: "Show or change the time zone (e.g. Europe/Berlin, UTC). Cron jobs and logs follow it.",
   options: { server: serverOpt },
   async run([tz], o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const i = await system(server);
     if (!tz) return void console.log(`${i.timezone}${c.dim(` · ${i.time}`)}`);
     if (tz === i.timezone) return ok(`already ${tz}`);
@@ -331,7 +327,7 @@ export const logLimitCmd = defineCommand({
     json,
   },
   async run([arg], o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const i = await system(server);
     const d = i.docker;
     if (!d) fail(`no docker on ${name}`);

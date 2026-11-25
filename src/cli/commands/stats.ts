@@ -1,6 +1,7 @@
 import { defineCommand, paintStatus, serverOpt } from "../cmd";
-import { checkInt, projectServer } from "../../core/lib/config";
-import { isUp } from "../../core/site/compose";
+import { serverTarget } from "../target";
+import { checkInt } from "../../core/lib/config";
+import { isUp } from "../../core/site/status";
 import { bytes, duration, pct } from "../../core/lib/format";
 import { diskUsage, stats, type DiskUsage, type Stats } from "../../core/server/stats";
 import { ROOT } from "../../core/ssh/templates";
@@ -71,7 +72,7 @@ export const statsCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run([site], o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     if (o.json) {
       if (o.watch) fail("--watch and --json do not go together: run lf stats --json in a loop");
       return void printJson(await stats(server));
@@ -132,7 +133,7 @@ export const diskCmd = defineCommand({
   summary: "Show where a server's disk space goes: filesystems, Docker images, volumes, build cache, sites and container logs.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     const d = await diskUsage(server);
     if (o.json) return void printJson(d);
     printDisk(name, d);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addVolumeMount, mountOf, removeVolumeMount } from "../../src/core/site/compose";
+import { addVolumeMount, mountOf, removeVolumeMount } from "../../src/core/site/compose-edit";
 
 const COMPOSE = `# the shop
 services:
@@ -39,6 +39,8 @@ describe("volume mounts in compose.yaml", () => {
   test("add refuses what does not fit", () => {
     expect(() => addVolumeMount(COMPOSE, "api", "/data")).toThrow("no service api in the compose file: web, db");
     expect(() => addVolumeMount(COMPOSE, "web", "data")).toThrow("a folder in the container");
+    expect(() => addVolumeMount(COMPOSE, "web", "/data:/etc")).toThrow("a folder in the container");
+    expect(() => addVolumeMount(COMPOSE, "web", "/app data")).toThrow("a folder in the container");
     expect(() => addVolumeMount(COMPOSE, "web", "/etc/nginx/nginx.conf/")).toThrow("web already has a folder at /etc/nginx/nginx.conf/");
     expect(() => addVolumeMount(COMPOSE, "web", "/data", "my data")).toThrow("a volume name takes");
   });

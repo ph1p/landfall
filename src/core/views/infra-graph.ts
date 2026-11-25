@@ -1,7 +1,7 @@
 // The infrastructure map: every server, its Traefik, sites, containers, volumes and domains, as nodes and edges
 // laid out in columns. No node imports: the web page builds it from the overviews it already reads.
-import type { Overview, Unrouted } from "../site/remote";
-import type { Remembered } from "../deploy/projects";
+import type { Overview, Unrouted } from "../server/overview";
+import type { Remembered } from "../deploy/remembered";
 import { statusKind, worse, type StatusKind } from "../site/status";
 
 export type NodeKind = "machine" | "project" | "server" | "proxy" | "site" | "external" | "container" | "service" | "volume" | "domain" | "redirect" | "add";

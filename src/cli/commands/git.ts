@@ -3,7 +3,8 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, projectServer, saveGitRule } from "../../core/lib/config";
+import { serverTarget } from "../target";
+import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, saveGitRule } from "../../core/lib/config";
 import { repoInfo, safeRemote } from "../../core/deploy/git";
 import { hasRule, one, ruleText, sameRule, type RefRule } from "../../core/deploy/refs";
 import { FORGES, loggedIn } from "../../core/deploy/forge";
@@ -113,7 +114,7 @@ otherwise add it by hand. The private key never leaves the server.`,
     const g = parseGitUrl(url!);
     if (g.ref) fail(`a deploy key is for the whole repository: drop #${g.ref}`);
     if (!g.host) fail(`${g.url} is a path on the server: it needs no deploy key`);
-    const { server, name: serverName } = projectServer(o.server);
+    const { server, name: serverName } = serverTarget(o);
     const shown = safeRemote(g.url);
 
     if (o.rm) {

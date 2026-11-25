@@ -27,6 +27,7 @@ export function maskJobArgs(argv: string[]): string[] {
   try {
     const { cmd, prefix, parsed } = jobArgs(argv);
     const out = [...argv];
+    const userinfo = (value: string) => value.replace(/(:\/\/)[^/@\s]+@/, "$1***@");
     const pair = (value: string) => (value.includes("=") ? value.slice(0, value.indexOf("=")) + "=***" : "***");
     for (const token of parsed.tokens) {
       const index = prefix + token.index;
@@ -35,8 +36,8 @@ export function maskJobArgs(argv: string[]): string[] {
       } else if (token.kind === "option" && token.value !== undefined) {
         const password = /(^|-)password$/.test(token.name);
         const env = cmd.name === "deploy" && token.name === "env";
-        if (!password && !env) continue;
-        const masked = password ? "***" : pair(token.value);
+        const masked = password ? "***" : env ? pair(token.value) : userinfo(token.value);
+        if (masked === token.value) continue;
         if (token.inlineValue) {
           // An attached short value may share its argv slot with boolean short flags.
           const original = out[index];

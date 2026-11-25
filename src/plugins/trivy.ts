@@ -2,7 +2,7 @@
 import { ago } from "../core/lib/ago";
 import { bytes } from "../core/lib/format";
 import { definePlugin, type PluginContext, type UiAction, type UiBlock } from "../core/plugins/plugin-api";
-import { SITE_NAME } from "../core/site/remote";
+import { SITE_NAME } from "../core/site/site";
 import {
   removeTrivy,
   scanImages,

@@ -1,5 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer, type Server } from "../../core/lib/config";
+import { serverTarget } from "../target";
+import { type Server } from "../../core/lib/config";
 import { parseRule, type Rule } from "../../core/server/inventory";
 import { findRun, laterConflicts, pending, readJournal, removedUsers, stillNeeded, undoSteps, type Run, type Step } from "../../core/ssh/journal";
 import { switchLogin } from "../../core/ssh/login";
@@ -59,7 +60,7 @@ export const historyLog = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     if (o.json) return printJson(await historyView(server, Number(o.n) || 20));
     const runs = (await readJournal(server)).reverse().slice(0, Number(o.n) || 20);
     if (!runs.length) return info(`nothing in ${JOURNAL} on ${name} yet`);
@@ -85,7 +86,7 @@ export const historyUndo = defineCommand({
     },
   },
   async run([ref], o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const runs = await readJournal(server);
     let steps: Step[];
     let label: string;

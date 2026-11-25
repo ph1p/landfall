@@ -1,4 +1,4 @@
-import { builtImage } from "../site/compose";
+import { builtImage } from "../site/meta";
 import type { Server } from "../lib/config";
 import { runScript, shq } from "../ssh/ssh";
 import { cmpVersion } from "../lib/version";
@@ -71,8 +71,9 @@ export function parsePkgList(out: string): PkgStatus {
   }
   // dnf lists security advisories as name-[epoch:]version-release.arch.
   for (const u of st.updates) {
-    const base = u.name.replace(/\.[^.]+$/, "");
-    if (sec.some((s) => s.startsWith(base + "-"))) u.security = true;
+    const name = u.name.replace(/\.[^.]+$/, "").replace(/[.+^$|()[\]{}\\]/g, "\\$&");
+    const nevra = new RegExp(`^${name}-(\\d+:)?\\d`);
+    if (sec.some((s) => nevra.test(s))) u.security = true;
   }
   return st;
 }
@@ -130,7 +131,7 @@ export function parseRef(ref: string): ImageRef {
   const first = name.split("/")[0];
   let registry = "registry-1.docker.io";
   if (name.includes("/") && (first.includes(".") || first.includes(":") || first === "localhost")) {
-    registry = first === "docker.io" ? registry : first;
+    registry = first === "docker.io" || first === "index.docker.io" ? registry : first;
     name = name.slice(first.length + 1);
   }
   if (registry === "registry-1.docker.io" && !name.includes("/")) name = `library/${name}`;

@@ -145,7 +145,7 @@ function CiDialog({ path }: { path: string }) {
           </fieldset>
           <details>
             <summary className="cursor-pointer text-md">{v.file}</summary>
-            <pre className={cx(PRE, "max-h-[320px] mt-2")}>{v.yaml}</pre>
+            <pre className={cx(PRE, "max-h-80 mt-2")}>{v.yaml}</pre>
           </details>
         </>
       )}

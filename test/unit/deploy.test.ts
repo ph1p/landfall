@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
 import { deployRedirects } from "../../src/core/site/domain-plan";
-import { detectStaticDir, slug, withRedirects } from "../../src/core/deploy/projects";
+import { detectStaticDir } from "../../src/core/deploy/projects";
+import { withRedirects } from "../../src/core/deploy/remembered";
+import { slug } from "../../src/core/lib/slug";
 import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/deploy/ignore";
 import {
   baseDomain,
@@ -19,8 +21,10 @@ import {
   saveProject,
   withPrimary,
 } from "../../src/core/lib/config";
-import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/site/remote";
-import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/site/compose";
+import { dotenvLines, envEntries, envView, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/site/dotenv";
+import { externals } from "../../src/core/server/overview";
+import { envComposeFile } from "../../src/core/site/compose-config";
+import { exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/site/env-vars";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -178,6 +182,8 @@ describe("deploy helpers", () => {
   });
   test("slug", () => {
     expect(slug("My Site.com")).toBe("my-site-com");
+    // Cut to 63 at a dash: no trailing dash, which a DNS label (<name>.<domain>) cannot end with.
+    expect(slug(`${"a".repeat(62)} tail`)).toBe("a".repeat(62));
   });
 });
 
@@ -204,6 +210,8 @@ describe("main domains", () => {
   test("keeps co.uk-style suffixes", () => {
     expect(baseDomain("shop.example.co.uk")).toBe("example.co.uk");
     expect(baseDomain("a.b.example.com")).toBe("example.com");
+    expect(baseDomain("shop.abc.de")).toBe("abc.de");
+    expect(guessDomains(["www.abc.de", "api.abc.de"])).toEqual([{ domain: "abc.de", hosts: 2 }]);
   });
 });
 
@@ -242,7 +250,7 @@ describe("release source", () => {
       const r = await repoInfo(d);
       return r && releaseGit(r);
     };
-    const { gitLabel } = await import("../../src/core/site/compose");
+    const { gitLabel } = await import("../../src/core/site/meta");
     const dir = fs.mkdtempSync(join(tmpdir(), "lf-git-"));
     expect(await gitSource(dir)).toBeUndefined();
     const git = (...a: string[]) => spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", ...a]);

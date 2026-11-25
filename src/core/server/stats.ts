@@ -1,5 +1,5 @@
 import type { Server } from "../lib/config";
-import { SITE_LINES, projectName, readSiteLine } from "../site/compose";
+import { SITE_LINES, projectName, readSiteLine } from "../site/meta";
 import { journalSize } from "./reclaim";
 import { runScript } from "../ssh/ssh";
 import { ctrPs, KV, kvRecord, ROOT, SITES } from "../ssh/templates";
@@ -191,7 +191,6 @@ export async function stats(s: Server): Promise<Stats> {
   return parseStats(stdout);
 }
 
-/** Where the space goes: filesystems, docker's share, sites, volumes and container logs. */
 /** Sets S to what reads root-owned files: nothing as root, sudo -n with passwordless sudo. */
 export const SUDO_PROBE = `S=""; [ "$(id -u)" -eq 0 ] || { sudo -n true 2>/dev/null && S="sudo -n"; }`;
 /** The systemd journal's size as journalctl prints it (120.5M), empty when unknown. Needs SUDO_PROBE. */
@@ -208,6 +207,7 @@ done'`;
 /** VOL name links size for every volume: docker system df -v has no --format for them. */
 export const VOLUME_SIZES = String.raw`docker system df -v 2>/dev/null | awk '/^VOLUME NAME/ { v = 1; next } v && NF == 0 { v = 0 } v && NF >= 3 { print "VOL\t" $1 "\t" $2 "\t" $NF }'`;
 
+/** Where the space goes: filesystems, docker's share, sites, volumes and container logs. */
 export const DISK = String.raw`
 set +e
 ${SUDO_PROBE}

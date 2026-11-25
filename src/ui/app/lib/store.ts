@@ -67,7 +67,7 @@ export async function http<T = unknown>(path: string, body?: unknown): Promise<T
   const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (r.status === 401) throw new Error("This browser is not logged in. Open the link `lf ui` printed.");
   const data = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
-  if (!r.ok) throw new Error(data.error || r.statusText);
+  if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
   return data;
 }
 

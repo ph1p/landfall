@@ -17,7 +17,7 @@ function Spark({ values }: { values: number[] }) {
   if (values.length < 2) return null;
   const pts = values.map((v, i) => `${((STATS_LOG - values.length + i) / (STATS_LOG - 1)) * 100},${24 - (Math.min(100, v) / 100) * 22}`).join(" ");
   return (
-    <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true" className="flex-1 min-w-0 h-[26px] text-accent">
+    <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true" className="flex-1 min-w-0 h-6.5 text-accent">
       <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   );
@@ -322,7 +322,7 @@ function pruneFlow(n: string, d: DiskUsage) {
     );
 }
 
-const H3 = ({ children }: { children: ReactNode }) => <h3 className="mt-4 mx-[18px] mb-1.5 text-sm text-dim font-semibold">{children}</h3>;
+const H3 = ({ children }: { children: ReactNode }) => <h3 className="mt-4 mx-4.5 mb-1.5 text-sm text-dim font-semibold">{children}</h3>;
 
 function DiskCard({ n }: { n: string }) {
   const st = S.disk[n];

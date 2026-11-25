@@ -181,6 +181,10 @@ export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
   return code;
 }
 
+/** Logs of one container (the proxy). */
+export const dockerLogs = (s: Server, ctr: string, o: { tail?: string; follow?: boolean }) =>
+  sshExec(s, [`docker logs --tail ${shq(o.tail ?? "100")} ${o.follow ? "-f " : ""}${shq(ctr)}`]);
+
 /** Id of one landfall run in the journal: undo groups a run's changes by it. */
 export const newRunId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 

@@ -1,5 +1,5 @@
 import { DOMAIN, editList, PROJECT_FILE } from "../lib/config";
-import type { SiteMeta } from "./compose";
+import type { SiteMeta } from "./meta";
 import { redirectHosts } from "../traefik/redirects";
 import { fail } from "../lib/term";
 

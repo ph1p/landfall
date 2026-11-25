@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { statusKind } from "../core/site/compose";
+import { statusKind } from "../core/site/status";
 import { secretEnv } from "../core/lib/job";
 import { c, fail } from "../core/lib/term";
 
@@ -95,7 +95,7 @@ export function usage(cmd: Command): string {
 /** The command as the server journal shows it: flags too, but never values that may be secrets. */
 export function journalCmd(cmd: Pick<Command, "name" | "options">, positionals: string[], values: Record<string, unknown>): string {
   // KEY=value arguments (lf env, lf secret, deploy -e) can be secrets: only the key is kept.
-  const mask = (v: string) => v.replace(/^([A-Za-z0-9_][A-Za-z0-9_.-]*)=.*/s, "$1=…");
+  const mask = (v: string) => v.replace(/^([A-Za-z0-9_][A-Za-z0-9_.-]*)=.*/s, "$1=…").replace(/(:\/\/)[^/@\s]+@/, "$1…@");
   const flags = Object.entries(values).flatMap(([k, v]): string[] => {
     if (k === "server" || k === "yes" || k === "help" || k === "environment" || v === undefined || v === cmd.options?.[k]?.default) return [];
     if (v === false) return [`--no-${k}`];

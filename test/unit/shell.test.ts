@@ -7,7 +7,7 @@ import { defineCommand, parse } from "../../src/cli/cmd";
 import { checkEmail, checkLoginName } from "../../src/core/lib/config";
 import { secretEnv } from "../../src/core/lib/job";
 import { decodeJobInput, encodeJobInput } from "../../src/core/lib/job-input";
-import { dotenvLines, parseEnvPairs } from "../../src/core/site/remote";
+import { dotenvLines, parseEnvPairs } from "../../src/core/site/dotenv";
 import { shq, writeFileCmd } from "../../src/core/ssh/ssh";
 import { PRELUDE } from "../../src/core/ssh/templates";
 

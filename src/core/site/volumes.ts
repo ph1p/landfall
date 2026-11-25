@@ -1,6 +1,7 @@
 import { type Server } from "../lib/config";
-import { projectName } from "./compose";
-import { cronMark, requireSite, siteDir } from "./remote";
+import { projectName } from "./meta";
+import { cronMark } from "../server/cron";
+import { requireSite, siteDir } from "./site";
 import { runScript, shq } from "../ssh/ssh";
 import { HELPER } from "../ssh/templates";
 import { fail } from "../lib/term";

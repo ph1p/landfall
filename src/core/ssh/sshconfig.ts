@@ -69,7 +69,7 @@ export function effectiveKey(s: Server): string | undefined {
 
 /** Concrete (non-wildcard) Host aliases from ~/.ssh/config, following Include. */
 export function sshAliases(file = SSH_CONFIG, seen = new Set<string>()): string[] {
-  if (seen.has(file) || !fs.existsSync(file)) return [];
+  if (seen.has(file) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return [];
   seen.add(file);
   const out: string[] = [];
   for (const line of readConfig(file).split("\n")) {
@@ -93,7 +93,12 @@ function glob(pattern: string): string[] {
   if (!/[*?[]/.test(pattern)) return [pattern];
   const dir = dirname(pattern);
   if (!fs.existsSync(dir)) return [];
-  return fs.globSync(basename(pattern), { cwd: dir }).map((f) => join(dir, f));
+  const re = new RegExp(`^${[...basename(pattern)].map((ch) => (ch === "*" ? "[^/]*" : ch === "?" ? "[^/]" : escapeRe(ch))).join("")}$`);
+  return fs
+    .readdirSync(dir)
+    .filter((f) => (basename(pattern).startsWith(".") || !f.startsWith(".")) && re.test(f))
+    .sort()
+    .map((f) => join(dir, f));
 }
 
 const markers = (alias: string) => [`# >>> landfall:${alias}`, `# <<< landfall:${alias}`] as const;

@@ -1,5 +1,5 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer } from "../../core/lib/config";
+import { serverTarget } from "../target";
 import {
   removeTrivy,
   scanImages,
@@ -73,7 +73,7 @@ export const scanCmd = defineCommand({
     remove: { type: "boolean", desc: "remove Trivy's image and databases from the server instead of scanning" },
   },
   async run(args, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     if (o.remove) {
       step(`removing Trivy from ${name}`);
       const gone = await removeTrivy(server);

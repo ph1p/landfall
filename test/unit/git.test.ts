@@ -7,12 +7,12 @@ import { gitTrack } from "../../src/cli/commands/git";
 import { deploySource as source, pickEnvironmentForRef, type SourceOpts } from "../../src/core/deploy/source";
 import { gitRules, loadProject } from "../../src/core/lib/config";
 import { exportRef, installCommand, listRefs, repoInfo, resolveRef } from "../../src/core/deploy/git";
-import { loadProjects } from "../../src/core/deploy/projects";
+import { loadProjects } from "../../src/core/deploy/remembered";
 import { gitView, projectsView, refsView } from "../../src/core/views/views";
 
 // projects.json sits under the config dir fixed at import: the list is handed in instead.
-vi.mock("../../src/core/deploy/projects", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/deploy/projects")>()),
+vi.mock("../../src/core/deploy/remembered", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/deploy/remembered")>()),
   loadProjects: vi.fn(() => []),
 }));
 

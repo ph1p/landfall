@@ -8,9 +8,9 @@ import { Empty } from "./ui/kit";
 import { closeMenu, menuOpen, MenuHost } from "./ui/menu";
 import { dialogOpen, DialogHost } from "./ui/dialog";
 import { ToastHost } from "./ui/toast";
-import { App } from "./views/shell";
+import { App } from "./views/shell/app";
 import { ensureDns } from "./views/domains";
-import { listenForDrops } from "./views/flows";
+import { listenForDrops } from "./views/flows/drops";
 import { sections } from "./views/shared";
 
 let fatal = "";

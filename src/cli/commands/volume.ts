@@ -2,10 +2,12 @@ import fs from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Server } from "../../core/lib/config";
-import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/site/compose";
+import { addVolumeMount, CONTAINER_PATH, removeVolumeMount, volumeName } from "../../core/site/compose-edit";
+import { projectName } from "../../core/site/meta";
 import { bytes } from "../../core/server/facts";
 import { plural } from "../../core/lib/format";
-import { CRON_RUNNING, cronChange, cronMark, cronMinute, lockSite, requireSite, siteDir } from "../../core/site/remote";
+import { CRON_RUNNING, cronChange, cronMark, cronMinute } from "../../core/server/cron";
+import { lockSite, requireSite, siteDir } from "../../core/site/site";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh/ssh";
 import { HELPER, PRELUDE } from "../../core/ssh/templates";
 import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/lib/term";
@@ -27,7 +29,7 @@ import {
   whileStopped,
   type Volume,
 } from "../../core/site/volumes";
-import { target } from "./sites";
+import { siteTarget } from "../target";
 
 /**
  * Site and the arguments after it. The site name is optional inside a project folder: then a first argument
@@ -38,13 +40,13 @@ async function locate(pos: string[], max: number, server?: string) {
   const rest = [...pos];
   let n = rest.length > max || !project ? rest.shift() : undefined;
   if (!n && project && rest.length) {
-    const t = target(undefined, server);
+    const t = siteTarget(undefined, server);
     const found = await volumes(t.server, t.site);
     const own = found.volumes.some((v) => v.key === rest[0] || v.name === rest[0]) || found.backups.some((b) => b.file === rest[0]);
     if (own) return { ...t, rest, found };
     n = rest.shift();
   }
-  const t = target(n, server);
+  const t = siteTarget(n, server);
   return { ...t, rest, found: await volumes(t.server, t.site) };
 }
 
@@ -56,7 +58,7 @@ export const volumeList = defineCommand({
   summary: `List a site's Docker volumes: size, the services that mount them, their backups.`,
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run([n], o) {
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { volumes: vols, backups, schedule, lastRun } = await volumes(server, site, true);
     if (o.json) return printJson({ volumes: vols, backups, schedule, lastRun });
     if (!vols.length) return info(`${site} has no volumes`);
@@ -469,7 +471,7 @@ brings it back.
       );
     if (!o.data) return redeployHint(c.dim(`; the data stays on the server (lf volume rm ${key} --data deletes it)`));
     if (o.service) fail("--data deletes the whole volume: leave out --service");
-    const t = target(site, o.server);
+    const t = siteTarget(site, o.server);
     const found = await volumes(t.server, t.site);
     const v = pickVolume(found.volumes, key, t.site);
     const users = [...new Set(v.mounts.map((x) => x.service))];

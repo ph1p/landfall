@@ -1,9 +1,10 @@
-import { siteHosts, siteMain } from "./compose";
+import { siteHosts, siteMain } from "./routing";
 import type { Server } from "../lib/config";
 import { checkDns, serverIps } from "../server/facts";
 import { oneOrMany } from "../lib/format";
-import { updateProjectDomains } from "../deploy/projects";
-import { changeSite, overview, type Overview } from "./remote";
+import { updateProjectDomains } from "../deploy/remembered";
+import { changeSite } from "./apply";
+import { overview, type Overview } from "../server/overview";
 import { dropRedirects } from "../traefik/server-redirects";
 import type { Proxy } from "../ssh/templates";
 import { c, confirmRemoval, fail, info, warn } from "../lib/term";

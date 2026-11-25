@@ -226,7 +226,7 @@ export function TunnelsView({ n, o }: { n: string; o: Overview }) {
 /** A section: its title, how many targets, what they are; then a tile per site, project or container. */
 function SectionTiles({ n, s }: { n: string; s: Section }) {
   return (
-    <section className="px-[18px] py-4 border-b border-line last:border-b-0">
+    <section className="px-4.5 py-4 border-b border-line last:border-b-0">
       <h3 className="m-0 mb-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm font-semibold">
         {s.title} <span className="faint font-normal tabular-nums">{s.blocks.length}</span>
         {s.lede && <span className="faint font-normal">{s.lede}</span>}

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import type { ReleaseGit } from "../site/compose";
+import type { ReleaseGit } from "../site/meta";
 import { activeEnvironment, gitRules, loadProject, PROJECT_FILE, type ProjectConfig, type Server } from "../lib/config";
 import { ciRun, exportRef, installCommand, listRefs, releaseGit, repoInfo, resolveRef, safeRemote, type Resolved } from "./git";
 import type { Entry } from "./ignore";

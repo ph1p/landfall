@@ -3,14 +3,15 @@ import { addKeyFirst, harden, HARDEN_PARTS, lockedOutOn, printAdvice, securityOf
 import { effectiveSsh } from "../../core/ssh/sshconfig";
 import { adminLogin } from "../../core/ssh/privilege";
 import { c, confirm, fail, ok, report, table, printJson } from "../../core/lib/term";
-import { limitedNote, target } from "./system";
+import { limitedNote } from "./system";
+import { serverTarget } from "../target";
 
 export const securityCmd = defineCommand({
   name: "security",
   summary: "Check a server's security (ssh passwords, firewall, fail2ban, automatic updates, pending reboot) and say how to fix what is open.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const { advice, ...i } = await securityOf(name, server);
     if (o.json) return void printJson({ ...i.security, fail2ban: i.fail2ban, advice });
     const s = i.security;
@@ -60,7 +61,7 @@ Each change is journaled: lf undo takes it back.`,
     const bad = args.filter((a) => !(HARDEN_PARTS as readonly string[]).includes(a));
     if (bad.length) fail(`unknown: ${bad.join(", ")} (ssh, fail2ban or updates)`);
     const parts = (args.length ? args : [...HARDEN_PARTS]) as HardenPart[];
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const admin = await adminLogin(server, "hardening");
     if (parts.includes("ssh")) {
       const { keysOff, locked } = await lockedOutOn(admin, effectiveSsh(server).user);

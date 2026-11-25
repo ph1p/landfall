@@ -1,5 +1,5 @@
 import type { Server } from "../lib/config";
-import { builtImage, projectName, SITE_LINES, readSiteLine } from "../site/compose";
+import { builtImage, projectName, SITE_LINES, readSiteLine } from "../site/meta";
 import { JOURNAL_USAGE, LOG_SIZES, parseSize, SUDO_PROBE, VOLUME_SIZES } from "./stats";
 import { canLogin, closeMux, runScript, shq } from "../ssh/ssh";
 import { JOURNAL, NETWORK, parseProxy, PRELUDE, PROXY_FILE, SITES } from "../ssh/templates";

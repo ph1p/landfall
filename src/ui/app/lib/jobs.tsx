@@ -97,8 +97,16 @@ export function stream(j: Job) {
   // Dropped connection while it still runs: pick up where it left off.
   es.onerror = () => {
     es.close();
-    if (j.info.code === undefined) setTimeout(() => stream(j), 1000);
+    setTimeout(() => resume(j), 1000);
   };
+}
+
+function resume(j: Job) {
+  if (j.info.code !== undefined) return;
+  http(`/api/jobs/${j.info.id}`).then(
+    () => stream(j),
+    (e) => ((e as { status?: number }).status === 404 ? ((j.info = { ...j.info, code: null }), render()) : setTimeout(() => resume(j), 1000)),
+  );
 }
 
 function finished(j: Job) {
@@ -117,7 +125,7 @@ function finished(j: Job) {
           text: why,
           ok: "Run with --force",
           danger: true,
-          onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id }),
+          onOk: () => run([...info.argv, "--force"], { server: info.server, retry: info.id, after: j.after }),
         }),
     });
   }
@@ -409,7 +417,7 @@ function JobOut({ j }: { j: Job }) {
       tabIndex={0}
       role="region"
       aria-label="Output"
-      className="job-out flex-1 overflow-auto bg-term text-term-fg font-mono text-[12.5px] leading-[1.6] px-3.5 py-3 whitespace-pre-wrap break-words"
+      className="job-out flex-1 overflow-auto bg-term text-term-fg font-mono text-[12.5px] leading-[1.6] px-3.5 py-3 whitespace-pre-wrap wrap-break-word"
     />
   );
 }

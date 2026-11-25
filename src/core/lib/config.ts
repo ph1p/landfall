@@ -254,10 +254,12 @@ export function expandDomain(d: string, server: Server): string {
 /** Free wildcard-DNS services: never a main domain. */
 const FREE_DNS = new Set(["sslip.io", "nip.io", "traefik.me", "localhost"]);
 
+const SECOND_LEVEL = new Set(["ac", "co", "com", "edu", "go", "gob", "gov", "ltd", "mil", "ne", "net", "nom", "or", "org", "plc", "sch"]);
+
 /** The base domain of a host name: the last two labels, three for `co.uk`-style suffixes. */
 export const baseDomain = (host: string) => {
   const l = host.toLowerCase().split(".");
-  const n = l.length >= 3 && l.at(-1)!.length === 2 && l.at(-2)!.length <= 3 ? 3 : 2;
+  const n = l.length >= 3 && l.at(-1)!.length === 2 && SECOND_LEVEL.has(l.at(-2)!) ? 3 : 2;
   return l.slice(-n).join(".");
 };
 
@@ -331,14 +333,14 @@ export function activeEnvironment(): string {
 /** A site name in an environment. */
 export const envSiteName = (name: string, env = activeEnvironment()) => (env ? `${name}-${env}` : name);
 
-/** The project file in a directory: .landfall.json, or the older one. */
+/** The project file in a directory. */
 const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
 /**
  * package.json's "landfall" section, if it has one. It holds any key of .landfall.json, and the hooks
  * (hooks, service). A broken package.json without the section is the build's business, not landfall's.
+ * Returns package.json, parsed, with its "landfall" section checked; undefined without that section.
  */
-/** package.json, parsed, with its "landfall" section checked; undefined without that section. */
 export function packageJson(cwd: string): { pkg: any; section: Record<string, any> } | undefined {
   let text: string;
   try {

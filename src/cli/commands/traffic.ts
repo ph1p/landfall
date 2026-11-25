@@ -1,24 +1,12 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, projectServer } from "../../core/lib/config";
+import { serverTarget } from "../target";
+import { DOMAIN } from "../../core/lib/config";
 import { bytes } from "../../core/server/facts";
 import { ms } from "../../core/lib/format";
-import { overview } from "../../core/site/remote";
-import {
-  ACCESS_LOG_HINT,
-  accessLogIssue,
-  CERT_DAYS_BAD,
-  certs,
-  checkUrl,
-  parseSince,
-  siteTraffic,
-  spanLabel,
-  traffic,
-  type Cert,
-  type Check,
-  type Detail,
-  type Summary,
-  type Traffic,
-} from "../../core/traefik/traffic";
+import { overview } from "../../core/server/overview";
+import { CERT_DAYS_BAD, certs, checkUrl, type Cert, type Check } from "../../core/traefik/certs";
+import { parseSince, spanLabel, traffic } from "../../core/traefik/traffic";
+import { ACCESS_LOG_HINT, accessLogIssue, siteTraffic, type Detail, type Summary, type Traffic } from "../../core/traefik/traffic-merge";
 import { c, fail, info, table, warn, printJson } from "../../core/lib/term";
 import { siteTrafficView } from "../../core/views/views";
 
@@ -79,7 +67,7 @@ export const trafficCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run([site], o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     const secs = parseSince(o.since);
     const t = await traffic(server, secs);
     if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
@@ -160,7 +148,7 @@ export const certsCmd = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     const r = await certs(server, parseSince(o.since));
     if (o.json) return void printJson(r);
     if (!r.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
@@ -207,7 +195,7 @@ export const checkCmd = defineCommand({
     let targets = args.filter(isDomain).map((domain) => ({ domain, site: undefined as string | undefined }));
     const sites = args.filter((a) => !isDomain(a));
     if (!args.length || sites.length) {
-      const { name, server } = projectServer(o.server);
+      const { name, server } = serverTarget(o);
       const ov = await overview(server);
       for (const s of sites) if (!ov.sites.some((x) => x.meta.name === s)) fail(`no site "${s}" on ${name}. See \`lf ls\``);
       const pick = ov.sites.filter((x) => !sites.length || sites.includes(x.meta.name));

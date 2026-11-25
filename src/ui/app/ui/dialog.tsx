@@ -298,7 +298,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     if (f.type === "check")
       return (
         <label key={f.name} className="flex gap-2 items-start text-fg text-md font-normal">
-          <input type="checkbox" {...attrs} className="w-auto mt-[3px]" checked={!!values[f.name]} onChange={(e) => set(f, e.target.checked)} />
+          <input type="checkbox" {...attrs} className="w-auto mt-0.75" checked={!!values[f.name]} onChange={(e) => set(f, e.target.checked)} />
           <span>
             {f.label}
             {hint}
@@ -461,7 +461,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     };
     return (
       <form {...formProps} className="flex flex-col min-h-0 flex-1 max-sm:overflow-y-auto overscroll-contain">
-        <header className="px-6 pt-[22px] pb-4 grid gap-3 border-b border-line">
+        <header className="px-6 pt-5.5 pb-4 grid gap-3 border-b border-line">
           <h2 id="dlg-title" className={DTITLE}>
             {title}
           </h2>
@@ -512,7 +512,7 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
           )}
         </div>
         {errLine && <div className="px-6 pt-3">{errLine}</div>}
-        <div className="flex justify-end gap-2 sticky bottom-0 z-1 bg-panel px-6 pt-3 pb-[18px] border-t border-line">{buttons}</div>
+        <div className="flex justify-end gap-2 sticky bottom-0 z-1 bg-panel px-6 pt-3 pb-4.5 border-t border-line">{buttons}</div>
       </form>
     );
   }

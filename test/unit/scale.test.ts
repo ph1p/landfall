@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import YAML from "yaml";
-import { analyze, ejectYaml, overrideYaml, routeLabels, routePlan, scaleView, splitFile, type Release, type SiteMeta } from "../../src/core/site/compose";
+import { analyze } from "../../src/core/site/analyze";
+import { ejectYaml, overrideYaml, splitFile } from "../../src/core/site/override";
+import { routeLabels } from "../../src/core/site/traefik-labels";
+import { routePlan } from "../../src/core/site/routing";
+import { scaleView } from "../../src/core/site/scale";
+import type { Release, SiteMeta } from "../../src/core/site/meta";
 import { OWN_PROXY } from "../../src/core/ssh/templates";
 
 const meta = (r: Release, m: Partial<SiteMeta> = {}): SiteMeta => ({

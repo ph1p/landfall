@@ -13,7 +13,7 @@ import { askSecret, c, CliError, report, setAssumeYes } from "../core/lib/term";
 import { refreshUpdate, updateCheckOff, updateNotice } from "../core/lib/self-update";
 import { VERSION } from "../core/lib/version";
 
-function help() {
+function help(print: (text: string) => void = console.log) {
   const groups: [string, string[]][] = [
     [
       "Servers",
@@ -152,7 +152,7 @@ function help() {
     "",
     c.dim("Servers are ssh targets: any ~/.ssh/config alias works as --server."),
   );
-  console.log(lines.join("\n"));
+  print(lines.join("\n"));
 }
 
 async function main(argv: string[], sudoPassword?: string): Promise<number> {
@@ -167,7 +167,7 @@ async function main(argv: string[], sudoPassword?: string): Promise<number> {
   const { cmd, rest } = find(argv);
   if (!cmd) {
     console.error(`${c.red("error:")} unknown command "${argv.join(" ")}"\n`);
-    help();
+    help(console.error);
     return 2;
   }
   const { values, positionals, rest: passthrough } = parse(cmd, rest);

@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import type { Release } from "./compose";
-import { mainService } from "./compose";
+import type { Release } from "./meta";
+import { mainService } from "./routing";
 import { packageJson } from "../lib/config";
 import { usesBun } from "../deploy/frameworks";
 import { HOOKS, SERVER_HOOKS, type Hook, type LocalHook, type ServerHook } from "./hook-names";
-import { files, packageManager } from "../deploy/runtimes";
+import { packageManager } from "../deploy/node";
+import { files } from "../deploy/runtimes";
 import { journal, shq } from "../ssh/ssh";
 import { c, fail, info, step, warn } from "../lib/term";
 

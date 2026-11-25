@@ -5,8 +5,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const live: Record<string, unknown> = {};
-vi.mock("../../src/core/site/remote", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/site/remote")>()),
+vi.mock("../../src/core/site/site", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/site/site")>()),
   readSite: vi.fn(async (_s: unknown, name: string) => ({ meta: live[name], env: "", proxy: {}, exists: !!live[name], routed: true })),
 }));
 const deployRun = vi.fn();

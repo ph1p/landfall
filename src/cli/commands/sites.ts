@@ -1,61 +1,26 @@
 import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
-import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/lib/config";
-import {
-  COMPOSE_FILES,
-  currentRelease,
-  gitLabel,
-  OVERRIDE_FILES,
-  projectName,
-  routed,
-  scales,
-  SECRET_NAME,
-  SECRETS_DIR,
-  secretUsers,
-  SERVICE_PORT,
-  siteDomains,
-  siteMain,
-  type SiteMeta,
-} from "../../core/site/compose";
+import { serverTarget, siteTarget } from "../target";
+import { checkInt, type Server } from "../../core/lib/config";
+import { COMPOSE_FILES, OVERRIDE_FILES, secretUsers } from "../../core/site/compose-config";
+import { currentRelease, gitLabel, projectName, SECRET_NAME, SECRETS_DIR, type SiteMeta } from "../../core/site/meta";
+import { routed, siteDomains, siteMain } from "../../core/site/routing";
+import { scales } from "../../core/site/scale";
+import { SERVICE_PORT } from "../../core/site/analyze";
 import { bytes } from "../../core/server/facts";
 import { hookVars, serverCall, SKIP_OPTIONS, skipper } from "../../core/site/hooks";
-import {
-  adoptSite,
-  changeSite,
-  composeCmd,
-  noSite,
-  envEntries,
-  envView,
-  liveConfig,
-  maskedEnv,
-  overview,
-  mergeEnv,
-  newestFirst,
-  oldReleases,
-  parseEnvPairs,
-  readEnvFile,
-  readSecrets,
-  readSite,
-  removeReleases,
-  removeSite,
-  requireSite,
-  siteDir,
-  siteLogs,
-  validName,
-} from "../../core/site/remote";
+import { adoptSite, removeSite } from "../../core/site/lifecycle";
+import { changeSite } from "../../core/site/apply";
+import { composeCmd, liveConfig, readSecrets, siteLogs } from "../../core/site/live";
+import { noSite, readSite, requireSite, siteDir, validName } from "../../core/site/site";
+import { envEntries, envView, maskedEnv, mergeEnv, parseEnvPairs, readEnvFile } from "../../core/site/dotenv";
+import { overview } from "../../core/server/overview";
+import { newestFirst, oldReleases, removeReleases } from "../../core/site/releases";
 import { shq, writeFileCmd } from "../../core/ssh/ssh";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson, warn } from "../../core/lib/term";
 import { volumes } from "../../core/site/volumes";
-import { slug } from "../../core/deploy/projects";
+import { slug } from "../../core/lib/slug";
 import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/ssh/tunnel";
-
-/** Site + server from args, falling back to ./.landfall.json. */
-export function target(name: string | undefined, server: string | undefined) {
-  const project = loadProject(process.cwd());
-  const site = name ?? project?.name;
-  if (!site) fail("which site? pass a name or run inside a folder with .landfall.json");
-  return { site: site!, ...projectServer(server) };
-}
 
 export const sitesList = defineCommand({
   name: "sites list",
@@ -66,7 +31,7 @@ export const sitesList = defineCommand({
     others: { type: "boolean", desc: "with --json: {sites, others}, others = containers Traefik routes that landfall did not deploy" },
   },
   async run(_, o) {
-    const { name, server } = projectServer(o.server);
+    const { name, server } = serverTarget(o);
     const view = await overview(server);
     const { sites, others } = view;
     // --others: the whole overview the web UI reads (proxy, dashboard, unrouted containers too).
@@ -102,7 +67,7 @@ export const sitesInfo = defineCommand({
   summary: "Show a site's services, domains and release history.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output: the site as lf ls --json lists it, with its folder" } },
   async run([n], o) {
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     // One round trip: the overview has the site's meta and its containers.
     const st = (await overview(server)).sites.find((x) => x.meta.name === site);
     if (!st) await noSite(server, site);
@@ -149,7 +114,7 @@ export const sitesLogs = defineCommand({
   summary: "Show a site's logs: all its services, or one.",
   options: { server: serverOpt, ...logOpts },
   async run([n, service], o) {
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     return siteLogs(server, site, { ...o, service });
   },
 });
@@ -165,7 +130,7 @@ const lifecycle = (verb: "restart" | "stop" | "start", compose: string, done: st
     summary: `${verb[0].toUpperCase() + verb.slice(1)} a site's services, or one of them.`,
     options: { server: serverOpt },
     async run([n, service], o) {
-      const { site, server } = target(n, o.server);
+      const { site, server } = siteTarget(n, o.server);
       await requireSite(server, site);
       const svc = service ? ` ${shq(service)}` : "";
       const what = `record ${shq(`${verb} ${site}${service ? " " + service : ""}`)}`;
@@ -192,7 +157,7 @@ fails; postrollback runs in the restored one after (see package.json's landfall.
   options: { server: serverOpt, to: { type: "string", desc: "release id (see `lf sites info`)" }, ...SKIP_OPTIONS },
   async run([n], o) {
     const skip = skipper(o);
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "roll back" });
     const sorted = newestFirst(meta);
     const idx = sorted.findIndex((r) => r.id === meta.current);
@@ -228,7 +193,7 @@ stays. Removed releases are gone for rollback: this cannot be undone. Volumes ar
     const ids = named ? pos.slice(1) : pos;
     if (ids.length && o.keep !== undefined) fail("pass releases or --keep, not both");
     const keep = o.keep === undefined ? 0 : checkInt(o.keep, "--keep", 0);
-    const { site, server, name } = target(named, o.server);
+    const { site, server, name } = siteTarget(named, o.server);
     const { meta } = await requireSite(server, site, { deployed: "remove releases of" });
     for (const id of ids) {
       if (id === meta.current) fail(`${id} is the live release of ${site}: roll back or deploy first`);
@@ -259,7 +224,7 @@ stops it and forgets it again. The projects you can adopt are listed under \`lf 
   options: { server: serverOpt, name: { type: "string", desc: "site name (default: the project name)" } },
   async run([project], o) {
     if (!project) fail("usage: lf adopt <project>   (see the projects not deployed by landfall in `lf sites`)");
-    const { server, name } = resolveServer(o.server);
+    const { server, name } = serverTarget(o);
     const ov = await overview(server);
     const ext = ov.others.find((e) => e.name === project);
     if (!ext) {
@@ -307,7 +272,7 @@ first; when it fails, nothing is removed.`,
   async run([n], o) {
     if (!n) fail("usage: lf sites rm <name>");
     const skip = skipper(o);
-    const { site, server, name } = target(n, o.server);
+    const { site, server, name } = siteTarget(n, o.server);
     const { meta: m } = await requireSite(server, site);
     const domains = siteDomains(m).join(", ") || "no domains";
     const vols = o.volumes ? (await volumes(server, site)).volumes : undefined;
@@ -354,7 +319,7 @@ export const sitesEnv = defineCommand({
   },
   async run(pos, o) {
     const { n, set } = await namedPairs(pos, o.dotenv, true);
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { env } = await requireSite(server, site, { deployed: "manage the .env of" });
     if (!Object.keys(set).length && !o.unset?.length) {
       if (o.pull === "-") return void process.stdout.write(env);
@@ -415,7 +380,7 @@ export const sitesSecret = defineCommand({
     };
     const unset: string[] = o.unset ?? [];
     for (const k of [...Object.keys(set), ...unset]) if (!SECRET_NAME.test(k)) fail(`"${k}" cannot name a secret: use letters, digits, _ . -`);
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const changing = Object.keys(set).length > 0 || unset.length > 0;
     // Independent reads: one round trip's wait instead of three.
     const [{ meta, proxy }, have, config] = await Promise.all([
@@ -493,7 +458,7 @@ The tunnel stays open until Ctrl-C.`,
     lan: { type: "boolean", desc: "listen on this machine's network too: open it from a phone on the same Wi-Fi" },
   },
   async run([n, svc], o) {
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { meta, proxy } = await readSite(server, site);
     if (!meta) return foreignTunnel(server, site, svc, proxy.network, o);
     const release = currentRelease(meta);

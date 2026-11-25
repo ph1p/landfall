@@ -25,7 +25,7 @@ vi.mock("../../src/core/ssh/ssh", async (orig) => ({
 }));
 vi.mock("../../src/core/ssh/privilege", () => ({ rootLogin: async (s: Server) => ({ ...s, user: "root" }) }));
 
-const { certs } = await import("../../src/core/traefik/traffic");
+const { certs } = await import("../../src/core/traefik/certs");
 
 beforeAll(() => {
   fs.mkdirSync(bin);

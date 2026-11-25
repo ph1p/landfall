@@ -36,13 +36,13 @@ function TrafficChart({ series, bucket }: { series: Detail["series"]; bucket: st
   const label = (at: string) => (bucket === "hour" ? HOUR : MINUTE).format(when(at));
   return (
     <div className="relative">
-      <div className="absolute top-[-2px] left-0 text-xs faint">{count(max)}</div>
+      <div className="absolute -top-0.5 left-0 text-xs faint">{count(max)}</div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
         role="img"
         aria-label={`Requests per ${bucket}`}
-        className="block w-full h-[120px] border-b border-line"
+        className="block w-full h-30 border-b border-line"
       >
         {series.map((x, i) => {
           let y = H;
@@ -73,7 +73,7 @@ function TrafficChart({ series, bucket }: { series: Detail["series"]; bucket: st
       <div className="flex gap-3.5 text-xs text-dim mt-2">
         {Object.entries(CLASS_COLORS).map(([k, col]) => (
           <span key={k}>
-            <i className="inline-block w-2.5 h-2.5 rounded-[2px] mr-[5px] align-[-1px]" style={{ background: col }} />
+            <i className="inline-block w-2.5 h-2.5 rounded-xs mr-1.25 align-[-1px]" style={{ background: col }} />
             {k}
           </span>
         ))}

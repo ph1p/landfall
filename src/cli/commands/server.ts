@@ -27,7 +27,9 @@ import { bytes, checkCloud, CLOUD_IDS, cloudFirewall, cloudOf, domainDns, durati
 import { guardUndo } from "./history";
 import { loginFor, pending, readJournal, undoSteps } from "../../core/ssh/journal";
 import { listServers, reachAll } from "../../core/views/dashboard";
-import { overview, removeLines, siteDir } from "../../core/site/remote";
+import { overview } from "../../core/server/overview";
+import { removeLines } from "../../core/site/lifecycle";
+import { siteDir } from "../../core/site/site";
 import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/ssh/templates";
 import { c, confirm, confirmRemoval, dnsLabel, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/lib/term";
 import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/ssh/login";

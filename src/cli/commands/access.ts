@@ -1,16 +1,18 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { expandDomain, loadProject, saveProject } from "../../core/lib/config";
-import { updateProjectDomains, withRedirects } from "../../core/deploy/projects";
-import { currentRelease, findRoute, siteDomains, siteMain, siteRedirects, subDomains, type SiteMeta } from "../../core/site/compose";
-import { changeSite, requireSite } from "../../core/site/remote";
+import { updateProjectDomains, withRedirects } from "../../core/deploy/remembered";
+import { currentRelease, type SiteMeta } from "../../core/site/meta";
+import { findRoute, siteDomains, siteMain, siteRedirects, subDomains } from "../../core/site/routing";
+import { changeSite } from "../../core/site/apply";
+import { requireSite } from "../../core/site/site";
 import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/lib/term";
 import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik/traefik";
-import { target } from "./sites";
+import { siteTarget } from "../target";
 import { dnsView } from "../../core/views/views";
 import { claimDomains, lookupDns } from "../../core/site/claim";
 import { planDomains } from "../../core/site/domain-plan";
 import { oneOrMany } from "../../core/lib/format";
-import { overview } from "../../core/site/remote";
+import { overview } from "../../core/server/overview";
 
 export const domains = defineCommand({
   name: "domains",
@@ -33,7 +35,7 @@ permanent redirect to the site's first domain, path and query kept.`,
     json: { type: "boolean", desc: "machine-readable output (listing)" },
   },
   async run([n], o) {
-    const { site, name: serverName, server } = target(n, o.server);
+    const { site, name: serverName, server } = siteTarget(n, o.server);
     const changing = !!(o.add || o.rm || o.set || o.redirect);
     // What may claim hosts from other sites needs the whole server: read it alongside the site.
     const all = o.add || o.set || o.redirect ? overview(server) : undefined;
@@ -109,7 +111,7 @@ export const auth = defineCommand({
     public: { type: "boolean", desc: "with --route: no login on it at all" },
   },
   async run([n], o) {
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { meta, proxy } = await requireSite(server, site, { deployed: "set logins for" });
     if (o.public && !o.route) fail("--public goes with --route; lf auth --off makes the whole site public");
     let key: string | undefined;
@@ -185,7 +187,7 @@ export const open = defineCommand({
   summary: "Open a site in the browser.",
   options: { server: serverOpt },
   async run([n], o) {
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { meta } = await requireSite(server, site);
     const domain = siteDomains(meta)[0];
     if (!domain) fail(`${site} serves no domain`);

@@ -34,7 +34,8 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/cli/cli.ts` | entry point: argument dispatch, `lf --help` groups (`help()`), error and exit-code handling |
 | `src/cli/cmd.ts` | `defineCommand`, option parsing, global options (`-h`, `-y`, `-E`), `serverOpt` |
 | `src/cli/registry.ts` | the `commands` list and the `aliases` map: every command is registered here |
-| `src/cli/commands/*.ts` | one file per area (deploy, sites, volume, server, setup, system, firewall, traefik, …) |
+| `src/cli/commands/` | one file per area (sites, volume, server, setup, system, firewall, traefik, …); `deploy/` is a folder |
+| `src/cli/target.ts` | `serverTarget` / `siteTarget`: resolve `-s`, `.landfall.json` and the default server the same way everywhere |
 | `src/cli/job-args.ts` | validates and masks the argv of commands the web UI runs |
 | `src/core/` | everything shared by CLI and web UI: config, ssh, remote scripts, compose analysis, views |
 | `src/core/lib/` | building blocks with no domain: config, terminal output, `fail`, quoting, formatting, jobs |
@@ -51,13 +52,13 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/core/lib/term.ts` | output helpers (`step`, `ok`, `info`, `warn`, `fail`, `printJson`, `table`) and prompts |
 | `src/core/lib/config.ts` | local config, servers, `.landfall.json` (`ProjectConfig`), environments |
 | `src/core/views/views.ts` | the objects that `--json` prints and the web UI reads |
-| `src/core/plugins/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it) |
+| `src/core/plugins/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it). |
 | `src/core/plugins/plugins.ts` | loading plugins (built in and `~/.config/landfall/plugins`), the context their code runs with |
 | `src/plugins/` | the built-in plugins (fail2ban, trivy), written against the same API |
 | `src/cli/plugins.ts` | turns plugin commands and aliases into `lf` commands |
 | `src/cli/commands/plugins.ts` | `lf plugins`, `plugin add`, `plugin rm`, `plugin new` |
-| `src/ui/server/` | `lf ui`: local HTTP server; reads call core directly, writes spawn `lf` jobs |
-| `src/ui/app/` | the browser page (React + Tailwind, built by vite) |
+| `src/ui/server/` | `lf ui`: local HTTP server; reads call core directly, writes spawn `lf` jobs. `auth.ts` guards every request, `api.ts` routes, `jobs.ts` runs `lf` |
+| `src/ui/app/` | the browser page (React + Tailwind, built by vite); big views are folders under `views/` |
 | `test/unit/` | vitest; remote scripts are captured by mocking `runScript` and checked with `bash -n` |
 | `test/e2e/run.sh` | end-to-end run against a container with sshd and dockerd |
 | `docs/` | the documentation site (Vocs): pages in `docs/pages`, `docs/vocs.config.ts`; `docs/pages/reference.md` lists every command |
@@ -75,7 +76,7 @@ Enforced by `test/unit/layers.test.ts`:
 
 ## Adding or changing a command
 
-1. Define it with `defineCommand({ name, args, summary, options, run })` in the matching `src/cli/commands/*.ts`.
+1. Define it with `defineCommand({ name, args, summary, options, run })` in the matching file under `src/cli/commands/`.
    Use `serverOpt` for `-s`, and resolve site and server the way neighbouring commands do (`target(...)`).
 2. Add it to `commands` in `src/cli/registry.ts` (aliases go in `aliases`).
 3. Put it in a group in `help()` in `src/cli/cli.ts`. Unlisted commands land under "More".

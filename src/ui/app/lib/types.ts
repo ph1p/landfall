@@ -1,6 +1,6 @@
 // What the API returns: the CLI's --json shapes, taken from core. Type-only imports: no node code reaches the page.
 import type { browse } from "../../server/local";
-import type { state } from "../../server/server";
+import type { state } from "../../server/api";
 import type { ciView } from "../../../core/deploy/ci";
 import type { configView, dnsView, gitView, factsView, firewallView, historyBrief, systemView, updatesView } from "../../../core/views/views";
 export type { ProjectConfig } from "../../../core/lib/config";
@@ -12,9 +12,11 @@ import type { volumes } from "../../../core/site/volumes";
 type View<F extends (...args: any) => any> = Awaited<ReturnType<F>>;
 
 export type { Advice, Stats };
-export type { Detected, Remembered } from "../../../core/deploy/projects";
-export type { Analysis, Release, Route, Service, SiteKind, SiteMeta } from "../../../core/site/compose";
-export type { External, Overview, SiteStatus, Unrouted } from "../../../core/site/remote";
+export type { Detected } from "../../../core/deploy/projects";
+export type { Remembered } from "../../../core/deploy/remembered";
+export type { Analysis } from "../../../core/site/analyze";
+export type { Release, Route, Service, SiteKind, SiteMeta } from "../../../core/site/meta";
+export type { External, Overview, SiteStatus, Unrouted } from "../../../core/server/overview";
 export type { Reach } from "../../../core/ssh/ssh";
 export type { Cap, DnsCheck } from "../../../core/server/facts";
 export type { Step } from "../../../core/ssh/journal";
@@ -22,7 +24,7 @@ export type { ImageStatus, PkgUpdate } from "../../../core/server/updates";
 export type { ContainerStats, DiskUsage } from "../../../core/server/stats";
 export type { ImageScan, Severity, TrivyState, Vuln } from "../../../core/server/scan";
 export type { PrunePlan } from "../../../core/server/reclaim";
-export type { Cert, CertError, Certs } from "../../../core/traefik/traffic";
+export type { Cert, CertError, Certs } from "../../../core/traefik/certs";
 export type { Detail, HostTraffic, StatusClass, Summary, Traffic } from "../../../core/traefik/traffic-merge";
 export type { Account, Users } from "../../../core/server/users";
 export type { TraefikRoute, TraefikStatus } from "../../../core/traefik/traefik";

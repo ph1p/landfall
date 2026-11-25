@@ -4,22 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { redirectsFile } from "../../src/core/traefik/redirects";
-import { analyze, type SiteMeta } from "../../src/core/site/compose";
-import {
-  covers,
-  mergeHosts,
-  parseCertError,
-  parseCerts,
-  parseServiceTraffic,
-  parseSince,
-  parseTraffic,
-  readCert,
-  SERVICE_TRAFFIC,
-  siteTraffic,
-  spanLabel,
-  splitStats,
-  TRAFFIC,
-} from "../../src/core/traefik/traffic";
+import { analyze } from "../../src/core/site/analyze";
+import type { SiteMeta } from "../../src/core/site/meta";
+import { covers, parseCertError, parseCerts, readCert } from "../../src/core/traefik/certs";
+import { parseServiceTraffic, parseSince, parseTraffic, SERVICE_TRAFFIC, spanLabel, splitStats, TRAFFIC } from "../../src/core/traefik/traffic";
+import { mergeHosts, siteTraffic } from "../../src/core/traefik/traffic-merge";
 
 const now = new Date("2026-10-25T15:30:00Z");
 

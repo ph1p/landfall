@@ -1,5 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, expandDomain, resolveServer } from "../../core/lib/config";
+import { serverTarget } from "../target";
+import { DOMAIN, expandDomain } from "../../core/lib/config";
 import { redirectTarget, type ServerRedirect } from "../../core/traefik/redirects";
 import { dropRedirects, editableRedirects, readRedirects, writeRedirects } from "../../core/traefik/server-redirects";
 import { OWN_PROXY } from "../../core/ssh/templates";
@@ -7,7 +8,7 @@ import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, print
 import { redirectsView } from "../../core/views/views";
 import { oneOrMany } from "../../core/lib/format";
 import { claimDomains, lookupDns } from "../../core/site/claim";
-import { overview } from "../../core/site/remote";
+import { overview } from "../../core/server/overview";
 
 const describe = (r: ServerRedirect) =>
   `${c.cyan(`https://${r.host}`)} ${c.dim("→")} ${r.to}${r.path ? "" : c.dim(" (path dropped)")}${r.permanent ? "" : c.dim(" (temporary)")}`;
@@ -20,7 +21,7 @@ A server redirect sends every request for a host elsewhere, with no site behind 
 (lf redirect add). Redirects of a site to its own domain are in lf domains.`,
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const v = await redirectsView(server);
     if (v.error) warn(v.error);
     if (o.json) return void printJson({ server: name, ...v });
@@ -44,7 +45,7 @@ A bare host name is a subdomain of the main domain. Adding a host again changes 
   },
   async run([h, url], o) {
     if (!h || !url) fail("usage: lf redirect add <host> <url>");
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const host = expandDomain(h.trim(), server);
     if (!DOMAIN.test(host)) fail(`not a domain: ${host}`);
     const path = o.path !== false;
@@ -70,7 +71,7 @@ export const redirectRemove = defineCommand({
   options: { server: serverOpt },
   async run(hosts, o) {
     if (!hosts.length) fail("usage: lf redirect rm <host...>");
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const was = editableRedirects(await readRedirects(server), name);
     const want = hosts.map((h) => expandDomain(h.trim(), server));
     const gone = was.list.filter((r) => want.includes(r.host));

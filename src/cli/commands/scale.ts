@@ -1,11 +1,15 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { checkInt } from "../../core/lib/config";
-import { currentRelease, MAX_REPLICAS, MAX_WEIGHT, scaleView, splitGroups, type ScaleRow, type SiteMeta } from "../../core/site/compose";
-import { changeSite, requireSite, setWeights } from "../../core/site/remote";
+import { currentRelease, type SiteMeta } from "../../core/site/meta";
+import { MAX_REPLICAS, MAX_WEIGHT } from "../../core/site/limits";
+import { scaleView, type ScaleRow } from "../../core/site/scale";
+import { splitGroups } from "../../core/site/routing";
+import { changeSite, setWeights } from "../../core/site/apply";
+import { requireSite } from "../../core/site/site";
 import { c, fail, info, ok, printJson, table, warn } from "../../core/lib/term";
 import { ms, pct } from "../../core/lib/format";
 import { parseSince, serviceTraffic, spanLabel, splitStats, type SiteServiceTraffic } from "../../core/traefik/traffic";
-import { target } from "./sites";
+import { siteTarget } from "../target";
 
 /** The site name and the service=value pairs of `[site] [service=value...]`. */
 function sitePairs(pos: string[], what: string) {
@@ -82,7 +86,7 @@ Undoable with lf undo.`,
   },
   async run(pos, o) {
     const { n, pairs } = sitePairs(pos, "counts");
-    const { site, server } = target(n, o.server);
+    const { site, server } = siteTarget(n, o.server);
     const { meta, proxy } = await requireSite(server, site, pairs.length ? { deployed: "scale" } : {});
     if (!pairs.length) return printRows(site, scaleView(meta), o.json);
     const all = services(meta, site);
@@ -132,7 +136,7 @@ Traefik's access log.`,
   },
   async run(pos, o) {
     const { n, pairs } = sitePairs(pos, "weights");
-    const { site, server, name } = target(n, o.server);
+    const { site, server, name } = siteTarget(n, o.server);
     if (o.stats && pairs.length) fail("--stats only shows the split: change the weights in a separate lf weight");
     // --stats reads the access log while requireSite reads the site: two ssh round trips at once.
     const secs = o.stats ? parseSince(o.since) : 0;

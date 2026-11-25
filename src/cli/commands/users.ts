@@ -1,7 +1,7 @@
 import { defineCommand, serverOpt } from "../cmd";
 import { tildify } from "../../core/lib/config";
 import { generateKey } from "../../core/server/security";
-import { addKey, parseKeyLine, readKey } from "../../core/server/system";
+import { addKey, parseKeyLine, readKey } from "../../core/server/keys";
 import { askSecret, c, confirmRemoval, confirmRisky, fail, info, ok, passwordOption, report, table, warn, printJson } from "../../core/lib/term";
 import {
   account,
@@ -18,7 +18,8 @@ import {
   usersLogin,
   type Account,
 } from "../../core/server/users";
-import { loginHint, target } from "./system";
+import { loginHint } from "./system";
+import { serverTarget } from "../target";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 const password = { type: "string", short: "p", desc: "the password (asked in a terminal; visible in ps, prefer --password-stdin)" } as const;
@@ -35,7 +36,7 @@ async function passwordFrom(o: Record<string, any>, ask: boolean): Promise<strin
 
 /** The server, the login that manages its users, and user's account there. */
 async function load(o: Record<string, any>, user: string) {
-  const { name, server } = target(o);
+  const { name, server } = serverTarget(o);
   const admin = await usersLogin(server);
   const u = await listUsers(server, admin);
   return { name, admin, u, a: account(u, user) };
@@ -50,7 +51,7 @@ export const usersList = defineCommand({
   summary: "List the server's user accounts (root and uid 1000+): sudo, password, SSH keys.",
   options: { server: serverOpt, json },
   async run(_, o) {
-    const { server } = target(o);
+    const { server } = serverTarget(o);
     const u = await listUsers(server);
     if (o.json) return void printJson(u);
     table([
@@ -96,7 +97,7 @@ export const usersAdd = defineCommand({
     if (!user) fail("usage: lf users add <name> [--key <key|file.pub> | --generate-key] [--password] [--sudo]");
     checkUserName(user);
     if (o.nopasswd && !o.sudo) fail("--nopasswd goes with --sudo");
-    const { name, server } = target(o);
+    const { name, server } = serverTarget(o);
     const pw = await passwordFrom(o, false);
     if (pw !== undefined) checkPassword(pw);
     // Check everything here before the account exists: a half-made user is worse than none.
@@ -153,6 +154,7 @@ Without a password the user logs in with an SSH key only, and sudo needs NOPASSW
     "password-stdin": passwordStdin,
     generate: { type: "boolean", desc: "make up a password and print it once" },
     remove: { type: "boolean", desc: "remove the password: key login only" },
+    force: { type: "boolean", desc: "with --remove: even when they need it for sudo" },
   },
   async run([user], o) {
     if (!user) fail("usage: lf users passwd <name> [--password … | --generate | --remove]");
@@ -161,8 +163,14 @@ Without a password the user logs in with an SSH key only, and sudo needs NOPASSW
     if (pw !== undefined) checkPassword(pw);
     const { name, admin, a } = await load(o, user);
     if (o.remove) {
-      if (a.sudo && !a.nopasswd && a.uid !== 0 && !(await confirmRisky(`${user} needs the password for sudo; without it they cannot sudo. Remove it anyway?`)))
-        fail(`${user} needs the password for sudo (give them sudo --nopasswd first, or pass -y)`);
+      if (
+        a.sudo &&
+        !a.nopasswd &&
+        a.uid !== 0 &&
+        !o.force &&
+        !(await confirmRisky(`${user} needs the password for sudo; without it they cannot sudo. Remove it anyway?`))
+      )
+        fail(`${user} needs the password for sudo (give them sudo --nopasswd first, or pass --force)`);
       if (!a.keys && a.login) warn(`${user} has no SSH key: without a password they cannot log in at all`);
       await removePassword(admin, user);
       return void ok(`${user} on ${name} has no password now`);

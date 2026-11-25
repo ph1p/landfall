@@ -98,6 +98,15 @@ describe("job display masking", () => {
     expect(maskJobArgs(argv)).toEqual(argv);
   });
 
+  test("masks the credentials in a repository URL", () => {
+    expect(maskJobArgs(["deploy", "--git", "https://bot:synthetic-hidden@git.example.com/a/b.git#main"])).toEqual([
+      "deploy",
+      "--git",
+      "https://***@git.example.com/a/b.git#main",
+    ]);
+    expect(maskJobArgs(["deploy", "--git=https://synthetic-hidden@git.example.com/a.git"])).toEqual(["deploy", "--git=https://***@git.example.com/a.git"]);
+  });
+
   test.each([
     ["unknown", "synthetic-hidden"],
     ["deploy", "--unknown=synthetic-hidden"],

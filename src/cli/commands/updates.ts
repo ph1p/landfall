@@ -1,5 +1,5 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer } from "../../core/lib/config";
+import { serverTarget } from "../target";
 import { adminLogin } from "../../core/ssh/privilege";
 import {
   engineNotes,
@@ -61,7 +61,7 @@ export const updatesList = defineCommand({
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     if (!o.json) step(`checking ${name} for updates${o.refresh ? " (refreshing package lists)" : ""}`);
     const view = await updatesView(server, o.refresh);
     if (o.json) return void printJson(view);
@@ -93,7 +93,7 @@ compose plugin setup installed with the newest release (undoable too).`,
     compose: { type: "boolean", desc: "update the compose plugin landfall installed to the newest release" },
   },
   async run(sites, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     if (o.compose) {
       if (sites.length || o.packages || o.images) fail("--compose goes alone");
       const login = await adminLogin(server, "updating docker compose");

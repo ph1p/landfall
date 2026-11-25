@@ -1,4 +1,5 @@
 import { defineCommand, logOpts, serverOpt } from "../cmd";
+import { serverTarget } from "../target";
 import { accessLogStatus, clearProxyLog, composeTarget, planAccessLog, readProxyCompose, writeAccessLog } from "../../core/traefik/accesslog";
 import {
   DEFAULT_CERT_HINT,
@@ -11,10 +12,11 @@ import {
 } from "../../core/traefik/stricttls";
 import { bytes } from "../../core/lib/format";
 import { adminLogin } from "../../core/ssh/privilege";
-import { ACCESS_LOG_HINT, logLimitText, type AccessLog } from "../../core/traefik/traffic";
-import { checkEmail, checkInt, resolveServer, type Server } from "../../core/lib/config";
+import { ACCESS_LOG_HINT, logLimitText, type AccessLog } from "../../core/traefik/traffic-merge";
+import { checkEmail, checkInt, type Server } from "../../core/lib/config";
 import { assessTraefik, foreignProxy, probeServer } from "../../core/server/inventory";
-import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../../core/site/remote";
+import { dashboardHosts, dashboardRouters, hasDashboardTunnel } from "../../core/server/overview";
+import { dockerLogs } from "../../core/ssh/ssh";
 import {
   DEFAULT_USER,
   installTraefik,
@@ -63,7 +65,7 @@ export const traefikSetup = defineCommand({
     force: { type: "boolean", desc: "overwrite a docker-compose.yml that was edited by hand" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     await setupTraefik(name, server, {
       email: o.email && checkEmail(o.email),
       staging: o.staging,
@@ -94,7 +96,7 @@ except for lf traefik access-log when you run it.`,
     resolver: { type: "string", desc: "certificate resolver" },
   },
   async run([ctr], o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const probe = await probeServer(server);
     const found = foreignProxy(probe.values.foreign_proxy);
     const container = ctr ?? found?.name;
@@ -121,7 +123,7 @@ Certificates in letsencrypt/ stay for a later install unless --certs. Undo with 
 With a Traefik of your own (lf traefik use), landfall only stops routing sites through it.`,
   options: { server: serverOpt, certs: { type: "boolean", desc: "also delete the Let's Encrypt certificates" } },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const st = await traefikState(server);
     if (st.proxy) {
       if (!(await confirm(`Stop routing sites on ${name} through your traefik ${st.proxy}? It keeps running.`, false))) fail("cancelled");
@@ -147,7 +149,7 @@ export const traefikStatus = defineCommand({
   summary: "Show traefik container state and the routes it serves.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const st = await traefikStatusOf(server);
     const unknownHosts = st.container ? await unknownHostsOf(server) : undefined;
     if (o.json) return void printJson({ ...st, unknownHosts });
@@ -166,7 +168,7 @@ export const traefikLogs = defineCommand({
   summary: "Show traefik logs (certificate errors show up here).\nRequests are left out unless --access: lf traffic sums them up.",
   options: { server: serverOpt, ...logOpts, access: { type: "boolean", desc: "include the access log (a JSON line per request)" } },
   async run(_, o) {
-    const { server } = resolveServer(o.server);
+    const { server } = serverTarget(o);
     if (o.access) return dockerLogs(server, PROXY_CTR, o);
     // Requests outnumber everything else: take the last lines from a larger window once they are dropped.
     const n = checkInt(o.tail, "--tail", 1);
@@ -191,7 +193,7 @@ clear empties the container's log file: the requests lf traffic counts start aga
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output (status)" } },
   async run([action], o) {
     if (action && !["on", "off", "clear"].includes(action)) fail(`unknown action ${action}: on, off or clear`);
-    const { name, server: login } = resolveServer(o.server);
+    const { name, server: login } = serverTarget(o);
     let server = login;
     let p = await readProxyCompose(server);
     if (!p) return fail(`no traefik on ${name} (lf traefik setup)`);
@@ -286,7 +288,7 @@ recreating the container when it has none. lf undo reverts both.`,
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output (status)" } },
   async run([action], o) {
     if (action && !["on", "off"].includes(action)) fail(`unknown action ${action}: on or off`);
-    const { name, server: login } = resolveServer(o.server);
+    const { name, server: login } = serverTarget(o);
     let server = login;
     let p = await readProxyCompose(server);
     if (!p) return fail(`no traefik on ${name} (lf traefik setup)`);
@@ -344,7 +346,7 @@ export const traefikRestart = defineCommand({
   summary: "Restart traefik.",
   options: { server: serverOpt },
   async run(_, o) {
-    const { server } = resolveServer(o.server);
+    const { server } = serverTarget(o);
     await runScript(server, `${PRELUDE}\ndocker restart ${PROXY_CTR} >/dev/null\nrecord "restarted traefik"`);
     ok("traefik restarted");
   },
@@ -367,7 +369,7 @@ goes to that entrypoint and sends the domain along (log in with its password).`,
     port: { type: "string", desc: "with a Traefik of your own: the port of its API (api.insecure: 8080)" },
   },
   async run(_, o) {
-    const { name, server } = resolveServer(o.server);
+    const { name, server } = serverTarget(o);
     const st = await traefikState(server);
     const ctr = await findContainer(server, [`name=^${st.proxy ?? "traefik"}$`]);
     if (!ctr) fail(`traefik is not running on ${name}${st.proxy ? "" : " (lf traefik setup)"}`);

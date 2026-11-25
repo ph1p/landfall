@@ -62,7 +62,7 @@ export function HistoryView({ n }: { n: string }) {
             onOk: () => undo([String(r.n)]),
           });
         return (
-          <div key={r.n} className="px-[18px] py-3.5 border-b border-line last:border-b-0">
+          <div key={r.n} className="px-4.5 py-3.5 border-b border-line last:border-b-0">
             <div className="flex items-center gap-2.5 flex-wrap">
               <b>#{r.n}</b>
               <span className="font-mono font-semibold text-md">{r.cmd || "?"}</span>

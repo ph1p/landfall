@@ -3,5 +3,5 @@ export const slug = (s: string) =>
   s
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63) || "site";
+    .slice(0, 63)
+    .replace(/^-+|-+$/g, "") || "site";

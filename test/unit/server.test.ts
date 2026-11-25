@@ -13,12 +13,13 @@ import { capabilities, checkCloud, cloudFirewall, cloudFor, isPublic4, noUfw, pa
 import { parseDisk, parseSize, parseStats } from "../../src/core/server/stats";
 import { parsePrunePlan } from "../../src/core/server/manage";
 import { JOURNAL_KEEP_BYTES, pruneSummary, reclaimable, removable, removableVolumes } from "../../src/core/server/reclaim";
-import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseKeyLine, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/server/system";
+import { parseKeyLine } from "../../src/core/server/keys";
+import { HOSTNAME, LOG_SIZE, TIMEZONE, UNIT, parseSwapSize, parseSystem, withLogLimit } from "../../src/core/server/system";
 import { account, checkPassword, checkTakeable, newPassword, parseUsers, USER_NAME, USERS } from "../../src/core/server/users";
 import { engineNotes, newerTag, parsePkgList, parseRef, withTag } from "../../src/core/server/updates";
 import { cmpVersion } from "../../src/core/lib/version";
 import { BOOTSTRAP, CLOUD, PRELUDE, PROBE } from "../../src/core/ssh/templates";
-import { statusKind } from "../../src/core/site/compose";
+import { statusKind } from "../../src/core/site/status";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -36,6 +37,17 @@ describe("ssh config", () => {
     expect(sshAliases(f).sort()).toEqual(["mine", "vps"]);
     expect(removeHostBlock("vps", f)).toBe(true);
     expect(fs.readFileSync(f, "utf8")).toBe("Host mine\n  HostName 192.0.2.4\n\nHost *\n  ServerAliveInterval 30\n");
+  });
+
+  test("Include globs read matching files, skip dotfiles and folders", () => {
+    const d = tmp();
+    fs.mkdirSync(join(d, "conf.d", "sub.conf"), { recursive: true });
+    fs.writeFileSync(join(d, "conf.d", "a.conf"), "Host a\n");
+    fs.writeFileSync(join(d, "conf.d", "b.conf"), "Host b\n");
+    fs.writeFileSync(join(d, "conf.d", ".c.conf"), "Host c\n");
+    fs.writeFileSync(join(d, "conf.d", "d.txt"), "Host d\n");
+    fs.writeFileSync(join(d, "config"), `Include ${join(d, "conf.d", "*.conf")}\nHost main\n`);
+    expect(sshAliases(join(d, "config")).sort()).toEqual(["a", "b", "main"]);
   });
 
   test("a CRLF config gets its block replaced, not a second one", () => {
@@ -419,6 +431,11 @@ test("journalCmd keeps flags but not defaults or secrets", () => {
   ).toBe("deploy ./dist TOKEN=… --no-save --env A=… --dashboard-password … --spa");
 });
 
+test("journalCmd drops the credentials of a repository URL", () => {
+  const cmd = { name: "deploy", options: {} } as const;
+  expect(journalCmd(cmd, [], { git: "https://bot:ghp_secret@github.com/a/b.git#main" })).toBe("deploy --git https://…@github.com/a/b.git#main");
+});
+
 test("--no-<name> of a string option arrives as no-<name>, and excludes --<name>", () => {
   const cmd = {
     name: "deploy",
@@ -579,11 +596,21 @@ describe("updates", () => {
     const p = parsePkgList("mgr=zypper\npkg=curl\t8.0.1-1.1\t8.0.1-2.1\tRepo-Update\n");
     expect(p.updates).toEqual([{ name: "curl", from: "8.0.1-1.1", to: "8.0.1-2.1", security: false }]);
   });
+  test("dnf security advisories match the package, not another that starts with its name", () => {
+    const p = parsePkgList(
+      "mgr=dnf\npkg=openssl.x86_64\t\t1:3.0.7-28.el9\tbaseos\npkg=openssl-libs.x86_64\t\t1:3.0.7-28.el9\tbaseos\nsec=openssl-libs-1:3.0.7-28.el9.x86_64\n",
+    );
+    expect(p.updates.map((u) => [u.name, u.security])).toEqual([
+      ["openssl.x86_64", false],
+      ["openssl-libs.x86_64", true],
+    ]);
+  });
   test("image refs", () => {
     expect(parseRef("traefik:v3.6")).toEqual({ registry: "registry-1.docker.io", repo: "library/traefik", tag: "v3.6", digest: undefined });
     expect(parseRef("ghcr.io/me/app")).toMatchObject({ registry: "ghcr.io", repo: "me/app", tag: "latest" });
     expect(parseRef("localhost:5000/app:1@sha256:ab")).toMatchObject({ registry: "localhost:5000", repo: "app", tag: "1", digest: "sha256:ab" });
     expect(parseRef("docker.io/nginx")).toMatchObject({ registry: "registry-1.docker.io", repo: "library/nginx" });
+    expect(parseRef("index.docker.io/nginx")).toMatchObject({ registry: "registry-1.docker.io", repo: "library/nginx" });
   });
 });
 
