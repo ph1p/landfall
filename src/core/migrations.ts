@@ -1,4 +1,4 @@
-import { shq } from "./ssh";
+import { shq } from "./quote";
 import { JOURNAL, ROOT, STAMP_FILE } from "./templates";
 import { type StampStatus, VERSION, versionGt } from "./version";
 

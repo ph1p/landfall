@@ -7,6 +7,7 @@ import { envVar, expandHome, type Server } from "./config";
 import { bytes } from "./format";
 import type { Entry } from "./ignore";
 import { LATEST_MIGRATION } from "./migrations";
+import { shq } from "./quote";
 import { ROOT } from "./templates";
 import { c, CliError, fail, REPORT } from "./term";
 import { updateCommand, VERSION } from "./version";
@@ -14,9 +15,10 @@ import { updateCommand, VERSION } from "./version";
 let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
 export const setQuiet = (v: boolean) => (quiet = v);
+/** How to update this CLI; it depends only on the binary's path, so it is computed once. */
+const UPDATE = updateCommand();
 
-/** Single-quote a string for POSIX sh. */
-export const shq = (s: string | number) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+export { shq } from "./quote";
 
 export interface SshOpts {
   /** Allocate a TTY (interactive commands). */
@@ -282,7 +284,7 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
     LANDFALL_REPORT: process.env.LANDFALL_REPORT,
     LANDFALL_CLI: VERSION,
     LANDFALL_MIGRATION: String(LATEST_MIGRATION),
-    LANDFALL_UPDATE: updateCommand(),
+    LANDFALL_UPDATE: UPDATE,
     ...o.env,
   };
   const header = Object.entries(env)
