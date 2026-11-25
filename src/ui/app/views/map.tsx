@@ -1,6 +1,6 @@
 // The infrastructure map: every registered server with its Traefik, sites, containers, volumes and domains as
 // connected nodes. Ghost nodes add what is missing; every write is the same lf command the other pages run.
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import {
   ArrowRightLeft,
   Box,
@@ -12,6 +12,7 @@ import {
   FolderGit2,
   Globe,
   HardDrive,
+  Info,
   Laptop,
   Maximize2,
   Package,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import {
   infraGraph,
+  BOX,
   GRAPH_COLUMNS,
   NODE_H,
   NODE_W,
@@ -55,6 +57,8 @@ const MAX_K = 1.6;
 const FIT_K = 0.6;
 /** Room for the search and zoom bar above the map. */
 const TOOLBAR = 44;
+/** How far the map may be pushed past a window edge. */
+const EDGE = 40;
 
 const ICON: Record<NodeKind, LucideIcon> = {
   machine: Laptop,
@@ -193,7 +197,7 @@ export function MapView() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
-  const [view, setView] = useState({ x: PAD, y: PAD, k: 1 });
+  const [view, setRawView] = useState({ x: PAD, y: PAD, k: 1 });
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [glide, setGlide] = useState(false);
   const [dropOn, setDropOn] = useState<string | null>(null);
@@ -211,6 +215,21 @@ export function MapView() {
   // The inspector covers the right of the map: centre in what is left.
   const side = picked && size.w > 900 ? 340 : 0;
 
+  // Panning stops with some of the map still in sight; a map smaller than the window stays inside it.
+  const dims = useRef({ W, H });
+  dims.current = { W, H };
+  type View = typeof view;
+  const setView = (next: View | ((v: View) => View)) =>
+    setRawView((v) => {
+      const n = typeof next === "function" ? next(v) : next;
+      const el = box.current;
+      if (!el) return n;
+      const keep = (pos: number, len: number, room: number, top: number) => {
+        const far = room - len * n.k - EDGE;
+        return Math.min(Math.max(top, far), Math.max(pos, Math.min(top, far)));
+      };
+      return { k: n.k, x: keep(n.x, dims.current.W, el.clientWidth, EDGE), y: keep(n.y, dims.current.H, el.clientHeight, TOOLBAR + EDGE) };
+    });
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -367,29 +386,45 @@ export function MapView() {
             {label}
           </div>
         ))}
-        {g.bands.map((b) => (
-          <div
-            key={b.server}
-            className={cx("absolute rounded-xl border transition-colors", dropOn === b.server ? "border-accent bg-accent-bg" : "border-line bg-panel/40")}
-            style={{ left: PAD + columnX("server") - 14, top: PAD + HEAD + b.y - 12, width: g.width - columnX("server") + 28, height: b.h + 24 }}
-            onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes(PROJECT)) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
-              setDropOn(b.server);
-            }}
-            onDragLeave={() => setDropOn((x) => (x === b.server ? null : x))}
-            onDrop={(e) => {
-              const path = e.dataTransfer.getData(PROJECT);
-              setDropOn(null);
-              if (!path) return;
-              e.preventDefault();
-              deployFrom(path, b.server);
-            }}
-          >
-            {dropOn === b.server && <span className="absolute right-3 top-2 text-xs font-semibold text-accent">Drop to deploy on {b.server}</span>}
-          </div>
-        ))}
+        {g.bands.map((b) => {
+          const x = byId.get(`server:${b.server}`);
+          if (!x) return null;
+          return (
+            <ServerBox
+              key={b.server}
+              x={x}
+              h={b.h}
+              on={x.id === sel}
+              dim={dim(x)}
+              hit={!!needle && match(x)}
+              drop={dropOn === b.server}
+              folded={folded.includes(b.server)}
+              fold={() => fold(b.server)}
+              enter={() => setHover(x.id)}
+              leave={() => setHover((h) => (h === x.id ? null : h))}
+              click={() => setSel(x.id === sel ? null : x.id)}
+              open={() => openNode(x)}
+              dragOver={(e) => {
+                if (!e.dataTransfer.types.includes(PROJECT)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
+                setDropOn(b.server);
+              }}
+              dragLeave={(e) => {
+                // Moving onto a node inside the box is not leaving it.
+                if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                setDropOn((v) => (v === b.server ? null : v));
+              }}
+              dropped={(e) => {
+                const path = e.dataTransfer.getData(PROJECT);
+                setDropOn(null);
+                if (!path) return;
+                e.preventDefault();
+                deployFrom(path, b.server);
+              }}
+            />
+          );
+        })}
         <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={W} height={H}>
           <style>{"@keyframes lf-flow{to{stroke-dashoffset:-18}}@media (prefers-reduced-motion:reduce){.lf-flow{animation:none!important}}"}</style>
           {g.edges.map((e) => {
@@ -397,20 +432,21 @@ export function MapView() {
             return <Edge key={e.id} e={e} g={byId} on={lit} off={!!near && !lit} />;
           })}
         </svg>
-        {g.nodes.map((x) => (
-          <Node
-            key={x.id}
-            x={x}
-            on={x.id === sel}
-            dim={dim(x)}
-            hit={!!needle && match(x)}
-            folded={x.kind === "server" && folded.includes(x.server!)}
-            enter={() => setHover(x.id)}
-            leave={() => setHover((h) => (h === x.id ? null : h))}
-            click={() => (x.kind === "add" ? addAction(x) : setSel(x.id === sel ? null : x.id))}
-            open={() => openNode(x)}
-          />
-        ))}
+        {g.nodes.map((x) =>
+          x.kind === "server" ? null : (
+            <Node
+              key={x.id}
+              x={x}
+              on={x.id === sel}
+              dim={dim(x)}
+              hit={!!needle && match(x)}
+              enter={() => setHover(x.id)}
+              leave={() => setHover((h) => (h === x.id ? null : h))}
+              click={() => (x.kind === "add" ? addAction(x) : setSel(x.id === sel ? null : x.id))}
+              open={() => openNode(x)}
+            />
+          ),
+        )}
       </div>
 
       <div data-ui className="absolute left-3 top-3 right-3 flex flex-wrap items-center gap-2 pointer-events-none [&>*]:pointer-events-auto">
@@ -472,9 +508,29 @@ export function MapView() {
       </div>
 
       <Legend />
-      {/* Zoom controls and the overview sit bottom right, left of the inspector when it is open. */}
-      <div data-ui className="absolute bottom-3 flex items-end gap-2" style={{ right: side + 12 }}>
-        <div className="flex flex-col items-center gap-1 p-1 rounded-md border border-line bg-panel shadow-xs">
+      {/* The overview and, below it, the view controls in one row; left of the inspector when it is open. */}
+      <div data-ui className="absolute bottom-3 flex flex-col items-end gap-2" style={{ right: side + 12 }}>
+        <Minimap
+          g={g}
+          W={W}
+          H={H}
+          view={view}
+          size={{ w: size.w - side, h: size.h }}
+          jump={(x, y) => ((touched.current = true), setView((v) => ({ ...v, x: (size.w - side) / 2 - x * v.k, y: size.h / 2 - y * v.k })))}
+        />
+        <div className="flex items-center gap-0.5 p-1 rounded-md border border-line bg-panel shadow-xs">
+          <IconBtn icon={ZoomOut} label="Zoom out (-)" on={() => zoomBy(1 / 1.2)} />
+          <button
+            type="button"
+            title="Back to 100%"
+            onClick={() => ((touched.current = true), zoomAt(1, (size.w - side) / 2, size.h / 2))}
+            className={cx(MONO, "w-11 h-7 rounded-sm border-0 bg-transparent shadow-none text-xs text-dim hover:bg-hover hover:text-fg")}
+          >
+            {Math.round(view.k * 100)}%
+          </button>
+          <IconBtn icon={ZoomIn} label="Zoom in (+)" on={() => zoomBy(1.2)} />
+          <span className="w-px h-4 mx-1 bg-line" aria-hidden="true" />
+          <IconBtn icon={Maximize2} label="Fit to the window (0)" on={() => ((touched.current = false), fit())} />
           {g.bands.length > 1 && (
             <IconBtn
               icon={folded.length ? ChevronsUpDown : ChevronsDownUp}
@@ -482,20 +538,8 @@ export function MapView() {
               on={() => setPrefs((p) => ((p = { ...p, folded: p.folded.length ? [] : g.bands.map((b) => b.server) }), savePrefs(p), p))}
             />
           )}
-          <IconBtn icon={ZoomOut} label="Zoom out (-)" on={() => zoomBy(1 / 1.2)} />
-          <span className={cx(MONO, "py-0.5 text-xs text-dim")}>{Math.round(view.k * 100)}%</span>
-          <IconBtn icon={ZoomIn} label="Zoom in (+)" on={() => zoomBy(1.2)} />
-          <IconBtn icon={Maximize2} label="Fit to the window (0)" on={() => ((touched.current = false), fit())} />
           <IconBtn icon={RotateCw} label="Read every server again" on={reloadAll} spin={loading} />
         </div>
-        <Minimap
-          g={g}
-          W={W}
-          H={H}
-          view={view}
-          size={size}
-          jump={(x, y) => ((touched.current = true), setView((v) => ({ ...v, x: (size.w - side) / 2 - x * v.k, y: size.h / 2 - y * v.k })))}
-        />
       </div>
       {picked && <Inspector x={picked} g={g} close={() => setSel(null)} folded={folded.includes(picked.server ?? "")} fold={fold} />}
     </div>
@@ -521,6 +565,14 @@ function Minimap({
   // Only worth it when the map does not fit the window.
   if (!size.w || (W * view.k <= size.w && H * view.k <= size.h)) return null;
   const s = Math.min(180 / W, 150 / H);
+  const w = W * s;
+  const h = H * s;
+  const inset = 1;
+  const x0 = Math.min(w - inset, Math.max(inset, (-view.x / view.k) * s));
+  const y0 = Math.min(h - inset, Math.max(inset, (-view.y / view.k) * s));
+  const x1 = Math.max(x0, Math.min(w - inset, ((size.w - view.x) / view.k) * s));
+  const y1 = Math.max(y0, Math.min(h - inset, ((size.h - view.y) / view.k) * s));
+  const frame = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   const at = (e: RPointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     jump((e.clientX - r.left) / s, (e.clientY - r.top) / s);
@@ -539,44 +591,38 @@ function Minimap({
       {g.bands.map((b) => (
         <rect
           key={b.server}
-          x={(PAD + columnX("server") - 14) * s}
-          y={(PAD + HEAD + b.y - 12) * s}
-          width={(g.width - columnX("server") + 28) * s}
-          height={(b.h + 24) * s}
+          x={(PAD + BOX.x) * s}
+          y={(PAD + HEAD + b.y) * s}
+          width={BOX.w * s}
+          height={b.h * s}
           rx={2}
           fill="none"
           stroke="var(--line-strong)"
           strokeWidth={0.75}
         />
       ))}
-      {g.nodes.map((x) => (
-        <rect
-          key={x.id}
-          x={(PAD + x.x) * s}
-          y={(PAD + HEAD + x.y) * s}
-          width={NODE_W * s}
-          height={Math.max(2, NODE_H * s)}
-          rx={1}
-          fill={x.health === "down" ? "var(--bad)" : x.health === "warn" ? "var(--warn)" : "var(--line-strong)"}
-          opacity={x.kind === "add" ? 0.4 : 1}
-        />
-      ))}
-      <rect
-        x={(-view.x / view.k) * s}
-        y={(-view.y / view.k) * s}
-        width={(size.w / view.k) * s}
-        height={(size.h / view.k) * s}
-        fill="var(--accent-bg)"
-        fillOpacity={0.35}
-        stroke="var(--accent)"
-        strokeWidth={1.25}
-        rx={2}
-      />
+      {g.nodes
+        .filter((x) => x.kind !== "server")
+        .map((x) => (
+          <rect
+            key={x.id}
+            x={(PAD + x.x) * s}
+            y={(PAD + HEAD + x.y) * s}
+            width={NODE_W * s}
+            height={Math.max(2, NODE_H * s)}
+            rx={1}
+            fill={x.health === "down" ? "var(--bad)" : x.health === "warn" ? "var(--warn)" : "var(--line-strong)"}
+            opacity={x.kind === "add" ? 0.4 : 1}
+          />
+        ))}
+      {/* The visible part, cut to the overview's edges so its frame stays whole. */}
+      <rect {...frame} fill="var(--accent-bg)" fillOpacity={0.35} stroke="var(--accent)" strokeWidth={1.25} rx={2} />
     </svg>
   );
 }
 
 const PROJECT = "application/x-landfall-project";
+const LEGEND = "landfall.map.legend";
 
 function IconBtn({ icon: I, label, on, spin }: { icon: LucideIcon; label: string; on: () => void; spin?: boolean }) {
   return (
@@ -592,21 +638,38 @@ function IconBtn({ icon: I, label, on, spin }: { icon: LucideIcon; label: string
   );
 }
 
+/** Where an edge leaves or enters a node: a server box is entered at its header. */
+const anchor = (x: GraphNode) => PAD + HEAD + x.y + (x.kind === "server" ? BOX.head / 2 : NODE_H / 2);
+
+/** A path with right angles and rounded corners, its vertical run at xm. */
+function elbow(x1: number, y1: number, xm: number, x2: number, y2: number) {
+  if (Math.abs(y2 - y1) < 1) return `M${x1},${y1} H${x2}`;
+  const r = Math.min(10, Math.abs(y2 - y1) / 2, Math.abs(xm - x1), Math.abs(x2 - xm));
+  const dy = Math.sign(y2 - y1);
+  const dx1 = Math.sign(xm - x1);
+  const dx2 = Math.sign(x2 - xm);
+  return `M${x1},${y1} H${xm - dx1 * r} Q${xm},${y1} ${xm},${y1 + dy * r} V${y2 - dy * r} Q${xm},${y2} ${xm + dx2 * r},${y2} H${x2}`;
+}
+
 function Edge({ e, g, on, off }: { e: GraphEdge; g: Map<string, GraphNode>; on: boolean; off: boolean }) {
   const a = g.get(e.from);
   const b = g.get(e.to);
-  if (!a || !b) return null;
+  // What a server runs sits inside its box: the box says it, a line would only cross it.
+  if (!a || !b || a.kind === "server") return null;
   // Left to right from a's right side to b's left side; a redirect host points back at its site.
   const back = b.x < a.x;
   const x1 = PAD + a.x + (back ? 0 : NODE_W);
   const x2 = PAD + b.x + (back ? NODE_W : 0);
-  const y1 = PAD + HEAD + a.y + NODE_H / 2;
-  const y2 = PAD + HEAD + b.y + NODE_H / 2;
+  const y1 = anchor(a);
+  const y2 = anchor(b);
+  // Neighbouring columns: right angles, so a proxy's routes share one trunk. Longer reaches curve.
+  const near = !back && x2 - x1 <= 60;
   const dx = Math.max(40, Math.abs(x2 - x1) / 2) * (back ? -1 : 1);
+  const d = near ? elbow(x1, y1, x1 + (x2 - x1) / 2, x2, y2) : `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
   const ghost = b.kind === "add";
   return (
     <path
-      d={`M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`}
+      d={d}
       fill="none"
       stroke={on ? "var(--accent)" : STROKE[e.health]}
       strokeWidth={on ? 2 : 1.5}
@@ -621,17 +684,76 @@ function Edge({ e, g, on, off }: { e: GraphEdge; g: Map<string, GraphNode>; on: 
   );
 }
 
-function Node(p: {
+/** A server: a box around what runs on it, its header the node to click. Dropping a project on it deploys there. */
+function ServerBox(p: {
   x: GraphNode;
+  h: number;
   on: boolean;
   dim: boolean;
   hit: boolean;
+  drop: boolean;
   folded: boolean;
+  fold: () => void;
   enter: () => void;
   leave: () => void;
   click: () => void;
   open: () => void;
+  dragOver: (e: DragEvent<HTMLDivElement>) => void;
+  dragLeave: (e: DragEvent<HTMLDivElement>) => void;
+  dropped: (e: DragEvent<HTMLDivElement>) => void;
 }) {
+  const { x } = p;
+  return (
+    <div
+      className={cx(
+        "absolute rounded-xl border transition-[border-color,background-color,box-shadow,opacity] duration-150",
+        p.drop ? "border-accent bg-accent-bg" : x.health === "down" ? "border-bad/50 bg-panel/45" : "border-line bg-panel/45",
+        (p.on || p.hit) && "border-accent! shadow-[0_0_0_3px_var(--accent-bg)]",
+      )}
+      style={{ left: PAD + BOX.x, top: PAD + HEAD + x.y, width: BOX.w, height: p.h }}
+      onDragOver={p.dragOver}
+      onDragLeave={p.dragLeave}
+      onDrop={p.dropped}
+    >
+      <div
+        className={cx("flex items-center gap-2 border-b border-line rounded-t-xl bg-panel/80 transition-opacity", p.dim && "opacity-40")}
+        style={{ height: BOX.head - 8 }}
+      >
+        <button
+          type="button"
+          data-node
+          onPointerEnter={p.enter}
+          onPointerLeave={p.leave}
+          onClick={p.click}
+          onDoubleClick={p.open}
+          title={`${x.label}\n${x.sub ?? ""}\nClick for details, double-click to open`}
+          className="flex min-w-0 flex-1 items-center gap-2.5 h-full pl-3 pr-2 text-left rounded-tl-xl border-0 bg-transparent shadow-none hover:bg-hover"
+        >
+          <Server className="size-4 flex-none text-accent" aria-hidden="true" />
+          <span className="truncate font-semibold text-md">{x.label}</span>
+          {x.sub && <span className={cx(MONO, "truncate text-xs text-faint")}>{x.sub}</span>}
+          <Dot kind={x.health} className="m-0 ml-1" />
+        </button>
+        {p.drop ? (
+          <span className="pr-3 text-xs font-semibold text-accent">Drop to deploy on {x.label}</span>
+        ) : (
+          <button
+            type="button"
+            data-node
+            onClick={p.fold}
+            title={p.folded ? "Show everything on this server" : "Fold: show only the server and its proxy"}
+            className="flex items-center gap-1 mr-1.5 px-2 h-7 text-xs rounded-md border-0 bg-transparent shadow-none text-faint hover:bg-hover hover:text-fg"
+          >
+            {p.folded ? <ChevronsUpDown className="size-3.5" aria-hidden="true" /> : <ChevronsDownUp className="size-3.5" aria-hidden="true" />}
+            {p.folded ? "Unfold" : "Fold"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Node(p: { x: GraphNode; on: boolean; dim: boolean; hit: boolean; enter: () => void; leave: () => void; click: () => void; open: () => void }) {
   const { x } = p;
   const I = ICON[x.kind];
   const ghost = x.kind === "add";
@@ -668,13 +790,28 @@ function Node(p: {
         <span className="block truncate font-[550] text-md leading-tight">{x.label}</span>
         {x.sub && <span className="block truncate text-xs text-faint leading-tight mt-0.5">{x.sub}</span>}
       </span>
-      {p.folded && <ChevronsUpDown className="size-3.5 flex-none text-faint" aria-label="folded" />}
       {!ghost && x.kind !== "machine" && x.kind !== "project" && <Dot kind={x.health} className="m-0" />}
     </button>
   );
 }
 
 function Legend() {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(LEGEND) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setOpen((o) => {
+      try {
+        localStorage.setItem(LEGEND, o ? "0" : "1");
+      } catch {
+        // Not remembered; it still toggles.
+      }
+      return !o;
+    });
   const row = (label: string, stroke: string, dash?: boolean) => (
     <div className="flex items-center gap-2">
       <svg width="26" height="8" aria-hidden="true">
@@ -684,18 +821,28 @@ function Legend() {
     </div>
   );
   return (
-    <div
-      data-ui
-      className="absolute left-3 bottom-3 px-3 py-2 rounded-md border border-line bg-panel/90 shadow-xs text-xs text-dim grid gap-1 max-[760px]:hidden"
-    >
-      {row("routed, up", "var(--ok)")}
-      {row("failing or refused", "var(--bad)")}
-      {row("warning", "var(--warn)")}
-      {row("tunnel only, deploy, redirect", "var(--line-strong)", true)}
-      <div className="faint mt-0.5">Drag a project onto a server to deploy it there.</div>
-      <div className="faint">
-        <kbd>/</kbd> find · <kbd>n</kbd> next problem · <kbd>0</kbd> fit · <kbd>Esc</kbd> clear
-      </div>
+    <div data-ui className="absolute left-3 bottom-3 rounded-md border border-line bg-panel/90 shadow-xs text-xs text-dim max-[760px]:hidden">
+      {open && (
+        <div className="grid gap-1 px-3 pt-2 pb-1">
+          {row("routed, up", "var(--ok)")}
+          {row("failing or refused", "var(--bad)")}
+          {row("warning", "var(--warn)")}
+          {row("tunnel only, deploy, redirect", "var(--line-strong)", true)}
+          <div className="faint mt-0.5">Drag a project onto a server to deploy it there.</div>
+          <div className="faint">
+            <kbd>/</kbd> find · <kbd>n</kbd> next problem · <kbd>0</kbd> fit · <kbd>Esc</kbd> clear
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={toggle}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border-0 bg-transparent shadow-none text-dim hover:text-fg"
+      >
+        {open ? <ChevronsDownUp className="size-3.5" aria-hidden="true" /> : <Info className="size-3.5" aria-hidden="true" />}
+        {open ? "Hide the legend" : "Legend and keys"}
+      </button>
     </div>
   );
 }

@@ -46,9 +46,12 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 
 **Map** in the sidebar draws your whole infrastructure on one page (`#map`).
 
-- Columns from left to right: this machine and its projects, servers, Traefik, sites and apps, their containers and volumes, and domains.
-- Each server gets its own band. Servers that ssh cannot reach still show, in red.
+- This machine and its projects sit on the left. Each server is a box to their right.
+- A server's header shows its name, address and status. Everything that runs on it sits inside the box.
+- Inside a box, columns from left to right: Traefik, sites and apps, their containers and volumes, and domains.
+- A server that ssh cannot reach shows as its header only, with a red dot.
 - Lines show how things connect. Green is routed and up, red is failing or refused, yellow is a warning.
+- Traefik's routes share one line that branches to each site.
 - A dashed line means no domain reaches it: only a tunnel does (`lf tunnel`). Deploy and redirect lines are dashed too.
 - Domains show whether their DNS points at the server and whether HTTPS answers.
 - Compose projects landfall did not deploy show as *not landfall's*. Containers no route reaches are grouped by Compose project.
@@ -60,9 +63,12 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 - The search box dims everything that does not match and counts the matches. Enter jumps to the next one.
 - The buttons next to it hide containers, volumes, domains, apps that are not landfall's, and the Add nodes.
 - The status button counts what is down or warning. Click it to jump to the next problem; it shows **All up** when nothing is.
-- **Fold on the map** in a server's panel shows only the server and its proxy, with a count of its sites, problems and domains. The button in the top right folds or unfolds every server.
-- Scroll to pan; Ctrl or ⌘ and scroll to zoom. Drag the background to pan. The fit button shows the whole map again.
-- When the map is larger than the window, a small overview sits in the bottom right. Click or drag in it to move there.
+- **Fold** in a server's header (or **Fold on the map** in its panel) shows only the server and its proxy, with a count of its sites, problems and domains.
+- The fold button in the bottom-right row folds or unfolds every server.
+- Scroll to pan; Ctrl or ⌘ and scroll to zoom. Drag the background to pan. Panning stops at the map's edges.
+- The row in the bottom right zooms, fits the map to the window, folds every server and reads every server again. Click the percentage to go back to 100%.
+- When the map is larger than the window, a small overview sits above that row. Click or drag in it to move there.
+- **Legend and keys** in the bottom left explains the lines and lists the keys.
 - Keys: `/` finds, `n` jumps to the next problem (`N` back), `+` and `-` zoom, `0` fits, Esc clears the selection.
 - The browser remembers the hidden layers and folded servers.
 

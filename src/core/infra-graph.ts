@@ -37,7 +37,7 @@ export interface Graph {
   edges: GraphEdge[];
   width: number;
   height: number;
-  /** Each server's band: where a dropped project deploys to. */
+  /** Each server's box (header included): where a dropped project deploys to. */
   bands: { server: string; y: number; h: number }[];
 }
 
@@ -64,15 +64,17 @@ export interface GraphOptions {
   folded?: string[];
 }
 
-// Layout: a column per layer, a band per server; a site's block is as tall as its tallest child column.
+// Layout: a column per layer, a box per server that holds what runs on it; a site's block is as tall as its tallest
+// child column. The server node is the box itself: its header row sits at the box's top.
 export const NODE_W = 216;
 export const NODE_H = 50;
 export const STEP = 62;
-const BAND_GAP = 44;
-const COL = { machine: 0, server: 270, proxy: 530, site: 780, child: 1050, domain: 1310 };
+const BAND_GAP = 28;
+const COL = { machine: 0, proxy: 300, site: 556, child: 812, domain: 1068 };
+/** A server's box: where it starts, how wide it is, its header and the room below its last row. */
+export const BOX = { x: 268, w: COL.domain + NODE_W + 24 - 268, head: 46, foot: 14 };
 export const GRAPH_COLUMNS: [keyof typeof COL, string][] = [
   ["machine", "This machine"],
-  ["server", "Servers"],
   ["proxy", "Proxy"],
   ["site", "Sites and apps"],
   ["child", "Containers and volumes"],
@@ -115,7 +117,7 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
     const folded = opt.folded.includes(s.name);
     // Rows in the sites column; each site's block may span more rows for its children and domains.
     let row = 0;
-    const at = (r: number) => top + r * STEP;
+    const at = (r: number) => top + BOX.head + r * STEP;
     const front = ov?.traefik ? `proxy:${s.name}` : sid;
     const block = (rows: number) => ((row += Math.max(1, rows)), row - Math.max(1, rows));
     const domains = (owner: string, list: string[], redirects: string[], r: number, health: Health) => {
@@ -275,7 +277,7 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
       }
     }
     const rows = Math.max(row, 1);
-    // Server and proxy sit at the top of their band, beside the first site.
+    // The server is its box; the proxy sits in the first row, beside the first site.
     node({
       id: sid,
       kind: "server",
@@ -287,7 +289,7 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
           ? worstOf([REACH[s.reach ?? ""] ?? "", ...ov.sites.map((x) => (x.status ? healthOf(x.status) : "down"))])
           : (REACH[s.reach ?? ""] ?? ""),
       server: s.name,
-      x: COL.server,
+      x: BOX.x,
       y: top,
     });
     edge(machine, sid, "ssh", REACH[s.reach ?? ""] ?? "");
@@ -301,7 +303,7 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
         health: h,
         server: s.name,
         x: COL.proxy,
-        y: top,
+        y: at(0),
       });
       edge(sid, front, "proxy", h);
     } else if (ov && opt.add) {
@@ -314,15 +316,17 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
         sub: ov.ready ? "lf setup" : "Docker, Traefik, firewall",
         server: s.name,
         x: COL.proxy,
-        y: top,
+        y: at(0),
       });
       edge(sid, id, "proxy");
     }
-    bands.push({ server: s.name, y: top, h: rows * STEP - (STEP - NODE_H) });
-    y = top + rows * STEP + BAND_GAP;
+    // A server it could not read is its header alone.
+    const h = ov ? BOX.head + rows * STEP - (STEP - NODE_H) + BOX.foot : BOX.head - 8;
+    bands.push({ server: s.name, y: top, h });
+    y = top + h + BAND_GAP;
   }
   if (opt.add) {
-    const id = node({ id: "add:server", kind: "add", add: "server", label: "Add a server", sub: "ssh alias or new machine", x: COL.server, y });
+    const id = node({ id: "add:server", kind: "add", add: "server", label: "Add a server", sub: "ssh alias or new machine", x: BOX.x, y });
     edge(machine, id, "ssh");
     y += STEP;
   }
@@ -351,5 +355,5 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
     edge(id, to!.id, "deploys", to!.kind === "site" ? "" : "warn");
   }
   const height = Math.max(y, next, NODE_H);
-  return { nodes, edges, width: COL.domain + NODE_W, height, bands };
+  return { nodes, edges, width: BOX.x + BOX.w, height, bands };
 }

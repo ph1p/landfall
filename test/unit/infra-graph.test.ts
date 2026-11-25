@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { infraGraph, NODE_H, STEP, type ServerInput } from "../../src/core/infra-graph";
+import { BOX, infraGraph, NODE_H, NODE_W, STEP, type ServerInput } from "../../src/core/infra-graph";
 import type { Overview, SiteStatus } from "../../src/core/remote";
 import type { Remembered } from "../../src/core/projects";
 
@@ -102,12 +102,29 @@ describe("infraGraph", () => {
     expect(g.height).toBeGreaterThanOrEqual(Math.max(...g.nodes.map((n) => n.y)) + NODE_H);
   });
 
+  it("puts what runs on a server inside its box", () => {
+    const g = infraGraph([web, fresh], []);
+    for (const b of g.bands) {
+      const server = g.nodes.find((n) => n.id === `server:${b.server}`)!;
+      expect(server).toMatchObject({ x: BOX.x, y: b.y });
+      for (const n of g.nodes.filter((n) => n.server === b.server && n.kind !== "server")) {
+        expect(n.x, n.id).toBeGreaterThanOrEqual(BOX.x);
+        expect(n.x + NODE_W, n.id).toBeLessThanOrEqual(BOX.x + BOX.w);
+        expect(n.y, n.id).toBeGreaterThanOrEqual(b.y + BOX.head);
+        expect(n.y + NODE_H, n.id).toBeLessThanOrEqual(b.y + b.h);
+      }
+    }
+  });
+
   it("puts local projects beside the site they deploy", () => {
     const p = (name: string, server: string): Remembered => ({ path: `/home/me/${name}`, name, server, domains: [], kind: "compose", at: "" }) as Remembered;
     const g = infraGraph([web], [p("blog", "web"), p("gone", "web"), p("elsewhere", "nope")]);
     const blog = g.nodes.find((n) => n.id === "project:/home/me/blog")!;
-    // Row 0 holds the machine: the first project sits as close below it as it can.
-    expect(blog.y).toBe(Math.max(STEP, g.nodes.find((n) => n.id === "site:web:blog")!.y));
+    // Projects line up with what they deploy, in its order; "gone" points at the server's header above the site.
+    const site = g.nodes.find((n) => n.id === "site:web:blog")!;
+    const gone = g.nodes.find((n) => n.id === "project:/home/me/gone")!;
+    expect(gone.y).toBe(STEP);
+    expect(blog.y).toBe(Math.max(gone.y + STEP, site.y));
     expect(edge(g, "project:/home/me/blog", "site:web:blog")).toMatchObject({ kind: "deploys", health: "" });
     // Its site is gone: it points at its server, as a warning.
     expect(edge(g, "project:/home/me/gone", "server:web")).toMatchObject({ kind: "deploys", health: "warn" });
