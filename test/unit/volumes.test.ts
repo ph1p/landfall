@@ -3,9 +3,9 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/core/volumes";
-import { shq } from "../../src/core/ssh";
-import { seedFolders } from "../../src/core/ignore";
+import { backupName, backupsOf, parseVolumes, pickVolume, tarIn, whileStopped } from "../../src/core/site/volumes";
+import { shq } from "../../src/core/ssh/ssh";
+import { seedFolders } from "../../src/core/deploy/ignore";
 
 describe("volumes", () => {
   test("parseVolumes joins volumes, mounts, sizes and backups", () => {

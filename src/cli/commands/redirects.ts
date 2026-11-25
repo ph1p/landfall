@@ -1,13 +1,13 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, expandDomain, resolveServer } from "../../core/config";
-import { redirectTarget, type ServerRedirect } from "../../core/redirects";
-import { dropRedirects, editableRedirects, readRedirects, writeRedirects } from "../../core/server-redirects";
-import { OWN_PROXY } from "../../core/templates";
-import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, printJson, warn } from "../../core/term";
-import { redirectsView } from "../../core/views";
-import { oneOrMany } from "../../core/format";
-import { claimDomains, lookupDns } from "../../core/claim";
-import { overview } from "../../core/remote";
+import { DOMAIN, expandDomain, resolveServer } from "../../core/lib/config";
+import { redirectTarget, type ServerRedirect } from "../../core/traefik/redirects";
+import { dropRedirects, editableRedirects, readRedirects, writeRedirects } from "../../core/traefik/server-redirects";
+import { OWN_PROXY } from "../../core/ssh/templates";
+import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, printJson, warn } from "../../core/lib/term";
+import { redirectsView } from "../../core/views/views";
+import { oneOrMany } from "../../core/lib/format";
+import { claimDomains, lookupDns } from "../../core/site/claim";
+import { overview } from "../../core/site/remote";
 
 const describe = (r: ServerRedirect) =>
   `${c.cyan(`https://${r.host}`)} ${c.dim("→")} ${r.to}${r.path ? "" : c.dim(" (path dropped)")}${r.permanent ? "" : c.dim(" (temporary)")}`;

@@ -1,18 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SiteMeta } from "../../src/core/compose";
+import type { SiteMeta } from "../../src/core/site/compose";
 
 const scripts: string[] = [];
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     scripts.push(script);
     return { code: 0, stdout: "", stderr: "" };
   },
 }));
-const { readRedirectsLine, writeRedirects, REDIRECTS_FILE } = await import("../../src/core/server-redirects");
-const { parseRedirects, redirectTarget, redirectsFile } = await import("../../src/core/redirects");
-const { planDomains } = await import("../../src/core/domain-plan");
+const { readRedirectsLine, writeRedirects, REDIRECTS_FILE } = await import("../../src/core/traefik/server-redirects");
+const { parseRedirects, redirectTarget, redirectsFile } = await import("../../src/core/traefik/redirects");
+const { planDomains } = await import("../../src/core/site/domain-plan");
 
 const server = { host: "example.com" } as any;
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });

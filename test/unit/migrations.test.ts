@@ -3,10 +3,10 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { parseJournal } from "../../src/core/journal";
-import { LATEST_MIGRATION, MIGRATIONS, migrateScript, READ_STAMP, stampOf, type Migration } from "../../src/core/migrations";
-import { PRELUDE, ROOT } from "../../src/core/templates";
-import { stampSummary, VERSION, versionGt } from "../../src/core/version";
+import { parseJournal } from "../../src/core/ssh/journal";
+import { LATEST_MIGRATION, MIGRATIONS, migrateScript, READ_STAMP, stampOf, type Migration } from "../../src/core/ssh/migrations";
+import { PRELUDE, ROOT } from "../../src/core/ssh/templates";
+import { stampSummary, VERSION, versionGt } from "../../src/core/lib/version";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -206,7 +206,7 @@ describe("runScript", () => {
     const env = { PATH: process.env.PATH, LANDFALL_SSH_CONFIG: process.env.LANDFALL_SSH_CONFIG, LANDFALL_CONFIG_DIR: process.env.LANDFALL_CONFIG_DIR };
     Object.assign(process.env, { PATH: `${dir}:${process.env.PATH}`, LANDFALL_SSH_CONFIG: join(dir, "ssh_config"), LANDFALL_CONFIG_DIR: dir });
     try {
-      const { runScript } = await import("../../src/core/ssh");
+      const { runScript } = await import("../../src/core/ssh/ssh");
       await runScript({ name: "box", host: "127.0.0.1", user: "deploy" } as never, "true", { capture: true });
     } finally {
       for (const [k, v] of Object.entries(env)) v === undefined ? delete process.env[k] : (process.env[k] = v);

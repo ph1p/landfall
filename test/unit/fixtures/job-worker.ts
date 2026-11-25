@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import { startJob } from "../../../src/core/job";
-import { JOB_INPUT, readJobInput } from "../../../src/core/job-input";
+import { startJob } from "../../../src/core/lib/job";
+import { JOB_INPUT, readJobInput } from "../../../src/core/lib/job-input";
 
 if (process.argv[2] === JOB_INPUT) {
   console.log(JSON.stringify({ actual: process.argv.slice(2), received: await readJobInput() }));

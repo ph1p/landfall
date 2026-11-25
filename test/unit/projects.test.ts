@@ -2,10 +2,10 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { detectApp, detectStaticDir, nodeDockerfile } from "../../src/core/projects";
-import { detectBuild } from "../../src/core/frameworks";
-import { nodeMajor } from "../../src/core/runtimes";
-import { baseImages, detectProject } from "../../src/core/projects";
+import { detectApp, detectStaticDir, nodeDockerfile } from "../../src/core/deploy/projects";
+import { detectBuild } from "../../src/core/deploy/frameworks";
+import { nodeMajor } from "../../src/core/deploy/runtimes";
+import { baseImages, detectProject } from "../../src/core/deploy/projects";
 import { safeParts } from "../../src/ui/server/local";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));

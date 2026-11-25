@@ -4,7 +4,7 @@ import type { DiskUsage, PrunePlan } from "../lib/types";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
 import { dialog, type Values } from "../ui/dialog";
-import { JOURNAL_KEEP, kept, reclaimable, removable, removableVolumes, shortName, totalSize } from "../../../core/reclaim";
+import { JOURNAL_KEEP, kept, reclaimable, removable, removableVolumes, shortName, totalSize } from "../../../core/server/reclaim";
 import { toast } from "../ui/toast";
 import { Badge, Body, Btn, Card, CardHead, Actions, Note, Spin, Sub, Loading, pending, cx, NUM, HIDE, Table } from "../ui/kit";
 import { Zero, pct, StatusDot, isUp, size } from "./shared";

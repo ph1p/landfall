@@ -6,8 +6,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const scripts: string[] = [];
 let answer = "";
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   canLogin: vi.fn(async () => false),
   runScript: vi.fn(async (_s: unknown, script: string) => (scripts.push(script), { code: 0, stdout: answer, stderr: "" })),
 }));
@@ -15,9 +15,9 @@ vi.mock("../../src/core/ssh", async (orig) => ({
 const dir = fs.mkdtempSync(join(tmpdir(), "lf-sudo-"));
 process.env.LANDFALL_CONFIG_DIR = dir;
 process.env.LANDFALL_SSH_CONFIG = join(dir, "ssh");
-const { setSudoPassword, sudoShim } = await import("../../src/core/ssh");
-const { adminLogin, ensureTools, rootVia } = await import("../../src/core/privilege");
-const { PRELUDE } = await import("../../src/core/templates");
+const { setSudoPassword, sudoShim } = await import("../../src/core/ssh/ssh");
+const { adminLogin, ensureTools, rootVia } = await import("../../src/core/ssh/privilege");
+const { PRELUDE } = await import("../../src/core/ssh/templates");
 
 afterEach(() => {
   setSudoPassword(undefined);

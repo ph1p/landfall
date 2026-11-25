@@ -1,8 +1,8 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { tildify } from "../../core/config";
-import { generateKey } from "../../core/security";
-import { addKey, parseKeyLine, readKey } from "../../core/system";
-import { askSecret, c, confirmRemoval, confirmRisky, fail, info, ok, passwordOption, report, table, warn, printJson } from "../../core/term";
+import { tildify } from "../../core/lib/config";
+import { generateKey } from "../../core/server/security";
+import { addKey, parseKeyLine, readKey } from "../../core/server/system";
+import { askSecret, c, confirmRemoval, confirmRisky, fail, info, ok, passwordOption, report, table, warn, printJson } from "../../core/lib/term";
 import {
   account,
   addUser,
@@ -17,7 +17,7 @@ import {
   setSudo,
   usersLogin,
   type Account,
-} from "../../core/users";
+} from "../../core/server/users";
 import { loginHint, target } from "./system";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;

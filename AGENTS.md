@@ -37,14 +37,22 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/cli/commands/*.ts` | one file per area (deploy, sites, volume, server, setup, system, firewall, traefik, …) |
 | `src/cli/job-args.ts` | validates and masks the argv of commands the web UI runs |
 | `src/core/` | everything shared by CLI and web UI: config, ssh, remote scripts, compose analysis, views |
-| `src/core/ssh.ts` | `runScript` (bash over ssh), `shq` (shell quoting), file writes, uploads |
-| `src/core/templates.ts` | remote shell: `PRELUDE` helpers, paths (`ROOT`, `SITES`, `TRAEFIK_DIR`), generated files |
-| `src/core/journal.ts` | parse the server journal, plan `lf undo` |
-| `src/core/term.ts` | output helpers (`step`, `ok`, `info`, `warn`, `fail`, `printJson`, `table`) and prompts |
-| `src/core/config.ts` | local config, servers, `.landfall.json` (`ProjectConfig`), environments |
-| `src/core/views.ts` | the objects that `--json` prints and the web UI reads |
-| `src/core/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it) |
-| `src/core/plugins.ts` | loading plugins (built in and `~/.config/landfall/plugins`), the context their code runs with |
+| `src/core/lib/` | building blocks with no domain: config, terminal output, `fail`, quoting, formatting, jobs |
+| `src/core/ssh/` | reaching a server: ssh, ssh config, sudo/login, tunnels, remote shell templates, journal, migrations |
+| `src/core/server/` | one server as a whole: facts, system, security, firewall, users, updates, stats, prune, inventory |
+| `src/core/site/` | one site on a server: compose analysis, releases, site status, hooks, volumes, domains |
+| `src/core/deploy/` | getting code to a server: sources, git, local builds, framework detection, CI, autodeploy |
+| `src/core/traefik/` | the proxy: Traefik config, traffic and access logs, redirects, strict TLS |
+| `src/core/views/` | read models that `--json` prints and the web UI reads: views, dashboard, infra graph |
+| `src/core/plugins/` | the plugin contract and loader |
+| `src/core/ssh/ssh.ts` | `runScript` (bash over ssh), `shq` (shell quoting), file writes, uploads |
+| `src/core/ssh/templates.ts` | remote shell: `PRELUDE` helpers, paths (`ROOT`, `SITES`, `TRAEFIK_DIR`), generated files |
+| `src/core/ssh/journal.ts` | parse the server journal, plan `lf undo` |
+| `src/core/lib/term.ts` | output helpers (`step`, `ok`, `info`, `warn`, `fail`, `printJson`, `table`) and prompts |
+| `src/core/lib/config.ts` | local config, servers, `.landfall.json` (`ProjectConfig`), environments |
+| `src/core/views/views.ts` | the objects that `--json` prints and the web UI reads |
+| `src/core/plugins/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it) |
+| `src/core/plugins/plugins.ts` | loading plugins (built in and `~/.config/landfall/plugins`), the context their code runs with |
 | `src/plugins/` | the built-in plugins (fail2ban, trivy), written against the same API |
 | `src/cli/plugins.ts` | turns plugin commands and aliases into `lf` commands |
 | `src/cli/commands/plugins.ts` | `lf plugins`, `plugin add`, `plugin rm`, `plugin new` |

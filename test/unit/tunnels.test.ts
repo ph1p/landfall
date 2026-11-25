@@ -6,7 +6,7 @@ import { expect, test, vi } from "vitest";
 test("lf tunnels lists live tunnels and drops files of dead ones", async () => {
   vi.stubEnv("LANDFALL_CONFIG_DIR", fs.mkdtempSync(join(tmpdir(), "lf-tunnels-")));
   vi.resetModules();
-  const { openTunnels, TUNNELS_DIR, FORWARD_DENIED } = await import("../../src/core/tunnel");
+  const { openTunnels, TUNNELS_DIR, FORWARD_DENIED } = await import("../../src/core/ssh/tunnel");
   fs.mkdirSync(TUNNELS_DIR, { recursive: true });
   const t = (pid: number, at: string) => ({ pid, cmd: "tunnel blog", what: "blog", server: "deploy@example.com", url: "http://localhost:3000/", lan: [], at });
   fs.writeFileSync(join(TUNNELS_DIR, `${process.pid}.json`), JSON.stringify(t(process.pid, "2026-10-29T10:00:00Z")));

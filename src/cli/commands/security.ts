@@ -1,8 +1,8 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { addKeyFirst, harden, HARDEN_PARTS, lockedOutOn, printAdvice, securityOf, type HardenPart } from "../../core/security";
-import { effectiveSsh } from "../../core/sshconfig";
-import { adminLogin } from "../../core/privilege";
-import { c, confirm, fail, ok, report, table, printJson } from "../../core/term";
+import { addKeyFirst, harden, HARDEN_PARTS, lockedOutOn, printAdvice, securityOf, type HardenPart } from "../../core/server/security";
+import { effectiveSsh } from "../../core/ssh/sshconfig";
+import { adminLogin } from "../../core/ssh/privilege";
+import { c, confirm, fail, ok, report, table, printJson } from "../../core/lib/term";
 import { limitedNote, target } from "./system";
 
 export const securityCmd = defineCommand({

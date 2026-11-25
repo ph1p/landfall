@@ -6,7 +6,7 @@ import { ACTS, Actions, cmds, Badge, Body, Btn, Card, CardHead, HIDE, Kv, MONO, 
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, keyError } from "../ui/dialog";
 import { size } from "./shared";
-import { KEY_SERVICES, serviceName } from "../../../core/status";
+import { KEY_SERVICES, serviceName } from "../../../core/site/status";
 
 // ---- system ----------------------------------------------------------------
 

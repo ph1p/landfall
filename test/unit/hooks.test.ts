@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { failedHook, hookLines, readHooks, releaseHooks, serverCall, skipper } from "../../src/core/hooks";
+import { failedHook, hookLines, readHooks, releaseHooks, serverCall, skipper } from "../../src/core/site/hooks";
 
 const dirs: string[] = [];
 const project = (pkg: object, lock = "pnpm-lock.yaml") => {

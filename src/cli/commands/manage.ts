@@ -1,10 +1,10 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, projectServer } from "../../core/config";
-import { bytes, plural } from "../../core/format";
-import { prune, prunePlan, reboot } from "../../core/manage";
-import { JOURNAL_KEEP, kept, pruneSummary, reclaimable, removable, removableVolumes, shortName, type PrunePlan } from "../../core/reclaim";
-import { adminLogin } from "../../core/privilege";
-import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn, printJson } from "../../core/term";
+import { checkInt, projectServer } from "../../core/lib/config";
+import { bytes, plural } from "../../core/lib/format";
+import { prune, prunePlan, reboot } from "../../core/server/manage";
+import { JOURNAL_KEEP, kept, pruneSummary, reclaimable, removable, removableVolumes, shortName, type PrunePlan } from "../../core/server/reclaim";
+import { adminLogin } from "../../core/ssh/privilege";
+import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn, printJson } from "../../core/lib/term";
 
 function logSizes(l: NonNullable<PrunePlan["logs"]>) {
   if (!l.root) return `container logs and journal ${c.dim("(sizes need root or passwordless sudo)")}`;

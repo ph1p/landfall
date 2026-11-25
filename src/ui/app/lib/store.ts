@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Job } from "./jobs";
 import type * as T from "./types";
-import type { UiBlock } from "../../../core/plugin-api";
+import type { UiBlock } from "../../../core/plugins/plugin-api";
 
 /** One server's slot in a store: loading, then { data } or { error }; data stays while it reloads. */
 export interface Slot<T = unknown> {
@@ -71,8 +71,8 @@ export async function http<T = unknown>(path: string, body?: unknown): Promise<T
   return data;
 }
 
-export { plural } from "../../../core/format";
-export { ago } from "../../../core/ago";
+export { plural } from "../../../core/lib/format";
+export { ago } from "../../../core/lib/ago";
 /** The -s flag for server n. */
 export const sv = (n: string) => ["-s", n];
 /** " -s n" for a shown command, or "" when n is the default server. */

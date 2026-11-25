@@ -15,7 +15,7 @@ import {
   sortTags,
   webUrl,
   type Ref,
-} from "../../src/core/refs";
+} from "../../src/core/deploy/refs";
 
 const tag = (name: string, date?: string): Ref => ({ name, kind: "tag", sha: name, ...(date && { date }) });
 

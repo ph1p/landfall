@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { updateConfig } from "../../../src/core/config";
+import { updateConfig } from "../../../src/core/lib/config";
 
 const [mode, name] = process.argv.slice(2);
 process.send!("ready");

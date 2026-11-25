@@ -1,0 +1,1542 @@
+import fs from "node:fs";
+import { isIP } from "node:net";
+import { join } from "node:path";
+import { Document, isMap, isSeq, parse as parseYaml, parseDocument, YAMLSeq, type YAMLMap } from "yaml";
+import { DOMAIN } from "../lib/config";
+import type { ReleaseHooks } from "./hooks";
+import { MAX_REPLICAS, MAX_WEIGHT } from "./limits";
+import { gitParts } from "../deploy/refs";
+import { fail } from "../lib/term";
+import { composeEscape, OWN_PROXY, SITES, yamlStr, type Proxy } from "../ssh/templates";
+
+/**
+ * Every site is a Compose project. A release folder holds the user's compose.yaml as they wrote
+ * it (or one landfall generated for a static folder, a Dockerfile or an image) and landfall's
+ * compose.override.yaml, which adds Traefik's labels, the proxy network and the project name.
+ * `cd /opt/landfall/sites/<site>/current && docker compose up -d` runs it without landfall.
+ */
+
+/** A site's secret files, next to its .env; each release links it, so `./.secrets/<name>` works from compose.yaml. */
+export const SECRETS_DIR = ".secrets";
+/** What a Compose secret may be named, and a safe file name. */
+export const SECRET_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+/** A .env variable name. */
+export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+
+/** The services of a `docker compose config` that mount one of these files of .secrets. */
+export function secretUsers(config: any, keys: string[]): string[] {
+  const names = Object.entries<any>(config?.secrets ?? {})
+    .filter(([, d]) => keys.some((k) => String(d?.file ?? "").endsWith(`/${SECRETS_DIR}/${k}`)))
+    .map(([n]) => n);
+  return Object.entries<any>(config?.services ?? {})
+    .filter(([, s]) => (s?.secrets ?? []).some((x: any) => names.includes(typeof x === "string" ? x : x?.source)))
+    .map(([n]) => n);
+}
+
+/** A service of a release, as `docker compose config` showed it at deploy. */
+export interface Service {
+  name: string;
+  /** Networks it is on; routed ones join the proxy network too. */
+  networks: string[];
+  /** Built from source: tagged per release, so a rollback never rebuilds. */
+  build?: boolean;
+  /** x-landfall.port: Traefik routes to this port. */
+  port?: number;
+  /** x-landfall.domains; none on a routed service = the site's domains (`lf domains`). */
+  domains?: string[];
+  /** Routed by its own traefik.* labels: landfall only adds the network. */
+  own?: boolean;
+  /** x-landfall.routes, or the further ports a plain compose.yaml publishes: each on its own domains. */
+  routes?: Route[];
+  /** x-landfall.private: ports never routed, reached by name with \`lf tunnel <site> <name>\`. */
+  private?: Record<string, number>;
+  /** x-landfall.private: { admin: { port: 3000, path: /admin } }: the path its tunnel opens, by private name. */
+  paths?: Record<string, string>;
+  /** A plain compose.yaml's ports: are dropped on the server; Traefik routes them instead. */
+  unpublish?: boolean;
+  /** x-landfall.allow: the addresses (IPs, CIDRs) that may reach its port; any when none. */
+  allow?: string[];
+  /** x-landfall's Traefik settings for its port's router: load balancer and middlewares. */
+  opts?: RouteOpts;
+  /** deploy.replicas (or scale:) in compose.yaml; `lf scale` overrides it (SiteMeta.scale). */
+  replicas?: number;
+  /** compose.yaml uses the legacy scale: key, so the override sets that one, not deploy.replicas. */
+  scaleKey?: true;
+  /** Has a healthcheck in compose.yaml (one in the image is not seen here). */
+  healthcheck?: true;
+  /** Sets container_name: it cannot run more than once. */
+  named?: true;
+  /** Keeps its ports: on the server (x-landfall.publish): it cannot run more than once either. */
+  published?: true;
+  /** x-landfall.weight: its share of the traffic to hosts it serves together with other weighted services. */
+  weight?: number;
+  /** x-landfall.update: rolling. Deploys start new containers beside the old ones and remove those once ready. */
+  update?: "rolling";
+  /** x-landfall.match: requests with this cookie or header go to this member of a traffic split, whatever the weights. */
+  match?: Match;
+}
+
+/** Each a name=value pair; a request that has either one matches. */
+export interface Match {
+  cookie?: string;
+  header?: string;
+}
+
+/** x-landfall's Traefik settings of one router (opt-in; none: Traefik's defaults). */
+export interface RouteOpts {
+  /** Sticky sessions: a cookie pins a client to one container; a string names the cookie. */
+  sticky?: string | true;
+  /** Traefik's own health check: it sends nothing to a container that fails it. */
+  healthcheck?: { path: string; interval?: string; timeout?: string };
+  /** Requests per second each client IP may make on average, and the burst above that. */
+  ratelimit?: { average: number; burst?: number };
+  /** gzip/brotli responses. */
+  compress?: true;
+  /** Response headers to set; an empty value removes one. */
+  headers?: Record<string, string>;
+  /** Retries a request this many times when the container cannot be reached. */
+  retry?: number;
+}
+
+/** One more port of a service, on a subdomain of every site domain or on fixed domains. */
+export interface Route {
+  port: number;
+  /** admin: admin.<d> for each of the site's domains (\`lf domains\`). */
+  subdomain?: string;
+  domains?: string[];
+  /** The addresses (IPs, CIDRs) that may reach it; any when none. */
+  allow?: string[];
+  opts?: RouteOpts;
+}
+
+/** Where a release's files came from, in git terms. Every field past commit is optional: older releases lack them. */
+export interface ReleaseGit {
+  /** Short SHA (12). */
+  commit: string;
+  sha?: string;
+  branch?: string;
+  /** The tag deployed, or one at the commit. */
+  tag?: string;
+  dirty?: boolean;
+  /** origin's URL, without credentials. */
+  remote?: string;
+  /** local: the working tree; ref: a clean export of --ref/--tag; ci: a CI run; server, auto: fetched on the server. */
+  source?: "local" | "ref" | "server" | "ci" | "auto";
+  ci?: { provider: string; url?: string };
+}
+
+export interface Release {
+  id: string;
+  at: string;
+  services: Service[];
+  /** The commit it was deployed from, when the project is a git checkout; dirty: with uncommitted changes. */
+  git?: ReleaseGit;
+  /** Who deployed it: user@machine. */
+  by?: string;
+  /** The landfall version that deployed it; missing on releases by landfall before 0.17. */
+  landfall?: string;
+  /** package.json's server hooks as deployed: rollback and removal run the ones of the release they leave or reach. */
+  hooks?: ReleaseHooks;
+}
+
+/** "a1b2c3d4e5f6 main, uncommitted changes" for a release deployed from git. */
+export function gitLabel(g: Release["git"]) {
+  if (!g) return "";
+  const { source } = gitParts(g);
+  return `${g.tag ? `${g.tag} ` : ""}${g.commit}${g.branch ? ` ${g.branch}` : ""}${g.dirty ? ", uncommitted changes" : ""}${source ? `, ${source}` : ""}`;
+}
+
+export interface AutodeploySetting {
+  /** The environment whose rule it follows; "" for the project's own. */
+  env: string;
+  /** 5m, 1h: how often cron runs it. */
+  every: string;
+  /** Branches (newest commit wins) or tags (newest version wins), not both. */
+  rule: { branch?: string[]; tag?: string[]; prerelease?: boolean };
+  /** The repository the server fetches. */
+  url: string;
+  /** The project's folder in the repository; "" for its root. */
+  dir: string;
+}
+
+/** What the site was deployed from: static, image and dockerfile get a generated compose.yaml. */
+export type SiteKind = "compose" | "static" | "image" | "dockerfile";
+
+/** Metadata stored on the server next to each site (site.json). */
+export interface SiteMeta {
+  name: string;
+  kind: SiteKind;
+  /** Domains of the routed service that names none itself; what `lf domains` changes. */
+  domains: string[];
+  /** Hosts that answer with a permanent redirect to the first of `domains`, path and query kept (www.example.com). */
+  redirects?: string[];
+  /** htpasswd lines (user:bcrypt): the site asks for a login. */
+  auth?: string[];
+  /** Logins of single routes by routeKey (\`lf auth --route\`), in place of the site's; [] = public. */
+  routeAuth?: Record<string, string[]>;
+  current: string;
+  releases: Release[];
+  /** Adopted: a Compose project landfall did not deploy, run where it is; `current` points there. */
+  adopted?: string;
+  /** Compose project name of an adopted site; landfall's own are named like the site. */
+  project?: string;
+  /** Files in its .secrets folder (lf secret); an app, Dockerfile or image gets each at /run/secrets/<name>. */
+  secrets?: string[];
+  /** Named volumes kept in the site's folder, volumes/<key>, not in Docker's. Never shrinks: a rollback or undo finds them there too. */
+  volumes?: string[];
+  /** Containers per service (lf scale), over compose.yaml's deploy.replicas. */
+  scale?: Record<string, number>;
+  /** Traffic shares per service of a split (lf weight), over compose.yaml's x-landfall.weight. */
+  weights?: Record<string, number>;
+  /** lf autodeploy: the server's crontab runs autodeploy.sh, which deploys new commits of the rule's branch or tags. */
+  autodeploy?: AutodeploySetting;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Parsed site.json that has what landfall reads from it. */
+export function isSiteMeta(x: unknown): x is SiteMeta {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+  const m = x as Record<string, unknown>;
+  return typeof m.name === "string" && Array.isArray(m.domains) && Array.isArray(m.releases) && m.releases.every((r) => Array.isArray(r?.services));
+}
+
+export const projectName = (meta: SiteMeta) => meta.project ?? meta.name;
+
+/** Where a volume of the site keeps its files on the server. */
+export const volumeDir = (site: string, key: string) => `${SITES}/${site}/volumes/${key}`;
+
+/**
+ * The named volumes of `config` (`docker compose config`) that live in the site's folder: Compose's own,
+ * with no driver, options or name of their own. Those of `prev` stay unless compose.yaml now makes them its own.
+ */
+export function folderVolumes(config: any, prev: string[] = []): string[] {
+  const vols: Record<string, any> = config?.volumes ?? {};
+  const own = (k: string) => {
+    const v = vols[k] ?? {};
+    return !v.external && !v.driver_opts && (!v.driver || v.driver === "local") && v.name === `${config.name}_${k}`;
+  };
+  return [...new Set([...prev.filter((k) => !(k in vols) || own(k)), ...Object.keys(vols).filter(own)])].sort();
+}
+
+/** How many containers each service runs and how it updates: what \`lf scale --json\` prints. */
+export interface ScaleRow {
+  service: string;
+  replicas: number;
+  /** Where the count comes from: lf scale, compose.yaml's deploy.replicas (or scale:), or Compose's default of 1. */
+  source: "lf scale" | "compose.yaml" | "default";
+  update: "rolling" | "recreate";
+  /** Its share of a traffic split, and the split's name. */
+  weight?: number;
+  split?: string;
+  /** What sends a request to it whatever the weights: "cookie ab=b", "header X-Variant=b". */
+  match?: string;
+}
+
+/** The services of the live release with their container counts, update mode and traffic shares. */
+export function scaleView(meta: SiteMeta): ScaleRow[] {
+  const services = currentRelease(meta)?.services ?? [];
+  const members = new Map(
+    splitGroups(meta, services).flatMap((g) =>
+      g.members.map((m) => [m.service.name, { weight: m.weight, split: g.name, ...(m.service.match && { match: matchText(m.service.match) }) }] as const),
+    ),
+  );
+  return services.map((s) => ({
+    service: s.name,
+    replicas: wantedReplicas(meta, s),
+    source: meta.scale?.[s.name] !== undefined ? "lf scale" : s.replicas !== undefined ? "compose.yaml" : "default",
+    update: s.update ?? "recreate",
+    ...members.get(s.name),
+  }));
+}
+
+/** How many containers of `s` should run: lf scale's count, else compose.yaml's, else one. */
+export const wantedReplicas = (meta: Pick<SiteMeta, "scale">, s: Service) => meta.scale?.[s.name] ?? s.replicas ?? 1;
+
+/** A row that uses replicas, rolling deploys or a split: worth showing. */
+export const scales = (r: Pick<ScaleRow, "replicas" | "update" | "split">) => r.replicas !== 1 || r.update === "rolling" || !!r.split;
+
+/** The live release. */
+export const currentRelease = (meta: SiteMeta) => meta.releases.find((r) => r.id === meta.current);
+
+export const routed = (s: Service) => !!(s.port || s.own || s.routes?.length);
+
+/** The routed service serving the site's own domains, if any. */
+const isMain = (s: Service) => !!s.port && !s.domains && !s.own;
+/** The hosts a routed port serves, as a key: "" for the site's own domains. */
+const hostsKey = (s: Service) => (s.domains ? [...s.domains].sort().join(",") : "");
+
+/** Services that split the traffic to the same hosts by weight (x-landfall.weight): Traefik's file provider routes them. */
+export interface SplitGroup {
+  /** The router, and the weighted service in the dynamic file (name@file). */
+  name: string;
+  members: { service: Service; weight: number }[];
+}
+
+/** A release's traffic splits: two or more weighted services on the same hosts. lf weight's shares win over x-landfall.weight. */
+export function splitGroups(meta: Pick<SiteMeta, "name" | "weights">, services: Service[]): SplitGroup[] {
+  return splitSets(services).map((ss) => ({
+    name: `${meta.name}-split${ss[0].domains ? `-${ss[0].name.toLowerCase().replace(/\./g, "-")}` : ""}`,
+    members: ss.map((s) => ({ service: s, weight: meta.weights?.[s.name] ?? s.weight! })),
+  }));
+}
+
+/** Services that split their traffic: two or more weighted ones routed on the same hosts. Each set sorted by name; the first leads. */
+function splitSets(services: Service[]): Service[][] {
+  const by = new Map<string, Service[]>();
+  for (const s of services) if (s.weight !== undefined && s.port && !s.own) by.set(hostsKey(s), [...(by.get(hostsKey(s)) ?? []), s]);
+  return [...by.values()].filter((ss) => ss.length > 1).map((ss) => [...ss].sort((a, b) => a.name.localeCompare(b.name)));
+}
+export const mainService = (r?: Release) => r?.services.find(isMain);
+/** The service that serves the site's own domains; none for adopted sites. */
+export const siteMain = (meta: SiteMeta) => (meta.adopted ? undefined : mainService(currentRelease(meta)));
+
+/** compose, static, … ; or adopted. */
+export const kindOf = (meta: { kind: string; adopted?: string }) => (meta.adopted ? "adopted" : meta.kind);
+
+export { isDone, isUp, STATUS_RANK, statusKind, worse, type StatusKind } from "./status";
+/** Shell that prints each site's site.json on one line, after SITE and a tab. */
+export const SITE_LINES = `for f in ${SITES}/*/site.json; do [ -f "$f" ] || continue; printf 'SITE\\t'; tr -d '\\n' < "$f"; echo; done`;
+/** The site.json in a SITE_LINES line; undefined for other lines and when it is corrupt. */
+export function readSiteLine(line: string): SiteMeta | undefined {
+  if (!line.startsWith("SITE\t")) return undefined;
+  try {
+    const meta = JSON.parse(line.slice("SITE\t".length));
+    return isSiteMeta(meta) ? meta : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The domains a route answers on, given the site's. */
+export const routeDomains = (r: Route, site: string[]) => r.domains ?? site.map((d) => `${r.subdomain}.${d}`);
+
+/** Domains of every route of a release that names its own: what stays when the site's domains change. */
+export const fixedDomains = (services: Service[]) => services.flatMap((s) => [...(s.domains ?? []), ...(s.routes ?? []).flatMap((r) => r.domains ?? [])]);
+
+/** The subdomain routes of a release under these site domains: they come and go with them. */
+export const subDomains = (services: Service[], site: string[]) =>
+  services.flatMap((s) => (s.routes ?? []).filter((r) => r.subdomain).flatMap((r) => routeDomains(r, site)));
+
+/** The redirect hosts and where they point: none while the site serves no domain of its own. */
+export function siteRedirects(meta: SiteMeta): { hosts: string[]; to?: string } {
+  const to = siteMain(meta) ? meta.domains[0] : undefined;
+  return to ? { hosts: meta.redirects ?? [], to } : { hosts: [] };
+}
+
+/** Every domain a site answers on now. */
+export function siteDomains(meta: SiteMeta): string[] {
+  const r = currentRelease(meta);
+  if (!r) return meta.domains;
+  return [...new Set([...(mainService(r) ? meta.domains : []), ...fixedDomains(r.services), ...subDomains(r.services, meta.domains)])];
+}
+
+/** Every host a site claims: the domains it serves and its redirect hosts (also those waiting for a domain). */
+export const siteHosts = (meta: SiteMeta): string[] => [...siteDomains(meta), ...(meta.redirects ?? [])];
+
+/** One Traefik router of a release: a service's own port, or one of its routes. */
+export interface Router {
+  /** service:port, how \`lf auth --route\` names it. */
+  key: string;
+  service: string;
+  port: number;
+  domains: string[];
+  main?: boolean;
+  subdomain?: string;
+  /** The addresses it serves; none: every one. */
+  allow?: string[];
+  opts?: RouteOpts;
+  /** A traffic split's one router: every service in it, the leading `service` first. Its allow, options and login are the lead's. */
+  members?: string[];
+}
+
+/** How \`lf auth --route\` names a router: the service and the port it routes to. */
+export const routeKey = (service: string, port: number) => `${service}:${port}`;
+
+/** What a release routes, port by port: the main service on the site's domains, each route on its own. */
+export function routePlan(services: Service[], site: string[]): Router[] {
+  const split = new Map(splitSets(services).flatMap((ss) => ss.map((s) => [s, ss] as const)));
+  return services.flatMap((s) => {
+    if (s.own) return [];
+    const ss = split.get(s);
+    // A split routes through its lead: the other members get no router of their own.
+    const main: Router[] =
+      s.port && (!ss || ss[0] === s)
+        ? [
+            {
+              key: routeKey(s.name, s.port),
+              service: s.name,
+              port: s.port,
+              domains: s.domains ?? site,
+              ...(isMain(s) && { main: true }),
+              ...(s.allow && { allow: s.allow }),
+              ...(s.opts && { opts: s.opts }),
+              ...(ss && { members: ss.map((m) => m.name) }),
+            },
+          ]
+        : [];
+    return [
+      ...main,
+      ...(s.routes ?? []).map((r) => ({
+        key: routeKey(s.name, r.port),
+        service: s.name,
+        port: r.port,
+        domains: routeDomains(r, site),
+        ...(r.subdomain && { subdomain: r.subdomain }),
+        ...(r.allow && { allow: r.allow }),
+        ...(r.opts && { opts: r.opts }),
+      })),
+    ];
+  });
+}
+
+/** Image a service built for release `id` is tagged with. */
+export const builtImage = (site: string, service: string, id: string) => `${site}-${service.toLowerCase()}:${id}`;
+
+/** "8080/tcp 53/udp 80" (docker's ExposedPorts keys): the TCP ports, lowest first. */
+export const exposedPorts = (text: string) =>
+  [
+    ...new Set(
+      text
+        .split(/\s+/)
+        .flatMap((p) => /^(\d+)(\/tcp)?$/.exec(p)?.[1] ?? [])
+        .map(Number),
+    ),
+  ].sort((a, b) => a - b);
+
+/** Compose file names, in the order `docker compose` looks for them. */
+/** Where \`lf eject\` writes a site's override in its project. */
+export const EJECT_FILE = "compose.traefik.yaml";
+export const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
+export const OVERRIDE_FILES = ["compose.override.yaml", "compose.override.yml", "docker-compose.override.yaml", "docker-compose.override.yml"];
+/** What an environment layers over a compose file, as `docker compose -f compose.yaml -f compose.staging.yaml` would. */
+export const envComposeFile = (file: string, env: string) => file.replace(/(\.ya?ml)?$/, (ext) => `.${env}${ext || ".yaml"}`);
+
+/** Hosts in a Traefik rule: Host(`a`) || Host(`b`, `c`). HostRegexp and HostSNI are not hosts. */
+export const ruleHosts = (rule: string) =>
+  [...rule.matchAll(/\bHost\(([^)]*)\)/g)].flatMap((m) => [...m[1].matchAll(/[`"]([^`"]+)[`"]/g)].map((h) => h[1].toLowerCase()));
+
+export const ROUTER_RULE = /^traefik\.http\.routers\.[^.]+\.rule$/;
+export const SERVICE_PORT = /^traefik\.http\.services\.[^.]+\.loadbalancer\.server\.port$/;
+
+export interface Analysis {
+  services: Service[];
+  errors: string[];
+  warnings: string[];
+  /** No x-landfall anywhere: routed by what it publishes and exposes. */
+  auto?: boolean;
+  /** What auto mode did that the route plan does not show. */
+  notes: string[];
+}
+
+/** Ports that speak something other than HTTP (and 443: TLS inside the container): a plain compose.yaml's database stays off Traefik. */
+const NOT_HTTP = new Set([
+  22, 25, 53, 110, 143, 389, 443, 465, 587, 636, 993, 995, 1025, 1433, 1521, 1883, 2181, 2525, 3306, 3389, 4222, 4369, 5432, 5672, 5900, 6379, 6380, 7687, 8883,
+  9042, 9092, 11211, 25672, 26257, 27017,
+]);
+/** Where web servers usually listen: picks the main service when several or none are built here. */
+export const WEB_PORTS = new Set([80, 3000, 4000, 5000, 8000, 8080, 8888]);
+/** Images of tools that sit next to an app (database UIs, mail catchers): never the site itself when something else could be. */
+const SIDE_TOOLS =
+  /(^|\/)(adminer|phpmyadmin|pgadmin4?|mailhog|mailpit|maildev|redis-commander|redisinsight|mongo-express|portainer|dozzle|kafka-ui|swagger-ui)(:|@|$)/;
+/** One or more DNS labels: admin, api.v2. */
+const SUBDOMAIN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+const PRIVATE_NAME = /^[a-z0-9][a-z0-9_.-]*$/i;
+const OPT_KEYS = ["sticky", "healthcheck", "ratelimit", "compress", "headers", "retry"];
+const X_KEYS = ["port", "domains", "publish", "routes", "private", "allow", ...OPT_KEYS, "weight", "match", "update"];
+const DURATION = /^\d+(ms|s|m|h)$/;
+/** An HTTP token (RFC 7230): header and cookie names. */
+const TOKEN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+export { MAX_REPLICAS, MAX_WEIGHT };
+
+/** An IPv4 or IPv6 address, or a CIDR range of one. */
+export function isCidr(v: string): boolean {
+  const [ip, bits, more] = v.split("/");
+  const kind = isIP(ip);
+  if (!kind || more !== undefined) return false;
+  return bits === undefined || (/^\d{1,3}$/.test(bits) && Number(bits) <= (kind === 4 ? 32 : 128));
+}
+
+/** x-landfall.allow of a service or route: a list of addresses; `where` names it in errors. */
+function readAllow(where: string, value: unknown, errors: string[]): string[] | undefined {
+  if (value === undefined) return undefined;
+  const list = (Array.isArray(value) ? value : [value]).map((v) => String(v).trim());
+  const bad = list.filter((v) => !isCidr(v));
+  if (bad.length) return void errors.push(`${where}: allow takes IP addresses or CIDR ranges, like allow: [10.0.0.0/8, 203.0.113.7], not ${bad.join(", ")}`);
+  if (!list.length) return void errors.push(`${where}: allow is empty, so nobody could reach it; leave it out to allow everyone`);
+  return list;
+}
+
+/** A cookie name, a header name, and either one's value in x-landfall.match: no character a Traefik rule must escape. */
+const MATCH_NAME = /^[A-Za-z0-9_-]+$/;
+const MATCH_VALUE = /^[A-Za-z0-9._-]+$/;
+
+/** x-landfall.match: { cookie: ab=b, header: X-Variant=b }, either or both. */
+function readMatch(where: string, x: any, errors: string[]): Match | undefined {
+  const form = `${where}: match is { cookie: name=value } or { header: Name=value }, or both, like match: { cookie: ab=b }`;
+  if (!x || typeof x !== "object" || Array.isArray(x)) return void errors.push(form);
+  const bad = Object.keys(x).filter((k) => k !== "cookie" && k !== "header");
+  const m: Match = {};
+  for (const k of ["cookie", "header"] as const) {
+    if (x[k] === undefined) continue;
+    const [name, value, more] = String(x[k]).split("=");
+    if (more !== undefined || !MATCH_NAME.test(name ?? "") || !MATCH_VALUE.test(value ?? ""))
+      return void errors.push(`${where}: match.${k} is name=value (letters, digits, - and _; the value may have dots), not ${JSON.stringify(x[k])}`);
+    m[k] = `${name}=${value}`;
+  }
+  if (bad.length || !Object.keys(m).length) return void errors.push(form);
+  return m;
+}
+
+/** "cookie ab=b or header X-Variant=b" */
+export const matchText = (m: Match) => [m.cookie && `cookie ${m.cookie}`, m.header && `header ${m.header}`].filter(Boolean).join(" or ");
+
+/** The Traefik (v3) rule that tells a matching request: the cookie among the Cookie header's pairs, or the header's exact value. */
+function matchRule(m: Match): string {
+  const re = (v: string) => v.replace(/\./g, "\\.");
+  const parts: string[] = [];
+  if (m.cookie) parts.push(`HeaderRegexp(\`Cookie\`, \`(^|;\\s*)${re(m.cookie)}(;|$)\`)`);
+  if (m.header) {
+    const [k, v] = m.header.split("=");
+    parts.push(`Header(\`${k}\`, \`${v}\`)`);
+  }
+  return parts.join(" || ");
+}
+
+const posInt = (v: unknown, min = 1) => {
+  const n = typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : v;
+  return typeof n === "number" && Number.isInteger(n) && n >= min ? n : undefined;
+};
+
+/** The Traefik settings of a service's port or a route (sticky, healthcheck, ratelimit, compress, headers, retry); `where` names it in errors. */
+function readOpts(where: string, x: any, errors: string[]): RouteOpts | undefined {
+  const o: RouteOpts = {};
+  if (x.sticky !== undefined && x.sticky !== false) {
+    if (x.sticky === true) o.sticky = true;
+    else if (typeof x.sticky === "string" && TOKEN.test(x.sticky)) o.sticky = x.sticky;
+    else errors.push(`${where}: sticky is true or a cookie name, like sticky: true, not ${JSON.stringify(x.sticky)}`);
+  }
+  if (x.healthcheck !== undefined) {
+    const h = typeof x.healthcheck === "string" ? { path: x.healthcheck } : x.healthcheck;
+    const bad = h && typeof h === "object" ? Object.keys(h).filter((k) => !["path", "interval", "timeout"].includes(k)) : [];
+    if (!h || typeof h !== "object" || typeof h.path !== "string" || !h.path.startsWith("/"))
+      errors.push(`${where}: healthcheck is a path, like healthcheck: /health, or { path: /health, interval: 10s, timeout: 3s }`);
+    else if (bad.length) errors.push(`${where}: healthcheck knows path, interval and timeout, not ${bad.join(", ")}`);
+    else {
+      const durs = (["interval", "timeout"] as const).filter((k) => h[k] !== undefined && !DURATION.test(String(h[k])));
+      if (durs.length) errors.push(`${where}: healthcheck ${durs.join(" and ")} must be a duration, like 10s`);
+      else
+        o.healthcheck = {
+          path: h.path,
+          ...(h.interval !== undefined && { interval: String(h.interval) }),
+          ...(h.timeout !== undefined && { timeout: String(h.timeout) }),
+        };
+    }
+  }
+  if (x.ratelimit !== undefined) {
+    const r = typeof x.ratelimit === "object" && x.ratelimit ? x.ratelimit : { average: x.ratelimit };
+    const average = posInt(r.average);
+    const burst = r.burst === undefined ? undefined : posInt(r.burst);
+    if (average === undefined || (r.burst !== undefined && burst === undefined))
+      errors.push(`${where}: ratelimit is requests per second per client, like ratelimit: 20 or { average: 20, burst: 50 }`);
+    else o.ratelimit = { average, ...(burst !== undefined && { burst }) };
+  }
+  if (x.compress !== undefined && x.compress !== false) {
+    if (x.compress === true) o.compress = true;
+    else errors.push(`${where}: compress is true or false`);
+  }
+  if (x.headers !== undefined) {
+    if (!x.headers || typeof x.headers !== "object" || Array.isArray(x.headers))
+      errors.push(`${where}: headers is a mapping of response headers, like headers: { X-Frame-Options: DENY }`);
+    else {
+      const bad = Object.keys(x.headers).filter((k) => !TOKEN.test(k));
+      if (bad.length) errors.push(`${where}: not a header name: ${bad.join(", ")}`);
+      else if (Object.keys(x.headers).length)
+        o.headers = Object.fromEntries(Object.entries<unknown>(x.headers).map(([k, v]) => [k, v == null ? "" : String(v)]));
+    }
+  }
+  if (x.retry !== undefined) {
+    const n = posInt(x.retry);
+    if (n === undefined || n > 10) errors.push(`${where}: retry is how many times to try again, 1 to 10`);
+    else o.retry = n;
+  }
+  return Object.keys(o).length ? o : undefined;
+}
+
+const toPort = (v: unknown) => {
+  const n = typeof v === "string" && !/^\d+$/.test(v.trim()) ? NaN : Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : undefined;
+};
+/** A service name as a DNS label. */
+const label = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63) || "service";
+const hasRouter = (labels: Record<string, string>) => Object.keys(labels).some((k) => ROUTER_RULE.test(k));
+const labelsOf = (svc: any): Record<string, string> =>
+  Array.isArray(svc?.labels)
+    ? Object.fromEntries(svc.labels.map((l: string) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]))
+    : (svc?.labels ?? {});
+
+/** The TCP ports a service publishes or exposes, in order; ranges left out. */
+function servicePorts(svc: any): number[] {
+  const published = (svc.ports ?? []).filter((p: any) => (p?.protocol ?? "tcp") === "tcp").map((p: any) => p?.target);
+  const exposed = (svc.expose ?? [])
+    .map(String)
+    .filter((e: string) => !e.endsWith("/udp"))
+    .map((e: string) => e.replace(/\/tcp$/, ""));
+  return [...new Set([...published, ...exposed].map(toPort).filter((n): n is number => n !== undefined))];
+}
+
+/** A compose.yaml with no x-landfall and no traefik labels: true when landfall routes it by its ports. */
+export const isPlain = (config: any) =>
+  Object.values<any>(config?.services ?? {}).every((svc) => svc?.["x-landfall"] === undefined && !hasRouter(labelsOf(svc)));
+
+/**
+ * Route a plain compose.yaml: the built service (else one on a usual web port) gets the site's domains with
+ * its first HTTP port; every other HTTP port a subdomain, <service> or <service>-<port>. Picked by name, not
+ * file order: `docker compose config` sorts services.
+ */
+function autoRoute(config: any, services: Service[], notes: string[]) {
+  const raw = config.services;
+  const found = services
+    .filter((s) => !raw[s.name].network_mode)
+    .map((s) => ({ s, ports: servicePorts(raw[s.name]).filter((p) => !NOT_HTTP.has(p)) }))
+    .filter((f) => f.ports.length)
+    .sort((a, b) => a.s.name.localeCompare(b.s.name));
+  const score = (f: (typeof found)[number]) => (f.s.build ? 4 : 0) + (SIDE_TOOLS.test(raw[f.s.name].image ?? "") ? 0 : 2) + (WEB_PORTS.has(f.ports[0]) ? 1 : 0);
+  const main = found.reduce<(typeof found)[number] | undefined>((best, f) => (!best || score(f) > score(best) ? f : best), undefined);
+  const tied = found.filter((f) => f !== main && main && score(f) === score(main));
+  if (main && tied.length)
+    notes.push(
+      `${main.s.name} serves the site's domains (first by name of ${[main, ...tied].map((f) => f.s.name).join(", ")}): \`lf init\` writes the routes down to change that`,
+    );
+  for (const f of found) {
+    const isMainOne = f === main;
+    if (isMainOne) f.s.port = f.ports[0];
+    const routes = (isMainOne ? f.ports.slice(1) : f.ports).map((port, i) => ({
+      port,
+      subdomain: isMainOne || i > 0 ? `${label(f.s.name)}-${port}` : label(f.s.name),
+    }));
+    if (routes.length) f.s.routes = routes;
+  }
+  for (const s of services) {
+    const svc = raw[s.name];
+    if (!svc.ports?.length || svc.network_mode) continue;
+    s.unpublish = true;
+    const routedPorts = new Set([s.port, ...(s.routes ?? []).map((r) => r.port)]);
+    const kept = (svc.ports as any[]).map((p) => toPort(p?.target)).filter((p) => p !== undefined && !routedPorts.has(p));
+    if (kept.length)
+      notes.push(
+        `${s.name}: ${[...new Set(kept)].join(", ")} not published on the server (not HTTP): reach it with lf tunnel <site> ${s.name} --port ${kept[0]}`,
+      );
+  }
+}
+
+/** x-landfall.routes: more ports of the service, each on a subdomain or its own domains. */
+function readRoutes(name: string, value: unknown, expand: (d: string) => string, errors: string[]): Route[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return (void errors.push(`${name}: x-landfall.routes must be a list, like routes: [{ port: 3001, subdomain: admin }]`), []);
+  const routes: Route[] = [];
+  for (const r of value) {
+    const port = toPort(r?.port);
+    if (!r || typeof r !== "object" || port === undefined) {
+      errors.push(`${name}: each x-landfall.routes entry needs a port, like { port: 3001, subdomain: admin }; got ${JSON.stringify(r)}`);
+      continue;
+    }
+    const unknown = Object.keys(r).filter((k) => !["port", "subdomain", "domains", "allow", ...OPT_KEYS].includes(k));
+    if (unknown.length) errors.push(`${name}: a route knows port, subdomain, domains, allow and ${OPT_KEYS.join(", ")}, not ${unknown.join(", ")}`);
+    const allow = readAllow(`${name}: the route to ${port}`, r.allow, errors);
+    const opts = readOpts(`${name}: the route to ${port}`, r, errors);
+    if ((r.subdomain === undefined) === (r.domains === undefined)) {
+      errors.push(
+        `${name}: the route to ${port} needs a subdomain (admin: admin.<each site domain>) or domains, not ${r.subdomain === undefined ? "neither" : "both"}`,
+      );
+      continue;
+    }
+    if (r.subdomain !== undefined) {
+      const sub = String(r.subdomain).trim().toLowerCase();
+      if (!SUBDOMAIN.test(sub)) errors.push(`${name}: not a subdomain: ${r.subdomain}`);
+      routes.push({ port, subdomain: sub, ...(allow && { allow }), ...(opts && { opts }) });
+    } else {
+      const ds = (Array.isArray(r.domains) ? r.domains : [r.domains]).map((d: unknown) => expand(String(d).trim()));
+      const bad = ds.filter((d: string) => !DOMAIN.test(d));
+      if (bad.length) errors.push(`${name}: not a domain in the route to ${port}: ${bad.join(", ")}`);
+      if (!ds.length) errors.push(`${name}: the route to ${port} has no domains`);
+      routes.push({ port, domains: ds, ...(allow && { allow }), ...(opts && { opts }) });
+    }
+  }
+  return routes;
+}
+
+/**
+ * x-landfall.private: { admin: 3001 }: named ports nothing routes. { admin: { port: 3001, path: /admin } } also
+ * names the path `lf tunnel` opens.
+ */
+function readPrivate(name: string, value: unknown, errors: string[]): { ports: Record<string, number>; paths: Record<string, string> } | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return (void errors.push(`${name}: x-landfall.private must be a mapping, like private: { admin: 3001 }`), undefined);
+  const out = { ports: {} as Record<string, number>, paths: {} as Record<string, string> };
+  for (const [k, v] of Object.entries(value)) {
+    const long = !!v && typeof v === "object" && !Array.isArray(v);
+    const port = toPort(long ? (v as any).port : v);
+    const path = long ? (v as any).path : undefined;
+    const extra = long ? Object.keys(v).filter((x) => x !== "port" && x !== "path") : [];
+    if (!PRIVATE_NAME.test(k)) errors.push(`${name}: not a name in x-landfall.private: ${k}`);
+    else if (port === undefined)
+      errors.push(
+        `${name}: x-landfall.private.${k} must be a port number${long ? " in port:" : ""}, like ${k}: 3001 or ${k}: { port: 3001, path: /${k} }, got ${JSON.stringify(long ? (v as any).port : v)}`,
+      );
+    else if (extra.length) errors.push(`${name}: x-landfall.private.${k} knows port and path, not ${extra.join(", ")}`);
+    else if (path !== undefined && (typeof path !== "string" || !PATH.test(path)))
+      errors.push(`${name}: x-landfall.private.${k}.path must start with /, like /${k}, got ${JSON.stringify(path)}`);
+    else {
+      out.ports[k] = port;
+      if (path) out.paths[k] = path;
+    }
+  }
+  return out;
+}
+/** A URL path with no spaces: /admin, /admin/?tab=users. */
+const PATH = /^\/[^\s]*$/;
+
+/**
+ * Check a release's `docker compose config` (YAML: its JSON drops x-* fields) and read its routing from x-landfall.
+ * `dir` is the release folder on the server: writable bind mounts below it would stay behind
+ * with the release, so data written there seems to vanish on the next deploy.
+ * With `auto` (a compose site), a file without any x-landfall is routed by its ports instead.
+ */
+export function analyze(config: any, dir: string, expand: (d: string) => string = (d) => d, o: { auto?: boolean } = {}): Analysis {
+  const services: Service[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const notes: string[] = [];
+  const auto = !!o.auto && isPlain(config);
+  for (const [name, svc] of Object.entries<any>(config?.services ?? {})) {
+    const x = svc["x-landfall"] ?? {};
+    const labels = labelsOf(svc);
+    const s: Service = { name, networks: svc.network_mode ? [] : Object.keys(svc.networks ?? { default: null }) };
+    if (svc.build) s.build = true;
+    const rules = Object.entries(labels).filter(([k]) => ROUTER_RULE.test(k));
+    if (typeof x !== "object" || Array.isArray(x)) errors.push(`${name}: x-landfall must be a mapping, like x-landfall: { port: 3000 }`);
+    else if (rules.length) {
+      s.own = true;
+      s.domains = [...new Set(rules.flatMap(([, v]) => ruleHosts(v)))];
+      if (Object.keys(x).some((k) => k !== "publish")) warnings.push(`${name} has its own traefik router labels: its x-landfall routing is ignored`);
+    } else if (svc["x-landfall"] !== undefined) {
+      const unknown = Object.keys(x).filter((k) => !X_KEYS.includes(k));
+      if (unknown.length) warnings.push(`${name}: x-landfall knows ${X_KEYS.slice(0, -1).join(", ")} and ${X_KEYS.at(-1)}, not ${unknown.join(", ")}`);
+      const routes = readRoutes(name, x.routes, expand, errors);
+      const priv = readPrivate(name, x.private, errors);
+      const expose: string[] = (svc.expose ?? []).map(String);
+      // A lone expose: is the port, unless routes or private ports say there are several.
+      const port = x.port ?? (expose.length === 1 && x.routes === undefined && x.private === undefined ? expose[0] : undefined);
+      const n = toPort(port);
+      if (n !== undefined) s.port = n;
+      else if (x.port !== undefined) errors.push(`${name}: x-landfall.port must be a port number, got ${JSON.stringify(x.port)}`);
+      else if (x.domains || (!x.publish && !routes.length && !priv))
+        errors.push(`${name}: x-landfall needs the port Traefik should send requests to, like x-landfall: { port: 3000 }`);
+      if (x.domains !== undefined) {
+        const list = Array.isArray(x.domains) ? x.domains : [x.domains];
+        const ds = list.map((d: unknown) => expand(String(d).trim()));
+        const bad = ds.filter((d: string) => !DOMAIN.test(d));
+        if (bad.length) errors.push(`${name}: not a domain in x-landfall.domains: ${bad.join(", ")}`);
+        if (!ds.length) errors.push(`${name}: x-landfall.domains is empty; leave it out to serve the site's domains`);
+        s.domains = ds;
+      }
+      if (routes.length) s.routes = routes;
+      const allow = readAllow(`${name}: x-landfall`, x.allow, errors);
+      if (allow && s.port === undefined) errors.push(`${name}: x-landfall.allow guards x-landfall.port, which it has none of; put allow on its routes`);
+      else if (allow) s.allow = allow;
+      const opts = readOpts(`${name}: x-landfall`, x, errors);
+      if (opts && s.port === undefined)
+        errors.push(`${name}: x-landfall's ${Object.keys(opts).join(", ")} apply to x-landfall.port, which it has none of; put them on its routes`);
+      else if (opts) s.opts = opts;
+      if (x.weight !== undefined) {
+        const w = posInt(x.weight, 0);
+        if (w === undefined || w > MAX_WEIGHT) errors.push(`${name}: x-landfall.weight is its share of the traffic, 0 to ${MAX_WEIGHT}`);
+        else if (s.port === undefined) errors.push(`${name}: x-landfall.weight splits the traffic to x-landfall.port, which it has none of`);
+        else s.weight = w;
+      }
+      if (x.match !== undefined) {
+        const m = readMatch(`${name}: x-landfall`, x.match, errors);
+        if (m) {
+          if (x.weight === undefined)
+            errors.push(`${name}: x-landfall.match picks this service out of a traffic split, so it needs x-landfall.weight too (0: only matching requests)`);
+          else s.match = m;
+        }
+      }
+      if (x.update !== undefined && x.update !== "recreate") {
+        if (x.update === "rolling") s.update = "rolling";
+        else errors.push(`${name}: x-landfall.update is rolling or recreate, not ${JSON.stringify(x.update)}`);
+      }
+      if (x.publish) s.published = true;
+      if (priv && Object.keys(priv.ports).length) s.private = priv.ports;
+      if (priv && Object.keys(priv.paths).length) s.paths = priv.paths;
+      const ports = [s.port, ...routes.map((r) => r.port)].filter((p) => p !== undefined);
+      const twice = ports.filter((p, i) => ports.indexOf(p) !== i);
+      if (twice.length) errors.push(`${name}: port ${twice.join(", ")} is routed twice`);
+      const both = Object.entries(priv?.ports ?? {}).filter(([, p]) => ports.includes(p));
+      if (both.length) errors.push(`${name}: ${both.map(([k, p]) => `${p} (${k})`).join(", ")} is both routed and private`);
+    }
+    if (svc.network_mode) {
+      if (routed(s)) errors.push(`${name}: a routed service cannot use network_mode: ${svc.network_mode}; Traefik reaches it over a network`);
+      else if (svc.network_mode === "host") warnings.push(`${name} uses network_mode: host: it binds ports on the server itself`);
+    }
+    if (svc.ports?.length && !x.publish && !auto) {
+      const ports = svc.ports.map((p: any) => (p.published ? `${p.host_ip ? p.host_ip + ":" : ""}${p.published}:${p.target}` : String(p.target)));
+      errors.push(
+        `${name} publishes ${ports.join(", ")} on the server, past Traefik and the firewall. Move ports: to compose.override.yaml (local only)` +
+          `${routed(s) ? "" : ` and route it with x-landfall: { port: ${svc.ports[0].target} }`}, or allow it with x-landfall: { publish: true }`,
+      );
+    }
+    for (const v of svc.volumes ?? []) {
+      const src = String(v.source ?? "");
+      if (v.type === "bind" && !v.read_only && (src === dir || src.startsWith(dir + "/"))) {
+        const rel = src === dir ? "." : "./" + src.slice(dir.length + 1);
+        errors.push(
+          `${name} writes to ${rel}, which stays behind in the release on the next deploy: use a named volume (e.g. ${name}-data:${v.target}), or mount it read-only (:ro)`,
+        );
+      }
+    }
+    if (svc.container_name) {
+      s.named = true;
+      warnings.push(`${name} sets container_name ${svc.container_name}: names are global on the server, leave it out unless something needs it`);
+    }
+    const replicas = svc.deploy?.replicas ?? svc.scale;
+    if (replicas !== undefined && replicas !== null) {
+      const n = posInt(replicas, 0);
+      if (n === undefined) errors.push(`${name}: replicas must be a whole number, got ${JSON.stringify(replicas)}`);
+      else if (n !== 1) s.replicas = n;
+      if (svc.scale !== undefined && svc.deploy?.replicas === undefined) s.scaleKey = true;
+    }
+    if (svc.healthcheck && !svc.healthcheck.disable) s.healthcheck = true;
+    const many = (s.replicas ?? 1) > 1;
+    if (many && s.named) errors.push(`${name} runs ${s.replicas} containers but sets container_name: names are unique, leave it out`);
+    if (many && svc.ports?.some((p: any) => p?.published))
+      errors.push(`${name} runs ${s.replicas} containers but publishes ports on the server: only one can bind a port`);
+    if (s.update === "rolling") {
+      const why = !s.port
+        ? "it has no x-landfall.port"
+        : s.own
+          ? "it has its own traefik labels"
+          : s.named
+            ? "it sets container_name"
+            : s.published
+              ? "it publishes ports"
+              : "";
+      if (why) errors.push(`${name}: x-landfall.update: rolling needs a second container beside the first, and ${why}`);
+    }
+    services.push(s);
+  }
+  if (auto) autoRoute(config, services, notes);
+  if (!services.some(routed))
+    warnings.push(
+      `no service is routed: it runs without a domain (a worker); ${auto ? "publish or expose an HTTP port, or add " : ""}x-landfall: { port: <port> } on a service routes it through Traefik`,
+    );
+  const mains = services.filter(isMain);
+  const split = (a: Service, b?: Service) => a.weight !== undefined && b?.weight !== undefined && hostsKey(a) === hostsKey(b);
+  if (mains.length > 1 && !mains.every((s) => split(s, mains[0])))
+    errors.push(
+      `${mains.map((s) => s.name).join(" and ")} both serve the site's domains: give all but one their own x-landfall.domains, or each an x-landfall.weight to split the traffic`,
+    );
+  for (const s of services.filter((s) => s.weight !== undefined))
+    if (!services.some((o) => o !== s && split(s, o)))
+      warnings.push(`${s.name} has x-landfall.weight, but no other service serves the same domains with one: it gets all the traffic`);
+  const seen = new Map<string, string>();
+  for (const s of services) {
+    for (const d of [...(s.domains ?? []), ...(s.routes ?? []).flatMap((r) => r.domains ?? [])]) {
+      if (
+        seen.has(d) &&
+        seen.get(d) !== s.name &&
+        split(
+          s,
+          services.find((o) => o.name === seen.get(d)),
+        )
+      )
+        continue;
+      if (seen.has(d) && seen.get(d) !== s.name)
+        errors.push(
+          `${d} is routed to both ${seen.get(d)} and ${s.name}${s.weight !== undefined ? ": a split needs the same domains and a weight on each" : ""}`,
+        );
+      else if (seen.has(d)) errors.push(`${d} is routed twice on ${s.name}`);
+      seen.set(d, s.name);
+    }
+  }
+  for (const g of splitGroups({ name: "site" }, services))
+    if (!g.members.some((m) => m.weight > 0)) errors.push(`${g.members.map((m) => m.service.name).join(", ")} split the traffic, but every weight is 0`);
+  // The members share the lead's router: a router setting on another member would be ignored.
+  for (const [lead, ...rest] of splitSets(services))
+    for (const s of rest)
+      for (const k of ["allow", "ratelimit", "headers", "compress", "retry"] as const) {
+        const get = (x: Service) => (k === "allow" ? x.allow : x.opts?.[k]);
+        if (get(s) !== undefined && JSON.stringify(get(s)) !== JSON.stringify(get(lead)))
+          errors.push(`${s.name}: x-landfall.${k} differs from ${lead.name}'s; their traffic split has one router, ${lead.name}'s: set ${k} there only`);
+      }
+  if (!mains.length && services.some((s) => s.routes?.some((r) => r.subdomain)))
+    errors.push("a subdomain route hangs off the site's domains, but no service serves them: give one x-landfall.port, or the route its own domains");
+  const subs = new Map<string, string>();
+  for (const s of services) {
+    for (const r of s.routes ?? []) {
+      if (!r.subdomain) continue;
+      if (subs.has(r.subdomain)) errors.push(`subdomain ${r.subdomain} is routed to both ${subs.get(r.subdomain)} and ${s.name}:${r.port}`);
+      subs.set(r.subdomain, `${s.name}:${r.port}`);
+    }
+  }
+  return { services, errors, warnings, notes, ...(auto && { auto: true }) };
+}
+
+/**
+ * A variable a project wants in its .env. Compose refuses `${NAME:?message}` unset or empty (strict),
+ * `${NAME?message}` unset; an example .env's keys are wanted too, but the app may do without them (optional).
+ */
+export interface RequiredVar {
+  name: string;
+  /** The file that wants it: a compose file or an example .env. */
+  from: string;
+  message?: string;
+  strict: boolean;
+  optional?: boolean;
+  /** The value an example .env shows: only suggested, never sent as it is. */
+  example?: string;
+}
+
+/** Whether a missing var is asked for: an example's key with a value is only suggested. */
+export const askable = (v: RequiredVar) => v.example === undefined;
+
+/** The variables a compose file requires, in order, from its text (comment lines left out). */
+export function requiredVars(text: string, from: string): RequiredVar[] {
+  const out = new Map<string, RequiredVar>();
+  const body = text.replace(/^\s*#.*$/gm, "");
+  // `$$` first, so an escaped `$${NAME:?}` is not one.
+  for (const [, name, op, message] of body.matchAll(/\$(?:\$|\{(\w+)(:?)\?([^}]*)\})/g)) {
+    if (!name) continue;
+    const had = out.get(name);
+    out.set(name, { name, from, message: had?.message ?? (message.trim() || undefined), strict: !!had?.strict || op === ":" });
+  }
+  return [...out.values()];
+}
+
+/** Example .env files, in the order looked for: their keys are what the app reads, in any language. */
+export const EXAMPLE_ENV_FILES = [".env.example", ".env.sample", ".env.template", ".env.dist"];
+
+/**
+ * The keys of an example .env, all optional: one left empty is asked for, one with a value only
+ * suggested. The comment line right above a key is its message.
+ */
+export function exampleVars(text: string, from: string): RequiredVar[] {
+  const out = new Map<string, RequiredVar>();
+  let comment: string | undefined;
+  for (const raw of text.split("\n")) {
+    const l = raw.trim().replace(/^export\s+/, "");
+    const m = l.match(/^([^=\s]+)\s*=\s*(.*)$/);
+    if (m && ENV_NAME.test(m[1]) && !out.has(m[1])) {
+      const quoted = m[2].match(/^(["'])(.*)\1/);
+      const value = quoted ? quoted[2] : m[2].replace(/(^|\s)#.*$/, "").trim();
+      out.set(m[1], { name: m[1], from, message: comment, strict: false, optional: true, ...(value && { example: value }) });
+    }
+    // A commented-out KEY=value is no message.
+    const text = l.startsWith("#") ? l.replace(/^#+\s*/, "") : undefined;
+    comment = text && !ENV_NAME.test(text.split("=")[0].trim()) ? text : undefined;
+  }
+  return [...out.values()];
+}
+
+/**
+ * What a deploy of root wants in the site's .env: what its compose files require, and an example
+ * .env's keys where the .env reaches the app: always for an app, Dockerfile or image (the compose
+ * landfall writes reads it as env_file), for a compose project only if it names an env_file.
+ */
+/** app: a generated app (with env_file: .env) runs beside the files, so an example .env counts too. */
+export function wantedVars(root: string, composeFiles: string[] = [], o: { app?: boolean } = {}): RequiredVar[] {
+  const texts = composeFiles.map((f) => [f, fs.readFileSync(join(root, f), "utf8")]);
+  const envFile = (text: string) => {
+    try {
+      return Object.values<any>(parseYaml(text)?.services ?? {}).some((s) => s?.env_file);
+    } catch {
+      return false;
+    }
+  };
+  const vars = texts.flatMap(([f, text]) => requiredVars(text, f));
+  const example = EXAMPLE_ENV_FILES.find((f) => fs.existsSync(join(root, f)));
+  if (example && (!texts.length || o.app || texts.some(([, text]) => envFile(text))))
+    vars.push(...exampleVars(fs.readFileSync(join(root, example), "utf8"), example));
+  // The first file to want a name says it: compose before the example.
+  return vars.filter((v, i) => vars.findIndex((u) => u.name === v.name) === i);
+}
+
+/** The required variables vars leaves without a value in env (a .env's pairs). */
+export const missingVars = (vars: RequiredVar[], env: Record<string, string>) => vars.filter((v) => (v.strict ? !env[v.name] : env[v.name] === undefined));
+
+/** `${VAR}`, `${VAR:-default}`, `${VAR-default}`, `${VAR:+alt}`, `$VAR` and `$$`, as docker compose fills them in. */
+function interpolate(text: string, env: Record<string, string | undefined>): string {
+  return text.replace(/\$(?:\$|\{(\w+)(?:(:?[-+?])([^}]*))?\}|(\w+))/g, (m, name, op, arg, bare) => {
+    if (m === "$$") return "$";
+    const v = env[name ?? bare];
+    if (op === ":-") return v || arg;
+    if (op === "-") return v ?? arg;
+    if (op === ":+") return v ? arg : "";
+    if (op === "+") return v !== undefined ? arg : "";
+    return v ?? "";
+  });
+}
+
+/** A short-syntax port (`8080:80`, `127.0.0.1:3000:3000/tcp`, `3000-3002`) in the long form `docker compose config` prints. */
+function longPort(p: unknown): any[] {
+  if (p && typeof p === "object") return [p];
+  const [spec, protocol = "tcp"] = String(p).split("/");
+  const at = spec.lastIndexOf(":");
+  const target = spec.slice(at + 1);
+  const rest = at < 0 ? "" : spec.slice(0, at);
+  const pubAt = rest.lastIndexOf(":");
+  const published = rest.slice(pubAt + 1) || undefined;
+  const host_ip = pubAt < 0 ? undefined : rest.slice(0, pubAt).replace(/^\[|\]$/g, "");
+  const range = /^(\d+)-(\d+)$/.exec(target);
+  const targets = range ? Array.from({ length: Math.min(Math.max(+range[2] - +range[1] + 1, 0), 100) }, (_, i) => +range[1] + i) : [Number(target)];
+  return targets.map((t) => ({ target: t, ...(published && { published }), ...(host_ip && { host_ip }), protocol }));
+}
+
+/**
+ * A local compose file in the shape `docker compose config` prints, for `analyze`: variables filled from the
+ * environment and .env, ports in long form. Overrides are left out, as on deploy.
+ */
+export function localCompose(dir: string, file: string): any {
+  let dotenv: Record<string, string> = {};
+  try {
+    for (const l of fs.readFileSync(join(dir, ".env"), "utf8").split("\n")) {
+      const m = /^\s*(?:export\s+)?(\w+)\s*=\s*(.*?)\s*$/.exec(l);
+      if (m && !l.trim().startsWith("#")) dotenv[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+    }
+  } catch {}
+  const env = { ...dotenv, ...process.env };
+  const fill = (v: unknown): unknown =>
+    typeof v === "string"
+      ? interpolate(v, env)
+      : Array.isArray(v)
+        ? v.map(fill)
+        : v && typeof v === "object"
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]))
+          : v;
+  const config: any = fill(parseYaml(fs.readFileSync(join(dir, file), "utf8")) ?? {});
+  for (const svc of Object.values<any>(config?.services ?? {})) if (Array.isArray(svc?.ports)) svc.ports = svc.ports.flatMap(longPort);
+  return config;
+}
+
+const q = yamlStr;
+/** Network key of the proxy network in the override; its `name:` is the real one. */
+const PROXY_KEY = "landfall-proxy";
+
+/** The login a router asks for: the Traefik middleware that holds it, and its htpasswd lines. */
+export interface Login {
+  middleware: string;
+  users: string[];
+}
+
+/**
+ * A router of its own for the redirect hosts: Traefik answers 301 (308 for other methods than GET) to `to`,
+ * same path and query. No login or address check: it only points elsewhere.
+ */
+export function redirectLabels(site: string, s: Service, port: number, hosts: string[], to: string, proxy: Proxy): Record<string, string> {
+  const r = routerName(site, s, port);
+  const name = `${r}-redirect`;
+  return {
+    ...routerLabels(name, hosts, r, proxy),
+    [`traefik.http.routers.${name}.middlewares`]: name,
+    [`traefik.http.middlewares.${name}.redirectregex.regex`]: "^https?://[^/]+(.*)",
+    [`traefik.http.middlewares.${name}.redirectregex.replacement`]: `https://${to}\${1}`,
+    [`traefik.http.middlewares.${name}.redirectregex.permanent`]: "true",
+  };
+}
+
+/** Traefik's name for the router to port `port` of `s`, and for its load balancer service. */
+export function routerName(site: string, s: Service, port: number) {
+  // "_" can't be in a site name: blog + admin-web and blog-admin + web would both be blog-admin-web.
+  // A route's router carries its port: blog_web_3001 next to blog_web.
+  return `${site}_${s.name.toLowerCase().replace(/\./g, "-")}${port === s.port ? "" : `_${port}`}`;
+}
+
+/** The login of the router to port `port` of `s`: its own (lf auth --route), else the site's; none: it is public. */
+function routerLogin(meta: Pick<SiteMeta, "name" | "auth" | "routeAuth">, s: Service, port: number): Login | undefined {
+  const own = meta.routeAuth?.[routeKey(s.name, port)];
+  if (own) return own.length ? { middleware: `${routerName(meta.name, s, port)}-auth`, users: own } : undefined;
+  return meta.auth?.length ? { middleware: `${meta.name}-auth`, users: meta.auth } : undefined;
+}
+
+/**
+ * The router of the current release that `name` picks: service:port, a subdomain (admin), one of its
+ * domains, or a service for its own port. Else the routers there are, for the error.
+ */
+export function findRoute(meta: SiteMeta, name: string): { key: string; domains: string[] } | { routes: string[] } {
+  const all = routePlan(currentRelease(meta)?.services ?? [], meta.domains);
+  const want = name.trim().toLowerCase();
+  // A service name means its main port: routePlan lists that before the service's routes.
+  const hit =
+    all.find((r) => r.key === want) ??
+    all.find((r) => r.subdomain === want) ??
+    all.find((r) => r.domains.includes(want)) ??
+    all.find((r) => r.service === want) ??
+    // A service in a traffic split: the split's one router.
+    all.find((r) => r.members?.includes(want));
+  return hit ? { key: hit.key, domains: hit.domains } : { routes: all.map((r) => r.key) };
+}
+
+/** Traefik labels for one router of `s`. */
+/** A router `name` for `hosts` over HTTPS, handing requests to `service`. */
+const hostRule = (hosts: string[]) => hosts.map((d) => `Host(\`${d}\`)`).join(" || ");
+
+function routerLabels(name: string, hosts: string[], service: string, proxy: Proxy): Record<string, string> {
+  return {
+    [`traefik.http.routers.${name}.rule`]: hostRule(hosts),
+    [`traefik.http.routers.${name}.entrypoints`]: proxy.entrypoint,
+    [`traefik.http.routers.${name}.tls.certresolver`]: proxy.resolver,
+    [`traefik.http.routers.${name}.service`]: service,
+  };
+}
+
+/** The load balancer settings of Traefik service `svc`: sticky sessions and Traefik's health check. */
+function balancerLabels(svc: string, o: RouteOpts = {}): Record<string, string> {
+  const lb = `traefik.http.services.${svc}.loadbalancer`;
+  return {
+    ...(o.sticky && {
+      [`${lb}.sticky.cookie`]: "true",
+      ...(typeof o.sticky === "string" && { [`${lb}.sticky.cookie.name`]: o.sticky }),
+      [`${lb}.sticky.cookie.secure`]: "true",
+      [`${lb}.sticky.cookie.httponly`]: "true",
+    }),
+    ...(o.healthcheck && {
+      [`${lb}.healthcheck.path`]: o.healthcheck.path,
+      ...(o.healthcheck.interval && { [`${lb}.healthcheck.interval`]: o.healthcheck.interval }),
+      ...(o.healthcheck.timeout && { [`${lb}.healthcheck.timeout`]: o.healthcheck.timeout }),
+    }),
+  };
+}
+
+/**
+ * Traefik labels for one router of `s`. In a traffic split, `split` names the router every member shares;
+ * it hands requests to the weighted service of the file provider, and each member keeps its own load balancer.
+ */
+export function routeLabels(
+  site: string,
+  s: Service,
+  { port, domains, allow, opts }: Pick<Router, "port" | "domains" | "allow" | "opts">,
+  proxy: Proxy,
+  login?: Login,
+  split?: string,
+): Record<string, string> {
+  const svc = routerName(site, s, port);
+  const r = split ?? svc;
+  const out: Record<string, string> = {
+    "traefik.enable": "true",
+    "traefik.docker.network": proxy.network,
+    ...routerLabels(r, domains, split ? `${split}@file` : svc, proxy),
+    [`traefik.http.services.${svc}.loadbalancer.server.port`]: String(port),
+    ...balancerLabels(svc, opts),
+  };
+  // The address check comes first: a refused address never sees the login prompt, nor counts against the rate limit.
+  const chain: string[] = [];
+  const mw = (name: string, set: Record<string, string>) => {
+    for (const [k, v] of Object.entries(set)) out[`traefik.http.middlewares.${name}.${k}`] = v;
+    chain.push(name);
+  };
+  if (allow?.length) mw(`${r}-allow`, { "ipallowlist.sourcerange": allow.join(",") });
+  if (opts?.ratelimit)
+    mw(`${r}-ratelimit`, {
+      "ratelimit.average": String(opts.ratelimit.average),
+      ...(opts.ratelimit.burst !== undefined && { "ratelimit.burst": String(opts.ratelimit.burst) }),
+    });
+  if (login) mw(login.middleware, { "basicauth.users": login.users.join(",") });
+  if (opts?.headers) mw(`${r}-headers`, Object.fromEntries(Object.entries(opts.headers).map(([k, v]) => [`headers.customresponseheaders.${k}`, v])));
+  if (opts?.compress) mw(`${r}-compress`, { compress: "true" });
+  if (opts?.retry) mw(`${r}-retry`, { "retry.attempts": String(opts.retry) });
+  if (chain.length) out[`traefik.http.routers.${r}.middlewares`] = chain.join(",");
+  if (split && s.match) Object.assign(out, matchLabels(svc, s.match, domains, proxy, chain));
+  return out;
+}
+
+/** The name of a split member's x-landfall.match router: its own router name plus this. */
+export const MATCH_SUFFIX = "-match";
+
+/**
+ * x-landfall.match: a second router to one member of a traffic split, for requests with its cookie or header.
+ * Its rule is longer than the split's, so Traefik tries it first. It runs the split router's middlewares:
+ * a cookie must never get around the address check or the login.
+ */
+function matchLabels(svc: string, m: Match, hosts: string[], proxy: Proxy, middlewares: string[]): Record<string, string> {
+  const r = `${svc}${MATCH_SUFFIX}`;
+  return {
+    ...routerLabels(r, hosts, svc, proxy),
+    [`traefik.http.routers.${r}.rule`]: `(${hostRule(hosts)}) && (${matchRule(m)})`,
+    ...(middlewares.length && { [`traefik.http.routers.${r}.middlewares`]: middlewares.join(",") }),
+  };
+}
+
+/** One service in an override: the image it runs, its lines before the labels, and its labels. */
+interface ServicePart {
+  name: string;
+  build?: boolean;
+  image?: string;
+  lines: string[];
+  labels: Record<string, string>;
+}
+
+/** Secrets the override hands out: a compose.yaml names the ones it uses itself; the one landfall generates gets every one. */
+const overrideSecrets = (meta: SiteMeta) => (meta.kind === "dockerfile" || meta.kind === "image" ? (meta.secrets ?? []) : []);
+
+/**
+ * What a release adds to its compose.yaml that runs anywhere: the proxy network on routed services next to
+ * the networks they had, Traefik's labels, its secrets. lf eject writes only this; overrideYaml adds the server's part.
+ */
+function traefikLayer(meta: SiteMeta, r: Release, proxy: Proxy): ServicePart[] {
+  const plan = routePlan(r.services, meta.domains);
+  const secrets = overrideSecrets(meta);
+  const groups = splitGroups(meta, r.services);
+  return r.services.map((s) => {
+    const lines: string[] = [];
+    const labels: Record<string, string> = {};
+    // A plain compose.yaml publishes its ports for local use; Traefik routes them.
+    if (s.unpublish) lines.push("    ports: !reset []");
+    if (secrets.length) lines.push("    secrets:", ...secrets.map((k) => `      - ${q(k)}`));
+    // lf scale: the key compose.yaml uses, so Compose never sees two counts.
+    const scale = meta.scale?.[s.name];
+    if (scale !== undefined) lines.push(...(s.scaleKey ? [`    scale: ${scale}`] : ["    deploy:", `      replicas: ${scale}`]));
+    if (routed(s)) {
+      lines.push("    networks:", ...s.networks.map((n) => `      ${q(n)}: {}`), `      ${PROXY_KEY}: {}`);
+      if (s.own) labels["traefik.docker.network"] = proxy.network;
+      // A main service with no domains left stays up, unrouted; so do its subdomain routes.
+      else
+        for (const router of plan)
+          if ((router.service === s.name || router.members?.includes(s.name)) && router.domains.length) {
+            // A split's members carry its one router (the lead's); each keeps its own load balancer,
+            // with its own port, sticky cookie and Traefik health check.
+            const g = router.members && groups.find((g) => g.members[0].service.name === router.service);
+            const lead = g ? g.members[0].service : s;
+            const at = g ? { ...router, port: s.port!, opts: compact({ ...router.opts, sticky: s.opts?.sticky, healthcheck: s.opts?.healthcheck }) } : router;
+            Object.assign(labels, routeLabels(meta.name, s, at, proxy, routerLogin(meta, lead, router.port), g?.name));
+            if (router.main && lead === s && meta.redirects?.length)
+              Object.assign(labels, redirectLabels(meta.name, s, router.port, meta.redirects, router.domains[0], proxy));
+          }
+    }
+    return { name: s.name, build: !!s.build, lines, labels };
+  });
+}
+
+/** `o` without its undefined keys; undefined when none is left. */
+const compact = (o: RouteOpts): RouteOpts | undefined => {
+  const out = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+  return Object.keys(out).length ? out : undefined;
+};
+
+/**
+ * The file provider's part of a release's traffic splits (traefik/dynamic/site-<site>.yml): one weighted
+ * service per split over its members' load balancers. Undefined when it splits nothing.
+ */
+export function splitFile(meta: SiteMeta, r: Release): string | undefined {
+  const groups = splitGroups(meta, r.services);
+  if (!groups.length) return undefined;
+  const lines = [`# generated by landfall for site ${meta.name}: rewritten on every deploy and lf weight.`, "http:", "  services:"];
+  for (const g of groups) {
+    lines.push(`    ${q(g.name)}:`, "      weighted:", "        services:");
+    for (const m of g.members)
+      lines.push(`          - name: ${q(`${routerName(meta.name, m.service, m.service.port!)}@docker`)}`, `            weight: ${m.weight}`);
+    const sticky = g.members.map((m) => m.service.opts?.sticky).find(Boolean);
+    if (sticky)
+      lines.push(
+        "        sticky:",
+        "          cookie:",
+        ...(typeof sticky === "string" ? [`            name: ${q(sticky)}`] : []),
+        "            secure: true",
+        "            httpOnly: true",
+      );
+    // Traefik skips a member whose health check fails only when every member has one.
+    if (g.members.every((m) => m.service.opts?.healthcheck)) lines.push("        healthCheck: {}");
+  }
+  return lines.join("\n") + "\n";
+}
+
+/** An override file: `header`, the project name, the services that add something, and what they use. */
+function overrideText(header: string[], meta: SiteMeta, r: Release, parts: ServicePart[], proxy: Proxy, volumes: string[] = []): string {
+  const services = parts.flatMap((p) => {
+    const labels = Object.entries(p.labels);
+    const body = [
+      ...(p.image ? [`    image: ${q(p.image)}`] : []),
+      ...p.lines,
+      ...(labels.length ? ["    labels:", ...labels.map(([k, v]) => `      ${q(k)}: ${q(composeEscape(v))}`)] : []),
+    ];
+    // Ejected, a service with nothing routed has nothing to add.
+    return body.length ? [`  ${q(p.name)}:`, ...body] : [];
+  });
+  const lines = [...header, `name: ${q(projectName(meta))}`, services.length ? "services:" : "services: {}", ...services];
+  if (r.services.some(routed)) lines.push("networks:", `  ${PROXY_KEY}:`, `    name: ${q(proxy.network)}`, "    external: true");
+  const secrets = overrideSecrets(meta);
+  if (secrets.length) lines.push("secrets:", ...secrets.flatMap((k) => [`  ${q(k)}:`, `    file: ${q(`./${SECRETS_DIR}/${k}`)}`]));
+  if (volumes.length)
+    lines.push(
+      "volumes:",
+      ...volumes.flatMap((k) => [`  ${q(k)}:`, "    driver_opts:", "      type: none", "      o: bind", `      device: ${q(volumeDir(meta.name, k))}`]),
+    );
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * landfall's compose.override.yaml for a release: the project name (named volumes belong to
+ * it, so it never changes), per-release tags for built images, the proxy network on routed
+ * services next to the networks they had, Traefik's labels, and landfall.* on every service.
+ */
+export function overrideYaml(meta: SiteMeta, r: Release, proxy: Proxy = OWN_PROXY): string {
+  const parts = traefikLayer(meta, r, proxy).map((p) => ({
+    ...p,
+    image: p.build ? builtImage(meta.name, p.name, r.id) : undefined,
+    labels: { ...p.labels, "landfall.managed": "true", "landfall.site": meta.name },
+  }));
+  const header = ["# generated by landfall: rewritten on every deploy, rollback and domain change. Edit compose.yaml instead."];
+  // Bound to the site's folder: the data sits next to its releases, and `docker volume` still lists it.
+  return overrideText(header, meta, r, parts, proxy, meta.adopted ? [] : (meta.volumes ?? []));
+}
+
+/** lf eject's compose.traefik.yaml: the part of the override that runs anywhere; compose.yaml builds its images, Docker keeps its volumes. */
+export function ejectYaml(meta: SiteMeta, r: Release, proxy: Proxy): string {
+  const g = splitGroups(meta, r.services)[0];
+  if (g)
+    fail(
+      `${g.members.map((m) => m.service.name).join(" and ")} split the traffic by weight, which needs Traefik's file provider on landfall's server: lf eject cannot write it as labels`,
+    );
+  const header = [
+    `# What landfall added to ${meta.name} on its server (lf eject): the Traefik labels, the proxy network and the`,
+    `# project name, for your own Traefik. docker compose -f compose.yaml -f ${EJECT_FILE} up -d`,
+  ];
+  return overrideText(header, meta, r, traefikLayer(meta, r, proxy), proxy);
+}
+
+/** The named volume for a folder in the container: /app/storage is app-storage. */
+export const volumeName = (target: string) => target.replace(/^\/+|\/+$/g, "").replace(/[^\w.-]+/g, "-") || "data";
+
+/** What serves a static site. */
+export const STATIC_IMAGE = "nginx:alpine";
+
+/** The services of a compose file with no app of its own (nothing built, nothing routed: databases, caches); undefined otherwise. */
+export function backingServices(dir: string, file: string): string[] | undefined {
+  let config: any;
+  try {
+    config = localCompose(dir, file);
+  } catch {
+    return;
+  }
+  const names = Object.keys(config?.services ?? {});
+  if (!names.length) return;
+  const a = analyze(config, dir, (d) => d, { auto: true });
+  return a.services.some((s) => s.build || routed(s)) ? undefined : names;
+}
+
+/** The service name the app gets beside these backing services: app, unless one of them is called that. */
+export const besideName = (backing: string[]) => ["app", "web", "site"].find((n) => !backing.includes(n)) ?? `app-${backing.length}`;
+
+/**
+ * A compose file of backing services with the generated app added to it: the app depends on them, and their
+ * ports stay off the server's public interfaces (the app reaches them by service name). The user's file is kept
+ * uninterpolated, so compose on the server fills its ${VARS} from the site's .env.
+ */
+export function besideCompose(raw: string, file: string, generated: string): string {
+  const doc = parseDocument(raw);
+  const gen = parseYaml(generated) ?? {};
+  const backing = Object.keys((doc.toJS() as any)?.services ?? {});
+  const name = besideName(backing);
+  for (const s of backing) doc.deleteIn(["services", s, "ports"]);
+  doc.setIn(["services", name], doc.createNode({ ...gen.services.app, depends_on: backing }));
+  for (const [k, v] of Object.entries<any>(gen.volumes ?? {})) doc.setIn(["volumes", k], doc.createNode(v ?? {}));
+  return `# generated by landfall: ${file} with the app added as ${name}; \`lf init\` writes one you can edit into your project\n${doc.toString()}`;
+}
+
+/**
+ * compose.yaml landfall writes for a site deployed without one.
+ * port: where Traefik sends requests; none, a worker: it runs without a domain.
+ */
+export function generatedCompose(
+  kind: Exclude<SiteKind, "compose">,
+  o: { port?: number; image?: string; app?: string; volumes?: string[]; sent?: boolean } = {},
+): string {
+  const head = `# generated by landfall for a ${kind === "static" ? "static folder" : kind === "image" ? "prebuilt image" : o.app ? `${o.app} app` : "Dockerfile"}; \`lf init\` writes one you can edit into your project\nservices:\n`;
+  if (kind === "static") {
+    return `${head}  web:
+    image: ${STATIC_IMAGE}
+    restart: unless-stopped
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    x-landfall:
+      port: 80
+`;
+  }
+  const volumes = o.volumes ?? [];
+  return `${head}  app:
+    ${kind === "image" ? `image: ${q(o.image!)}${o.sent ? "\n    pull_policy: never" : ""}` : "build: ."}
+    restart: unless-stopped${o.app ? "\n    init: true" : ""}
+    env_file:
+      - path: .env
+        required: false
+${volumes.length ? `    volumes:\n${volumes.map((v) => `      - ${q(`${volumeName(v)}:${v}`)}\n`).join("")}` : ""}${o.port ? `    x-landfall:\n      port: ${o.port}\n` : ""}${
+    volumes.length ? `volumes:\n${volumes.map((v) => `  ${q(volumeName(v))}: {}\n`).join("")}` : ""
+  }`;
+}
+
+/** A folder in a container: absolute, as `--volume` and `lf volume add` take it. */
+export const CONTAINER_PATH = /^\/[\w./-]*\w/;
+/** A named volume's key in compose.yaml. */
+export const VOLUME_KEY = /^\w[\w.-]*$/;
+
+/** A compose.yaml volume entry ("db:/var/lib/data:ro" or the long syntax): the named volume it mounts (none: a bind mount or anonymous) and where. */
+export function mountOf(item: unknown): { key?: string; path?: string } {
+  if (typeof item === "string") {
+    const [src, dst] = item.split(":");
+    if (dst === undefined) return { path: src };
+    return { key: VOLUME_KEY.test(src) ? src : undefined, path: dst };
+  }
+  if (!item || typeof item !== "object") return {};
+  const o = item as Record<string, unknown>;
+  return {
+    key: (o.type ?? "volume") === "volume" && typeof o.source === "string" ? o.source : undefined,
+    path: typeof o.target === "string" ? o.target : undefined,
+  };
+}
+
+/** mountOf for an item of a parsed document's volumes list. */
+const nodeMount = (i: unknown) => mountOf((i as { toJSON?: () => unknown })?.toJSON?.() ?? i);
+
+/**
+ * compose.yaml with a named volume `key` mounted at `path` in `service`, declared under the top-level
+ * volumes too: plain Compose, comments and order kept. The key defaults to the path's last folders (/app/data: app-data).
+ */
+export function addVolumeMount(text: string, service: string, path: string, key = volumeName(path)): { compose: string; key: string } {
+  if (!CONTAINER_PATH.test(path)) fail(`a volume goes on a folder in the container, like /app/data: not ${path}`);
+  if (!VOLUME_KEY.test(key)) fail(`a volume name takes letters, digits, ., _ and -: not ${key}`);
+  const doc = parseDocument(text);
+  const svc = doc.getIn(["services", service], true);
+  if (!isMap(svc)) {
+    const names = Object.keys((doc.toJS()?.services ?? {}) as object);
+    fail(`no service ${service} in the compose file${names.length ? `: ${names.join(", ")}` : ""}`);
+  }
+  const s = svc as YAMLMap;
+  const at = (p: string) => p.replace(/\/+$/, "");
+  const list = s.get("volumes", true);
+  const taken = isSeq(list) ? list.items.map(nodeMount).find((m) => m.path && at(m.path) === at(path)) : undefined;
+  if (taken) fail(`${service} already has ${taken.key ? `volume ${taken.key}` : "a folder"} at ${path}`);
+  const entry = doc.createNode(`${key}:${path}`);
+  if (isSeq(list)) list.items.push(entry);
+  else {
+    const seq = new YAMLSeq();
+    seq.items.push(entry);
+    s.set("volumes", seq);
+  }
+  const top = doc.get("volumes", true);
+  if (!isMap(top) || !top.has(key)) doc.setIn(["volumes", key], doc.createNode({}, { flow: true }));
+  return { compose: doc.toString(), key };
+}
+
+/**
+ * compose.yaml without the named volume `key`: its mounts (in `service` only, if given) and, once nothing mounts it,
+ * its top-level declaration. Lists and maps left empty go too. The data stays on the server. `from` is empty when nothing mounts it.
+ */
+export function removeVolumeMount(text: string, key: string, service?: string): { compose: string; from: string[] } {
+  const doc = parseDocument(text);
+  const services = doc.get("services", true);
+  const from: string[] = [];
+  let left = false;
+  if (isMap(services))
+    for (const pair of services.items) {
+      const name = String((pair.key as any)?.value ?? pair.key);
+      const list = isMap(pair.value) ? pair.value.get("volumes", true) : undefined;
+      if (!isSeq(list)) continue;
+      const mine = (i: unknown) => nodeMount(i).key === key;
+      if (service && name !== service) {
+        left ||= list.items.some(mine);
+        continue;
+      }
+      const keep = list.items.filter((i) => !mine(i));
+      if (keep.length === list.items.length) continue;
+      from.push(name);
+      if (keep.length) list.items = keep;
+      else (pair.value as YAMLMap).delete("volumes");
+    }
+  if (!from.length) return { compose: text, from };
+  const top = doc.get("volumes", true);
+  if (!left && isMap(top)) {
+    top.delete(key);
+    if (!top.items.length) doc.delete("volumes");
+  }
+  return { compose: doc.toString(), from };
+}
+
+export function nginxConf(spa: boolean): string {
+  return `# generated by landfall
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+  absolute_redirect off;
+
+  gzip on;
+  gzip_types text/plain text/css application/javascript application/json image/svg+xml application/xml;
+
+  location ~* \\.(?:css|js|mjs|woff2?|ttf|otf|eot|svg|png|jpe?g|gif|webp|avif|ico)$ {
+    expires 30d;
+    add_header Cache-Control "public";
+    try_files $uri =404;
+  }
+
+  location / {
+    try_files $uri $uri/ $uri.html ${spa ? "/index.html" : "=404"};
+  }
+
+  error_page 404 /404.html;
+  location = /404.html { internal; }
+}
+`;
+}
+
+/**
+ * `lf init` on an existing compose file: writes down what auto mode routes as x-landfall, and moves published
+ * `ports:` into the local-only override (merged with one that exists). Comments and order stay.
+ */
+export function adoptCompose(
+  text: string,
+  override: string | undefined,
+  a: Analysis,
+): { compose: string; override: string; routed: string[]; moved: string[] } {
+  const doc = parseDocument(text);
+  const over = override !== undefined ? parseDocument(override) : new Document({ services: {} });
+  if (override === undefined) over.commentBefore = " Local only: docker compose merges this file, lf deploy leaves it out.";
+  const routed: string[] = [];
+  const moved: string[] = [];
+  for (const s of a.services) {
+    const svc = doc.getIn(["services", s.name], true);
+    if (!isMap(svc)) continue;
+    if (a.auto && (s.port || s.routes?.length)) {
+      const x = doc.createNode({
+        ...(s.port && { port: s.port }),
+        ...(s.routes?.length && { routes: s.routes.map((r) => ({ port: r.port, subdomain: r.subdomain })) }),
+      }) as YAMLMap;
+      const routes = x.get("routes", true);
+      if (isSeq(routes)) for (const r of routes.items) if (isMap(r)) r.flow = true;
+      svc.set("x-landfall", x);
+      routed.push(s.name);
+    }
+    const ports = svc.get("ports", true);
+    if (!isSeq(ports) || svc.getIn(["x-landfall", "publish"])) continue;
+    const local = over.getIn(["services", s.name, "ports"], true);
+    const have = new Set(isSeq(local) ? local.items.map((i) => JSON.stringify((i as any)?.toJSON?.() ?? i)) : []);
+    // The nodes themselves, so "8080:80" stays quoted (unquoted, YAML 1.1 reads it as a number in base 60).
+    const add = ports.items.filter((i) => !have.has(JSON.stringify((i as any)?.toJSON?.() ?? i))).map((i) => (i as any)?.clone?.() ?? i);
+    if (isSeq(local)) local.items.push(...add);
+    else {
+      const seq = new YAMLSeq();
+      seq.items.push(...add);
+      over.setIn(["services", s.name, "ports"], seq);
+    }
+    svc.delete("ports");
+    moved.push(s.name);
+  }
+  return { compose: doc.toString(), override: over.toString(), routed, moved };
+}

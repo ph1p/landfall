@@ -1,7 +1,7 @@
 import { defineCommand } from "../cmd";
-import { checkEmail, checkInt, DEFAULT_KEEP, updateConfig, type Defaults } from "../../core/config";
-import { c, fail, ok, printJson } from "../../core/term";
-import { defaultsView } from "../../core/views";
+import { checkEmail, checkInt, DEFAULT_KEEP, updateConfig, type Defaults } from "../../core/lib/config";
+import { c, fail, ok, printJson } from "../../core/lib/term";
+import { defaultsView } from "../../core/views/views";
 
 const KEYS = ["tunnel-only", "email", "keep", "default"] as const;
 

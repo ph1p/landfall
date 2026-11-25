@@ -1,16 +1,16 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { expandDomain, loadProject, saveProject } from "../../core/config";
-import { updateProjectDomains, withRedirects } from "../../core/projects";
-import { currentRelease, findRoute, siteDomains, siteMain, siteRedirects, subDomains, type SiteMeta } from "../../core/compose";
-import { changeSite, requireSite } from "../../core/remote";
-import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/term";
-import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
+import { expandDomain, loadProject, saveProject } from "../../core/lib/config";
+import { updateProjectDomains, withRedirects } from "../../core/deploy/projects";
+import { currentRelease, findRoute, siteDomains, siteMain, siteRedirects, subDomains, type SiteMeta } from "../../core/site/compose";
+import { changeSite, requireSite } from "../../core/site/remote";
+import { c, confirmRemoval, dnsHint, dnsLabel, fail, httpsLabel, info, ok, openUrl, passwordOption, warn, printJson } from "../../core/lib/term";
+import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik/traefik";
 import { target } from "./sites";
-import { dnsView } from "../../core/views";
-import { claimDomains, lookupDns } from "../../core/claim";
-import { planDomains } from "../../core/domain-plan";
-import { oneOrMany } from "../../core/format";
-import { overview } from "../../core/remote";
+import { dnsView } from "../../core/views/views";
+import { claimDomains, lookupDns } from "../../core/site/claim";
+import { planDomains } from "../../core/site/domain-plan";
+import { oneOrMany } from "../../core/lib/format";
+import { overview } from "../../core/site/remote";
 
 export const domains = defineCommand({
   name: "domains",

@@ -5,19 +5,19 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const scripts: string[] = [];
 const envs: (Record<string, string> | undefined)[] = [];
 const reply = { stdout: "" };
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string, o?: { env?: Record<string, string> }) => {
     scripts.push(script);
     envs.push(o?.env);
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
-const { parseRegistries, registryLogin, registryLogout, registryOf } = await import("../../src/core/registries");
-const { imagePorts } = await import("../../src/core/remote");
-const { exposedPorts } = await import("../../src/core/compose");
-const { parseLocalImages, samePlatform } = await import("../../src/core/buildlocal");
-const { generatedCompose } = await import("../../src/core/compose");
+const { parseRegistries, registryLogin, registryLogout, registryOf } = await import("../../src/core/server/registries");
+const { imagePorts } = await import("../../src/core/site/remote");
+const { exposedPorts } = await import("../../src/core/site/compose");
+const { parseLocalImages, samePlatform } = await import("../../src/core/deploy/buildlocal");
+const { generatedCompose } = await import("../../src/core/site/compose");
 
 const server = { host: "example.com" } as any;
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });

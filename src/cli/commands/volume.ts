@@ -1,17 +1,17 @@
 import fs from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Server } from "../../core/config";
-import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/compose";
-import { bytes } from "../../core/facts";
-import { plural } from "../../core/format";
-import { CRON_RUNNING, cronChange, cronMark, cronMinute, lockSite, requireSite, siteDir } from "../../core/remote";
-import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
-import { HELPER, PRELUDE } from "../../core/templates";
-import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
-import { seedFolders, type Entry } from "../../core/ignore";
-import { detectProject } from "../../core/projects";
-import { onStop } from "../../core/job";
+import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Server } from "../../core/lib/config";
+import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/site/compose";
+import { bytes } from "../../core/server/facts";
+import { plural } from "../../core/lib/format";
+import { CRON_RUNNING, cronChange, cronMark, cronMinute, lockSite, requireSite, siteDir } from "../../core/site/remote";
+import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh/ssh";
+import { HELPER, PRELUDE } from "../../core/ssh/templates";
+import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/lib/term";
+import { seedFolders, type Entry } from "../../core/deploy/ignore";
+import { detectProject } from "../../core/deploy/projects";
+import { onStop } from "../../core/lib/job";
 import {
   backupName,
   backupsOf,
@@ -26,7 +26,7 @@ import {
   volumes,
   whileStopped,
   type Volume,
-} from "../../core/volumes";
+} from "../../core/site/volumes";
 import { target } from "./sites";
 
 /**

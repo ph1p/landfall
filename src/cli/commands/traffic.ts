@@ -1,8 +1,8 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { DOMAIN, projectServer } from "../../core/config";
-import { bytes } from "../../core/facts";
-import { ms } from "../../core/format";
-import { overview } from "../../core/remote";
+import { DOMAIN, projectServer } from "../../core/lib/config";
+import { bytes } from "../../core/server/facts";
+import { ms } from "../../core/lib/format";
+import { overview } from "../../core/site/remote";
 import {
   ACCESS_LOG_HINT,
   accessLogIssue,
@@ -18,9 +18,9 @@ import {
   type Detail,
   type Summary,
   type Traffic,
-} from "../../core/traffic";
-import { c, fail, info, table, warn, printJson } from "../../core/term";
-import { siteTrafficView } from "../../core/views";
+} from "../../core/traefik/traffic";
+import { c, fail, info, table, warn, printJson } from "../../core/lib/term";
+import { siteTrafficView } from "../../core/views/views";
 
 const num = (n: number) => n.toLocaleString("en-US");
 const BARS = "▁▂▃▄▅▆▇█";

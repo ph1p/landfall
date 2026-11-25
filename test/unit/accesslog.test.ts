@@ -5,16 +5,16 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
 const reply = { stdout: "" };
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     scripts.push(script);
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
 const { clearProxyLog, parseAccessLog, parseProxyLog, planAccessLog, readProxyCompose, withAccessLog, withoutAccessLog, writeAccessLog } =
-  await import("../../src/core/accesslog");
-const { accessLogIssue, logLimitText } = await import("../../src/core/traffic-merge");
+  await import("../../src/core/traefik/accesslog");
+const { accessLogIssue, logLimitText } = await import("../../src/core/traefik/traffic-merge");
 
 const server = { host: "example.com" } as any;
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });

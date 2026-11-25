@@ -3,14 +3,14 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { defineCommand } from "../cmd";
-import { ciKeyScript, ciPlan, ciView, knownHosts, type CiPlan } from "../../core/ci";
-import { configDir, PROJECT_FILE, resolveServer } from "../../core/config";
-import { FORGES, loggedIn } from "../../core/forge";
-import { onStop } from "../../core/job";
-import { adminLogin } from "../../core/privilege";
-import { ruleText } from "../../core/refs";
-import { runScript } from "../../core/ssh";
-import { c, confirm, confirmRemoval, fail, info, ok, printJson, step, warn } from "../../core/term";
+import { ciKeyScript, ciPlan, ciView, knownHosts, type CiPlan } from "../../core/deploy/ci";
+import { configDir, PROJECT_FILE, resolveServer } from "../../core/lib/config";
+import { FORGES, loggedIn } from "../../core/deploy/forge";
+import { onStop } from "../../core/lib/job";
+import { adminLogin } from "../../core/ssh/privilege";
+import { ruleText } from "../../core/deploy/refs";
+import { runScript } from "../../core/ssh/ssh";
+import { c, confirm, confirmRemoval, fail, info, ok, printJson, step, warn } from "../../core/lib/term";
 
 /** The servers the job logs in to, as the config names them, beside the job's view of each (same order). */
 const logins = (p: CiPlan) => [...new Set(p.targets.map((t) => t.server))].map((name, i) => ({ name, ci: p.servers[i] }));

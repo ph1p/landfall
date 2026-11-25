@@ -1,6 +1,6 @@
 import { S, http, render, server, errorMessage, type Slot, type StoreName } from "./store";
 import type { GitInfo, Reach, RefsView, State } from "./types";
-import { pluginTab, type PluginTab, type UiBlock } from "../../../core/plugin-api";
+import { pluginTab, type PluginTab, type UiBlock } from "../../../core/plugins/plugin-api";
 import { toast } from "../ui/toast";
 import { closeDialog, dialogOpen } from "../ui/dialog";
 

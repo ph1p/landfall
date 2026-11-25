@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { decodeJobInput, encodeJobInput, JOB_INPUT, MAX_JOB_INPUT, readJobInput } from "../../src/core/job-input";
+import { decodeJobInput, encodeJobInput, JOB_INPUT, MAX_JOB_INPUT, readJobInput } from "../../src/core/lib/job-input";
 
 describe("private job input", () => {
   test("round-trips exact values including whitespace, CR/LF, UTF-8, quotes and duplicate keys", async () => {

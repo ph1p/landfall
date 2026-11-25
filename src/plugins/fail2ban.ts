@@ -1,6 +1,6 @@
 // fail2ban: what it bans, and banning, unbanning and tuning its jails. A built-in plugin.
-import { definePlugin, type PluginContext, type UiBlock, type UiField } from "../core/plugin-api";
-import { IP } from "../core/system";
+import { definePlugin, type PluginContext, type UiBlock, type UiField } from "../core/plugins/plugin-api";
+import { IP } from "../core/server/system";
 
 export interface F2bJail {
   name: string;

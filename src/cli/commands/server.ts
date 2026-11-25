@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand } from "../cmd";
-import { TRIVY, TRIVY_CACHE } from "../../core/scan";
+import { TRIVY, TRIVY_CACHE } from "../../core/server/scan";
 import {
   checkAlias,
   checkDomain,
@@ -17,23 +17,23 @@ import {
   tildify,
   useServer,
   type Server,
-} from "../../core/config";
-import { securityNotes } from "../../core/security";
-import { canLogin, runScript, shq, sshExec } from "../../core/ssh";
-import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/sshconfig";
-import { plural, pct } from "../../core/format";
-import { adminLogin } from "../../core/privilege";
-import { bytes, checkCloud, CLOUD_IDS, cloudFirewall, cloudOf, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/facts";
+} from "../../core/lib/config";
+import { securityNotes } from "../../core/server/security";
+import { canLogin, runScript, shq, sshExec } from "../../core/ssh/ssh";
+import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/ssh/sshconfig";
+import { plural, pct } from "../../core/lib/format";
+import { adminLogin } from "../../core/ssh/privilege";
+import { bytes, checkCloud, CLOUD_IDS, cloudFirewall, cloudOf, domainDns, duration, facts, serverCaps, suggestDomains } from "../../core/server/facts";
 import { guardUndo } from "./history";
-import { loginFor, pending, readJournal, undoSteps } from "../../core/journal";
-import { listServers, reachAll } from "../../core/dashboard";
-import { overview, removeLines, siteDir } from "../../core/remote";
-import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/templates";
-import { c, confirm, confirmRemoval, dnsLabel, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
-import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/login";
-import { configView, factsView, serverSettings } from "../../core/views";
-import { stampSummary, type StampStatus } from "../../core/version";
-import { LATEST_MIGRATION, migrateScript, READ_STAMP, stampOf } from "../../core/migrations";
+import { loginFor, pending, readJournal, undoSteps } from "../../core/ssh/journal";
+import { listServers, reachAll } from "../../core/views/dashboard";
+import { overview, removeLines, siteDir } from "../../core/site/remote";
+import { DEFAULT_TRAEFIK_IMAGE, HELPER, PRELUDE, ROOT, TRAEFIK_DIR } from "../../core/ssh/templates";
+import { c, confirm, confirmRemoval, dnsLabel, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/lib/term";
+import { ensureKeyLogin, keyFile, loginFrom, loginPassword, serverEntry } from "../../core/ssh/login";
+import { configView, factsView, serverSettings } from "../../core/views/views";
+import { stampSummary, type StampStatus } from "../../core/lib/version";
+import { LATEST_MIGRATION, migrateScript, READ_STAMP, stampOf } from "../../core/ssh/migrations";
 
 export const serverAdd = defineCommand({
   name: "server add",

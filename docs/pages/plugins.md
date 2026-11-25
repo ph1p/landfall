@@ -131,7 +131,7 @@ Every other command gets `-s <server>`; all get `-y` and `--help`.
 | `ctx.lf(argv)` | runs another `lf` command on the same server (unless `argv` has `-s`), e.g. `["harden", "fail2ban"]` |
 
 Scripts run with `set -euo pipefail` and landfall's shell helpers: `$SUDO`, `svc`, `pkg_install`, `dc` and more
-(see `PRELUDE` in `src/core/templates.ts`). Put every value in through `ctx.shq`, or pass it in `env`.
+(see `PRELUDE` in `src/core/ssh/templates.ts`). Put every value in through `ctx.shq`, or pass it in `env`.
 
 `admin` says why the script needs root. It then runs as root or with passwordless sudo, or fails with that reason.
 
@@ -204,5 +204,5 @@ blocks with `--json`.
 
 ### Types
 
-`Plugin`, `PluginContext` and `UiBlock` are in `src/core/plugin-api.ts` of the landfall repository. The built-in
+`Plugin`, `PluginContext` and `UiBlock` are in `src/core/plugins/plugin-api.ts` of the landfall repository. The built-in
 plugins in `src/plugins/` use the same API and are fuller examples.

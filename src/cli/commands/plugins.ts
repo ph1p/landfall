@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { defineCommand } from "../cmd";
-import { tildify } from "../../core/config";
-import { PLUGIN_NAME } from "../../core/plugin-api";
-import { DATA_DIR, importPlugin, installedPath, PLUGIN_DIR, pluginEntry, pluginNamed, pluginsView } from "../../core/plugins";
-import { c, confirmRemoval, fail, info, ok, printJson, table } from "../../core/term";
+import { tildify } from "../../core/lib/config";
+import { PLUGIN_NAME } from "../../core/plugins/plugin-api";
+import { DATA_DIR, importPlugin, installedPath, PLUGIN_DIR, pluginEntry, pluginNamed, pluginsView } from "../../core/plugins/plugins";
+import { c, confirmRemoval, fail, info, ok, printJson, table } from "../../core/lib/term";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 
@@ -80,7 +80,7 @@ export const pluginRemove = defineCommand({
 /** A plugin to start from: one command, one panel, every part of the API in use once. */
 export const scaffold = (name: string) => `// A landfall plugin. Docs: https://github.com/ph1p/landfall/blob/main/docs/pages/plugins.md
 // lf ${name} --help lists its commands; lf ui shows its panel on each server's page.
-// The types (Plugin, PluginContext, UiBlock) are in src/core/plugin-api.ts of the landfall repository.
+// The types (Plugin, PluginContext, UiBlock) are in src/core/plugins/plugin-api.ts of the landfall repository.
 
 export default {
   name: ${JSON.stringify(name)},

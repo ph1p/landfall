@@ -1,17 +1,33 @@
 import { defineCommand, logOpts, serverOpt } from "../cmd";
-import { accessLogStatus, clearProxyLog, composeTarget, planAccessLog, readProxyCompose, writeAccessLog } from "../../core/accesslog";
-import { DEFAULT_CERT_HINT, fileProvider, planStrictTls, readDynamicDir, unknownHostsOf, writeStrictTls, type UnknownHostsCheck } from "../../core/stricttls";
-import { bytes } from "../../core/format";
-import { adminLogin } from "../../core/privilege";
-import { ACCESS_LOG_HINT, logLimitText, type AccessLog } from "../../core/traffic";
-import { checkEmail, checkInt, resolveServer, type Server } from "../../core/config";
-import { assessTraefik, foreignProxy, probeServer } from "../../core/inventory";
-import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../../core/remote";
-import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikState, traefikStatus as traefikStatusOf, useProxy } from "../../core/traefik";
-import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/tunnel";
-import { runScript, shq, sshExec } from "../../core/ssh";
-import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/templates";
-import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table, warn } from "../../core/term";
+import { accessLogStatus, clearProxyLog, composeTarget, planAccessLog, readProxyCompose, writeAccessLog } from "../../core/traefik/accesslog";
+import {
+  DEFAULT_CERT_HINT,
+  fileProvider,
+  planStrictTls,
+  readDynamicDir,
+  unknownHostsOf,
+  writeStrictTls,
+  type UnknownHostsCheck,
+} from "../../core/traefik/stricttls";
+import { bytes } from "../../core/lib/format";
+import { adminLogin } from "../../core/ssh/privilege";
+import { ACCESS_LOG_HINT, logLimitText, type AccessLog } from "../../core/traefik/traffic";
+import { checkEmail, checkInt, resolveServer, type Server } from "../../core/lib/config";
+import { assessTraefik, foreignProxy, probeServer } from "../../core/server/inventory";
+import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../../core/site/remote";
+import {
+  DEFAULT_USER,
+  installTraefik,
+  removeTraefik,
+  traefikSettings,
+  traefikState,
+  traefikStatus as traefikStatusOf,
+  useProxy,
+} from "../../core/traefik/traefik";
+import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/ssh/tunnel";
+import { runScript, shq, sshExec } from "../../core/ssh/ssh";
+import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/ssh/templates";
+import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table, warn } from "../../core/lib/term";
 
 /** lf traefik setup: install or reconfigure landfall's Traefik, after the checks that keep it from breaking the server. */
 async function setupTraefik(name: string, server: Server, opts: Parameters<typeof installTraefik>[2]) {

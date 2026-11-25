@@ -1,9 +1,9 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, projectServer, tildify, type Server } from "../../core/config";
-import { generateKey } from "../../core/security";
-import { bytes } from "../../core/facts";
-import { sshExec } from "../../core/ssh";
-import { effectiveSsh } from "../../core/sshconfig";
+import { checkInt, projectServer, tildify, type Server } from "../../core/lib/config";
+import { generateKey } from "../../core/server/security";
+import { bytes } from "../../core/server/facts";
+import { sshExec } from "../../core/ssh/ssh";
+import { effectiveSsh } from "../../core/ssh/sshconfig";
 import {
   KEY_SERVICES,
   LOG_SIZE,
@@ -26,9 +26,9 @@ import {
   withLogLimit,
   type Service,
   type SystemInfo,
-} from "../../core/system";
-import { adminLogin } from "../../core/privilege";
-import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn, printJson } from "../../core/term";
+} from "../../core/server/system";
+import { adminLogin } from "../../core/ssh/privilege";
+import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, report, step, table, warn, printJson } from "../../core/lib/term";
 
 export const target = (o: Record<string, any>) => projectServer(o.server);
 /** The target server's name and everything `lf system` knows about it. */

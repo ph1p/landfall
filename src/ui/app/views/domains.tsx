@@ -7,8 +7,8 @@ import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
 import { autoDomain, browse, buildForm, mainDomain, openAfter } from "./flows";
 import { Copy } from "lucide-react";
-import { expandHost, redirectHosts } from "../../../core/redirects";
-import { DEPLOY_HOOKS } from "../../../core/hook-names";
+import { expandHost, redirectHosts } from "../../../core/traefik/redirects";
+import { DEPLOY_HOOKS } from "../../../core/site/hook-names";
 import { hookChoice } from "./hooks";
 import { EnvTable, NO_ENV_CHANGE, type EnvChange } from "./env";
 

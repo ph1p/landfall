@@ -1,12 +1,12 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer } from "../../core/config";
-import { noUfw } from "../../core/facts";
-import { firewallState, guardSsh, type FirewallState } from "../../core/firewall";
-import { parseRule, type Rule } from "../../core/inventory";
-import { runScript, shq } from "../../core/ssh";
-import { PRELUDE } from "../../core/templates";
-import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn, printJson } from "../../core/term";
-import { firewallView } from "../../core/views";
+import { resolveServer } from "../../core/lib/config";
+import { noUfw } from "../../core/server/facts";
+import { firewallState, guardSsh, type FirewallState } from "../../core/server/firewall";
+import { parseRule, type Rule } from "../../core/server/inventory";
+import { runScript, shq } from "../../core/ssh/ssh";
+import { PRELUDE } from "../../core/ssh/templates";
+import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn, printJson } from "../../core/lib/term";
+import { firewallView } from "../../core/views/views";
 
 const PORT = /^\d+(:\d+)?(,\d+(:\d+)?)*(\/(tcp|udp))?$/;
 const ADDR = /^[0-9a-fA-F.:]+(\/\d+)?$/;

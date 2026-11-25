@@ -1,0 +1,314 @@
+/**
+ * What `--json` prints and the web UI's read API returns: one function per view, so the
+ * page never knows more about a server than the CLI can tell a script.
+ */
+import fs from "node:fs";
+import { join } from "node:path";
+import { firewallState } from "../server/firewall";
+import {
+  CONFIG_PATH,
+  configDir,
+  DEFAULT_KEEP,
+  expandHome,
+  gitRules,
+  isTunnelOnly,
+  loadConfig,
+  projectFor,
+  readProjectFiles,
+  PROJECT_FILE,
+  resolveServer,
+  tildify,
+  type ProjectConfig,
+  type Server,
+} from "../lib/config";
+import { currentRelease, type ReleaseGit } from "../site/compose";
+import { git, inCheckout, listRefs, repoInfo, type RepoInfo } from "../deploy/git";
+import { loadProjects } from "../deploy/projects";
+import { hasRule, list, refMatches, ruleText, sortBranches, sortTags, type Ref, type RefRule } from "../deploy/refs";
+import { readSite } from "../site/remote";
+import { describeTraefik, traefikSettings, traefikStatus } from "../traefik/traefik";
+import { checkDns, domainDns, facts, suggestDomains, pickIp, serverCaps, serverIps, sslipDomain } from "../server/facts";
+import { pending, readJournal } from "../ssh/journal";
+import { prunePlan } from "../server/manage";
+import { scanImages, TRIVY_ASK, trivyState, trivyThere } from "../server/scan";
+import { diskUsage, stats } from "../server/stats";
+import { securityOf } from "../server/security";
+import { certs, checkUrl, siteTraffic, traffic, type Traffic } from "../traefik/traffic";
+import { TUNNELS_DIR } from "../ssh/tunnel";
+import { effectiveSsh, findHostBlock, sameMachineLogins, SSH_CONFIG } from "../ssh/sshconfig";
+import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "../ssh/templates";
+import { fail } from "../lib/term";
+import { listUsers } from "../server/users";
+import { readRedirects } from "../traefik/server-redirects";
+import { engineNotes, engineStatus, imageStatus, pkgStatus } from "../server/updates";
+
+/** `lf firewall --json`: rules numbered as `lf firewall remove <n>` takes them. */
+export async function firewallView(server: Server) {
+  const { login, probe, ...fw } = await firewallState(server);
+  return { ...fw, rules: fw.rules.map((r, i) => ({ n: i + 1, ...r })), asRoot: effectiveSsh(login).user === "root" };
+}
+
+/** `lf server config --json`: the saved entry, ssh view, and DNS of each server domain. */
+export async function configView(name: string, server: Server) {
+  const settings = serverSettings(name);
+  const [dns, suggest] = await Promise.all([Promise.all(settings.domains.map((d) => domainDns(server, d))), suggestDomains(server)]);
+  return { ...settings, dns, suggest };
+}
+
+/** `lf server info --json`. */
+export async function factsView(name: string, server: Server) {
+  const f = await facts(server);
+  const [ips, caps] = await Promise.all([serverIps(server, f), serverCaps(server, f)]);
+  const ip = pickIp(ips);
+  // What a site gets when deployed without a domain and no main domain is set: <site>.<this>.
+  return { name, ...f, ...caps, ips, sslipIp: ip ?? null, sslipSuffix: ip ? sslipDomain("", ip).slice(1) : null };
+}
+
+/** `lf stats --json` and `lf disk --json`. */
+export const statsView = (server: Server) => stats(server);
+export const diskView = (server: Server) => diskUsage(server);
+export const pruneView = (server: Server) => prunePlan(server, { volumes: "unsized" });
+
+/** `lf system --json`. */
+export async function systemView(name: string, server: Server) {
+  return securityOf(name, server);
+}
+
+/** `lf users --json`: fails (as the CLI does) where landfall may not manage users. */
+export async function usersView(server: Server) {
+  return listUsers(server);
+}
+
+/** `lf history --json`: newest first, with how many steps each run can still undo. */
+export async function historyView(server: Server, n?: number) {
+  const runs = (await readJournal(server)).reverse().slice(0, n);
+  return runs.map((r) => ({ ...r, pending: pending(r).length }));
+}
+
+/** historyView for the browser: the newest runs, and whether a step has an undo, not the shell that does it. */
+export async function historyBrief(server: Server, n = 200) {
+  return (await historyView(server, n)).map((r) => ({ ...r, steps: r.steps.map(({ undo, ...x }) => ({ ...x, undo: !!undo })) }));
+}
+
+/** `lf update --json` (list only). */
+/** lf scan --json [--no-others]: known vulnerabilities in the images it runs. Only downloads Trivy when asked to install it. */
+export async function scanView(server: Server, others = true, install = false) {
+  if (!install && !trivyThere(await trivyState(server))) fail(`${TRIVY_ASK} Install it first.`);
+  return scanImages(server, [], others);
+}
+
+export async function updatesView(server: Server, refresh = false) {
+  const [packages, engine, images] = await Promise.all([pkgStatus(server, refresh), engineStatus(server), imageStatus(server)]);
+  return { packages, images, engine: { ...engine, ...engineNotes(engine) } };
+}
+
+/** `lf domains --json`: where each domain points and whether it answers on https. */
+export async function dnsView(server: Server, domains: string[], serverIpsP = serverIps(server)) {
+  const https = Promise.all(domains.map((d) => checkUrl(d)));
+  const ips = await serverIpsP;
+  const [dns, http] = await Promise.all([checkDns(domains, ips), https]);
+  return { ips, domains: dns.map((d, i) => ({ ...d, https: http[i] })) };
+}
+
+/** `lf redirects --json`: the server's redirects, each with where its host points and whether it answers on https. */
+export async function redirectsView(server: Server) {
+  // The server's addresses do not depend on the file: look them up meanwhile.
+  const ipsP = serverIps(server);
+  ipsP.catch(() => {});
+  const r = await readRedirects(server);
+  const { ips, domains } = await dnsView(
+    server,
+    r.list.map((x) => x.host),
+    ipsP,
+  );
+  return { ips, redirects: r.list.map((x, i) => ({ ...x, ...domains[i] })), ...(r.error && { error: r.error }) };
+}
+
+/** `lf traffic --json`: Traefik's access log, aggregated per host and site on the server. */
+export const trafficView = (server: Server, secs: number) => traffic(server, secs);
+
+/** `lf traffic <site> --json`: only the requests of a site (or a domain); no counts when it had none. */
+export function siteTrafficView(t: Traffic, site: string) {
+  return { site, since: t.since, bucket: t.bucket, format: t.format, accessLog: t.accessLog, from: t.from, to: t.to, ...siteTraffic(t, site) };
+}
+
+/** `lf traefik status --json`: the proxy container and the routes it serves. */
+export const traefikView = (server: Server) => traefikStatus(server);
+
+/** `lf certs --json`: each site domain's certificate and the last error getting one. */
+export const certsView = (server: Server) => certs(server);
+
+/** A saved server entry as views show it: without the dashboard's password hash. */
+export const savedView = (s: Server | undefined) => (s ? { ...s, dashboard: s.dashboard && { host: s.dashboard.host, user: s.dashboard.user } } : null);
+
+/** Everything landfall and ssh know about a server, without connecting to it. */
+export function serverSettings(name: string) {
+  const cfg = loadConfig();
+  const saved = cfg.servers[name];
+  const server: Server = saved ?? { host: name };
+  const eff = effectiveSsh(server);
+  const block = findHostBlock(server.host);
+  const t = traefikSettings(server, {});
+  return {
+    name,
+    isDefault: cfg.default === name,
+    configFile: tildify(CONFIG_PATH),
+    saved: savedView(saved),
+    domains: server.domains ?? [],
+    tunnelOnly: isTunnelOnly(server),
+    /** Set on the server itself, not inherited from `lf config`. */
+    tunnelOnlyOwn: server.tunnelOnly !== undefined,
+    traefik: { ...t, summary: describeTraefik(t), dashboard: server.dashboard?.host ?? null },
+    ssh: {
+      hostname: eff.hostname,
+      user: eff.user,
+      port: eff.port,
+      keys: (server.key ? [server.key] : eff.identityFiles).map((f) => ({ file: tildify(f), exists: fs.existsSync(expandHome(f)) })),
+      block: block ? { file: tildify(block.file), line: block.start + 1, managed: block.managed, text: block.lines.join("\n") } : null,
+      /** The alias set for root work (lf server config --root-login), and the other Hosts that reach this machine. */
+      rootAlias: server.rootAlias ?? null,
+      sameMachine: sameMachineLogins(server),
+    },
+  };
+}
+
+/** Every place landfall writes to, here and on servers: nothing it installs is hidden. */
+function locations() {
+  return {
+    local: [
+      { path: tildify(CONFIG_PATH), what: "servers and these defaults" },
+      { path: tildify(join(configDir, "projects.json")), what: "folders deployed from here (web UI Recent)" },
+      { path: tildify(join(configDir, "ui-token")), what: "web UI login token" },
+      { path: tildify(join(configDir, "askpass")), what: "hands ssh a password you typed or piped in; holds none itself" },
+      { path: tildify(join(configDir, "uploads")), what: "folders dropped into the web UI, removed after a day" },
+      { path: tildify(TUNNELS_DIR), what: "one file per open tunnel, gone when it closes (lf tunnels)" },
+      { path: tildify(SSH_CONFIG), what: "Host <name> blocks between # >>> landfall:<name> markers" },
+      { path: "~/.ssh/landfall_<name>", what: "ssh key per server (lf keygen, lf setup)" },
+      { path: "./.landfall.json", what: "a project's deploy settings, saved by lf deploy" },
+    ],
+    server: [
+      { path: `${ROOT}/README`, what: "how to run it all by hand, without landfall" },
+      { path: `${ROOT}/landfall.json`, what: "the newest landfall that changed the server, and the upgrades it has" },
+      { path: `${SITES}/<site>`, what: "a site: .env, site.json, current -> releases/<id>" },
+      { path: TRAEFIK_DIR, what: "landfall's Traefik: docker-compose.yml, letsencrypt/" },
+      { path: DYNAMIC_DIR, what: "Traefik file provider; files you add here are kept" },
+      { path: PROXY_FILE, what: "only when sites use a Traefik the server already had" },
+      { path: JOURNAL, what: "every change with its undo (lf log, lf undo)" },
+      { path: SSHD_CONF, what: "ssh hardening from lf setup" },
+      { path: "user deploy", what: "lf setup's deploy user (--deploy-user), in group docker" },
+      { path: "packages", what: "Docker + compose plugin, ufw, fail2ban, unattended-upgrades" },
+      { path: ".<file>.landfall-*", what: "backups next to each file landfall changed" },
+    ],
+  };
+}
+
+/** landfall's defaults with what applies when one is unset; also the web UI's view. */
+export function defaultsView() {
+  const cfg = loadConfig();
+  const d = cfg.defaults ?? {};
+  return {
+    configFile: tildify(CONFIG_PATH),
+    default: cfg.default ?? null,
+    defaults: d,
+    tunnelOnly: d.tunnelOnly ?? false,
+    email: d.email ?? null,
+    keep: d.keep ?? DEFAULT_KEEP,
+    locations: locations(),
+  };
+}
+
+/** One environment in `lf refs`: its rule, what runs there, and the newest ref the rule allows. */
+export interface EnvRefs {
+  /** "" for the project itself. */
+  env: string;
+  site: string;
+  server?: string;
+  rule?: RefRule;
+  ruleText: string;
+  /** The release live there, with its git source; null when the site has none, undefined when unread. */
+  running?: { id: string; at: string; by?: string; landfall?: string; git?: ReleaseGit } | null;
+  /** The newest ref the rule allows: the newest tag, or the branch head. */
+  newest?: Ref;
+  /** Commits from what runs to newest; 0 when it runs newest. */
+  behind?: number;
+  /** Refs here the rule allows, tags newest first. */
+  matching: Ref[];
+  /** How often the site deploys itself (lf autodeploy), when it does. */
+  auto?: string;
+  /** Why the server could not be read. */
+  error?: string;
+}
+
+export interface RefsView {
+  repo?: Omit<RepoInfo, "tags">;
+  url?: string;
+  envs: EnvRefs[];
+}
+
+/** `lf refs --json`: every environment's rule and what runs there, servers read in parallel. */
+export async function refsView(cwd: string, only?: string, g?: GitView): Promise<RefsView> {
+  // The UI server hands in the gitView it answers with: the checkout and its refs are read once.
+  const files = readProjectFiles(cwd);
+  const { repo, refs, rules, url } = g ?? (await gitView(cwd, files));
+  // The project's own site is left out when it has environments and no rule of its own: those deploy elsewhere.
+  const named = Object.keys(rules).filter((e) => e);
+  const names = Object.keys(rules).filter((e) => (only === undefined ? e || !named.length || hasRule(rules[""]) : e === only));
+  if (only !== undefined && !names.length) fail(`no environment ${only} in ${PROJECT_FILE}`);
+  const envs = await Promise.all(
+    names.map(async (env): Promise<EnvRefs> => {
+      const project: Partial<ProjectConfig> = projectFor(files, env) ?? {};
+      const rule = hasRule(rules[env]) ? rules[env] : undefined;
+      const matching = rule ? sortTags(refs.filter((r) => r.kind === "tag" && refMatches(rule, r))) : [];
+      const branches = rule ? sortBranches(refs.filter((r) => r.kind === "branch" && refMatches(rule, r))) : [];
+      const out: EnvRefs = { env, site: project.name ?? "", ruleText: ruleText(rule), matching: [...matching, ...branches], ...(rule && { rule }) };
+      if (!project.name) return out;
+      let server: ReturnType<typeof resolveServer>;
+      try {
+        server = resolveServer(project.server);
+      } catch (e: any) {
+        return { ...out, error: e?.message ?? String(e) };
+      }
+      out.server = server.name;
+      try {
+        const { meta } = await readSite(server.server, project.name);
+        const live = meta && currentRelease(meta);
+        if (meta?.autodeploy) out.auto = meta.autodeploy.every;
+        out.running = live
+          ? { id: live.id, at: live.at, ...(live.by && { by: live.by }), ...(live.landfall && { landfall: live.landfall }), ...(live.git && { git: live.git }) }
+          : null;
+      } catch (e: any) {
+        out.error = e?.message ?? String(e);
+      }
+      const running = out.running?.git;
+      // A branch rule follows the branch deployed last, else the most recent one it allows.
+      out.newest = list(rule?.tag).length ? matching[0] : (branches.find((b) => b.name === running?.branch) ?? branches[0]);
+      if (out.newest && running?.sha) {
+        const n = out.newest.sha === running.sha ? 0 : Number(await git(cwd, "rev-list", "--count", `${running.sha}..${out.newest.sha}`));
+        if (Number.isFinite(n)) out.behind = n;
+      }
+      return out;
+    }),
+  );
+  if (!repo) return { envs, ...(url && { url }) };
+  const { tags: _, ...info } = repo;
+  return { repo: info, ...(url && { url }), envs };
+}
+
+export type GitView = Awaited<ReturnType<typeof gitView>>;
+
+/** The project folders remembered here (lf deploy), with what the nav and home need of their git: from the files, no git runs. */
+export const projectsView = () => loadProjects().map((p) => ({ ...p, inGit: inCheckout(p.path), hasGitRules: Object.values(gitRules(p.path)).some(hasRule) }));
+
+/** GET /api/git: the checkout, its refs and the git rules, for the rules editor and the deploy dialog. No server. */
+export async function gitView(cwd: string, files = readProjectFiles(cwd)) {
+  const repo = await repoInfo(cwd);
+  const rules = gitRules(cwd, files);
+  return {
+    repo: repo ?? null,
+    refs: repo ? await listRefs(cwd) : [],
+    rules,
+    hasRules: Object.values(rules).some(hasRule),
+    // .landfall.json's git.url, else origin's.
+    url: files?.git?.url ?? repo?.remote ?? null,
+  };
+}

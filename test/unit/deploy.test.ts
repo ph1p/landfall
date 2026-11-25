@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { nextReleaseId, releaseId } from "../../src/cli/commands/deploy";
-import { deployRedirects } from "../../src/core/domain-plan";
-import { detectStaticDir, slug, withRedirects } from "../../src/core/projects";
-import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/ignore";
+import { deployRedirects } from "../../src/core/site/domain-plan";
+import { detectStaticDir, slug, withRedirects } from "../../src/core/deploy/projects";
+import { compile, matches, parseIgnore, uploadList, uploadSize } from "../../src/core/deploy/ignore";
 import {
   baseDomain,
   checkImage,
@@ -18,9 +18,9 @@ import {
   projectSources,
   saveProject,
   withPrimary,
-} from "../../src/core/config";
-import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/remote";
-import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/compose";
+} from "../../src/core/lib/config";
+import { dotenvLines, envEntries, envView, externals, maskedEnv, mergeEnv, parseEnvPairs } from "../../src/core/site/remote";
+import { envComposeFile, exampleVars, missingVars, requiredVars, wantedVars } from "../../src/core/site/compose";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 
@@ -237,12 +237,12 @@ describe("externals", () => {
 
 describe("release source", () => {
   test("the commit, branch and uncommitted changes of a git checkout", async () => {
-    const { releaseGit, repoInfo } = await import("../../src/core/git");
+    const { releaseGit, repoInfo } = await import("../../src/core/deploy/git");
     const gitSource = async (d: string) => {
       const r = await repoInfo(d);
       return r && releaseGit(r);
     };
-    const { gitLabel } = await import("../../src/core/compose");
+    const { gitLabel } = await import("../../src/core/site/compose");
     const dir = fs.mkdtempSync(join(tmpdir(), "lf-git-"));
     expect(await gitSource(dir)).toBeUndefined();
     const git = (...a: string[]) => spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", ...a]);
@@ -261,7 +261,7 @@ describe("release source", () => {
 
 describe("ago", () => {
   test("says how long ago, then the date", async () => {
-    const { ago } = await import("../../src/core/ago");
+    const { ago } = await import("../../src/core/lib/ago");
     const now = Date.parse("2026-03-01T12:00:00Z");
     expect(ago("2026-03-01T11:59:30Z", now)).toBe("just now");
     expect(ago("2026-03-01T11:15:00Z", now)).toBe("45m ago");

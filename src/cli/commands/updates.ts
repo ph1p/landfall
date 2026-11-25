@@ -1,6 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer } from "../../core/config";
-import { adminLogin } from "../../core/privilege";
+import { resolveServer } from "../../core/lib/config";
+import { adminLogin } from "../../core/ssh/privilege";
 import {
   engineNotes,
   engineStatus,
@@ -12,9 +12,9 @@ import {
   type Engine,
   type ImageStatus,
   type PkgStatus,
-} from "../../core/updates";
-import { c, confirm, fail, info, ok, step, table, warn, printJson } from "../../core/term";
-import { updatesView } from "../../core/views";
+} from "../../core/server/updates";
+import { c, confirm, fail, info, ok, step, table, warn, printJson } from "../../core/lib/term";
+import { updatesView } from "../../core/views/views";
 
 const STATE: Record<ImageStatus["state"], (s: string) => string> = {
   current: c.green,

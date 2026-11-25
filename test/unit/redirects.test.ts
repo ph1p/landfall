@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redirectHosts } from "../../src/core/redirects";
+import { redirectHosts } from "../../src/core/traefik/redirects";
 
 describe("redirectHosts", () => {
   it("lowercases, drops blanks and repeats, and puts a bare name under the first domain", () => {

@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { configDir, expandHome } from "../../core/config";
-import { detectProject } from "../../core/projects";
+import { configDir, expandHome } from "../../core/lib/config";
+import { detectProject } from "../../core/deploy/projects";
 
 /** A folder on this machine, its subfolders, and what `lf deploy` would make of it. */
 export function browse(path?: string) {

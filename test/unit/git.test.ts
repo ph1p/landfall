@@ -4,14 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { gitTrack } from "../../src/cli/commands/git";
-import { deploySource as source, pickEnvironmentForRef, type SourceOpts } from "../../src/core/source";
-import { gitRules, loadProject } from "../../src/core/config";
-import { exportRef, installCommand, listRefs, repoInfo, resolveRef } from "../../src/core/git";
-import { loadProjects } from "../../src/core/projects";
-import { gitView, projectsView, refsView } from "../../src/core/views";
+import { deploySource as source, pickEnvironmentForRef, type SourceOpts } from "../../src/core/deploy/source";
+import { gitRules, loadProject } from "../../src/core/lib/config";
+import { exportRef, installCommand, listRefs, repoInfo, resolveRef } from "../../src/core/deploy/git";
+import { loadProjects } from "../../src/core/deploy/projects";
+import { gitView, projectsView, refsView } from "../../src/core/views/views";
 
 // projects.json sits under the config dir fixed at import: the list is handed in instead.
-vi.mock("../../src/core/projects", async (orig) => ({ ...(await orig<typeof import("../../src/core/projects")>()), loadProjects: vi.fn(() => []) }));
+vi.mock("../../src/core/deploy/projects", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/deploy/projects")>()),
+  loadProjects: vi.fn(() => []),
+}));
 
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});

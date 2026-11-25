@@ -9,13 +9,13 @@ import { confirmDlg, dialog, siteNameError, type Values } from "../ui/dialog";
 import { Describe, Stack, deployImage, deployRepo, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
-import { DEPLOY_HOOKS, ROLLBACK_HOOKS } from "../../../core/hook-names";
+import { DEPLOY_HOOKS, ROLLBACK_HOOKS } from "../../../core/site/hook-names";
 import { HookList, definedHooks, hookChoice } from "./hooks";
 import { StatusDot, can, isUp, size, tunnelWays } from "./shared";
-import { worse } from "../../../core/status";
-import { MAX_REPLICAS, MAX_WEIGHT } from "../../../core/limits";
+import { worse } from "../../../core/site/status";
+import { MAX_REPLICAS, MAX_WEIGHT } from "../../../core/site/limits";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
-import { gitParts, ruleText } from "../../../core/refs";
+import { gitParts, ruleText } from "../../../core/deploy/refs";
 import { CiLink, CommitLink, envArgs, EVERY } from "./pipeline";
 
 const CHIPS = "flex flex-col gap-[3px] items-start";

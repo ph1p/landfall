@@ -1,10 +1,10 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt } from "../../core/config";
-import { currentRelease, MAX_REPLICAS, MAX_WEIGHT, scaleView, splitGroups, type ScaleRow, type SiteMeta } from "../../core/compose";
-import { changeSite, requireSite, setWeights } from "../../core/remote";
-import { c, fail, info, ok, printJson, table, warn } from "../../core/term";
-import { ms, pct } from "../../core/format";
-import { parseSince, serviceTraffic, spanLabel, splitStats, type SiteServiceTraffic } from "../../core/traffic";
+import { checkInt } from "../../core/lib/config";
+import { currentRelease, MAX_REPLICAS, MAX_WEIGHT, scaleView, splitGroups, type ScaleRow, type SiteMeta } from "../../core/site/compose";
+import { changeSite, requireSite, setWeights } from "../../core/site/remote";
+import { c, fail, info, ok, printJson, table, warn } from "../../core/lib/term";
+import { ms, pct } from "../../core/lib/format";
+import { parseSince, serviceTraffic, spanLabel, splitStats, type SiteServiceTraffic } from "../../core/traefik/traffic";
 import { target } from "./sites";
 
 /** The site name and the service=value pairs of `[site] [service=value...]`. */

@@ -1,14 +1,14 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer, type Server } from "../../core/config";
-import { parseRule, type Rule } from "../../core/inventory";
-import { findRun, laterConflicts, pending, readJournal, removedUsers, stillNeeded, undoSteps, type Run, type Step } from "../../core/journal";
-import { switchLogin } from "../../core/login";
-import { rootLogin } from "../../core/privilege";
-import { effectiveSsh } from "../../core/sshconfig";
-import { JOURNAL } from "../../core/templates";
-import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn, printJson } from "../../core/term";
-import { firewallState, guardSsh } from "../../core/firewall";
-import { historyView } from "../../core/views";
+import { resolveServer, type Server } from "../../core/lib/config";
+import { parseRule, type Rule } from "../../core/server/inventory";
+import { findRun, laterConflicts, pending, readJournal, removedUsers, stillNeeded, undoSteps, type Run, type Step } from "../../core/ssh/journal";
+import { switchLogin } from "../../core/ssh/login";
+import { rootLogin } from "../../core/ssh/privilege";
+import { effectiveSsh } from "../../core/ssh/sshconfig";
+import { JOURNAL } from "../../core/ssh/templates";
+import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn, printJson } from "../../core/lib/term";
+import { firewallState, guardSsh } from "../../core/server/firewall";
+import { historyView } from "../../core/views/views";
 
 /** One step as `lf history` and `lf undo` print it. */
 function stepLine(x: Step, i: number) {

@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
-import { statusKind } from "../core/compose";
-import { secretEnv } from "../core/job";
-import { c, fail } from "../core/term";
+import { statusKind } from "../core/site/compose";
+import { secretEnv } from "../core/lib/job";
+import { c, fail } from "../core/lib/term";
 
 type OptSpec = {
   type: "string" | "boolean";

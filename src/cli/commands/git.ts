@@ -3,13 +3,13 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, projectServer, saveGitRule } from "../../core/config";
-import { repoInfo, safeRemote } from "../../core/git";
-import { hasRule, one, ruleText, sameRule, type RefRule } from "../../core/refs";
-import { FORGES, loggedIn } from "../../core/forge";
-import { forgeOf, keyRemoveScript, keyScript, parseGitUrl, type GitUrl } from "../../core/remote-git";
-import { runScript } from "../../core/ssh";
-import { c, canConfirm, confirm, confirmRemoval, fail, info, ok, printJson, step, table, warn } from "../../core/term";
+import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, projectServer, saveGitRule } from "../../core/lib/config";
+import { repoInfo, safeRemote } from "../../core/deploy/git";
+import { hasRule, one, ruleText, sameRule, type RefRule } from "../../core/deploy/refs";
+import { FORGES, loggedIn } from "../../core/deploy/forge";
+import { forgeOf, keyRemoveScript, keyScript, parseGitUrl, type GitUrl } from "../../core/deploy/remote-git";
+import { runScript } from "../../core/ssh/ssh";
+import { c, canConfirm, confirm, confirmRemoval, fail, info, ok, printJson, step, table, warn } from "../../core/lib/term";
 
 export const gitTrack = defineCommand({
   name: "git track",

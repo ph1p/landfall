@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { otherHint, parseContainers, parseReport, parseScan, scanHint, scanScript, TRIVY } from "../../src/core/scan";
-import type { ImageStatus } from "../../src/core/updates";
+import { otherHint, parseContainers, parseReport, parseScan, scanHint, scanScript, TRIVY } from "../../src/core/server/scan";
+import type { ImageStatus } from "../../src/core/server/updates";
 
 const report = JSON.stringify({
   Metadata: { OS: { Family: "debian", Name: "10.13", EOSL: true } },

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineCommand, logOpts, paintStatus, serverOpt } from "../cmd";
-import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/config";
+import { checkInt, loadProject, projectServer, resolveServer, type Server } from "../../core/lib/config";
 import {
   COMPOSE_FILES,
   currentRelease,
@@ -16,9 +16,9 @@ import {
   siteDomains,
   siteMain,
   type SiteMeta,
-} from "../../core/compose";
-import { bytes } from "../../core/facts";
-import { hookVars, serverCall, SKIP_OPTIONS, skipper } from "../../core/hooks";
+} from "../../core/site/compose";
+import { bytes } from "../../core/server/facts";
+import { hookVars, serverCall, SKIP_OPTIONS, skipper } from "../../core/site/hooks";
 import {
   adoptSite,
   changeSite,
@@ -42,12 +42,12 @@ import {
   siteDir,
   siteLogs,
   validName,
-} from "../../core/remote";
-import { shq, writeFileCmd } from "../../core/ssh";
-import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson, warn } from "../../core/term";
-import { volumes } from "../../core/volumes";
-import { slug } from "../../core/projects";
-import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/tunnel";
+} from "../../core/site/remote";
+import { shq, writeFileCmd } from "../../core/ssh/ssh";
+import { ago, c, confirm, confirmRemoval, fail, info, ok, table, printJson, warn } from "../../core/lib/term";
+import { volumes } from "../../core/site/volumes";
+import { slug } from "../../core/deploy/projects";
+import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portScheme } from "../../core/ssh/tunnel";
 
 /** Site + server from args, falling back to ./.landfall.json. */
 export function target(name: string | undefined, server: string | undefined) {

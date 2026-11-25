@@ -10,18 +10,18 @@ process.env.LANDFALL_CONFIG_DIR = join(tmp, "config");
 process.env.LANDFALL_SSH_CONFIG = join(tmp, "ssh_config");
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-const { PRELUDE } = await import("../../src/core/templates");
-const { shq } = await import("../../src/core/ssh");
-const { actionArgv, pluginTab } = await import("../../src/core/plugin-api");
-const core = await import("../../src/core/plugins");
+const { PRELUDE } = await import("../../src/core/ssh/templates");
+const { shq } = await import("../../src/core/ssh/ssh");
+const { actionArgv, pluginTab } = await import("../../src/core/plugins/plugin-api");
+const core = await import("../../src/core/plugins/plugins");
 const f2b = await import("../../src/plugins/fail2ban");
 const trivy = await import("../../src/plugins/trivy");
 const { BUILTIN } = await import("../../src/plugins");
 const { scaffold } = await import("../../src/cli/commands/plugins");
 const { pluginCommands, registerPlugins } = await import("../../src/cli/plugins");
 const { aliases, byName } = await import("../../src/cli/registry");
-type PluginContext = import("../../src/core/plugin-api").PluginContext;
-type Plugin = import("../../src/core/plugin-api").Plugin;
+type PluginContext = import("../../src/core/plugins/plugin-api").PluginContext;
+type Plugin = import("../../src/core/plugins/plugin-api").Plugin;
 
 /** bash -n: the script parses, with landfall's helpers in front as on the server. */
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: `${PRELUDE}\n${script}` });

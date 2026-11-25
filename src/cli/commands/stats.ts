@@ -1,10 +1,10 @@
 import { defineCommand, paintStatus, serverOpt } from "../cmd";
-import { checkInt, projectServer } from "../../core/config";
-import { isUp } from "../../core/compose";
-import { bytes, duration, pct } from "../../core/format";
-import { diskUsage, stats, type DiskUsage, type Stats } from "../../core/stats";
-import { ROOT } from "../../core/templates";
-import { c, fail, table, printJson } from "../../core/term";
+import { checkInt, projectServer } from "../../core/lib/config";
+import { isUp } from "../../core/site/compose";
+import { bytes, duration, pct } from "../../core/lib/format";
+import { diskUsage, stats, type DiskUsage, type Stats } from "../../core/server/stats";
+import { ROOT } from "../../core/ssh/templates";
+import { c, fail, table, printJson } from "../../core/lib/term";
 
 /** A 10-cell bar, yellow from 70%, red from 90%. */
 function bar(p: number) {

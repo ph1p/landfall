@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { svText, S, plural, render, sv } from "../lib/store";
-import { ACCESS_LOG_HINT, accessLogIssue, logLimitText, siteTraffic } from "../../../core/traffic-merge";
-import { bytes, ms } from "../../../core/format";
+import { ACCESS_LOG_HINT, accessLogIssue, logLimitText, siteTraffic } from "../../../core/traefik/traffic-merge";
+import { bytes, ms } from "../../../core/lib/format";
 import type { Cert, Detail, Summary, Traffic } from "../lib/types";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";

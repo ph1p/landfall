@@ -1,26 +1,26 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { pluginContext, pluginNamed, pluginsView } from "../../core/plugins";
+import { pluginContext, pluginNamed, pluginsView } from "../../core/plugins/plugins";
 import fs from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
-import { updateCommand, VERSION } from "../../core/version";
-import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/config";
-import { ENV_NAME, SECRET_NAME } from "../../core/compose";
-import { listServers, reachAll, target } from "../../core/dashboard";
+import { updateCommand, VERSION } from "../../core/lib/version";
+import { CONFIG_PATH, DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/lib/config";
+import { ENV_NAME, SECRET_NAME } from "../../core/site/compose";
+import { listServers, reachAll, target } from "../../core/views/dashboard";
 import { browse, emptyFolder, jobCwd, pruneUploads, receiveUpload } from "./local";
-import { localImages } from "../../core/buildlocal";
-import { ciView } from "../../core/ci";
-import { readAutodeploy } from "../../core/autodeploy";
-import { startJob, type Job } from "../../core/job";
-import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
-import { parseSince } from "../../core/traffic";
-import { volumes } from "../../core/volumes";
-import { USER_NAME } from "../../core/users";
-import { trivyState } from "../../core/scan";
-import { registries } from "../../core/registries";
+import { localImages } from "../../core/deploy/buildlocal";
+import { ciView } from "../../core/deploy/ci";
+import { readAutodeploy } from "../../core/deploy/autodeploy";
+import { startJob, type Job } from "../../core/lib/job";
+import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/site/remote";
+import { parseSince } from "../../core/traefik/traffic";
+import { volumes } from "../../core/site/volumes";
+import { USER_NAME } from "../../core/server/users";
+import { trivyState } from "../../core/server/scan";
+import { registries } from "../../core/server/registries";
 import {
   configView,
   defaultsView,
@@ -43,11 +43,11 @@ import {
   refsView,
   gitView,
   projectsView,
-} from "../../core/views";
-import { newRunId, setQuiet } from "../../core/ssh";
-import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
-import { c, CliError, openUrl } from "../../core/term";
-import { availableUpdate, updateCheckOff } from "../../core/self-update";
+} from "../../core/views/views";
+import { newRunId, setQuiet } from "../../core/ssh/ssh";
+import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/ssh/templates";
+import { c, CliError, openUrl } from "../../core/lib/term";
+import { availableUpdate, updateCheckOff } from "../../core/lib/self-update";
 
 interface WebJob {
   id: string;

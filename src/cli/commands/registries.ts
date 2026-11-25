@@ -1,6 +1,6 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { registries, registryLogin, registryLogout } from "../../core/registries";
-import { askSecret, c, fail, info, ok, passwordOption, printJson, step } from "../../core/term";
+import { registries, registryLogin, registryLogout } from "../../core/server/registries";
+import { askSecret, c, fail, info, ok, passwordOption, printJson, step } from "../../core/lib/term";
 import { target } from "./system";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;

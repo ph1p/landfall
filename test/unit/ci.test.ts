@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import type { CiPlan } from "../../src/core/ci";
+import type { CiPlan } from "../../src/core/deploy/ci";
 
 // The config dir is fixed when config.ts loads: point it (and ssh's config) at a temp folder first.
 const cfg = fs.mkdtempSync(path.join(os.tmpdir(), "lf-ci-cfg-"));
@@ -15,8 +15,8 @@ fs.writeFileSync(
   JSON.stringify({ servers: { web: { host: "203.0.113.10", user: "deploy", port: 2222, key: "~/.ssh/secret" } }, default: "web" }),
 );
 delete process.env.LANDFALL_ENV;
-const { ciKeyScript, ciPlan, ghGlob, githubYaml, gitlabYaml, glRegex, knownHosts } = await import("../../src/core/ci");
-const { globRe } = await import("../../src/core/refs");
+const { ciKeyScript, ciPlan, ghGlob, githubYaml, gitlabYaml, glRegex, knownHosts } = await import("../../src/core/deploy/ci");
+const { globRe } = await import("../../src/core/deploy/refs");
 
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });
 const g = (cwd: string, ...args: string[]) =>

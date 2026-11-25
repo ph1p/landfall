@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { defineCommand, parse } from "../../src/cli/cmd";
-import { checkEmail, checkLoginName } from "../../src/core/config";
-import { secretEnv } from "../../src/core/job";
-import { decodeJobInput, encodeJobInput } from "../../src/core/job-input";
-import { dotenvLines, parseEnvPairs } from "../../src/core/remote";
-import { shq, writeFileCmd } from "../../src/core/ssh";
-import { PRELUDE } from "../../src/core/templates";
+import { checkEmail, checkLoginName } from "../../src/core/lib/config";
+import { secretEnv } from "../../src/core/lib/job";
+import { decodeJobInput, encodeJobInput } from "../../src/core/lib/job-input";
+import { dotenvLines, parseEnvPairs } from "../../src/core/site/remote";
+import { shq, writeFileCmd } from "../../src/core/ssh/ssh";
+import { PRELUDE } from "../../src/core/ssh/templates";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));
 

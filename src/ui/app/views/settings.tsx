@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { S, sv } from "../lib/store";
 import type { DnsCheck } from "../lib/types";
-import { expandHost, redirectTarget, type ServerRedirect } from "../../../core/redirects";
+import { expandHost, redirectTarget, type ServerRedirect } from "../../../core/traefik/redirects";
 import { ensure, fetchInto, load, refreshState } from "../lib/api";
 import { TunnelBtn, ifOk, run } from "../lib/jobs";
 import { toast } from "../ui/toast";

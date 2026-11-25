@@ -5,7 +5,7 @@ import { run } from "../lib/jobs";
 import type { CiView } from "../lib/types";
 import { closeDialog, confirmDlg, DBTNS, DFORM, DTEXT, DTITLE, openDialog } from "../ui/dialog";
 import { Badge, Btn, Note, cx, MONO } from "../ui/kit";
-import { ruleText } from "../../../core/refs";
+import { ruleText } from "../../../core/deploy/refs";
 
 type Forge = CiView["forge"];
 const FORGE_NAMES: Record<Forge, string> = { github: "GitHub Actions", gitlab: "GitLab CI" };

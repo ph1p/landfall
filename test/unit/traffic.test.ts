@@ -3,8 +3,8 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { redirectsFile } from "../../src/core/redirects";
-import { analyze, type SiteMeta } from "../../src/core/compose";
+import { redirectsFile } from "../../src/core/traefik/redirects";
+import { analyze, type SiteMeta } from "../../src/core/site/compose";
 import {
   covers,
   mergeHosts,
@@ -19,7 +19,7 @@ import {
   spanLabel,
   splitStats,
   TRAFFIC,
-} from "../../src/core/traffic";
+} from "../../src/core/traefik/traffic";
 
 const now = new Date("2026-10-25T15:30:00Z");
 

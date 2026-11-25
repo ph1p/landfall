@@ -1,15 +1,15 @@
 import { S, sv } from "../lib/store";
 import type { Cap, ServerEntry, SiteStatus } from "../lib/types";
 import { SECTIONS, type Tab } from "../lib/api";
-import { pluginTab } from "../../../core/plugin-api";
+import { pluginTab } from "../../../core/plugins/plugin-api";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
-import { bytes as size, duration, pct } from "../../../core/format";
-import { isUp, statusKind } from "../../../core/status";
-import { stampSummary } from "../../../core/version";
+import { bytes as size, duration, pct } from "../../../core/lib/format";
+import { isUp, statusKind } from "../../../core/site/status";
+import { stampSummary } from "../../../core/lib/version";
 import { providerDialog } from "./flows";
 
-export { bytes as size, pct } from "../../../core/format";
+export { bytes as size, pct } from "../../../core/lib/format";
 export { isUp };
 
 // Small pieces many views share.

@@ -36,8 +36,8 @@ import { HistoryView } from "./history";
 import { HomeView } from "./home";
 import { MapView } from "./map";
 import { PluginView } from "./plugin";
-import type { PanelIcon } from "../../../core/plugin-api";
-import { stampSummary } from "../../../core/version";
+import type { PanelIcon } from "../../../core/plugins/plugin-api";
+import { stampSummary } from "../../../core/lib/version";
 import { SitesView } from "./sites";
 import {
   Activity,

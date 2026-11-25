@@ -4,7 +4,7 @@ import { loadPlugin, pluginKey } from "../lib/api";
 import { ifOk, run } from "../lib/jobs";
 import { dialog, confirmDlg, type Field } from "../ui/dialog";
 import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
-import { actionArgv, actionCommand, type UiAction, type UiBlock, type UiCell } from "../../../core/plugin-api";
+import { actionArgv, actionCommand, type UiAction, type UiBlock, type UiCell } from "../../../core/plugins/plugin-api";
 
 const after = (n: string, plugin: string) => ({ after: ifOk(() => loadPlugin(n, plugin)) });
 

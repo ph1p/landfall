@@ -3,10 +3,10 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { portScheme, routerPort } from "../../src/core/tunnel";
-import { htpasswd, traefikSettings } from "../../src/core/traefik";
-import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/remote";
-import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/templates";
+import { portScheme, routerPort } from "../../src/core/ssh/tunnel";
+import { htpasswd, traefikSettings } from "../../src/core/traefik/traefik";
+import { containerPorts, dashboardHosts, hasDashboardTunnel } from "../../src/core/site/remote";
+import { DEFAULT_TRAEFIK_IMAGE, parseProxy, proxyFile, TLS_FILE, traefikCompose } from "../../src/core/ssh/templates";
 import {
   adoptCompose,
   analyze,
@@ -28,7 +28,7 @@ import {
   type Release,
   type SiteMeta,
   siteRedirects,
-} from "../../src/core/compose";
+} from "../../src/core/site/compose";
 import YAML from "yaml";
 
 const tmp = () => fs.mkdtempSync(join(tmpdir(), "landfall-test-"));

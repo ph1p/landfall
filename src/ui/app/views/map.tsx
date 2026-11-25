@@ -40,7 +40,7 @@ import {
   type Health,
   type NodeKind,
   type ServerInput,
-} from "../../../core/infra-graph";
+} from "../../../core/views/infra-graph";
 import { S, sv } from "../lib/store";
 import type { Overview, SiteStatus } from "../lib/types";
 import { fetchInto, go } from "../lib/api";

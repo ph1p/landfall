@@ -1,5 +1,5 @@
 import { defineCommand } from "../cmd";
-import { checkInt } from "../../core/config";
+import { checkInt } from "../../core/lib/config";
 import { maskJobArgs, validateJobArgs } from "../job-args";
 
 export const ui = defineCommand({

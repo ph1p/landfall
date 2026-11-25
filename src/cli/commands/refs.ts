@@ -1,10 +1,10 @@
 import { defineCommand, runWith } from "../cmd";
-import { activeEnvironment, gitRules, PROJECT_FILE } from "../../core/config";
-import { ago } from "../../core/ago";
-import { listRefs, resolveRef } from "../../core/git";
-import { allows, gitParts, namesAt, newestTag, ruleText } from "../../core/refs";
-import { c, confirm, fail, info, printJson, table, warn } from "../../core/term";
-import { refsView, type EnvRefs } from "../../core/views";
+import { activeEnvironment, gitRules, PROJECT_FILE } from "../../core/lib/config";
+import { ago } from "../../core/lib/ago";
+import { listRefs, resolveRef } from "../../core/deploy/git";
+import { allows, gitParts, namesAt, newestTag, ruleText } from "../../core/deploy/refs";
+import { c, confirm, fail, info, printJson, table, warn } from "../../core/lib/term";
+import { refsView, type EnvRefs } from "../../core/views/views";
 import { deploy } from "./deploy";
 
 const envName = (e: string) => e || "(project)";

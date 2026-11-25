@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addVolumeMount, mountOf, removeVolumeMount } from "../../src/core/compose";
+import { addVolumeMount, mountOf, removeVolumeMount } from "../../src/core/site/compose";
 
 const COMPOSE = `# the shop
 services:

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test, vi } from "vitest";
-import type { Server } from "../../src/core/config";
+import type { Server } from "../../src/core/lib/config";
 
 // The certs script runs for real in local bash, as runScript sends it (set -euo pipefail), against a fake docker
 // whose only mount is the directory named by the server's user: "root" sees the acme.json, "deploy" does not.
@@ -12,8 +12,8 @@ const bin = join(dir, "bin");
 const mounts: Record<string, string> = { root: join(dir, "letsencrypt"), deploy: join(dir, "missing") };
 const runs: string[] = [];
 
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (s: Server, script: string) => {
     runs.push(s.user!);
     const r = spawnSync("bash", ["-c", `set -euo pipefail\n${script}`], {
@@ -23,9 +23,9 @@ vi.mock("../../src/core/ssh", async (orig) => ({
     return { stdout: r.stdout, stderr: r.stderr, code: r.status ?? 1 };
   },
 }));
-vi.mock("../../src/core/privilege", () => ({ rootLogin: async (s: Server) => ({ ...s, user: "root" }) }));
+vi.mock("../../src/core/ssh/privilege", () => ({ rootLogin: async (s: Server) => ({ ...s, user: "root" }) }));
 
-const { certs } = await import("../../src/core/traffic");
+const { certs } = await import("../../src/core/traefik/traffic");
 
 beforeAll(() => {
   fs.mkdirSync(bin);

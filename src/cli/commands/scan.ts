@@ -1,5 +1,5 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { resolveServer } from "../../core/config";
+import { resolveServer } from "../../core/lib/config";
 import {
   removeTrivy,
   scanImages,
@@ -12,8 +12,8 @@ import {
   usedBy,
   type ImageScan,
   type Severity,
-} from "../../core/scan";
-import { c, confirm, info, ok, step, table, warn, printJson } from "../../core/term";
+} from "../../core/server/scan";
+import { c, confirm, info, ok, step, table, warn, printJson } from "../../core/lib/term";
 
 const COLOR: Record<Severity, (s: string) => string> = { CRITICAL: c.red, HIGH: c.yellow, MEDIUM: (s) => s, LOW: c.dim, UNKNOWN: c.dim };
 const SHORT: Record<Severity, string> = { CRITICAL: "crit", HIGH: "high", MEDIUM: "med", LOW: "low", UNKNOWN: "?" };

@@ -3,23 +3,23 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { PRELUDE } from "../../src/core/templates";
+import { PRELUDE } from "../../src/core/ssh/templates";
 
 // The shell landfall would run on the server, captured instead of sent, then run here against stand-ins.
 const scripts: string[] = [];
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     scripts.push(script);
     return { code: 0, stdout: "", stderr: "" };
   },
 }));
-vi.mock("../../src/core/remote", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/remote")>()),
+vi.mock("../../src/core/site/remote", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/site/remote")>()),
   requireSite: async (_s: unknown, name: string) => ({ meta: { name, releases: [], domains: [] }, env: "", proxy: {} }),
 }));
 const { backupScript, scheduleBackups } = await import("../../src/cli/commands/volume");
-const { listScript, parseVolumes } = await import("../../src/core/volumes");
+const { listScript, parseVolumes } = await import("../../src/core/site/volumes");
 
 const server = { host: "example.com" } as any;
 let dir: string;

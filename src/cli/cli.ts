@@ -4,14 +4,14 @@ import { journalCmd, parse, usage } from "./cmd";
 import { byName, find } from "./registry";
 import { validateJobArgs } from "./job-args";
 import { pluginCommandNames, registerPlugins } from "./plugins";
-import { loadPlugins } from "../core/plugins";
+import { loadPlugins } from "../core/plugins/plugins";
 import { BUILTIN } from "../plugins";
-import { JOB_INPUT, readJobInput } from "../core/job-input";
-import { exitWithParent } from "../core/job";
-import { journal, setSudoPassword } from "../core/ssh";
-import { askSecret, c, CliError, report, setAssumeYes } from "../core/term";
-import { refreshUpdate, updateCheckOff, updateNotice } from "../core/self-update";
-import { VERSION } from "../core/version";
+import { JOB_INPUT, readJobInput } from "../core/lib/job-input";
+import { exitWithParent } from "../core/lib/job";
+import { journal, setSudoPassword } from "../core/ssh/ssh";
+import { askSecret, c, CliError, report, setAssumeYes } from "../core/lib/term";
+import { refreshUpdate, updateCheckOff, updateNotice } from "../core/lib/self-update";
+import { VERSION } from "../core/lib/version";
 
 function help() {
   const groups: [string, string[]][] = [

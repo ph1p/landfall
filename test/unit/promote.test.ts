@@ -5,8 +5,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const live: Record<string, unknown> = {};
-vi.mock("../../src/core/remote", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/remote")>()),
+vi.mock("../../src/core/site/remote", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/site/remote")>()),
   readSite: vi.fn(async (_s: unknown, name: string) => ({ meta: live[name], env: "", proxy: {}, exists: !!live[name], routed: true })),
 }));
 const deployRun = vi.fn();
@@ -16,7 +16,7 @@ vi.mock("../../src/cli/commands/deploy", async (orig) => {
 });
 
 const { promote } = await import("../../src/cli/commands/refs");
-const { setAssumeYes } = await import("../../src/core/term");
+const { setAssumeYes } = await import("../../src/core/lib/term");
 
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});

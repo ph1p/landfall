@@ -1,6 +1,6 @@
 import { tokenize } from "./cmd";
 import { find } from "./registry";
-import { CliError } from "../core/term";
+import { CliError } from "../core/lib/term";
 
 /** Never return parser errors here: Node's error text can include the rejected value. */
 function jobArgs(argv: string[]) {

@@ -25,8 +25,8 @@ import {
   type Ref,
   type RefKind,
   type RefRule,
-} from "../../../core/refs";
-import type { ReleaseGit } from "../../../core/compose";
+} from "../../../core/deploy/refs";
+import type { ReleaseGit } from "../../../core/site/compose";
 import type { EnvRefs } from "../lib/types";
 import { openAfter } from "./flows";
 import { ciDialog } from "./ci";

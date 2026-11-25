@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../../src/core/login", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/login")>()),
+vi.mock("../../src/core/ssh/login", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/login")>()),
   ensureKeyLogin: vi.fn(async () => undefined),
   loginPassword: vi.fn(async () => undefined),
 }));
@@ -13,11 +13,11 @@ vi.mock("../../src/core/login", async (orig) => ({
 const dir = fs.mkdtempSync(join(tmpdir(), "lf-config-"));
 process.env.LANDFALL_CONFIG_DIR = dir;
 process.env.LANDFALL_SSH_CONFIG = join(dir, "ssh");
-const { CONFIG_PATH, updateConfig, loadConfig, patchServer, useServer, forgetServer } = await import("../../src/core/config");
+const { CONFIG_PATH, updateConfig, loadConfig, patchServer, useServer, forgetServer } = await import("../../src/core/lib/config");
 const { config } = await import("../../src/cli/commands/config");
 const { serverAdd, serverConfig, serverDomain } = await import("../../src/cli/commands/server");
-const { ensureKeyLogin } = await import("../../src/core/login");
-const term = await import("../../src/core/term");
+const { ensureKeyLogin } = await import("../../src/core/ssh/login");
+const term = await import("../../src/core/lib/term");
 
 beforeEach(() => {
   for (const file of fs.readdirSync(dir)) fs.rmSync(join(dir, file), { recursive: true, force: true });

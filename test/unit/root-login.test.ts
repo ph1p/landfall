@@ -3,16 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   canLogin: vi.fn(async () => true),
 }));
 
 const dir = fs.mkdtempSync(join(tmpdir(), "lf-root-"));
 process.env.LANDFALL_CONFIG_DIR = dir;
 process.env.LANDFALL_SSH_CONFIG = join(dir, "ssh");
-const { CONFIG_PATH, loadConfig } = await import("../../src/core/config");
-const { sameMachineLogins } = await import("../../src/core/sshconfig");
+const { CONFIG_PATH, loadConfig } = await import("../../src/core/lib/config");
+const { sameMachineLogins } = await import("../../src/core/ssh/sshconfig");
 const { serverConfig } = await import("../../src/cli/commands/server");
 
 const SSH = `Host vps

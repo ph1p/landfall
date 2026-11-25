@@ -1,23 +1,23 @@
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SiteMeta } from "../../src/core/compose";
-import { fail } from "../../src/core/fail";
-import { OWN_PROXY } from "../../src/core/templates";
+import type { SiteMeta } from "../../src/core/site/compose";
+import { fail } from "../../src/core/lib/fail";
+import { OWN_PROXY } from "../../src/core/ssh/templates";
 
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
 // What the server answers a script that matches, else the lock's timestamp.
 const answers: [RegExp, string][] = [];
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     scripts.push(script);
     return { code: 0, stdout: answers.find(([re]) => re.test(script))?.[1] ?? "20260101120000\n", stderr: "" };
   },
 }));
-const { applySite, removeSite, SEP } = await import("../../src/core/remote");
-const { skipper } = await import("../../src/core/hooks");
-const ad = await import("../../src/core/autodeploy");
+const { applySite, removeSite, SEP } = await import("../../src/core/site/remote");
+const { skipper } = await import("../../src/core/site/hooks");
+const ad = await import("../../src/core/deploy/autodeploy");
 
 const server = { host: "example.com" } as any;
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });

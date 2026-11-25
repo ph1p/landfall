@@ -1,15 +1,23 @@
 import { posix } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { activeEnvironment, loadProject, projectServer } from "../../core/config";
-import { ago } from "../../core/ago";
-import { autodeployBlocker, autodeployLog, autodeployNowScript, NOW_NO_SITE, readAutodeploy, setAutodeploy, type AutodeployView } from "../../core/autodeploy";
-import { currentRelease, type AutodeploySetting } from "../../core/compose";
-import { repoInfo, safeRemote } from "../../core/git";
-import { list, ruleText, type RefRule } from "../../core/refs";
-import { parseGitUrl } from "../../core/remote-git";
-import { noSite } from "../../core/remote";
-import { runScript } from "../../core/ssh";
-import { c, fail, info, ok, printJson, table, warn } from "../../core/term";
+import { activeEnvironment, loadProject, projectServer } from "../../core/lib/config";
+import { ago } from "../../core/lib/ago";
+import {
+  autodeployBlocker,
+  autodeployLog,
+  autodeployNowScript,
+  NOW_NO_SITE,
+  readAutodeploy,
+  setAutodeploy,
+  type AutodeployView,
+} from "../../core/deploy/autodeploy";
+import { currentRelease, type AutodeploySetting } from "../../core/site/compose";
+import { repoInfo, safeRemote } from "../../core/deploy/git";
+import { list, ruleText, type RefRule } from "../../core/deploy/refs";
+import { parseGitUrl } from "../../core/deploy/remote-git";
+import { noSite } from "../../core/site/remote";
+import { runScript } from "../../core/ssh/ssh";
+import { c, fail, info, ok, printJson, table, warn } from "../../core/lib/term";
 
 /** What the site follows: the environment's rule, the one it has, or the branch its release came from. */
 function followRule(

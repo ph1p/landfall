@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const scripts: string[] = [];
 const reply = { stdout: "" };
 const uploads: string[] = [];
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     // ensureTools' probe: git is there.
     if (script.startsWith("command -v")) return { code: 0, stdout: "", stderr: "" };
@@ -29,8 +29,8 @@ vi.mock("../../src/core/ssh", async (orig) => ({
   },
 }));
 const { archiveCmd, fetchScript, keyRemoveScript, keyScript, parseFetched, parseGitUrl, repoId, repoName, unpackScript } =
-  await import("../../src/core/remote-git");
-const { deploySource, leftOut } = await import("../../src/core/source");
+  await import("../../src/core/deploy/remote-git");
+const { deploySource, leftOut } = await import("../../src/core/deploy/source");
 
 /** bash -n: the script parses. */
 const parses = (script: string) => execFileSync("bash", ["-n"], { input: script });

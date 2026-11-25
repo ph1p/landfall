@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import YAML from "yaml";
-import { analyze, ejectYaml, overrideYaml, routeLabels, routePlan, scaleView, splitFile, type Release, type SiteMeta } from "../../src/core/compose";
-import { OWN_PROXY } from "../../src/core/templates";
+import { analyze, ejectYaml, overrideYaml, routeLabels, routePlan, scaleView, splitFile, type Release, type SiteMeta } from "../../src/core/site/compose";
+import { OWN_PROXY } from "../../src/core/ssh/templates";
 
 const meta = (r: Release, m: Partial<SiteMeta> = {}): SiteMeta => ({
   name: "blog",

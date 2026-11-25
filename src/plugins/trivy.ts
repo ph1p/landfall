@@ -1,8 +1,8 @@
 // Trivy: scans the images the server runs and the files of its sites. A built-in plugin; lf scan is its full image report.
-import { ago } from "../core/ago";
-import { bytes } from "../core/format";
-import { definePlugin, type PluginContext, type UiAction, type UiBlock } from "../core/plugin-api";
-import { SITE_NAME } from "../core/remote";
+import { ago } from "../core/lib/ago";
+import { bytes } from "../core/lib/format";
+import { definePlugin, type PluginContext, type UiAction, type UiBlock } from "../core/plugins/plugin-api";
+import { SITE_NAME } from "../core/site/remote";
 import {
   removeTrivy,
   scanImages,
@@ -15,7 +15,7 @@ import {
   usedBy,
   type ImageScan,
   type TrivyState,
-} from "../core/scan";
+} from "../core/server/scan";
 
 /** One image of the last image scan, without its vulnerability list (lf scan shows that). */
 export interface ImageSummary {

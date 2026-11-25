@@ -1,16 +1,16 @@
 import type { ReactNode } from "react";
 import { S, http, plural, render, serverNamed, sv, tilde, errorMessage } from "../lib/store";
-import { bytes } from "../../../core/format";
-import { slug } from "../../../core/slug";
-import { expandHost, redirectHosts } from "../../../core/redirects";
-import { CLOUDS } from "../../../core/clouds";
+import { bytes } from "../../../core/lib/format";
+import { slug } from "../../../core/lib/slug";
+import { expandHost, redirectHosts } from "../../../core/traefik/redirects";
+import { CLOUDS } from "../../../core/server/clouds";
 import type { Browse, Detected, GitInfo, Redeploy, SavedServer } from "../lib/types";
-import type { LocalImage } from "../../../core/buildlocal";
+import type { LocalImage } from "../../../core/deploy/buildlocal";
 import { go, load, loadGit, refreshState } from "../lib/api";
 import { run, rep, ifOk, type Job, type JobAction } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Badge, Btn, BtnGroup, cx } from "../ui/kit";
-import { allows, hasRule, namesAt, ruleText } from "../../../core/refs";
+import { allows, hasRule, namesAt, ruleText } from "../../../core/deploy/refs";
 import {
   dialog,
   promptDlg,
@@ -32,7 +32,7 @@ import {
   type Values,
 } from "../ui/dialog";
 import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "./env";
-import { DEPLOY_HOOKS } from "../../../core/hook-names";
+import { DEPLOY_HOOKS } from "../../../core/site/hook-names";
 import { HookList, hookChoice } from "./hooks";
 import { refArgs, refField, type PickedRef } from "./pipeline";
 

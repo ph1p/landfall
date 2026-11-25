@@ -1,18 +1,18 @@
 import fs from "node:fs";
 import { defineCommand, runWith } from "../cmd";
-import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, updateConfig, patchServer, tildify, type Server } from "../../core/config";
-import { securityNotes } from "../../core/security";
-import { migrateScript } from "../../core/migrations";
-import { canLogin, runScript } from "../../core/ssh";
-import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/sshconfig";
-import { assess, printChecks, probeServer, type Check, type Part } from "../../core/inventory";
-import { checkCloud, cloudFirewall, cloudFor, cloudOf, PLATFORM, support } from "../../core/facts";
-import { ensureKey, ensureKeyLogin, loginFrom, loginPassword, serverEntry } from "../../core/login";
-import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../../core/templates";
-import { latestCompose, latestDocker } from "../../core/updates";
-import { askSudo, rootLogin, sudoNote } from "../../core/privilege";
-import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, report, step, warn } from "../../core/term";
-import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "../../core/traefik";
+import { checkDomain, checkEmail, defaults, loadConfig, mainDomain, withPrimary, updateConfig, patchServer, tildify, type Server } from "../../core/lib/config";
+import { securityNotes } from "../../core/server/security";
+import { migrateScript } from "../../core/ssh/migrations";
+import { canLogin, runScript } from "../../core/ssh/ssh";
+import { effectiveSsh, hasManagedBlock, sshAliases } from "../../core/ssh/sshconfig";
+import { assess, printChecks, probeServer, type Check, type Part } from "../../core/server/inventory";
+import { checkCloud, cloudFirewall, cloudFor, cloudOf, PLATFORM, support } from "../../core/server/facts";
+import { ensureKey, ensureKeyLogin, loginFrom, loginPassword, serverEntry } from "../../core/ssh/login";
+import { BOOTSTRAP, DEFAULT_TRAEFIK_IMAGE, PRELUDE } from "../../core/ssh/templates";
+import { latestCompose, latestDocker } from "../../core/server/updates";
+import { askSudo, rootLogin, sudoNote } from "../../core/ssh/privilege";
+import { ask, c, confirm, confirmRisky, fail, info, interactive, ok, report, step, warn } from "../../core/lib/term";
+import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProxy, type TraefikInstall } from "../../core/traefik/traefik";
 
 export const keygen = defineCommand({
   name: "keygen",

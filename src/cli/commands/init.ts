@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, loadProject } from "../../core/config";
-import { adoptCompose, currentRelease, EJECT_FILE, localCompose, ejectYaml, OVERRIDE_FILES, routed, volumeName } from "../../core/compose";
-import { composeFile, detectApp, detectProject } from "../../core/projects";
-import { requireSite } from "../../core/remote";
-import { c, confirm, fail, info, ok, showDiff, showStack, warn } from "../../core/term";
+import { checkInt, loadProject } from "../../core/lib/config";
+import { adoptCompose, currentRelease, EJECT_FILE, localCompose, ejectYaml, OVERRIDE_FILES, routed, volumeName } from "../../core/site/compose";
+import { composeFile, detectApp, detectProject } from "../../core/deploy/projects";
+import { requireSite } from "../../core/site/remote";
+import { c, confirm, fail, info, ok, showDiff, showStack, warn } from "../../core/lib/term";
 import { target } from "./sites";
 
 export const init = defineCommand({

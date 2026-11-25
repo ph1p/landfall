@@ -1,20 +1,20 @@
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SiteMeta } from "../../src/core/compose";
-import { OWN_PROXY } from "../../src/core/templates";
+import type { SiteMeta } from "../../src/core/site/compose";
+import { OWN_PROXY } from "../../src/core/ssh/templates";
 
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
 const reply = { stdout: "20260101120000\n" };
-vi.mock("../../src/core/ssh", async (orig) => ({
-  ...(await orig<typeof import("../../src/core/ssh")>()),
+vi.mock("../../src/core/ssh/ssh", async (orig) => ({
+  ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
     scripts.push(script);
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
-const { applySite, discardRelease, lockSite, overview, removeSite, setWeights } = await import("../../src/core/remote");
-const { serverCall, skipper } = await import("../../src/core/hooks");
+const { applySite, discardRelease, lockSite, overview, removeSite, setWeights } = await import("../../src/core/site/remote");
+const { serverCall, skipper } = await import("../../src/core/site/hooks");
 
 const server = { host: "example.com" } as any;
 const release = (id: string) => ({ id, at: "", services: [{ name: "web", networks: ["default"], build: true, port: 8000 }] });

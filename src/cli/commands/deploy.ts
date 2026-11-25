@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { deploySource, pickEnvironmentForRef, type Connect } from "../../core/source";
+import { deploySource, pickEnvironmentForRef, type Connect } from "../../core/deploy/source";
 import {
   activeEnvironment,
   checkImage,
@@ -21,7 +21,7 @@ import {
   resolveServer,
   saveProject,
   type ProjectConfig,
-} from "../../core/config";
+} from "../../core/lib/config";
 import {
   analyze,
   builtImage,
@@ -47,7 +47,7 @@ import {
   type Release,
   type SiteKind,
   type SiteMeta,
-} from "../../core/compose";
+} from "../../core/site/compose";
 import {
   applySite,
   builtImages,
@@ -63,23 +63,23 @@ import {
   siteDir,
   validName,
   imagePorts,
-} from "../../core/remote";
-import { buildLocally, buildTmp, localBuilds, localImage, localImages, sendImage } from "../../core/buildlocal";
-import { uploadList, uploadSize } from "../../core/ignore";
-import { journal, setUpState } from "../../core/ssh";
-import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
-import { pickIp, serverIps, sslipDomain } from "../../core/facts";
-import { bytes, plural } from "../../core/format";
-import { detectBuild } from "../../core/frameworks";
-import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug, withRedirects } from "../../core/projects";
-import { deployRedirects } from "../../core/domain-plan";
-import { claimDomains } from "../../core/claim";
+} from "../../core/site/remote";
+import { buildLocally, buildTmp, localBuilds, localImage, localImages, sendImage } from "../../core/deploy/buildlocal";
+import { uploadList, uploadSize } from "../../core/deploy/ignore";
+import { journal, setUpState } from "../../core/ssh/ssh";
+import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/lib/term";
+import { pickIp, serverIps, sslipDomain } from "../../core/server/facts";
+import { bytes, plural } from "../../core/lib/format";
+import { detectBuild } from "../../core/deploy/frameworks";
+import { besideApp, composeFile, detectApp, detectStack, detectStaticDir, exposedPort, rememberProject, slug, withRedirects } from "../../core/deploy/projects";
+import { deployRedirects } from "../../core/site/domain-plan";
+import { claimDomains } from "../../core/site/claim";
 import { setupServer } from "./setup";
-import { onStop } from "../../core/job";
-import { VERSION } from "../../core/version";
+import { onStop } from "../../core/lib/job";
+import { VERSION } from "../../core/lib/version";
 import { offerSeed } from "./volume";
-import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik";
-import { failedHook, hookVars, readHooks, refuseStaticServerHooks, releaseHooks, runLocalHook, serverCall, SKIP_OPTIONS, skipper } from "../../core/hooks";
+import { DEFAULT_USER, loginUser, newLogin } from "../../core/traefik/traefik";
+import { failedHook, hookVars, readHooks, refuseStaticServerHooks, releaseHooks, runLocalHook, serverCall, SKIP_OPTIONS, skipper } from "../../core/site/hooks";
 
 /** The first upload of a site above this size asks first. */
 const BIG_UPLOAD = 100 * 1024 * 1024;

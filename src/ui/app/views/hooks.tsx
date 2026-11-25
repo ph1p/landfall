@@ -1,5 +1,5 @@
-import { HOOK_WHEN, HOOKS, isLocalHook, type Hook } from "../../../core/hook-names";
-import type { ProjectHooks } from "../../../core/hooks";
+import { HOOK_WHEN, HOOKS, isLocalHook, type Hook } from "../../../core/site/hook-names";
+import type { ProjectHooks } from "../../../core/site/hooks";
 import type { Group, Values } from "../ui/dialog";
 
 /** package.json's landfall.hooks as a deploy reads them or a release keeps them: hook → npm scripts. */

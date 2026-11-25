@@ -1,9 +1,9 @@
 // Plugins on the command line: their commands become lf commands, their panels `lf <plugin>`.
 import { GLOBAL_OPTS, serverOpt, type Command } from "./cmd";
 import { aliases, byName } from "./registry";
-import { actionCommand, type Plugin, type PluginCommand, type UiAction, type UiBlock, type UiCell } from "../core/plugin-api";
-import { dropPlugin, pluginContext, plugins } from "../core/plugins";
-import { c, printJson, table } from "../core/term";
+import { actionCommand, type Plugin, type PluginCommand, type UiAction, type UiBlock, type UiCell } from "../core/plugins/plugin-api";
+import { dropPlugin, pluginContext, plugins } from "../core/plugins/plugins";
+import { c, printJson, table } from "../core/lib/term";
 
 type Runner = (argv: string[]) => Promise<number>;
 
