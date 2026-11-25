@@ -35,7 +35,7 @@ for people too.
 
 ## CI
 
-CI runs unit tests, both typechecks, oxlint, the oxfmt check and the production build on current Node 22 and 24 releases. A separate
+CI runs unit tests, both typechecks, oxlint, the oxfmt check and the production build on current Node 22, 24 and 26 releases. A separate
 job installs only production dependencies and checks the built CLI on Node 22.4.0, the advertised runtime floor.
 The Docker smoke suite (`static secrets ui`, plus prerequisites) runs only on manual workflow dispatch, without
 server credentials or deployments.
