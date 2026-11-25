@@ -2,8 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve } from "node:path";
 import { defineCommand, serverOpt } from "../cmd";
-import { installCommand } from "../../core/git";
-import { deploySource, pickEnvironmentForRef } from "./git";
+import { deploySource, pickEnvironmentForRef, type Connect } from "../../core/source";
 import {
   activeEnvironment,
   checkImage,
@@ -67,7 +66,7 @@ import {
 } from "../../core/remote";
 import { buildLocally, buildTmp, localBuilds, localImage, localImages, sendImage } from "../../core/buildlocal";
 import { uploadList, uploadSize } from "../../core/ignore";
-import { journal, setUpState, upload } from "../../core/ssh";
+import { journal, setUpState } from "../../core/ssh";
 import { ask, askSecret, c, confirm, showStack, fail, info, interactive, ok, report, step, warn } from "../../core/term";
 import { pickIp, serverIps, sslipDomain } from "../../core/facts";
 import { bytes, plural } from "../../core/format";
@@ -214,6 +213,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     "auth-password": { type: "string", desc: "password of the login (asked when only --auth-user is given)" },
     ref: { type: "string", desc: "deploy a branch, tag or commit: a clean export of it, without uncommitted or ignored files" },
     tag: { type: "string", desc: "deploy a tag; latest = the newest one the environment's git rule allows" },
+    git: { type: "string", desc: "deploy <url>[#ref]: the server fetches the repository (lf git key gives it a deploy key)" },
     "for-ref": { type: "string", desc: "CI: deploy this ref (refs/heads/main, refs/tags/v1.2.0) to the environment whose git rule matches it" },
     force: { type: "boolean", desc: "deploy what the environment's git rule (lf git track) does not allow" },
     ...SKIP_OPTIONS,
@@ -223,49 +223,47 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     // Read before any ssh: one with the inherited stdin would swallow `--dotenv -`.
     const dotenv = o.dotenv ? await readEnvFile(o.dotenv) : undefined;
     if (o["for-ref"]) pickEnvironmentForRef(cwd, o["for-ref"]);
-    const project: Partial<ProjectConfig> = loadProject(cwd) ?? {};
+    let project: Partial<ProjectConfig> = loadProject(cwd) ?? {};
     const environment = activeEnvironment();
     // A typo in package.json's hooks or --skip-hook fails before anything runs.
     const skip = skipper(o);
-    // The working tree, or with --ref/--tag/--for-ref a clean export of the commit: what is planned, built and sent.
-    const source = await deploySource(cwd, project, environment, o);
-    const src = source.dir;
-    // A clean export has no node_modules: installed once, before the first local hook or build needs them.
-    let installed = !source.exported;
-    const install = () => {
-      if (installed) return;
-      installed = true;
-      const cmd = installCommand(src);
-      if (!cmd) return;
-      step(`installing the export's dependencies: ${cmd}`);
-      const r = spawnSync(cmd, { cwd: src, shell: true, stdio: ["ignore", 2, 2] });
-      if (r.status !== 0) fail(`${cmd} failed (exit ${r.status}) in the export of ${source.git?.tag ?? source.git?.commit}`);
+    // The server, connected (and set up) once: --git fetches there before anything is planned.
+    let conn: Awaited<ReturnType<Connect>> | undefined;
+    const connect: Connect = async () => {
+      if (conn) return conn;
+      let { name: serverName, server } = resolveServer(o.server ?? project.server);
+      // A cloned repo's .landfall.json could name any host: never send it the source unasked.
+      if (
+        !o.server &&
+        !o.host &&
+        project.server &&
+        !loadConfig().servers[project.server] &&
+        !(await confirm(`${PROJECT_FILE} deploys to ${project.server}, which is not one of your servers (lf server ls). Send the project there?`, false))
+      )
+        fail("cancelled");
+      if (o.host && !o.server && !project.server && !loadConfig().default) fail("--host needs --server <name> for the new server");
+      const state = o.host ? "bare" : await setUpState(server);
+      if (state !== "ready") {
+        const why = state === "bare" ? "is not set up by landfall yet" : "does not let landfall log in with a key";
+        if (!o.host && !(interactive() && (await confirm(`${serverName} ${why}. Set it up now (lf setup)?`))))
+          fail(`${serverName} ${why}: run \`lf setup ${serverName}\`${state === "no-login" ? " (--host <ip> for a new server)" : ""}, or deploy with --host`);
+        await setupServer(serverName, { host: o.host, user: o.user, port: o["ssh-port"], "password-stdin": o["password-stdin"] });
+        ({ server } = resolveServer(serverName));
+        if ((await setUpState(server)) !== "ready") fail(`${serverName} is still not set up`);
+      }
+      return (conn = { server, serverName });
     };
+    // The working tree, a clean export of a commit (--ref, --tag, --for-ref), or a commit the server fetches (--git).
+    const source = await deploySource(cwd, project, environment, o, connect);
+    // --git with no .landfall.json here: the commit's settings.
+    if (source.project) project = source.project;
+    const src = source.dir;
     const hooks = readHooks([resolve(src, dirArg ?? project.dir ?? "."), src]);
-    if (hooks && (["prebuild", "postbuild", "predeploy"] as const).some((h) => hooks.run[h])) install();
-    if (project.name) info(c.dim(`using ${projectSources(cwd).join(" and ")}${environment ? `, environment ${environment}` : ""}`));
+    if (hooks && (["prebuild", "postbuild", "predeploy"] as const).some((h) => hooks.run[h])) source.prepare();
+    if (project.name && !source.project) info(c.dim(`using ${projectSources(cwd).join(" and ")}${environment ? `, environment ${environment}` : ""}`));
 
-    let { name: serverName, server } = resolveServer(o.server ?? project.server);
-    // A cloned repo's .landfall.json could name any host: never send it the source unasked.
-    if (
-      !o.server &&
-      !o.host &&
-      project.server &&
-      !loadConfig().servers[project.server] &&
-      !(await confirm(`${PROJECT_FILE} deploys to ${project.server}, which is not one of your servers (lf server ls). Send the project there?`, false))
-    )
-      fail("cancelled");
-    if (o.host && !o.server && !project.server && !loadConfig().default) fail("--host needs --server <name> for the new server");
-    const state = o.host ? "bare" : await setUpState(server);
-    if (state !== "ready") {
-      const why = state === "bare" ? "is not set up by landfall yet" : "does not let landfall log in with a key";
-      if (!o.host && !(interactive() && (await confirm(`${serverName} ${why}. Set it up now (lf setup)?`))))
-        fail(`${serverName} ${why}: run \`lf setup ${serverName}\`${state === "no-login" ? " (--host <ip> for a new server)" : ""}, or deploy with --host`);
-      await setupServer(serverName, { host: o.host, user: o.user, port: o["ssh-port"], "password-stdin": o["password-stdin"] });
-      ({ server } = resolveServer(serverName));
-      if ((await setUpState(server)) !== "ready") fail(`${serverName} is still not set up`);
-    }
-    const name = validName(o.name ?? project.name ?? envSiteName(slug(basename(cwd))));
+    const { server, serverName } = await connect();
+    const name = validName(o.name ?? project.name ?? envSiteName(slug(source.name ?? basename(cwd))));
     const keep = checkInt(o.keep ?? defaults().keep ?? DEFAULT_KEEP, "--keep", 1);
     const domainArgs: string[] | undefined = o.domain;
     const redirectArgs: string[] | undefined = o.redirect;
@@ -294,7 +292,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         o,
         project,
         environment,
-        install,
+        source.prepare,
       );
       // A static site runs in nginx, without package.json: its server hooks are refused before anything is sent.
       refuseStaticServerHooks(hooks, kind);
@@ -426,10 +424,11 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         try {
           if (files !== undefined) {
             const size = uploadSize(list);
-            step(`uploading ${relative(src, dir) || "."} (${plural(size.files, "file")}, ${bytes(size.total)})`);
+            const what = `${relative(src, dir) || "."} (${plural(size.files, "file")}, ${bytes(size.total)})`;
+            step(source.fromServer() ? `unpacking ${what} from ${serverName}'s copy of ${git!.commit}` : `uploading ${what}`);
             // A redeploy starts from the live release's files and sends only what changed.
             const seedRelease = prev?.kind === kind ? prev.current : undefined;
-            const uploaded = await upload(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
+            const uploaded = await source.send(server, dir, releaseDir + files, list, seedRelease && `${siteDir(name)}/current${files}`);
             if (uploaded === "rsync") info(c.dim(`uploaded only what changed since release ${seedRelease}`));
             else if (uploaded === "tar:no-local-rsync") info(c.dim("uploaded every file: install rsync on this machine to send only what changed"));
             else if (uploaded === "tar:no-server-rsync")
@@ -577,7 +576,9 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         await move().catch((e) => warn(`${name} is live, but moving its domains failed: ${e?.message ?? e}`));
 
         const all = siteDomains(meta);
-        if (o.save) {
+        // --git: the settings belong in the repository, not in the folder it was deployed from.
+        if (o.save && o.git) info(c.dim(`not saved to ${PROJECT_FILE}: a --git deploy takes its settings from the commit`));
+        else if (o.save) {
           const saved = withRedirects({ name, server: serverName, domains }, redirects);
           if (kind === "image") Object.assign(saved, { image, ...(!fromImage && { port }), ...(send && { sendImage: true }) });
           else {

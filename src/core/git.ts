@@ -116,25 +116,25 @@ export async function resolveRef(cwd: string, ref: string): Promise<Resolved | u
   return undefined;
 }
 
+/** What git for-each-ref prints per ref: parseRefLines reads it. The server's mirror is read with it too. */
+export const REF_FORMAT = "%(refname)%09%(objectname)%09%(*objectname)%09%(creatordate:iso-strict)%09%(*subject)%09%(subject)";
+
 /** Branches and tags (local and origin's) as refs, tags peeled to their commit. */
 export async function listRefs(cwd: string): Promise<Ref[]> {
-  const out = await git(
-    cwd,
-    "for-each-ref",
-    "--format=%(refname)%09%(objectname)%09%(*objectname)%09%(creatordate:iso-strict)%09%(*subject)%09%(subject)",
-    "refs/heads",
-    "refs/tags",
-    "refs/remotes/origin",
-  );
+  return parseRefLines(await git(cwd, "for-each-ref", `--format=${REF_FORMAT}`, "refs/heads", "refs/tags", "refs/remotes/origin"));
+}
+
+/** for-each-ref lines in REF_FORMAT as refs. A local branch wins over origin's of the same name. */
+export function parseRefLines(out: string | undefined): Ref[] {
   const refs = new Map<string, Ref>();
   for (const line of (out ?? "").split("\n").filter(Boolean)) {
     const [full, obj, peeled, date, tagSubject, subject] = line.split("\t");
     if (full === "refs/remotes/origin/HEAD") continue;
     const { name, kind } = parseRefName(full);
+    if (!kind) continue;
     const key = `${kind}:${name}`;
-    // A local branch wins over origin's of the same name.
     if (full.startsWith("refs/remotes/") && refs.has(key)) continue;
-    refs.set(key, { name, kind: kind!, sha: peeled || obj, ...(date && { date }), ...((tagSubject || subject) && { subject: tagSubject || subject }) });
+    refs.set(key, { name, kind, sha: peeled || obj, ...(date && { date }), ...((tagSubject || subject) && { subject: tagSubject || subject }) });
   }
   return [...refs.values()];
 }

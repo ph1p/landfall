@@ -82,6 +82,7 @@ function help() {
         "refs",
         "promote",
         "git track",
+        "git key",
         "sites list",
         "sites info",
         "domains",

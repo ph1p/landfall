@@ -6,7 +6,7 @@ import { go } from "../lib/api";
 import { ACTS, Badge, Btn, BtnGroup, Card, CardHead, Empty, HIDE, Kv, Lede, MONO, NAME, SHOW, SR, cx, Icon, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, siteNameError, type Values } from "../ui/dialog";
-import { Describe, Stack, deployImage, detected, folderDialog, redeploy, setupFlow } from "./flows";
+import { Describe, Stack, deployImage, deployRepo, detected, folderDialog, redeploy, setupFlow } from "./flows";
 import { DomainChip, ensureDns, siteSettings } from "./domains";
 import { ErrorsCard } from "./traffic";
 import { DEPLOY_HOOKS, ROLLBACK_HOOKS } from "../../../core/hook-names";
@@ -121,7 +121,8 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
               <Btn cls="primary" on={() => folderDialog(S.state.cwd)}>
                 Choose a folder…
               </Btn>{" "}
-              <Btn on={() => deployImage()}>Deploy an image…</Btn> <span className="dim">or drop a folder here</span>
+              <Btn on={() => deployImage()}>Deploy an image…</Btn> <Btn on={() => deployRepo({ server: n })}>Deploy from git…</Btn>{" "}
+              <span className="dim">or drop a folder here</span>
             </p>
             <p className="faint mono">{routed ? `lf deploy ./dist -d example.com -s ${n}` : `lf deploy ./dist -s ${n}`}</p>
           </Empty>
@@ -323,6 +324,15 @@ function SiteRows({ n, site }: { n: string; site: SiteStatus }) {
           cls="sm"
           title="Deploy an image to it again: the same tag pulls anew (lf deploy --image)"
           on={() => deployImage({ server: n, name, domains: m.domains, redirects: m.redirects })}
+        >
+          <Icon name="deploy" />
+          Redeploy
+        </Btn>
+      ) : cur?.git?.remote && (cur.git.source === "server" || cur.git.source === "ci") && !deploys ? (
+        <Btn
+          cls="sm"
+          title={`Fetch ${cur.git.tag ?? cur.git.branch ?? "the default branch"} again on the server and deploy it (lf deploy --git)`}
+          on={() => deployRepo({ url: cur.git!.remote, ref: cur.git!.tag ?? cur.git!.branch, name, server: n })}
         >
           <Icon name="deploy" />
           Redeploy

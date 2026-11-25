@@ -53,6 +53,8 @@ let assumeYes = false;
 export const setAssumeYes = (v: boolean) => (assumeYes = v);
 /** A person can answer prompts (TTY, no -y). */
 export const interactive = () => !assumeYes && !!process.stdin.isTTY;
+/** confirm can be answered: by a person, or by -y. */
+export const canConfirm = () => assumeYes || !!process.stdin.isTTY;
 
 export async function ask(question: string, def?: string): Promise<string> {
   if (assumeYes || !process.stdin.isTTY) {

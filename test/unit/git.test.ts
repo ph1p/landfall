@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { deploySource, gitTrack, pickEnvironmentForRef } from "../../src/cli/commands/git";
+import { gitTrack } from "../../src/cli/commands/git";
+import { deploySource as source, pickEnvironmentForRef, type SourceOpts } from "../../src/core/source";
 import { gitRules, loadProject } from "../../src/core/config";
 import { exportRef, installCommand, listRefs, repoInfo, resolveRef } from "../../src/core/git";
 import { loadProjects } from "../../src/core/projects";
@@ -99,21 +100,24 @@ describe("core/git", () => {
 });
 
 describe("deploySource", () => {
+  // Only --git connects to the server.
+  const deploySource = (cwd: string, p: Parameters<typeof source>[1], env: string, o: SourceOpts) =>
+    source(cwd, p, env, o, () => Promise.reject(new Error("connected")));
   const prod = { tag: "v*" };
   const test_ = { branch: "main" };
 
   test("without a rule or an option: the working tree, as before", async () => {
     repo();
     const s = await deploySource(dir, loadProject(dir, "test")!, "test", {});
-    expect(s).toMatchObject({ dir, exported: false, git: { branch: "main", tag: "v1.1.0-rc.1", source: "local" } });
+    expect(s).toMatchObject({ dir, git: { branch: "main", tag: "v1.1.0-rc.1", source: "local" } });
   });
 
   test("not a git checkout: unchanged without a rule, refused with one unless --force", async () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), "lf-nogit-"));
     dir = d;
-    expect(await deploySource(d, {}, "", {})).toEqual({ dir: d, exported: false });
+    expect(await deploySource(d, {}, "", {})).not.toHaveProperty("git");
     await expect(deploySource(d, { git: prod }, "prod", {})).rejects.toThrow(/not a git checkout.*--force/);
-    expect(await deploySource(d, { git: prod }, "prod", { force: true })).toEqual({ dir: d, exported: false });
+    expect(await deploySource(d, { git: prod }, "prod", { force: true })).not.toHaveProperty("git");
     await expect(deploySource(d, {}, "", { ref: "main" })).rejects.toThrow(/needs a git checkout/);
   });
 
@@ -131,7 +135,8 @@ describe("deploySource", () => {
     const p = loadProject(dir, "prod")!;
     await expect(deploySource(dir, p, "prod", {})).rejects.toThrow(/tags v\*.*--tag latest/);
     const s = await deploySource(dir, p, "prod", { tag: "latest" });
-    expect(s.exported).toBe(true);
+    expect(s).toMatchObject({ git: { source: "ref" } });
+    expect(s.dir).not.toBe(dir);
     expect(s.git).toMatchObject({ tag: "v1.0.0", source: "ref" });
     expect(fs.readFileSync(path.join(s.dir, "index.html"), "utf8")).toBe("v1");
   });
@@ -141,7 +146,7 @@ describe("deploySource", () => {
     fs.writeFileSync(path.join(dir, "index.html"), "dirty");
     const p = loadProject(dir, "test")!;
     await expect(deploySource(dir, p, "test", {})).rejects.toThrow(/uncommitted changes.*--ref main/);
-    expect((await deploySource(dir, p, "test", { ref: "main" })).exported).toBe(true);
+    expect((await deploySource(dir, p, "test", { ref: "main" })).dir).not.toBe(dir);
   });
 
   test("--ref, --tag and --for-ref exclude each other", async () => {
@@ -153,7 +158,7 @@ describe("deploySource", () => {
     repo({ environments: { test: { git: test_ }, prod: { git: prod } } });
     g(dir, "checkout", "-q", "--detach", "HEAD");
     const s = await deploySource(dir, loadProject(dir, "test")!, "test", { "for-ref": "refs/heads/main" });
-    expect(s).toMatchObject({ dir, exported: false, git: { branch: "main" } });
+    expect(s).toMatchObject({ dir, git: { branch: "main" } });
   });
 });
 

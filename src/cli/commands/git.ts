@@ -1,152 +1,14 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defineCommand } from "../cmd";
-import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, saveGitRule, type ProjectConfig } from "../../core/config";
-import type { ReleaseGit } from "../../core/compose";
-import { ciRun, exportRef, listRefs, releaseGit, repoInfo, resolveRef } from "../../core/git";
-import { onStop } from "../../core/job";
-import {
-  allows,
-  envsForRef,
-  hasRule,
-  latestTag,
-  list,
-  namesAt,
-  newestTag,
-  one,
-  parseRefName,
-  ruleText,
-  sameRule,
-  type RefKind,
-  type RefRule,
-} from "../../core/refs";
-import { c, fail, info, printJson, table, warn } from "../../core/term";
-
-export interface DeploySource {
-  /** The folder to deploy from: the working tree, or a clean export of a commit. */
-  dir: string;
-  git?: ReleaseGit;
-  /** A clean export: its dependencies are installed before a local build. */
-  exported: boolean;
-}
-
-type SourceOpts = { ref?: string; tag?: string; "for-ref"?: string; force?: boolean };
-
-const envFlag = (env: string) => (env ? ` -E ${env}` : "");
-
-/**
- * --for-ref: the environment whose git rule matches the ref, set as the active one. CI hands over
- * refs/heads/main or refs/tags/v1.2.0 and leaves picking the environment to the rules.
- */
-export function pickEnvironmentForRef(cwd: string, ref: string) {
-  if (activeEnvironment()) fail("--for-ref picks the environment from the git rules: drop -E (and LANDFALL_ENV)");
-  const rules = gitRules(cwd);
-  if (!Object.values(rules).some(hasRule)) fail(`--for-ref needs git rules in ${PROJECT_FILE}: lf git track -E <env> --branch <glob> or --tag <glob>`);
-  const { name, kind } = parseRefName(ref);
-  const refs = kind
-    ? [{ name, kind }]
-    : [
-        { name, kind: "branch" as const },
-        { name, kind: "tag" as const },
-      ];
-  const envs = envsForRef(rules, refs);
-  if (!envs.length) fail(`no environment deploys ${ref}: ${rulesLine(rules)}`);
-  if (envs.length > 1) fail(`${ref} matches the rules of ${envs.map((e) => e || "the project").join(" and ")}: make the rules not overlap, or deploy with -E`);
-  // The -E mechanism (cli.ts sets it the same way): loadProject and the deploy read the active environment from it.
-  if (envs[0]) process.env.LANDFALL_ENV = envs[0];
-  info(c.dim(`${ref} deploys to ${envs[0] || "the project"} (${ruleText(rules[envs[0]])})`));
-}
-
-const rulesLine = (rules: Record<string, RefRule | undefined>) =>
-  Object.entries(rules)
-    .filter(([, r]) => hasRule(r))
-    .map(([e, r]) => `${e || "the project"} deploys ${ruleText(r)}`)
-    .join("; ");
-
-/**
- * What a deploy sends: the working tree, as always, or with --ref/--tag/--for-ref a commit. Checks the
- * environment's git rule when it has one; --force deploys anyway, -y never does.
- */
-export async function deploySource(cwd: string, project: Partial<ProjectConfig>, environment: string, o: SourceOpts): Promise<DeploySource> {
-  const given = (["ref", "tag", "for-ref"] as const).filter((k) => o[k]);
-  if (given.length > 1) fail(`--${given.join(" and --")} exclude each other`);
-  const rule = project.git;
-  const repo = await repoInfo(cwd);
-  const ci = ciRun();
-  const where = environment ? `environment ${environment}` : "the project";
-  if (!repo) {
-    if (given.length) fail(`--${given[0]} needs a git checkout: ${cwd} is not in one`);
-    if (hasRule(rule)) {
-      if (!o.force) fail(`${where} deploys ${ruleText(rule)}, but ${cwd} is not a git checkout (--force deploys it anyway)`);
-      warn(`not a git checkout: deploying past the git rule of ${where} (--force)`);
-    }
-    return { dir: cwd, exported: false };
-  }
-
-  // The commit asked for, if any.
-  const refs = await listRefs(cwd);
-  let named: { sha: string; name: string; kind?: RefKind } | undefined;
-  if (o.tag === "latest") {
-    const pick = latestTag(rule, refs);
-    if (!pick) return fail(`no tag here matches ${list(rule?.tag).length ? ruleText(rule) : "any version"} (git fetch --tags fetches them)`);
-    named = { sha: pick.sha, name: pick.name, kind: "tag" };
-    info(c.dim(`latest tag: ${pick.name}`));
-  } else if (o.tag) named = await resolveRef(cwd, `refs/tags/${o.tag}`);
-  else if (o.ref ?? o["for-ref"]) named = await resolveRef(cwd, (o.ref ?? o["for-ref"])!);
-  const asked = o.tag ?? o.ref ?? o["for-ref"];
-  if (asked && !named) fail(`no ${o.tag ? "tag" : "branch, tag or commit"} ${asked} here (git fetch fetches it)`);
-  if (o["for-ref"] && named) {
-    // CI's checkout: the ref's kind comes from the argument, not from a detached HEAD.
-    const k = parseRefName(o["for-ref"]).kind;
-    if (k) named.kind = k;
-  }
-
-  const sha = named?.sha ?? repo.sha;
-  // CI checks out the commit it deploys: the working tree is it, no export needed.
-  const exported = !!named && !(o["for-ref"] && named.sha === repo.sha);
-
-  // Every name the commit goes by: the one asked for, the branch checked out, the branches and tags at it.
-  const names = namesAt(sha, refs, [named ?? { name: repo.branch, kind: "branch" }]);
-  if (hasRule(rule)) {
-    const what = named ? `${named.name} (${sha.slice(0, 12)})` : repo.branch ? `HEAD on ${repo.branch}` : `HEAD (${repo.commit})`;
-    if (!allows(rule, names)) {
-      const hint = list(rule.tag).length
-        ? `deploy a tag: lf deploy${envFlag(environment)} --tag latest`
-        : `deploy one: lf deploy${envFlag(environment)} --ref ${list(rule.branch)[0].replace(/\*.*$/, "") || "<branch>"}`;
-      if (!o.force) fail(`${where} deploys ${ruleText(rule)}; ${what} is not one. ${hint} (--force deploys it anyway)`);
-      warn(`${what} is not what ${where} deploys (${ruleText(rule)}): deploying anyway (--force)`);
-    }
-    if (rule.requireClean && !exported && repo.dirty) {
-      const msg = `${where} deploys only committed files, and ${repo.dirty} ${repo.dirty === 1 ? "file has" : "files have"} uncommitted changes`;
-      if (!o.force) fail(`${msg}: commit them, or deploy the commit with --ref ${repo.branch ?? "HEAD"} (--force deploys them anyway)`);
-      warn(`${msg}: deploying them anyway (--force)`);
-    }
-  }
-
-  // The tag and branch it was asked as win over those found at the commit.
-  const tag = named?.kind === "tag" ? named.name : newestTag(names);
-  const branch = named?.kind === "branch" ? named.name : exported ? undefined : repo.branch;
-  const git: ReleaseGit = {
-    ...releaseGit({ ...repo, sha, commit: sha.slice(0, 12), branch, tags: tag ? [tag] : [], dirty: exported ? 0 : repo.dirty }),
-    source: ci ? "ci" : exported ? "ref" : "local",
-    ...(ci && { ci }),
-  };
-  if (!exported) return { dir: cwd, exported: false, git };
-
-  // A clean export of the commit, at the same place in the repository as this folder.
-  const tmp = fs.mkdtempSync(join(tmpdir(), "lf-src-"));
-  const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
-  const off = onStop(async () => cleanup());
-  process.once("exit", () => {
-    off();
-    cleanup();
-  });
-  info(c.dim(`exporting ${named!.name} (${sha.slice(0, 12)}): a clean copy of the commit, without uncommitted or ignored files`));
-  await exportRef(cwd, sha, tmp);
-  // repo.prefix comes from git: a path relative to repo.root breaks on symlinked folders (/var → /private/var).
-  return { dir: join(tmp, repo.prefix), exported: true, git };
-}
+import { defineCommand, serverOpt } from "../cmd";
+import { activeEnvironment, ENV_NAME, gitRules, loadProject, PROJECT_FILE, projectServer, saveGitRule } from "../../core/config";
+import { repoInfo, safeRemote } from "../../core/git";
+import { hasRule, one, ruleText, sameRule, type RefRule } from "../../core/refs";
+import { forgeOf, keyRemoveScript, keyScript, parseGitUrl, type GitUrl } from "../../core/remote-git";
+import { runScript } from "../../core/ssh";
+import { c, canConfirm, confirm, confirmRemoval, fail, info, ok, printJson, step, table, warn } from "../../core/term";
 
 export const gitTrack = defineCommand({
   name: "git track",
@@ -203,5 +65,102 @@ changes on a server.`,
     if (setting) return;
     if (!rows.length) return info(`no git rules: every environment deploys anything (lf git track -E <env> --branch <glob> sets one)`);
     table([["environment", "deploys"].map(c.dim), ...rows.map(([e, r]) => [e || c.dim("(project)"), ruleText(r)])]);
+  },
+});
+
+/** The forges' CLIs: how each adds a deploy key, and where its page for one is. */
+const FORGES = {
+  github: {
+    cli: "gh",
+    add: (file: string, repo: string, title: string) => ["repo", "deploy-key", "add", file, "-R", repo, "-t", title],
+    page: (p: string) => `https://github.com/${p}/settings/keys/new`,
+  },
+  gitlab: {
+    cli: "glab",
+    add: (file: string, repo: string, title: string) => ["deploy-key", "add", file, "-R", repo, "-t", title],
+    page: (p: string) => `https://gitlab.com/${p}/-/settings/repository#js-deploy-keys-settings`,
+  },
+} as const;
+
+/** gh or glab, installed and logged in. */
+const loggedIn = (cli: string) => spawnSync(cli, ["auth", "status"], { stdio: "ignore" }).status === 0;
+
+/** Adds the public key as a read-only deploy key through gh or glab: true when it did. */
+async function addDeployKey(g: GitUrl, publicKey: string, title: string): Promise<boolean> {
+  const forge = forgeOf(g);
+  if (!forge) return false;
+  const f = FORGES[forge];
+  if (!loggedIn(f.cli) || !canConfirm() || !(await confirm(`Add it to ${g.path} as a read-only deploy key (${f.cli})?`))) return false;
+  const dir = fs.mkdtempSync(join(tmpdir(), "lf-key-"));
+  try {
+    const file = join(dir, "key.pub");
+    fs.writeFileSync(file, publicKey + "\n");
+    const r = spawnSync(f.cli, f.add(file, g.path, title), { stdio: ["ignore", 2, "pipe"], encoding: "utf8" });
+    if (r.status === 0) return true;
+    warn(`${f.cli} could not add the key: ${(r.stderr || `exit ${r.status}`).trim()}`);
+    return false;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export const gitKey = defineCommand({
+  name: "git key",
+  args: "[url]",
+  summary: `Give a server a deploy key for a repository, so it can fetch it (lf deploy --git).
+
+  lf git key                                  # the project's repository (git.url, else origin)
+  lf git key git@github.com:acme/shop.git -s web
+  lf git key gh:acme/shop --json              # for scripts and the web UI
+  lf git key gh:acme/shop --rm                # remove the key
+
+Makes an ed25519 key on the server, once, and prints its public key. With gh or glab
+logged in, it offers to add the key to the repository as a read-only deploy key;
+otherwise add it by hand. The private key never leaves the server.`,
+  options: {
+    server: serverOpt,
+    rm: { type: "boolean", desc: "remove the server's deploy key for the repository (cannot be undone)" },
+    json: { type: "boolean", desc: "print {url, server, publicKey, created, added} as JSON" },
+  },
+  async run([arg], o) {
+    const cwd = process.cwd();
+    const url = arg ?? loadProject(cwd, "")?.git?.url ?? (await repoInfo(cwd))?.remote;
+    if (!url) fail("which repository? pass its URL (git@host:owner/repo.git, gh:owner/repo), or run inside a checkout with an origin");
+    const g = parseGitUrl(url!);
+    if (g.ref) fail(`a deploy key is for the whole repository: drop #${g.ref}`);
+    if (!g.host) fail(`${g.url} is a path on the server: it needs no deploy key`);
+    const { server, name: serverName } = projectServer(o.server);
+    const shown = safeRemote(g.url);
+
+    if (o.rm) {
+      await confirmRemoval(`Remove ${serverName}'s deploy key for ${shown}? It cannot fetch the repository afterwards, and the key cannot be restored.`);
+      await runScript(server, keyRemoveScript(g));
+      const forge = forgeOf(g);
+      if (o.json) return printJson({ url: shown, server: serverName, removed: true });
+      ok(`removed ${serverName}'s deploy key for ${shown}`);
+      if (forge) info(c.dim(`remove it from the repository's deploy keys too: ${FORGES[forge].page(g.path).replace(/\/new$/, "")}`));
+      return;
+    }
+
+    step(`deploy key for ${shown} on ${serverName}`);
+    const { stdout } = await runScript(server, keyScript(g, `landfall ${serverName}`), { capture: true });
+    const created = stdout.includes("@@created");
+    const publicKey = stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.startsWith("ssh-"));
+    if (!publicKey) fail(`${serverName} printed no public key`);
+    info(created ? `made a deploy key on ${serverName}` : `${serverName} has a deploy key for ${shown} already`);
+    const added = await addDeployKey(g, publicKey!, `landfall ${serverName}`);
+    const forge = forgeOf(g);
+    if (added) ok(`added it to ${g.path} as a read-only deploy key`);
+    else
+      info(
+        forge
+          ? `add it to ${g.path} as a read-only deploy key: ${FORGES[forge].page(g.path)}${loggedIn(FORGES[forge].cli) ? "" : ` (or log in with ${FORGES[forge].cli} auth login and run this again)`}`
+          : `add it to ${shown} as a read-only deploy key (the host's repository settings)`,
+      );
+    if (o.json) return printJson({ url: shown, server: serverName, publicKey, created, added });
+    console.log(publicKey);
   },
 });

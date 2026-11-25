@@ -24,7 +24,7 @@ die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 # E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
 SECTIONS="static spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
-  system versions security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
+  system versions git security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
 needs() {
   case $1 in
     environments) echo secrets ;;
@@ -753,6 +753,36 @@ out=$(lf log-limit 10m --files 2 -s box 2>&1) || die "log-limit with a newer lan
 lf undo -s box -y >/dev/null 2>&1 || die "undo log-limit"
 restore
 pass "an older lf warns and keeps going"
+fi
+
+if want git; then echo "== git"
+# A repository the server fetches itself: deploy --git needs no local folder.
+mkdir -p "$WORK/repo" && cd "$WORK/repo"
+git init -q -b main && git config user.email e2e@example.com && git config user.name e2e
+page() { printf 'services:\n  web:\n    image: busybox:1.37\n    command: sh -c "mkdir -p /www && echo %s > /www/index.html && httpd -f -p 8000 -h /www"\n    x-landfall: { port: 8000 }\n' "$1" > compose.yaml; }
+page "git one" && git add -A && git commit -qm one && git tag v1.0.0
+page "git two" && git commit -qam two
+git clone -q --bare . "$WORK/app.git"
+docker cp "$WORK/app.git" "$NAME:/srv/app.git" && srv chown -R deploy /srv/app.git
+mkdir -p "$WORK/empty" && cd "$WORK/empty"
+lf deploy --git /srv/app.git -n gitapp -d gitapp.test -y >"$WORK/git.log" 2>&1 || { cat "$WORK/git.log"; die "deploy --git"; }
+expect gitapp.test / "git two"
+{ srv cat /opt/landfall/sites/gitapp/site.json | has -E '"source": *"server"'; } || die "the release says the server fetched it"
+srv test -d /opt/landfall/repos/local-srv-app/mirror.git || die "the server keeps a mirror"
+[ -z "$(ls -A "$WORK/empty")" ] || die "deploy --git writes nothing here"
+pass "deploy --git fetches on the server and deploys the default branch"
+lf deploy --git '/srv/app.git#v1.0.0' -n gitapp -y >"$WORK/git.log" 2>&1 || { cat "$WORK/git.log"; die "deploy --git #tag"; }
+expect gitapp.test / "git one"
+{ srv cat /opt/landfall/sites/gitapp/site.json | has -E '"tag": *"v1.0.0"'; } || die "the release names the tag"
+{ ! lf deploy --git '/srv/app.git#nope' -n gitapp -y >"$WORK/git.log" 2>&1 && has "no branch, tag or commit nope" "$WORK/git.log"; } || { cat "$WORK/git.log"; die "unknown ref refused"; }
+pass "deploy --git deploys a tag and refuses an unknown ref"
+{ lf git key gh:acme/shop -s box --json | has '"publicKey": "ssh-ed25519 '; } || die "git key prints the public key"
+srv test -f /opt/landfall/repos/github.com-acme-shop/key || die "the private key stays on the server"
+lf git key gh:acme/shop -s box --rm -y >/dev/null 2>&1 || die "git key --rm"
+{ ! srv test -e /opt/landfall/repos/github.com-acme-shop/key; } || die "git key --rm removes the key"
+pass "git key makes a deploy key on the server and removes it"
+lf sites rm gitapp -y >/dev/null 2>&1 || die "sites rm gitapp"
+cd "$ROOT"
 fi
 
 if want security; then echo "== security"

@@ -2,7 +2,7 @@ import type { Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { config } from "./commands/config";
 import { deploy } from "./commands/deploy";
-import { gitTrack } from "./commands/git";
+import { gitKey, gitTrack } from "./commands/git";
 import { promote, refs } from "./commands/refs";
 import { eject, init } from "./commands/init";
 import {
@@ -75,6 +75,7 @@ export const commands: Command[] = [
   refs,
   promote,
   gitTrack,
+  gitKey,
   sitesList,
   sitesInfo,
   sitesLogs,
@@ -153,12 +154,12 @@ export const commands: Command[] = [
   traefikStatus,
   traefikDashboard,
   traefikRestart,
+  traefikAccessLog,
   traefikLogs,
   traefikRemove,
   firewallStatus,
   firewallEnable,
   firewallDisable,
-  traefikAccessLog,
   firewallAllow,
   firewallDeny,
   firewallUpdate,

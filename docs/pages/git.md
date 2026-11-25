@@ -122,12 +122,49 @@ npx landfall deploy --for-ref "${CI_COMMIT_TAG:-$CI_COMMIT_BRANCH}" -y
 
 See [Deploy from CI](deploy.md#deploy-from-ci) for the ssh key the runner needs.
 
+## Deploy from the server
+
+```sh
+lf git key gh:acme/shop -s web                 # give the server a deploy key, once
+lf deploy --git gh:acme/shop -s web            # the repository's default branch
+lf deploy --git git@github.com:acme/shop.git#v1.4.2 -s web
+lf deploy --git gh:acme/shop -E prod --tag latest
+```
+
+- With `--git`, the server fetches the repository itself. Nothing is uploaded, and no checkout is needed here.
+- The URL can be `git@host:owner/repo.git`, `ssh://…`, `https://…`, `gh:owner/repo`, `gl:group/repo` or a path on the server.
+- The part after `#` is a branch, tag or commit. `--ref` and `--tag` do the same; give one of them, not both.
+- The server keeps a bare mirror under `/opt/landfall/repos/<host>-<repo>/`. The first fetch makes it and installs git if needed.
+- This machine gets a copy of the commit to read its settings. The release's files come from the server's mirror.
+- Settings come from the commit's `.landfall.json`. A `.landfall.json` in the current folder wins, and `--git` never writes one.
+- The environment's rule is checked against the server's branches and tags. `--force` deploys past it.
+- A static site that builds on this machine is uploaded after its build, as a normal deploy is.
+- Submodules are not supported.
+
+### Deploy keys
+
+```sh
+lf git key                          # the project's repository (git.url, else origin)
+lf git key gh:acme/shop -s web      # a repository by URL
+lf git key gh:acme/shop --rm        # remove the server's key
+```
+
+- A private repository needs a deploy key. `lf git key` makes an ed25519 key on the server, once, and prints its public key.
+- The private key stays on the server, in the repository's folder under `/opt/landfall/repos/`.
+- With `gh` (GitHub) or `glab` (GitLab) installed and logged in, it offers to add the key as a read-only deploy key.
+- Without them, it prints the page where you add the key by hand.
+- landfall stores no GitHub or GitLab token.
+- github.com's and gitlab.com's host keys are built in. Other hosts are trusted on first use.
+- `lf undo` removes a key it made. `--rm` cannot be undone.
+
 ## In the web UI
 
 - A project without rules shows a quiet *Set up git deploys* link. It opens the rules editor.
 - The rules editor shows which branches and tags each rule matches, and warns when two rules overlap. Saving runs `lf git track`.
 - The pipeline board shows one column per environment: the rule, what runs, what is newer, and *Deploy latest*, *Deploy…* and *Promote*.
 - The deploy dialog of a git checkout offers *Working tree* (the default) or a branch, tag or commit.
+- *Deploy from git…* (on an empty server, and in the folder picker) deploys a repository the server fetches. It can make the deploy key first.
+- A site deployed that way shows *Redeploy*, which fetches the same branch or tag again.
 
 ## landfall version and app version
 
