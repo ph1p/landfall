@@ -3,7 +3,7 @@ import { S, render, plural, server, sv, tilde, useStore, type Slot } from "../li
 import type { Overview, ServerEntry } from "../lib/types";
 import { go, goMap, load, loadReach, needs, pluginNameOf, SECTIONS, STORE, type CoreTab, type Tab } from "../lib/api";
 import { run, runningJobs, openTunnels, showJob, JobPanel } from "../lib/jobs";
-import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../ui/kit";
+import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, badgeClass, cx, MONO } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
 import { addServer, setupFlow, folderDialog, deployHere } from "./flows";
 import {
@@ -22,7 +22,7 @@ import {
   REACH_WORD,
   REACH_KIND,
 } from "./shared";
-import { runCommand, forget, makeDefault, uninstall } from "./domains";
+import { copy, runCommand, forget, makeDefault, uninstall } from "./domains";
 import { rebootDlg, SystemView } from "./system";
 import { UsersView } from "./users";
 import { updatesBadge, UpdatesView } from "./updates";
@@ -106,6 +106,16 @@ function Header() {
         </svg>
         landfall <small className="font-medium text-faint text-xs tracking-normal px-[7px] py-px rounded-full bg-hover max-[760px]:hidden">{st.version}</small>
       </a>
+      {st.update && (
+        <button
+          type="button"
+          className={cx(badgeClass("accent"), "cursor-pointer hover:brightness-110 max-[760px]:hidden")}
+          title={`landfall ${st.update.latest} is available. Click to copy: ${st.update.command}`}
+          onClick={() => copy(st.update!.command)}
+        >
+          {st.update.latest} available
+        </button>
+      )}
       <div className="ml-auto flex items-center gap-2 text-dim text-md min-w-0 max-[760px]:[&_button]:px-2.5 max-[760px]:[&_button]:text-md">
         {S.jobs.size > 0 && !S.job && (
           <Btn on={() => showJob([...S.jobs.keys()].pop()!)} title="Show command output">

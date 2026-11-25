@@ -158,6 +158,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `LANDFALL_CONFIG_DIR` | config directory instead of `~/.config/landfall` |
 | `XDG_CONFIG_HOME` | without `LANDFALL_CONFIG_DIR`: config in `$XDG_CONFIG_HOME/landfall` |
 | `LANDFALL_NO_PLUGINS` | `1` skips your plugins; built-in ones still load |
+| `LANDFALL_NO_UPDATE_CHECK` | `1` skips the daily check for a newer landfall (see [Updates](updates.md)) |
 | `LANDFALL_ENV` | the `.landfall.json` environment to work on, as `-E` |
 | `LANDFALL_SSH_CONFIG` | another ssh config file (`ssh -F`) |
 | `LANDFALL_PASSWORD` | login password for `setup`, `server add`, `deploy --host` |

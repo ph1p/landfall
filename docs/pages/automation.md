@@ -66,6 +66,7 @@ Be explicit. Defaults depend on the current directory and the machine:
 `-s` takes anything `ssh` takes: an alias from `~/.ssh/config`, a registered server, or `user@host`.
 Isolate a run from the user's setup with `LANDFALL_CONFIG_DIR` (landfall's config) and `LANDFALL_SSH_CONFIG`
 (an ssh config file, passed as `ssh -F`).
+Without a terminal landfall does not check for a newer version of itself; `LANDFALL_NO_UPDATE_CHECK=1` turns the check off everywhere.
 
 ## Look before you change
 

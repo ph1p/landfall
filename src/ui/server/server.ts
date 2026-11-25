@@ -43,6 +43,7 @@ import {
 import { newRunId, setQuiet } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, JOURNAL, OWN_PROXY, PROXY_FILE, ROOT, SITES, TRAEFIK_DIR } from "../../core/templates";
 import { c, CliError, openUrl } from "../../core/term";
+import { availableUpdate, updateCheckOff, updateCommand } from "../../core/self-update";
 
 interface WebJob {
   id: string;
@@ -182,10 +183,18 @@ function projectHere() {
   }
 }
 
+// `lf ui` runs through the CLI, which refreshes the cached answer; this only reads it.
+function updateLine() {
+  const latest = updateCheckOff() ? undefined : availableUpdate(pkg.version);
+  return latest ? { latest, command: updateCommand() } : null;
+}
+
 export function state() {
   const cfg = loadConfig();
   return {
     version: pkg.version,
+    // A newer landfall on npm, from the daily check, and how to install it.
+    update: updateLine(),
     cwd: process.cwd(),
     project: projectHere(),
     projects: loadProjects(),

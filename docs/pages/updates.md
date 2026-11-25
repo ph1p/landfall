@@ -16,6 +16,20 @@ lf update --compose                # newest compose, where landfall installed it
 - Never touched: images pinned by digest, Dockerfile sites, foreign containers.
 - Version-pinned tags move to the newest tag of the same shape (`traefik:v3.6` → `traefik:v3.7`).
 
+## landfall itself
+
+```sh
+npm i -g landfall@latest           # update the CLI (pnpm add -g, bun add -g where you installed it that way)
+LANDFALL_NO_UPDATE_CHECK=1 lf ls   # one run without the check; export it to turn the check off
+```
+
+- Once a day, landfall asks the npm registry for its newest version.
+- When a newer one exists, a command run in a terminal ends with one line on stderr saying so. It says so at most once a day.
+- `lf ui` shows the newer version next to its own in the header. Click it to copy the update command.
+- landfall never installs an update by itself.
+- No check without a terminal, in CI (`$CI`), or with `LANDFALL_NO_UPDATE_CHECK` or `NO_UPDATE_NOTIFIER` set.
+- Without network, it asks again after an hour. The answer lives in `~/.config/landfall/update-check.json`.
+
 ## Vulnerabilities
 
 ```sh

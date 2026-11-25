@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { setTimeout as delay } from "node:timers/promises";
 import { journalCmd, parse, usage } from "./cmd";
 import { byName, find } from "./registry";
 import { validateJobArgs } from "./job-args";
@@ -9,6 +10,7 @@ import { JOB_INPUT, readJobInput } from "../core/job-input";
 import { exitWithParent } from "../core/job";
 import { journal, setSudoPassword } from "../core/ssh";
 import { askSecret, c, CliError, report, setAssumeYes } from "../core/term";
+import { refreshUpdate, updateCheckOff, updateNotice } from "../core/self-update";
 import pkg from "../../package.json";
 
 function help() {
@@ -181,8 +183,21 @@ async function sudoFromUser(ask: boolean, given?: string) {
   setSudoPassword(pw);
 }
 
-/** One command, errors printed. */
+/** One command, then the update notice when one is due. */
 async function run(argv: string[]): Promise<number> {
+  // Only people at a terminal hear about updates: scripts, CI and web UI jobs keep their stderr as it was.
+  const updates = !!process.stderr.isTTY && !updateCheckOff();
+  const check = updates ? refreshUpdate() : undefined;
+  const code = await runCommand(argv);
+  // A quick command would exit before the registry answers: give it a moment, never more.
+  if (check) await Promise.race([check, delay(800)]);
+  const notice = updates ? updateNotice(pkg.version) : undefined;
+  if (notice) console.error(`\n${c.dim(notice)}`);
+  return code;
+}
+
+/** One command, errors printed. */
+async function runCommand(argv: string[]): Promise<number> {
   try {
     await loadPlugins(BUILTIN);
     registerPlugins(main);
