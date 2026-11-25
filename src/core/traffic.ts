@@ -4,6 +4,7 @@ import { ACCESS_LOG_READ, parseAccessLog, parseProxyLog } from "./accesslog";
 import type { Server } from "./config";
 import { currentRelease, MATCH_SUFFIX, matchText, routerName, SITE_LINES, siteHosts, readSiteLine, splitGroups, type SiteMeta } from "./compose";
 import { REDIRECTS_LINE, redirectsOf } from "./server-redirects";
+import { rootLogin } from "./privilege";
 import { runScript, shq } from "./ssh";
 import { PROXY_FILE, PROXY_PRELUDE } from "./templates";
 import { fail } from "./term";
@@ -207,15 +208,19 @@ ${SITE_LINES}
 ${REDIRECTS_LINE}
 readf() { cat "$1" 2>/dev/null || sudo -n cat "$1" 2>/dev/null; }
 for d in $(docker inspect -f '{{range .Mounts}}{{.Source}} {{end}}' "$P"); do
-  [ -d "$d" ] || [ -f "$d" ] || continue
   case "$d" in */docker.sock) continue ;; esac
+  # A mount under /root is invisible to a deploy login: look through passwordless sudo, else say it needs root.
+  if [ -d "$d" ] || [ -f "$d" ]; then as=""
+  elif sudo -n test -e "$d" 2>/dev/null; then as="sudo -n"
+  else [ -e "$d" ] || printf 'DENIED\t%s\n' "$d"; continue; fi
   # Directories in letsencrypt/ belong to root and may not be listable: name acme.json directly too.
-  { find "$d" -maxdepth 2 \( -name '*.json' -o -name '*.crt' -o -name '*.pem' -o -name '*.cert' \) 2>/dev/null; [ -d "$d" ] && echo "$d/acme.json"; } | sort -u | while read -r f; do
+  { $as find "$d" -maxdepth 2 \( -name '*.json' -o -name '*.crt' -o -name '*.pem' -o -name '*.cert' \) 2>/dev/null; $as test -d "$d" && echo "$d/acme.json"; } | sort -u | while read -r f; do
     case "$f" in
       *.json)
         [ -e "$f" ] || sudo -n test -e "$f" 2>/dev/null || continue
         j=$(readf "$f") || { printf 'DENIED\t%s\n' "$f"; continue; }
-        printf '%s' "$j" | grep -q '"Certificates"' || continue
+        # Not grep -q: it quits on the first match, and under pipefail the SIGPIPE to a large printf reads as no match.
+        case "$j" in *'"Certificates"'*) ;; *) continue ;; esac
         printf 'ACME\t%s\n' "$f"
         printf '%s' "$j" | grep -o '"certificate": *"[^"]*"' | awk -F'"' '{ print "CERT\tacme\t" $(NF - 1) }' ;;
       *)
@@ -344,7 +349,11 @@ export function parseCerts(out: string, now = new Date()): Certs {
 
 export async function certs(s: Server, secs = 7 * 86400): Promise<Certs> {
   const { stdout } = await runScript(s, CERTS(secs), { capture: true });
-  return parseCerts(stdout);
+  const r = parseCerts(stdout);
+  if (!r.denied.length) return r;
+  // Your own Traefik often keeps acme.json under /root: read it through a root key login when one works, without asking.
+  const root = await rootLogin(s).catch(() => undefined);
+  return root ? parseCerts((await runScript(root, CERTS(secs), { capture: true })).stdout) : r;
 }
 
 // ---- checks from here --------------------------------------------------------

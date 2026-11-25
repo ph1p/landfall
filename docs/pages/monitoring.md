@@ -38,7 +38,7 @@ lf log-limit 20m -s vps                        # cap every container log, Traefi
 
 ## Certificates
 
-`certs` reads `acme.json` (Let's Encrypt; root-owned needs root or passwordless sudo) and certificate files in `dynamic/`. Only certificates leave the server, never keys. Errors come from Traefik's log of the last 7 days (`--since`). Let's Encrypt renews 30 days ahead: under 30 days means renewal is due, under 7 that it fails.
+`certs` reads `acme.json` (Let's Encrypt; root-owned, or under `/root`, needs passwordless sudo or a root key login) and certificate files in `dynamic/`. Only certificates leave the server, never keys. Errors come from Traefik's log of the last 7 days (`--since`). Let's Encrypt renews 30 days ahead: under 30 days means renewal is due, under 7 that it fails.
 
 ## Checks
 
