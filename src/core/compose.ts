@@ -146,6 +146,19 @@ export function gitLabel(g: Release["git"]) {
   return `${g.tag ? `${g.tag} ` : ""}${g.commit}${g.branch ? ` ${g.branch}` : ""}${g.dirty ? ", uncommitted changes" : ""}${source ? `, ${source}` : ""}`;
 }
 
+export interface AutodeploySetting {
+  /** The environment whose rule it follows; "" for the project's own. */
+  env: string;
+  /** 5m, 1h: how often cron runs it. */
+  every: string;
+  /** Branches (newest commit wins) or tags (newest version wins), not both. */
+  rule: { branch?: string[]; tag?: string[]; prerelease?: boolean };
+  /** The repository the server fetches. */
+  url: string;
+  /** The project's folder in the repository; "" for its root. */
+  dir: string;
+}
+
 /** What the site was deployed from: static, image and dockerfile get a generated compose.yaml. */
 export type SiteKind = "compose" | "static" | "image" | "dockerfile";
 
@@ -175,6 +188,8 @@ export interface SiteMeta {
   scale?: Record<string, number>;
   /** Traffic shares per service of a split (lf weight), over compose.yaml's x-landfall.weight. */
   weights?: Record<string, number>;
+  /** lf autodeploy: the server's crontab runs autodeploy.sh, which deploys new commits of the rule's branch or tags. */
+  autodeploy?: AutodeploySetting;
   createdAt: string;
   updatedAt: string;
 }

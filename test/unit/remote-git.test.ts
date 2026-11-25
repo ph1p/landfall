@@ -11,6 +11,8 @@ const uploads: string[] = [];
 vi.mock("../../src/core/ssh", async (orig) => ({
   ...(await orig<typeof import("../../src/core/ssh")>()),
   runScript: async (_s: unknown, script: string) => {
+    // ensureTools' probe: git is there.
+    if (script.startsWith("command -v")) return { code: 0, stdout: "", stderr: "" };
     scripts.push(script);
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
@@ -71,7 +73,8 @@ describe("server scripts", () => {
     const s = fetchScript(g, { head: true, sha: "abc1234" });
     parses(s);
     expect(s).toContain(`record 'git mirror of git@github.com:acme/shop.git'`);
-    expect(s).toContain("pkg_install git");
+    expect(s).not.toContain("pkg_install git");
+    expect(s).toContain("the server has no git");
     expect(s.indexOf("flock")).toBeLessThan(s.indexOf("fetch -q --prune"));
     expect(s).toContain("@@head");
     expect(s).toContain(`'abc1234^{commit}'`);

@@ -208,6 +208,7 @@ home_of() { local h; h=$(getent passwd "$1" 2>/dev/null | cut -d: -f6) || true; 
 # The distro's package manager, and installing with it.
 ${PKG_MGR}
 ${REBOOT_NEEDED}
+pkg_cmd() { case "$(pkg_mgr)" in apk) echo "apk add" ;; apt-get) echo "apt-get install" ;; none) echo "install" ;; *) echo "$(pkg_mgr) install" ;; esac; }
 pkg_has() {
   case "$(pkg_mgr)" in
     apt-get) dpkg -s "$1" ;;
@@ -217,7 +218,17 @@ pkg_has() {
     *) false ;;
   esac >/dev/null 2>&1
 }
+# Whether this login can run root commands: it is root, or it may sudo (-K's password counts: its shim drops -n).
+can_root() { [ -z "$SUDO" ] || { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; }; }
 pkg_install() {
+  if ! can_root; then
+    if command -v sudo >/dev/null 2>&1; then
+      echo "installing $* needs root: $(id -un) may not sudo without a password. Install it as root ($(pkg_cmd) $*), or give the sudo password with -K (\$LANDFALL_SUDO_PASSWORD)" >&2
+    else
+      echo "installing $* needs root: $(id -un) is not root and the server has no sudo. Install it as root ($(pkg_cmd) $*)" >&2
+    fi
+    return 1
+  fi
   log "installing $*"
   case "$(pkg_mgr)" in
     # clean: apt-get keeps every downloaded .deb in /var/cache/apt/archives.
@@ -306,7 +317,7 @@ _journal() { # _journal <do|undo> <what> <undo shell>
   line="$line$(printf %s "$3" | base64 | tr -d '\n')"$'\t'"$LANDFALL_CLI"
   if [ -w ${JOURNAL} ] || { [ ! -e ${JOURNAL} ] && [ -w ${ROOT} ]; }; then
     printf '%s\n' "$line" >> ${JOURNAL}
-  elif [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then false
+  elif ! can_root; then false
   else
     { $SUDO install -d ${ROOT} && printf '%s\n' "$line" | $SUDO tee -a ${JOURNAL} >/dev/null; } 2>/dev/null
   fi || { log "warning: could not write ${JOURNAL}"; return 0; }
@@ -465,7 +476,7 @@ export const BOOTSTRAP = String.raw`
 new_sites=$([ -d ${SITES} ] || echo 1)
 [ -z "$new_sites" ] || _stamp_fresh=$LANDFALL_MIGRATION
 ${COMPOSE_INSTALL}
-if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
+if ! can_root; then
   echo "setup needs root or sudo for $(id -un) (try: lf setup <name> --user root, or -K for the sudo password)" >&2
   exit 1
 fi

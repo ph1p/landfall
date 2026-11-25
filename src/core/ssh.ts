@@ -18,7 +18,7 @@ let quiet = false;
 /** Dashboard mode: ssh never prompts and its stderr goes into the error instead of the screen. */
 export const setQuiet = (v: boolean) => (quiet = v);
 /** How to update this CLI; it depends only on the binary's path, so it is computed once. */
-const UPDATE = updateCommand();
+export const UPDATE = updateCommand();
 
 export interface SshOpts {
   /** Allocate a TTY (interactive commands). */
@@ -173,7 +173,7 @@ function spawnP(
  * Non-interactive ssh gets a short PATH: Synology's Container Manager (and other add-on packages)
  * put docker in /usr/local/bin, which only login shells have.
  */
-const REMOTE_PATH = `PATH="$PATH:/usr/local/sbin:/usr/local/bin"`;
+export const REMOTE_PATH = `PATH="$PATH:/usr/local/sbin:/usr/local/bin"`;
 
 /** Run an interactive command (or a login shell when cmd is empty). */
 export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
@@ -235,6 +235,8 @@ export interface ScriptOpts {
   capture?: boolean;
   /** Run the script as root through passwordless sudo. */
   sudo?: boolean;
+  /** Nonzero exit codes the caller handles itself: returned instead of failing. */
+  codes?: number[];
 }
 
 /**
@@ -311,7 +313,7 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
   // Quiet runs capture stderr: pass the script's report lines on all the same. A waited-for run showed them already.
   const lines = waitFor ? [] : res.stderr.trim().split("\n");
   for (const l of lines) if (l.startsWith(REPORT)) process.stderr.write(l + "\n");
-  if (res.code !== 0) {
+  if (res.code !== 0 && !o.codes?.includes(res.code)) {
     const why = lines.filter((l) => !l.startsWith(REPORT)).at(-1);
     fail(`remote command failed on ${s.host} (exit ${res.code})${why ? `: ${why}` : ""}`);
   }

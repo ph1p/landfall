@@ -86,6 +86,7 @@ function help() {
         "git key",
         "ci init",
         "ci rm",
+        "autodeploy",
         "sites list",
         "sites info",
         "domains",

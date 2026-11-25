@@ -1,6 +1,8 @@
 import type { Server } from "./config";
+import { shq } from "./quote";
 import { canLogin, hasSudoPassword, runScript, setSudoPassword } from "./ssh";
 import { effectiveSsh, sameMachineLogins } from "./sshconfig";
+import { PRELUDE } from "./templates";
 import { askSecret, c, fail, info, interactive } from "./term";
 
 /**
@@ -37,11 +39,18 @@ async function tryRoot(s: Server): Promise<Server | undefined> {
 export const ROOT_HINT =
   "add a Host for root (or a sudo user) in ~/.ssh/config, name one with lf server config --root-login <ssh-alias>, or give the sudo password with -K ($LANDFALL_SUDO_PASSWORD)";
 
-/** How s gets root: it is root, it may sudo (without a password, or with the one given by -K), or not at all. */
-export async function rootVia(s: Server): Promise<"root" | "sudo" | ""> {
-  const { stdout } = await runScript(s, `if [ "$(id -u)" = 0 ]; then echo root; elif sudo -n true 2>/dev/null; then echo sudo; fi`, { capture: true });
+/**
+ * How s gets root: it is root, it may sudo (without a password, or with the one given by -K), it may not sudo
+ * without a password (""), or the server has no sudo at all ("nosudo": no password helps).
+ */
+export async function rootVia(s: Server): Promise<"root" | "sudo" | "nosudo" | ""> {
+  const { stdout } = await runScript(
+    s,
+    `if [ "$(id -u)" = 0 ]; then echo root; elif ! command -v sudo >/dev/null 2>&1; then echo nosudo; elif sudo -n true 2>/dev/null; then echo sudo; fi`,
+    { capture: true },
+  );
   const v = stdout.trim();
-  return v === "root" || v === "sudo" ? v : "";
+  return v === "root" || v === "sudo" || v === "nosudo" ? v : "";
 }
 
 /**
@@ -56,6 +65,11 @@ export async function adminLogin(s: Server, what: string): Promise<Server> {
   if (via !== "sudo") {
     const other = await rootLogin(s);
     if (other) return (info(c.dim(`${what} runs as root: through the login ${effectiveSsh(other).user}@${other.host}`)), other);
+    // No sudo on the server: a password cannot help, so do not ask for one.
+    if (via === "nosudo")
+      fail(
+        `${what} needs root: ${me} is not root and ${s.host} has no sudo; add a Host for root in ~/.ssh/config, or name one with lf server config --root-login <ssh-alias>`,
+      );
     await askSudo(s, what, `no root key login works either; ${ROOT_HINT}`);
   }
   return (sudoNote(what, me), s);
@@ -76,4 +90,22 @@ export async function askSudo(s: Server, what: string, how = ROOT_HINT) {
   if ((await rootVia(s)) === "sudo") return;
   setSudoPassword(undefined);
   fail(`sudo refused ${me} on ${s.host}: wrong password, or ${me} may not use sudo; ${how}`);
+}
+
+/** A tool a command needs on the server, and the package that brings it (default: the command's name). */
+export interface Tool {
+  cmd: string;
+  pkg?: string;
+}
+
+/**
+ * Installs the tools s lacks, as root (adminLogin: root's key login, sudo, or -K's password), journaled with no undo.
+ * Checks first as s, so nothing asks for root when every tool is there. Fails with the way to get root when none works.
+ */
+export async function ensureTools(s: Server, tools: Tool[], why: string) {
+  const probe = tools.map((t) => `command -v ${shq(t.cmd)} >/dev/null 2>&1 || echo ${shq(t.pkg ?? t.cmd)}`).join("\n");
+  const missing = (await runScript(s, probe, { capture: true })).stdout.split("\n").filter(Boolean);
+  if (!missing.length) return;
+  const login = await adminLogin(s, `installing ${missing.join(" and ")} (${why})`);
+  await runScript(login, `${PRELUDE}\npkg_install ${missing.map(shq).join(" ")}\nrecord ${shq(`installed ${missing.join(", ")}`)}`);
 }

@@ -233,6 +233,8 @@ export interface EnvRefs {
   behind?: number;
   /** Refs here the rule allows, tags newest first. */
   matching: Ref[];
+  /** How often the site deploys itself (lf autodeploy), when it does. */
+  auto?: string;
   /** Why the server could not be read. */
   error?: string;
 }
@@ -270,6 +272,7 @@ export async function refsView(cwd: string, only?: string, g?: GitView): Promise
       try {
         const { meta } = await readSite(server.server, project.name);
         const live = meta && currentRelease(meta);
+        if (meta?.autodeploy) out.auto = meta.autodeploy.every;
         out.running = live
           ? { id: live.id, at: live.at, ...(live.by && { by: live.by }), ...(live.landfall && { landfall: live.landfall }), ...(live.git && { git: live.git }) }
           : null;

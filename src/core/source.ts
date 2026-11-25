@@ -9,6 +9,7 @@ import { activeEnvironment, gitRules, loadProject, PROJECT_FILE, type ProjectCon
 import { ciRun, exportRef, installCommand, listRefs, releaseGit, repoInfo, resolveRef, safeRemote, type Resolved } from "./git";
 import type { Entry } from "./ignore";
 import { onStop } from "./job";
+import { ensureTools } from "./privilege";
 import { allows, envsForRef, hasRule, latestTag, list, namesAt, newestTag, parseRefName, ruleText, type Ref, type RefRule } from "./refs";
 import { archiveCmd, fetchScript, parseFetched, parseGitUrl, repoName, unpackScript, type GitUrl } from "./remote-git";
 import { runScript, sshPipe, upload, type Sent } from "./ssh";
@@ -210,6 +211,7 @@ async function serverSource(cwd: string, project: Partial<ProjectConfig>, enviro
   if (g.ref && (o.ref || o.tag)) fail(`--git ${o.git} names the ref already: drop --${o.ref ? "ref" : "tag"}`);
   const ref = g.ref ?? o.ref ?? o["for-ref"];
   const { server, serverName } = await connect();
+  await ensureTools(server, [{ cmd: "git" }], "to fetch the repository");
   step(`fetching ${safeRemote(g.url)} on ${serverName}`);
   const { stdout } = await runScript(server, fetchScript(g, { head: !ref && !o.tag, sha: ref && /^[0-9a-f]{4,40}$/i.test(ref) ? ref : undefined }), {
     capture: true,

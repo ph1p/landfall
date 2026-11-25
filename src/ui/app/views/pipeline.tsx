@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { S, ago, plural, tilde, useStore } from "../lib/store";
 import { goPipeline, loadGit, loadRefs } from "../lib/api";
 import { run, type Job } from "../lib/jobs";
-import { dialog, words, type Spec, type Values } from "../ui/dialog";
+import { confirmDlg, dialog, words, type Spec, type Values } from "../ui/dialog";
 import { Actions, Badge, Body, Btn, Card, CardHead, Empty, Sub, cx, pending, MONO } from "../ui/kit";
 import {
   allows,
@@ -31,7 +31,9 @@ import type { EnvRefs } from "../lib/types";
 import { openAfter } from "./flows";
 import { ciDialog } from "./ci";
 
-const envArgs = (env: string) => (env ? ["-E", env] : []);
+export const envArgs = (env?: string) => (env ? ["-E", env] : []);
+/** Intervals the UI offers; lf autodeploy --every takes any 1m–59m or 1h–23h. */
+export const EVERY = ["1m", "5m", "15m", "30m", "1h", "6h"].map((x) => ({ value: x, label: x }));
 const envLabel = (env: string) => env || "project";
 const short = (sha?: string) => sha?.slice(0, 7) ?? "";
 const isTagRule = (r: RefRule | undefined) => list(r?.tag).length > 0;
@@ -173,6 +175,14 @@ function EnvCard({ path, e, next, refs, url }: { path: string; e: EnvRefs; next?
         <div className="text-sm">
           <span className="faint">Deploys </span>
           <span className={cx(!e.rule && "dim")}>{e.ruleText}</span>
+          {e.auto && (
+            <>
+              {" "}
+              <Badge kind="accent" title={`lf autodeploy: the server checks every ${e.auto} and deploys what the rule allows`}>
+                auto · {e.auto}
+              </Badge>
+            </>
+          )}
         </div>
         {e.error ? (
           <div>
@@ -247,11 +257,48 @@ function EnvCard({ path, e, next, refs, url }: { path: string; e: EnvRefs; next?
               Promote to {next.env}
             </Btn>
           )}
+          {g?.sha && (
+            <Btn
+              cls="sm ghost"
+              title={e.auto ? `lf autodeploy -E ${e.env} --off` : `lf autodeploy -E ${e.env} --every …: the server deploys new commits on its own`}
+              on={() => autoDialog(path, e)}
+            >
+              {e.auto ? "Stop auto-deploy" : "Auto-deploy…"}
+            </Btn>
+          )}
         </div>
         {next && block && <div className="text-xs faint">{block}</div>}
       </Body>
     </Card>
   );
+}
+
+/** lf autodeploy -E <env>: turn it on with an interval, or off. */
+function autoDialog(path: string, e: EnvRefs) {
+  const argv = ["autodeploy", ...envArgs(e.env)];
+  const opts = { cwd: path, server: e.server };
+  if (e.auto)
+    return confirmDlg({
+      title: `Stop auto-deploy of ${envLabel(e.env)}?`,
+      text: `The cron line on ${e.server} goes. What runs stays. lf undo turns it back on.`,
+      ok: "Stop",
+      onOk: () => run([...argv, "--off"], { ...opts, after: () => refresh(path) }),
+    });
+  dialog({
+    title: `Auto-deploy ${envLabel(e.env)}`,
+    text: `A cron line on ${e.server} fetches the repository and deploys ${e.ruleText} on its own. A commit that changes the compose files, the environment layer, package.json or .landfall.json waits for lf deploy. The server must be able to fetch the repository (lf git key).`,
+    fields: [
+      {
+        name: "every",
+        label: "Check every",
+        type: "select",
+        value: "5m",
+        options: EVERY,
+      },
+    ],
+    ok: "Turn on",
+    onOk: (v) => run([...argv, "--every", v.every], { ...opts, after: () => refresh(path) }),
+  });
 }
 
 /** A commit, linked to the forge when the remote is one landfall knows. */

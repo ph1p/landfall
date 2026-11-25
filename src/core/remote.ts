@@ -33,6 +33,7 @@ import {
   volumeDir,
   wantedReplicas,
 } from "./compose";
+import { AUTODEPLOY_FILES, autodeployLines, autodeployMark, autodeployPath } from "./autodeploy";
 import { hookLines, hookVars, serverCall, type HookCall, type Skipper } from "./hooks";
 import { onStop } from "./job";
 import { backupName, backupTo, recreateFrom } from "./volumes";
@@ -107,7 +108,8 @@ export function validName(name: string) {
   return name;
 }
 
-const SEP = "\n--8<--landfall--8<--\n";
+/** Between the parts of readSite's answer. */
+export const SEP = "\n--8<--landfall--8<--\n";
 
 /** Fetch site.json and .env of a site, and the Traefik it goes through, in one round trip. */
 /** `routed`: a Traefik serves this server's sites (landfall's own, or one they were pointed at). Without one a domain answers nothing. */
@@ -123,17 +125,22 @@ export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMe
     { capture: true },
   );
   const [json, env = "", proxy = "", exists = "", routed = ""] = stdout.split(SEP);
-  let meta: SiteMeta | undefined;
-  if (json.trim()) {
-    try {
-      meta = JSON.parse(json);
-    } catch {}
-    if (!isSiteMeta(meta)) fail(`corrupt ${dir}/site.json on ${s.host}`);
-  }
+  const meta = parseSiteMeta(s, name, json);
   return { meta, env, proxy: parseProxy(proxy) ?? OWN_PROXY, exists: exists.trim() === "1", routed: routed.trim() === "1" };
 }
 
 /** A site that exists and is a Compose project; `deployed` also refuses adopted ones (no releases). */
+/** site.json's text as read from the server: undefined when empty, refused when corrupt. */
+export function parseSiteMeta(s: Server, name: string, json: string): SiteMeta | undefined {
+  if (!json.trim()) return undefined;
+  let meta: unknown;
+  try {
+    meta = JSON.parse(json);
+  } catch {}
+  if (!isSiteMeta(meta)) return fail(`corrupt ${siteDir(name)}/site.json on ${s.host}`);
+  return meta;
+}
+
 export async function requireSite(s: Server, name: string, o: { deployed?: string } = {}): Promise<{ meta: SiteMeta; env: string; proxy: Proxy }> {
   const site = await readSite(s, name);
   if (!site.meta) await noSite(s, name);
@@ -399,6 +406,21 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
  * `current` under the first. A lock older than an hour is from a deploy that was cut off. Returns the
  * server's clock as a release id, so ids follow each other even when this machine's clock is off.
  */
+/** fn on site.json as read under the deploy lock: a deploy or change in between would be lost on write. */
+export async function withSite<T>(
+  s: Server,
+  name: string,
+  o: { deployed?: string },
+  fn: (site: { meta: SiteMeta; env: string; proxy: Proxy }) => Promise<T>,
+): Promise<T> {
+  const lock = await lockSite(s, name);
+  try {
+    return await fn(await requireSite(s, name, o));
+  } finally {
+    await lock.unlock();
+  }
+}
+
 export async function lockSite(s: Server, name: string): Promise<{ now: string; unlock: () => Promise<void> }> {
   const lock = `${SITES}/.${name}.deploying`;
   const { stdout } = await runScript(
@@ -567,14 +589,14 @@ export const splitPath = (site: string) => `${DYNAMIC_DIR}/site-${site}.yml`;
 const rmSplit = (site: string) => `_as ${DYNAMIC_DIR} rm -f ${shq(splitPath(site))}`;
 
 /** Shell that writes the site's traffic splits for Traefik's file provider, or removes them; splits need landfall's own Traefik. */
-function splitLines(meta: SiteMeta, release: Release): string[] {
+function splitLines(meta: SiteMeta, release: Release, write: Writer = writeFileCmd): string[] {
   const path = splitPath(meta.name);
   const text = meta.adopted ? undefined : splitFile(meta, release);
   if (!text) return [rmSplit(meta.name)];
   return [
     `{ [ ! -f ${PROXY_FILE} ] && ${OWN_TRAEFIK}; } || { echo ${shq(`${meta.name} splits its traffic by weight, which needs landfall's own Traefik (its file provider): lf traefik setup, or drop x-landfall.weight`)} >&2; exit 1; }`,
     // Traefik watches the directory and must never read half a file.
-    writeFileCmd(path, text),
+    write(path, text),
   ];
 }
 
@@ -646,18 +668,28 @@ const upLines = (name: string, failed: string[] = [], only: string[] = []) => [
 /** Shell: remove a built image, quietly; one still in use stays. */
 const rmImage = (i: string) => `docker image rm ${shq(i)} >/dev/null 2>&1 || true`;
 
-interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate" | "hooks"> {
+/** Shell that writes a file: writeFileCmd, or plainWrite where the text must stay readable in the script. */
+export type Writer = (path: string, text: string, mode?: string) => string;
+/** A Writer with the text in the script as it is (quoted), not base64: autodeploy.sh fills in placeholders in it. */
+export const plainWrite: Writer = (path, text, mode) => `printf '%s' ${shq(text)} | _put ${shq(path)}${mode ? ` ${mode}` : ""}`;
+
+export interface SiteLinesOpts extends Pick<ApplyOpts, "env" | "build" | "pull" | "files" | "recreate" | "hooks"> {
   /** Shell after the build and pull, before anything that changes the running site (journal it). */
   before?: string[];
   /** Shell when it does not start (put the previous release back). */
   failed?: string[];
+  /** How files are written (default writeFileCmd). */
+  write?: Writer;
+  /** Shell that writes site.json, in place of writing meta. */
+  json?: string[];
 }
 
 /**
  * Shell that writes a site's files for meta.current, points `current` at it and starts it.
  * Until the build and pull are done nothing the running site reads changes: the new .env waits in .env.new.
  */
-function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[] {
+export function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[] {
+  const write = o.write ?? writeFileCmd;
   const dir = siteDir(meta.name);
   const release = currentRelease(meta)!;
   const rel = shq("releases/" + meta.current);
@@ -674,7 +706,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
     ...(meta.adopted
       ? []
       : [`[ -d ${SECRETS_DIR} ] || install -d -m 700 ${SECRETS_DIR}`, `(cd -P ${rel} && ln -sfn ../../${SECRETS_DIR} ${SECRETS_DIR}) || exit 1`]),
-    `(cd -P ${rel} && ${writeFileCmd("compose.override.yaml", overrideYaml(meta, release, proxy))}) || { rm -f .env.new; exit 1; }`,
+    `(cd -P ${rel} && ${write("compose.override.yaml", overrideYaml(meta, release, proxy))}) || { rm -f .env.new; exit 1; }`,
     // The override binds them there: Docker cannot create a volume on a folder that is not.
     ...(meta.adopted ? [] : (meta.volumes ?? []).map((k) => `mkdir -p ${shq(volumeDir(meta.name, k))}`)),
   ];
@@ -697,11 +729,11 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
   // With the new .env in place, before the switch: what fails goes back like a failed start.
   lines.push(...hookLines(o.hooks?.pre, "exec", "current", o.failed), ...hookLines(o.hooks?.release, "run", rel, o.failed));
   // site.json only now, with the switch: a failed build or pull leaves it naming the release that still runs.
-  lines.push(writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"));
+  lines.push(...(o.json ?? [write("site.json", JSON.stringify(meta, null, 2) + "\n")]));
   // Swapped in one rename, so `current` always points at a whole release.
   lines.push(
     `ln -sfn ${rel} current.new && mv -Tf current.new current`,
-    ...splitLines(meta, release),
+    ...splitLines(meta, release, write),
     ...rollLines(meta, release, o.failed),
     // After a roll, only the rolling services: rollLines started the others already.
     ...upLines(
@@ -719,7 +751,7 @@ function siteLines(meta: SiteMeta, proxy: Proxy, o: SiteLinesOpts = {}): string[
 /** Images the services of release `r` built. */
 export const builtImages = (name: string, r: Release) => r.services.filter((s) => s.build).map((s) => builtImage(name, s.name, r.id));
 
-const dropRelease = (meta: SiteMeta, r: Release) => [`rmf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`, ...builtImages(meta.name, r).map(rmImage)];
+export const dropRelease = (meta: SiteMeta, r: Release) => [`rmf ${shq(`${siteDir(meta.name)}/releases/${r.id}`)}`, ...builtImages(meta.name, r).map(rmImage)];
 
 /** Releases `lf release rm` takes: the given ids, else all but the `keep` newest (like a deploy's --keep). Never the live one. */
 export function oldReleases(meta: SiteMeta, o: { ids?: string[]; keep?: number } = {}): Release[] {
@@ -731,9 +763,7 @@ export function oldReleases(meta: SiteMeta, o: { ids?: string[]; keep?: number }
  * Read again under the deploy lock, so a deploy or rollback in between is not undone by an old site.json.
  */
 export async function removeReleases(s: Server, name: string, ids: string[]): Promise<Release[]> {
-  const lock = await lockSite(s, name);
-  try {
-    const { meta } = await requireSite(s, name, { deployed: "remove releases of" });
+  return withSite(s, name, { deployed: "remove releases of" }, async ({ meta }) => {
     const gone = oldReleases(meta, { ids });
     if (!gone.length) return [];
     meta.releases = meta.releases.filter((r) => !gone.includes(r));
@@ -748,9 +778,7 @@ export async function removeReleases(s: Server, name: string, ids: string[]): Pr
     ];
     await runScript(s, lines.join("\n"));
     return gone;
-  } finally {
-    await lock.unlock();
-  }
+  });
 }
 
 /**
@@ -758,9 +786,7 @@ export async function removeReleases(s: Server, name: string, ids: string[]): Pr
  * The weights must belong to a split of the current release (the caller checks).
  */
 export async function setWeights(s: Server, name: string, weights: Record<string, number>, what: string): Promise<SiteMeta> {
-  const lock = await lockSite(s, name);
-  try {
-    const { meta } = await requireSite(s, name, { deployed: "change the traffic split of" });
+  return withSite(s, name, { deployed: "change the traffic split of" }, async ({ meta, proxy }) => {
     meta.weights = { ...meta.weights, ...weights };
     meta.updatedAt = new Date().toISOString();
     const lines = [
@@ -771,13 +797,12 @@ export async function setWeights(s: Server, name: string, weights: Record<string
       // The split file first: it checks that landfall's own Traefik reads it.
       ...splitLines(meta, currentRelease(meta)!),
       writeFileCmd("site.json", JSON.stringify(meta, null, 2) + "\n"),
-      `record ${shq(what)} "$u1"${shq("\n")}"$u2"`,
+      ...(meta.autodeploy ? ["u3=$(saved autodeploy.sh) || exit 1", ...autodeployLines(meta, proxy)] : []),
+      `record ${shq(what)} "$u1"${shq("\n")}"$u2"${meta.autodeploy ? `${shq("\n")}"$u3"` : ""}`,
     ];
     await runScript(s, lines.join("\n"));
     return meta;
-  } finally {
-    await lock.unlock();
-  }
+  });
 }
 
 /** Change a deployed site in place (domains, login, current release) and apply it; undo restores it as it was. */
@@ -794,19 +819,34 @@ export async function changeSite(
     skip?: Skipper;
   } = {},
 ): Promise<SiteMeta> {
-  // Under the deploy lock, on site.json as it is now: a deploy or change in between would be lost on write.
-  const lock = await lockSite(s, name);
-  try {
-    const { meta } = await requireSite(s, name);
+  return withSite(s, name, {}, async ({ meta }) => {
     const prev = structuredClone(meta);
     change(meta);
     meta.updatedAt = new Date().toISOString();
     const hooks = o.hooks?.(prev, meta);
     await applySite(s, meta, proxy, { files: o.files, recreate: o.recreate, hooks, keep: meta.releases.length, prev, what: what + (o.skip?.note() ?? "") });
     return meta;
-  } finally {
-    await lock.unlock();
-  }
+  });
+}
+
+/**
+ * siteLines' before and failed: journal the switch once built, with `undo` (shell words that make the undo
+ * shell) as its undo; a start that fails puts the site back right away (back), or leaves a new site for lf undo.
+ */
+export function switchJournal(name: string, what: string, undo: string, back: boolean): Pick<SiteLinesOpts, "before" | "failed"> {
+  // Journaled once built, before the switch: a site that fails to start is still put back by undo.
+  // Its journal line is known only if no one else wrote one in between; then the rollback marks it undone.
+  const count = `$(wc -l < ${JOURNAL} 2>/dev/null || echo 0)`;
+  return {
+    before: [`undo=${undo}`, `jn=${count}`, `record ${shq(what)} "$undo"`, `jl=${count}; [ "$((jl))" -eq "$((jn + 1))" ] || jl=""`],
+    failed: back
+      ? [
+          `set +e; ( set -e; eval "$undo" ); rc=$?; set -e`,
+          `if [ "$rc" = 0 ]; then [ -z "$jl" ] || _journal undo "$jl" ""; log ${shq(`${name} is back as it was`)}`,
+          `else log ${shq(`could not put ${name} back as it was: lf undo`)}; fi`,
+        ]
+      : [`log ${shq(`lf undo removes ${name}`)}`],
+  };
 }
 
 /**
@@ -832,7 +872,10 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
   const files = Object.keys(o.files ?? {});
   if (files.some((f) => f.startsWith(`${SECRETS_DIR}/`))) lines.push(`install -d -m 700 ${shq(`${dir}/${SECRETS_DIR}`)}`);
   files.forEach((f, i) => lines.push(`f${i}=$(saved ${shq(`${dir}/${f}`)})`));
-  const restore = [...(saveEnv ? ['"$u"'] : []), ...files.map((_, i) => `"$f${i}"`)].join(shq("\n"));
+  // autodeploy.sh is generated from site.json: undo puts back the one that matched the old site.json.
+  const auto = !!o.prev && !!meta.autodeploy;
+  if (auto) lines.push(`ad=$(saved ${shq(autodeployPath(meta.name))})`);
+  const restore = [...(saveEnv ? ['"$u"'] : []), ...files.map((_, i) => `"$f${i}"`), ...(auto ? ['"$ad"'] : [])].join(shq("\n"));
   if (!o.prev) {
     // `lf sites rm` may have removed it since.
     head = `[ ! -d ${shq(dir)} ] || {\n${removeLines(meta, { keepDir: o.existed }).join("\n")}\n`;
@@ -847,24 +890,8 @@ export async function applySite(s: Server, meta: SiteMeta, proxy: Proxy, o: Appl
     head += `[ -d ${shq(`${dir}/releases/${old.current}`)} ] || { log ${shq(`release ${old.current} of ${meta.name} was removed since, nothing to go back to`)}; exit 0; }\n`;
     tail = "\n" + [...siteLines(back, proxy, { recreate: o.recreate }), ...added.flatMap((r) => dropRelease(meta, r))].join("\n");
   }
-  // Journaled once built, before the switch: a site that fails to start is still put back by undo.
-  // Its journal line is known only if no one else wrote one in between; then the rollback marks it undone.
-  const count = `$(wc -l < ${JOURNAL} 2>/dev/null || echo 0)`;
-  const before = [
-    `undo=${shq(head)}${restore}${shq(tail)}`,
-    `jn=${count}`,
-    `record ${shq(o.what)} "$undo"`,
-    `jl=${count}; [ "$((jl))" -eq "$((jn + 1))" ] || jl=""`,
-  ];
-  // A start that fails puts the site back as it was right away; a new site stays for lf undo to remove.
-  const failed = o.prev
-    ? [
-        `set +e; ( set -e; eval "$undo" ); rc=$?; set -e`,
-        `if [ "$rc" = 0 ]; then [ -z "$jl" ] || _journal undo "$jl" ""; log ${shq(`${meta.name} is back as it was`)}`,
-        `else log ${shq(`could not put ${meta.name} back as it was: lf undo`)}; fi`,
-      ]
-    : [`log ${shq(`lf undo removes ${meta.name}`)}`];
-  lines.push(...siteLines(meta, proxy, { ...o, before, failed }));
+  lines.push(...siteLines(meta, proxy, { ...o, ...switchJournal(meta.name, o.what, `${shq(head)}${restore}${shq(tail)}`, !!o.prev) }));
+  lines.push(...autodeployLines(meta, proxy));
   // Said, not only done: a release that goes is one rollback can no longer reach.
   if (pruned.length)
     lines.push(`log ${shq(`removing old release${pruned.length > 1 ? "s" : ""} ${pruned.map((r) => r.id).join(", ")} of ${meta.name} (keeping ${keep})`)}`);
@@ -899,13 +926,54 @@ export async function siteLogs(s: Server, name: string, o: { service?: string; t
 
 /** Ends a site's line in the crontab (lf volume backup --schedule): what finds it again. */
 export const cronMark = (site: string) => `# landfall backup ${site}:`;
+/** Shell: the crontab without the lines that hold mark, in $c. */
+export const cronWithout = (mark: string) => `c=$(crontab -l 2>/dev/null | grep -vF ${shq(mark)} || true)`;
+/** Shell: install $c plus `line` (a shell word; none: just $c) as the crontab. */
+export const cronSet = (line: string) => `printf '%s\\n%s\\n' "$c" ${line} | sed '/^$/d' | crontab -`;
+
+/** A minute of its own per site (0–59): not every server's jobs at :00 sharp. */
+export const cronMinute = (site: string) => [...site].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 60, 7);
+
+/** Shell that succeeds when a cron daemon runs. */
+export const CRON_RUNNING = "pidof crond >/dev/null || pidof cron >/dev/null";
+
+/**
+ * Putting `line` (empty: none) into the login's crontab in place of the line marked `mark`, in three parts:
+ * `check` goes before any other change (it refuses a server without cron, to `purpose`, and keeps the old line),
+ * `set` changes the crontab, and `undo` is a shell word for record that puts back the old line (or none).
+ */
+export function cronChange(mark: string, line: string, purpose: string) {
+  const [head, tail] = cronSet("@").split(" @ ");
+  return {
+    check: [
+      ...(line
+        ? [
+            `command -v crontab >/dev/null || { echo "the server has no cron: install it (cron, cronie or busybox crond) to ${purpose}" >&2; exit 1; }`,
+            // busybox crontab (Alpine) gives a user other than root a crontab only when setuid.
+            `[ "$(id -u)" = 0 ] || [ "$(pkg_mgr)" != apk ] || pkg_has busybox-suid || ! can_root || pkg_install busybox-suid || true`,
+          ]
+        : []),
+      `old=$(crontab -l 2>/dev/null | grep -F ${shq(mark)} || true)`,
+    ],
+    set: [
+      "if command -v crontab >/dev/null; then",
+      `  ${cronWithout(mark)}`,
+      `  ${cronSet(line ? shq(line) : '""')} || { echo "could not change the crontab of $(id -un): busybox crontab (Alpine) lets only root have one unless setuid; install busybox-suid as root (apk add busybox-suid)" >&2; exit 1; }`,
+      "fi",
+    ],
+    undo: `${shq(`${cronWithout(mark)}; ${head} `)}"$(printf %q "$old")"${shq(` ${tail}`)}`,
+  };
+}
 
 export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: boolean } = {}): string[] {
   const dir = siteDir(meta.name);
   const v = o.volumes ? " -v" : "";
   const images = meta.adopted ? [] : meta.releases.flatMap((r) => builtImages(meta.name, r));
   // keepDir: the dir was there before landfall used it, so take out only landfall's files (.env is the caller's).
-  const files = ["site.json", "current", "current.new", ...meta.releases.map((r) => `releases/${r.id}`), ...(o.volumes ? ["volumes"] : [])].map(shq).join(" ");
+  const files = ["site.json", "current", "current.new", ...AUTODEPLOY_FILES, ...meta.releases.map((r) => `releases/${r.id}`), ...(o.volumes ? ["volumes"] : [])]
+    .map(shq)
+    .join(" ");
+  const marks = [cronMark(meta.name), autodeployMark(meta.name)].map((m) => `-e ${shq(m)}`).join(" ");
   return [
     `cd ${shq(dir)}`,
     `log ${shq(`stopping ${meta.name}`)}`,
@@ -914,7 +982,8 @@ export function removeLines(meta: SiteMeta, o: { keepDir?: boolean; volumes?: bo
     ...images.map(rmImage),
     rmSplit(meta.name),
     // Scheduled backups stop with the site; those already made stay with the volumes.
-    `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${shq(cronMark(meta.name))} || crontab -l | grep -vF ${shq(cronMark(meta.name))} | crontab - || true`,
+    // So do auto-deploys.
+    `! command -v crontab >/dev/null || ! crontab -l 2>/dev/null | grep -qF ${marks} || crontab -l | grep -vF ${marks} | crontab - || true`,
     // The containers' users own the volumes' files (postgres is 999): a container deletes them, no sudo needed.
     ...(o.volumes ? [`[ ! -d volumes ] || docker run --rm -q -v "$PWD/volumes:/v" ${HELPER} find /v -mindepth 1 -delete`] : []),
     ...(o.keepDir

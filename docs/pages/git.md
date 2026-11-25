@@ -167,7 +167,8 @@ lf deploy --git gh:acme/shop -E prod --tag latest
 - With `--git`, the server fetches the repository itself. Nothing is uploaded, and no checkout is needed here.
 - The URL can be `git@host:owner/repo.git`, `ssh://…`, `https://…`, `gh:owner/repo`, `gl:group/repo` or a path on the server.
 - The part after `#` is a branch, tag or commit. `--ref` and `--tag` do the same; give one of them, not both.
-- The server keeps a bare mirror under `/opt/landfall/repos/<host>-<repo>/`. The first fetch makes it and installs git if needed.
+- The server keeps a bare mirror under `/opt/landfall/repos/<host>-<repo>/`. The first fetch makes it.
+- A server without git gets it on the first fetch. Installing needs root: landfall uses the root key login, or sudo (`-K` gives the sudo password).
 - This machine gets a copy of the commit to read its settings. The release's files come from the server's mirror.
 - Settings come from the commit's `.landfall.json`. A `.landfall.json` in the current folder wins, and `--git` never writes one.
 - The environment's rule is checked against the server's branches and tags. `--force` deploys past it.
@@ -190,6 +191,44 @@ lf git key gh:acme/shop --rm        # remove the server's key
 - github.com's and gitlab.com's host keys are built in. Other hosts are trusted on first use.
 - `lf undo` removes a key it made. `--rm` cannot be undone.
 
+## Auto-deploy: the server deploys new commits
+
+```sh
+lf autodeploy -E test --every 5m       # test deploys new commits of its branch rule
+lf autodeploy -E prod --every 15m      # prod deploys newer tags of its tag rule
+lf autodeploy -E test                  # what it follows, what it saw last, the log
+lf autodeploy -E test --now            # check once, now, and print what it did
+lf autodeploy -E test --off            # stop
+lf autodeploy shop-test -s web --every 1h --branch main   # a site by name, outside its folder
+```
+
+- Auto-deploy is off until you turn it on. It needs a site deployed from git, and a server that can fetch the repository (`lf git key`).
+- A cron line of the login user runs `/opt/landfall/sites/<name>/autodeploy.sh`. There is no daemon.
+- `--every` takes `1m` to `59m` or `1h` to `23h`.
+- The site follows the environment's rule. A branch rule deploys the newest commit of the branch. A tag rule deploys the highest matching version.
+- With a tag rule, only newer tags deploy. Pre-releases (`v1.2.0-rc.1`) deploy only with `--prerelease` or `prerelease` in the rule.
+- `--branch` and `--tag` follow other refs than the rule. A rule with both branches and tags needs one of them.
+- Without a rule, it follows the branch the running release came from.
+- Turning it on fetches once, so a repository the server cannot read is refused right away. It installs `jq` and git if needed, the same way.
+- The script remembers the last commit it saw. After `lf rollback` or a manual deploy, it waits for a new commit; it does not deploy back over yours.
+- A deploy, rollback, `lf scale` or `lf weight` rewrites the script, so it always matches the running site.
+- It skips a run while another deploy of the site runs.
+- A release made this way shows the source *auto-deploy* and is deployed by `autodeploy`. `lf undo` puts back the release before it.
+- It keeps the newest 5 releases, plus the one that ran before.
+- The log is `/opt/landfall/sites/<name>/autodeploy.log`. It keeps the last 200 lines.
+- `lf undo` of turning it on or off restores the setting, the script and the cron line.
+
+### What auto-deploy leaves to `lf deploy`
+
+- A commit that changes `compose.yaml`, the environment's compose layer, a compose override, `package.json` or `.landfall.json` is not deployed.
+  The log says which `lf deploy` to run, and the commit is not tried again.
+- Only these file names are checked. A compose file under another name (`-f`) is not.
+- A commit that fails to build or start is not tried again. The next new commit is.
+- Files the running release has beside git (generated files, uploads not in the repository) are copied from it.
+- `.dockerignore` and other ignore files of a local deploy do not apply: the release holds the commit's files.
+- Tags sort by version, as `git tag --sort=-v:refname` sorts them. Keep tag names to versions (`v1.2.3`).
+- Sites from an image, static sites and adopted sites cannot deploy themselves.
+
 ## In the web UI
 
 - A project without rules shows a quiet *Set up git deploys* link. It opens the rules editor.
@@ -199,6 +238,9 @@ lf git key gh:acme/shop --rm        # remove the server's key
 - *Deploy from git…* (on an empty server, and in the folder picker) deploys a repository the server fetches. It can make the deploy key first.
 - A site deployed that way shows *Redeploy*, which fetches the same branch or tag again.
 - *Deploy from CI…* on the pipeline board shows what `lf ci init` would write: the forge, whether `gh` or `glab` is logged in, what deploys, the servers' keys and the job's file. *Set up* runs `lf ci init`, then shows the `git add` line. When CI is set up, it offers *Remove CI…* (`lf ci rm`).
+- *Auto-deploy…* on the pipeline board, and the *Auto-deploy* box of an open site, run `lf autodeploy`.
+  The box shows what the site follows, the last commit it saw, the log, and *Check now* (`--now`).
+  A column that deploys itself shows an *auto* badge with its interval.
 
 ## landfall version and app version
 

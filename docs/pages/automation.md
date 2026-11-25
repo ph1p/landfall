@@ -25,7 +25,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 
 | area | commands |
 |---|---|
-| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track`, `git key`, `ci init`, `ci rm` |
+| sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track`, `git key`, `ci init`, `ci rm`, `autodeploy` |
 | servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
@@ -46,7 +46,8 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `traefik strict-tls` prints `{container, own, unknownHosts}`, with `unknownHosts` as in `traefik status`.
 - `traefik access-log` prints `{container, own, accessLog, log}`. `log` is as in `traffic`, or `null` without a proxy.
 - `ls` and `sites info` add `scale` to a site that uses replicas, rolling deploys or a split: per service, its `replicas` wanted and `running`.
-- `refs` prints `{repo, url, envs}`. Each environment has `env`, `site`, `server`, `rule`, `ruleText`, `matching` (tags newest first, then branches), `running` (`null`: no release; missing: never deployed), `newest`, `behind` (commits) and `error` when its server cannot be read.
+- `autodeploy` prints `{site, server, enabled, every, env, rule, url, dir, last, log, cron}`. `last` is the last commit it looked at: `{sha, result, at, ref}`, `result` one of `deployed`, `deploying`, `failed`, `running`, `older`, `skipped-config`. `cron` is missing when the crontab has no line for it.
+- `refs` prints `{repo, url, envs}`. Each environment has `env`, `site`, `server`, `rule`, `ruleText`, `matching` (tags newest first, then branches), `running` (`null`: no release; missing: never deployed), `newest`, `behind` (commits), `auto` (the interval, when it [deploys itself](git.md#auto-deploy-the-server-deploys-new-commits)) and `error` when its server cannot be read.
 - `git track` prints `{url, rules}`, keyed by environment; `""` is the project itself.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
@@ -110,7 +111,7 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 - `lf trivy rm` (the next scan downloads Trivy again)
 - `lf registry logout` (log in again with `lf registry login`)
 - `lf git key --rm` (the private key is gone: make a new one and add it to the repository again)
-- installing git on the server (`lf git key`, `lf deploy --git`)
+- installing git or jq on the server (`lf deploy --git`, `lf autodeploy`)
 - the forge secrets `lf ci init` sets (it overwrites earlier values), and `lf ci rm` deleting them
 - whatever a plugin does without journaling it; `lf plugin add` and `lf plugin rm` change only this computer
 - a firewall rule that replaced an existing one
@@ -168,6 +169,7 @@ lf history --json                                     # confirm what changed
 | `… (--force to do it anyway)` | a safety check refused. Fix the cause; `--force` only with the user's consent |
 | `another deploy or change of <site> is running (<who>): …` | wait, or check `lf history`. A lock from a cut-off run expires after an hour |
 | `cannot connect to <host>: …` | ssh failed; the rest is ssh's last line |
+| `installing … needs root: …` | the login is not root and has no passwordless sudo. Give the sudo password (`$LANDFALL_SUDO_PASSWORD`), add a root key login (`lf server config --root-login`), or install it as root with the command the message names |
 | `hook <name> failed: <pm> run <script>` | a [lifecycle hook](hooks.md) from `package.json` failed. Fix it, or `--skip-hook <name>` with the user's consent |
 
 More in [Troubleshooting](troubleshooting.md).

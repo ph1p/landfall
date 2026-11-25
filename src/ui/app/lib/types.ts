@@ -27,6 +27,7 @@ export type { Detail, HostTraffic, StatusClass, Summary, Traffic } from "../../.
 export type { Account, Users } from "../../../core/users";
 export type { TraefikRoute, TraefikStatus } from "../../../core/traefik";
 export type { EnvRefs, RefsView } from "../../../core/views";
+export type { AutodeployView } from "../../../core/autodeploy";
 export type { Ref, RefKind, RefRule } from "../../../core/refs";
 
 // ---- a project's git (lf git track, lf refs) ----------------------------------

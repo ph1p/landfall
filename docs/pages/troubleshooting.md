@@ -5,6 +5,7 @@
 | error or symptom | fix |
 | --- | --- |
 | `setup needs root or sudo for …` | `-u root`, `-K` (sudo password), or passwordless sudo |
+| `installing … needs root: …` / `… has no sudo` | The login cannot install packages. Use `-K`, name a root login with `lf server config <name> --root-login <ssh-alias>`, or run the install command from the message as root |
 | `… no root key login works` / `fail2ban answers root only` | Add a Host with `User root` (or a sudo user) for the machine to `~/.ssh/config`, name one with `lf server config <name> --root-login <ssh-alias>`, or use `-K` |
 | `ssh cannot resolve <name>` | Not in your ssh config: `lf server add <name> --host …` |
 | `skipping firewall/ssh hardening: …` | Setup protected something running there. Fix it, or re-run with `--force` |

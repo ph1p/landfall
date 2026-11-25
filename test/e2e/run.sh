@@ -782,6 +782,55 @@ lf git key gh:acme/shop -s box --rm -y >/dev/null 2>&1 || die "git key --rm"
 { ! srv test -e /opt/landfall/repos/github.com-acme-shop/key; } || die "git key --rm removes the key"
 pass "git key makes a deploy key on the server and removes it"
 lf sites rm gitapp -y >/dev/null 2>&1 || die "sites rm gitapp"
+# Auto-deploy: a site the server builds follows its branch; new commits deploy, config changes wait for lf deploy.
+mkdir -p "$WORK/auto" && cd "$WORK/auto"
+git init -q -b main && git config user.email e2e@example.com && git config user.name e2e
+printf 'FROM busybox:1.37\nCOPY index.html /www/index.html\nEXPOSE 8000\nCMD httpd -f -p 8000 -h /www\n' > Dockerfile
+echo "auto one" > index.html && git add -A && git commit -qm one
+git clone -q --bare . "$WORK/auto.git"
+docker cp "$WORK/auto.git" "$NAME:/srv/auto.git" && srv chown -R deploy /srv/auto.git
+# The commits that follow are made on the server, as deploy, and pushed to the repository it fetches.
+asdeploy() { srv su deploy -s /bin/sh -c "$1"; }
+srv sh -c 'mkdir -p /srv/auto-work && chown deploy /srv/auto-work' && asdeploy 'git clone -q /srv/auto.git /srv/auto-work'
+push() { asdeploy "cd /srv/auto-work && git -c user.email=e2e@x -c user.name=e2e commit -qam '$1' && git push -q origin main"; }
+# deploy has no sudo here: a setuid crontab comes preinstalled, as root would install it.
+# jq is missing: lf autodeploy installs it through the root key login.
+srv apk add -q busybox-suid >/dev/null
+srv apk del -q jq >/dev/null 2>&1 || true
+mkdir -p "$WORK/empty2" && cd "$WORK/empty2"
+lf deploy --git /srv/auto.git -n gitauto -d gitauto.test -y >"$WORK/auto.log" 2>&1 || { cat "$WORK/auto.log"; die "deploy --git gitauto"; }
+expect gitauto.test / "auto one"
+lf autodeploy gitauto -s box --every 5m >"$WORK/auto.log" 2>&1 || { cat "$WORK/auto.log"; die "autodeploy on"; }
+{ srv su deploy -s /bin/sh -c 'crontab -l' | has "# landfall autodeploy gitauto: every 5m"; } || die "autodeploy writes the cron line"
+srv test -x /opt/landfall/sites/gitauto/autodeploy.sh || die "autodeploy writes the script"
+pass "autodeploy turns on: cron line and script"
+lf autodeploy gitauto -s box --now >"$WORK/auto.log" 2>&1 || { cat "$WORK/auto.log"; die "autodeploy --now, nothing new"; }
+expect gitauto.test / "auto one"
+asdeploy 'echo "auto two" > /srv/auto-work/index.html' && push two
+lf autodeploy gitauto -s box --now >"$WORK/auto.log" 2>&1 || { cat "$WORK/auto.log"; die "autodeploy --now"; }
+expect gitauto.test / "auto two"
+{ lf autodeploy gitauto -s box --json | has '"result": "deployed"'; } || die "autodeploy --json shows the deploy"
+{ srv cat /opt/landfall/sites/gitauto/site.json | has -E '"source": *"auto"'; } || { lf sites info gitauto -s box --json | has '"source": "auto"'; } || die "the release says auto"
+pass "autodeploy deploys a new commit of its branch"
+lf rollback gitauto -s box -y >/dev/null 2>&1 || die "rollback gitauto"
+expect gitauto.test / "auto one"
+lf autodeploy gitauto -s box --now >/dev/null 2>&1 || die "autodeploy after rollback"
+expect gitauto.test / "auto one"
+pass "autodeploy leaves a rollback alone until a new commit"
+asdeploy 'echo "auto three" > /srv/auto-work/index.html && printf "services:\\n  web:\\n    build: .\\n" > /srv/auto-work/compose.yaml && cd /srv/auto-work && git add compose.yaml' && push three
+lf autodeploy gitauto -s box --now >/dev/null 2>&1 || true
+expect gitauto.test / "auto one"
+{ lf autodeploy gitauto -s box --json | has '"result": "skipped-config"'; } || { lf autodeploy gitauto -s box --json; die "a config change is skipped"; }
+pass "autodeploy skips a commit that changes compose.yaml"
+lf autodeploy gitauto -s box --off >/dev/null 2>&1 || die "autodeploy --off"
+{ ! srv su deploy -s /bin/sh -c 'crontab -l 2>/dev/null' | has "landfall autodeploy gitauto:"; } || die "autodeploy --off removes the cron line"
+{ ! srv test -e /opt/landfall/sites/gitauto/autodeploy.sh; } || die "autodeploy --off removes the script"
+lf undo -s box -y >/dev/null 2>&1 || die "undo autodeploy --off"
+{ srv su deploy -s /bin/sh -c 'crontab -l' | has "landfall autodeploy gitauto:"; } || die "undo puts the cron line back"
+pass "autodeploy --off stops it, lf undo turns it back on"
+lf sites rm gitauto -y -s box >/dev/null 2>&1 || die "sites rm gitauto"
+{ ! srv su deploy -s /bin/sh -c 'crontab -l 2>/dev/null' | has "landfall autodeploy gitauto:"; } || die "sites rm removes the cron line"
+pass "sites rm removes the auto-deploy cron line"
 cd "$ROOT"
 fi
 

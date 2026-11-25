@@ -75,13 +75,11 @@ const KNOWN_HOSTS = [
   "gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf",
 ];
 
-/** The shell every script here starts with: $R the repository's folder, git installed, and ssh told which key and hosts to use. */
-function head(g: GitUrl): string {
+/** $R the repository's folder, and ssh told which key and hosts to use. Needs the PRELUDE before it. */
+export function gitEnv(g: GitUrl): string {
   return [
-    PRELUDE,
     `R=${shq(repoDir(g))}`,
     `M="$R/mirror.git"`,
-    `command -v git >/dev/null || { pkg_install git; record "installed git"; }`,
     `mkdir -p "$R"`,
     `[ -f "$R/known_hosts" ] || printf '%s\\n' ${KNOWN_HOSTS.map(shq).join(" ")} >"$R/known_hosts"`,
     `export GIT_TERMINAL_PROMPT=0`,
@@ -91,21 +89,23 @@ function head(g: GitUrl): string {
   ].join("\n");
 }
 
-/**
- * Fetches the repository into the server's bare mirror (made on first use, journaled) and prints its branches and
- * tags; with head, the remote's default branch; with sha, the commit an abbreviated hash names.
- */
-export function fetchScript(g: GitUrl, o: { head?: boolean; sha?: string } = {}): string {
+/** The shell every script here starts with. */
+const head = (g: GitUrl) => `${PRELUDE}\n${gitEnv(g)}`;
+
+/** Makes the mirror on first use (journaled), then fetches into it, one fetch at a time. Needs gitEnv before it. */
+export function fetchLines(g: GitUrl): string[] {
   const hint = g.host ? `: lf git key ${g.url} gives the server a deploy key` : "";
   return [
-    head(g),
+    // ensureTools installs git before the first fetch; a server that lost it since says so.
+    `command -v git >/dev/null || { echo "the server has no git: install it as root, or run lf deploy --git again to install it" >&2; exit 1; }`,
     `if [ ! -d "$M" ]; then`,
     `  git init -q --bare "$M"`,
     `  git --git-dir="$M" config remote.origin.url ${shq(g.url)}`,
     `  git --git-dir="$M" config --add remote.origin.fetch '+refs/heads/*:refs/heads/*'`,
     `  git --git-dir="$M" config --add remote.origin.fetch '+refs/tags/*:refs/tags/*'`,
     `  record ${shq(`git mirror of ${safe(g.url)}`)} ${shq(`rm -rf ${shq(mirrorDir(g))}`)}`,
-    `else`,
+    // Runs on every cron tick: rewrite the config only when the URL changed.
+    `elif [ "$(git --git-dir="$M" config --get remote.origin.url)" != ${shq(g.url)} ]; then`,
     `  git --git-dir="$M" config remote.origin.url ${shq(g.url)}`,
     `fi`,
     // One fetch into the mirror at a time; the lock goes with the script.
@@ -113,6 +113,17 @@ export function fetchScript(g: GitUrl, o: { head?: boolean; sha?: string } = {})
     // BusyBox flock has no -w: timeout bounds the wait where it exists; the lock stays on fd 9 either way.
     `if command -v flock >/dev/null; then { if command -v timeout >/dev/null; then timeout 300 flock 9; else flock 9; fi; } || { echo ${shq(`another fetch of ${safe(g.url)} still runs`)} >&2; exit 1; }; fi`,
     `git --git-dir="$M" fetch -q --prune origin >&2 || { echo ${shq(`could not fetch ${safe(g.url)}${hint}`)} >&2; exit 1; }`,
+  ];
+}
+
+/**
+ * Fetches the repository into the server's bare mirror (made on first use, journaled) and prints its branches and
+ * tags; with head, the remote's default branch; with sha, the commit an abbreviated hash names.
+ */
+export function fetchScript(g: GitUrl, o: { head?: boolean; sha?: string } = {}): string {
+  return [
+    head(g),
+    ...fetchLines(g),
     ...(o.head
       ? [`echo @@head`, `git --git-dir="$M" ls-remote --symref origin HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\\(.*\\)\tHEAD$|\\1|p' || true`]
       : []),

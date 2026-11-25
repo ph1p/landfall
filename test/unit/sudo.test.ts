@@ -16,7 +16,8 @@ const dir = fs.mkdtempSync(join(tmpdir(), "lf-sudo-"));
 process.env.LANDFALL_CONFIG_DIR = dir;
 process.env.LANDFALL_SSH_CONFIG = join(dir, "ssh");
 const { setSudoPassword, sudoShim } = await import("../../src/core/ssh");
-const { adminLogin, rootVia } = await import("../../src/core/privilege");
+const { adminLogin, ensureTools, rootVia } = await import("../../src/core/privilege");
+const { PRELUDE } = await import("../../src/core/templates");
 
 afterEach(() => {
   setSudoPassword(undefined);
@@ -63,6 +64,40 @@ describe("sudo password", () => {
   test("adminLogin without a terminal names -K", async () => {
     answer = "";
     await expect(adminLogin({ host: "vps", user: "deploy" }, "rebooting")).rejects.toThrow(/-K/);
+  });
+
+  test("adminLogin on a server without sudo names a root login, without asking", async () => {
+    answer = "nosudo";
+    await expect(adminLogin({ host: "vps", user: "deploy" }, "rebooting")).rejects.toThrow(/has no sudo.*--root-login/);
+  });
+
+  test("ensureTools does nothing when the tools are there", async () => {
+    answer = "";
+    await ensureTools({ host: "vps" }, [{ cmd: "git" }, { cmd: "jq" }], "for auto-deploy");
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]).toContain("command -v 'git'");
+  });
+
+  test("pkg_install without root or sudo says how to install by hand", () => {
+    if (process.getuid?.() === 0) return;
+    const bin = fs.mkdtempSync(join(tmpdir(), "lf-nosudo-"));
+    for (const t of ["id", "bash"])
+      fs.symlinkSync(
+        execFileSync("bash", ["-c", `command -v ${t}`])
+          .toString()
+          .trim(),
+        join(bin, t),
+      );
+    const r = (() => {
+      try {
+        execFileSync("bash", ["-c", `set -euo pipefail\n${PRELUDE}\npkg_mgr() { echo apk; }\npkg_install jq`], { env: { PATH: bin }, stdio: "pipe" });
+        return "";
+      } catch (e: any) {
+        return String(e.stderr);
+      }
+    })();
+    expect(r).toContain("installing jq needs root");
+    expect(r).toContain("apk add jq");
   });
 
   test("adminLogin keeps the login when sudo works", async () => {

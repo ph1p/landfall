@@ -13,6 +13,7 @@ import { listServers, reachAll, target } from "../../core/dashboard";
 import { browse, emptyFolder, jobCwd, pruneUploads, receiveUpload } from "./local";
 import { localImages } from "../../core/buildlocal";
 import { ciView } from "../../core/ci";
+import { readAutodeploy } from "../../core/autodeploy";
 import { startJob, type Job } from "../../core/job";
 import { SITE_NAME, envView, overview, readSecrets, requireSite, validName } from "../../core/remote";
 import { parseSince } from "../../core/traffic";
@@ -313,6 +314,8 @@ async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise
       const sizes = q.get("sizes") !== "0";
       return json(await volumes(server, validName(q.get("site") ?? ""), sizes, !sizes));
     }
+    // lf autodeploy <site> --json: the setting, what it saw last, the log tail.
+    if (method === "GET" && sub === "autodeploy") return json(await readAutodeploy(server, name, validName(new URL(req.url).searchParams.get("site") ?? "")));
     if (method === "GET" && sub === "plugins") {
       const p = pluginNamed(path[3] ?? "")?.plugin;
       if (!p?.panel) return failure(`no plugin panel ${path[3] ?? ""}`, 404);

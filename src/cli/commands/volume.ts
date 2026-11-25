@@ -5,7 +5,7 @@ import { checkInt, expandHome, loadProject, PROJECT_FILE, saveProject, type Serv
 import { addVolumeMount, CONTAINER_PATH, projectName, removeVolumeMount, volumeName } from "../../core/compose";
 import { bytes } from "../../core/facts";
 import { plural } from "../../core/format";
-import { cronMark, lockSite, requireSite, siteDir } from "../../core/remote";
+import { CRON_RUNNING, cronChange, cronMark, cronMinute, lockSite, requireSite, siteDir } from "../../core/remote";
 import { bsdtarFlags, journal, runScript, shq, sshPipe, writeFileCmd } from "../../core/ssh";
 import { HELPER, PRELUDE } from "../../core/templates";
 import { ago, c, confirm, confirmRemoval, fail, info, interactive, ok, step, table, warn, printJson } from "../../core/term";
@@ -194,11 +194,6 @@ fi
 echo "$(now) ok"
 `;
 
-/** Shell: the crontab without the site's line, in $c. */
-const cronWithout = (site: string) => `c=$(crontab -l 2>/dev/null | grep -vF ${shq(cronMark(site))} || true)`;
-/** Shell: install $c plus `line` (none: just $c) as the crontab. */
-const cronSet = (line: string) => `printf '%s\\n%s\\n' "$c" ${line} | sed '/^$/d' | crontab -`;
-
 /** [user@]host:path, as rsync and ssh take it: no spaces or quotes, nothing the crontab line would mangle. */
 const OFFSITE = /^([\w.-]+@)?[\w.-]+:[\w./~-]+$/;
 
@@ -209,22 +204,17 @@ export async function scheduleBackups(server: Server, site: string, every: strin
   const { meta } = await requireSite(server, site);
   const dir = `${siteDir(site)}/backups`;
   const mark = cronMark(site);
-  // A minute of its own per site: not every server's backups at 03:00 sharp.
-  const minute = [...site].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 60, 7);
-  const [head, tail] = cronSet("@").split(" @ ");
   const line =
     every === "off"
       ? ""
-      : `${EVERY[every](minute)} sh ${dir}/backup.sh ${keep} ${offsite || "-"} >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}${offsite ? `, offsite ${offsite}` : ""}`;
+      : `${EVERY[every](cronMinute(site))} sh ${dir}/backup.sh ${keep} ${offsite || "-"} >>${dir}/backup.log 2>&1 ${mark} ${every}, keep ${keep}${offsite ? `, offsite ${offsite}` : ""}`;
   const host = offsite?.replace(/:.*/, "");
+  const cron = cronChange(mark, line, "schedule backups");
   const { stdout } = await runScript(
     server,
     [
       PRELUDE,
-      `command -v crontab >/dev/null || { echo "the server has no cron: install it (cron, cronie or busybox crond) to schedule backups" >&2; exit 1; }`,
-      // busybox crontab (Alpine) gives a user other than root a crontab only when setuid.
-      `[ "$(id -u)" = 0 ] || [ "$(pkg_mgr)" != apk ] || pkg_has busybox-suid || pkg_install busybox-suid || true`,
-      `old=$(crontab -l 2>/dev/null | grep -F ${shq(mark)} || true)`,
+      ...cron.check,
       ...(line ? [`mkdir -p ${shq(dir)}`, writeFileCmd(`${dir}/backup.sh`, backupScript(projectName(meta), keep, offsite), "755")] : []),
       // The copy runs as the login user: rsync here, and a key the target takes, or every run fails.
       ...(host
@@ -233,11 +223,10 @@ export async function scheduleBackups(server: Server, site: string, every: strin
             `ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ${shq(host)} true </dev/null >/dev/null 2>&1 || echo nologin`,
           ]
         : []),
-      cronWithout(site),
-      `${cronSet(line ? shq(line) : '""')} || { echo "could not change the crontab of $(id -un): a server without setuid crontab (Alpine: apk add busybox-suid) lets only root have one" >&2; exit 1; }`,
+      ...cron.set,
       // Undo puts back the line that was there (or none); backup.sh stays, it does nothing on its own.
-      `record ${shq(line ? `schedule backups of ${site} ${every}, keep ${keep}` : `stop scheduled backups of ${site}`)} ${shq(`${cronWithout(site)}; ${head} `)}"$(printf %q "$old")"${shq(` ${tail}`)}`,
-      `[ -z ${shq(line)} ] || pidof crond >/dev/null || pidof cron >/dev/null || echo nocron`,
+      `record ${shq(line ? `schedule backups of ${site} ${every}, keep ${keep}` : `stop scheduled backups of ${site}`)} ${cron.undo}`,
+      `[ -z ${shq(line)} ] || ${CRON_RUNNING} || echo nocron`,
     ].join("\n"),
     { capture: true },
   );

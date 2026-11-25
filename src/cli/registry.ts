@@ -2,6 +2,7 @@ import type { Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { config } from "./commands/config";
 import { deploy } from "./commands/deploy";
+import { autodeploy } from "./commands/autodeploy";
 import { ciInit, ciRm } from "./commands/ci";
 import { gitKey, gitTrack } from "./commands/git";
 import { promote, refs } from "./commands/refs";
@@ -89,6 +90,7 @@ export const commands: Command[] = [
   gitKey,
   ciInit,
   ciRm,
+  autodeploy,
   sitesList,
   sitesInfo,
   sitesLogs,
