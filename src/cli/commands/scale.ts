@@ -1,10 +1,10 @@
 import { defineCommand, serverOpt } from "../cmd";
-import { checkInt, type Server } from "../../core/config";
+import { checkInt } from "../../core/config";
 import { currentRelease, MAX_REPLICAS, MAX_WEIGHT, scaleView, splitGroups, type ScaleRow, type SiteMeta } from "../../core/compose";
 import { changeSite, requireSite, setWeights } from "../../core/remote";
 import { c, fail, info, ok, printJson, table, warn } from "../../core/term";
 import { ms, pct } from "../../core/format";
-import { parseSince, serviceTraffic, spanLabel, splitStats } from "../../core/traffic";
+import { parseSince, serviceTraffic, spanLabel, splitStats, type SiteServiceTraffic } from "../../core/traffic";
 import { target } from "./sites";
 
 /** The site name and the service=value pairs of `[site] [service=value...]`. */
@@ -39,9 +39,8 @@ function printRows(site: string, rows: ScaleRow[], json?: boolean) {
 const share = (n: number, of: number) => `${n.toLocaleString("en-US")} ${c.dim(of ? `(${pct(n, of)}%)` : "")}`.trimEnd();
 
 /** lf weight --stats: each split member's requests, errors and response times from Traefik's access log. */
-async function printStats(server: Server, name: string, meta: SiteMeta, since: string, json?: boolean) {
-  const secs = parseSince(since);
-  const t = await serviceTraffic(server, meta.name, secs);
+async function printStats(name: string, meta: SiteMeta, secs: number, traffic: Promise<SiteServiceTraffic>, json?: boolean) {
+  const t = await traffic;
   if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
   const rows = splitStats(meta, t);
   if (json) return printJson({ site: meta.name, since: secs, format: t.format, services: rows });
@@ -134,13 +133,15 @@ Traefik's access log.`,
   async run(pos, o) {
     const { n, pairs } = sitePairs(pos, "weights");
     const { site, server, name } = target(n, o.server);
+    if (o.stats && pairs.length) fail("--stats only shows the split: change the weights in a separate lf weight");
+    // --stats reads the access log while requireSite reads the site: two ssh round trips at once.
+    const secs = o.stats ? parseSince(o.since) : 0;
+    const traffic = o.stats ? serviceTraffic(server, site, secs) : undefined;
+    traffic?.catch(() => {});
     const { meta } = await requireSite(server, site, pairs.length ? { deployed: "change the traffic split of" } : {});
     const groups = splitGroups(meta, services(meta, site));
     if (!groups.length) fail(`${site} splits no traffic: give two services on the same domains an x-landfall.weight in compose.yaml`);
-    if (o.stats) {
-      if (pairs.length) fail("--stats only shows the split: change the weights in a separate lf weight");
-      return printStats(server, name, meta, o.since, o.json);
-    }
+    if (traffic) return printStats(name, meta, secs, traffic, o.json);
     if (!pairs.length)
       return printRows(
         site,

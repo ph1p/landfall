@@ -23,9 +23,25 @@ export const spanLabel = (secs: number) => (secs % 86400 === 0 ? `${secs / 86400
 /** Up to 6 hours per minute, longer spans per hour: a chart stays at a few hundred points. */
 const bucketLen = (secs: number) => (secs <= 6 * 3600 ? 16 : 13);
 
-/** awk functions that read one field of a Traefik JSON access log line: str("RequestHost"), num("DownstreamStatus"). */
-const AWK_JSON = String.raw`function str(k) { if (!match($0, "\"" k "\":\"[^\"]*")) return ""; v = substr($0, RSTART + length(k) + 4, RLENGTH - length(k) - 4); sub(/\\$/, "", v); return v }
-function num(k) { return match($0, "\"" k "\":-?[0-9]+") ? substr($0, RSTART + length(k) + 3, RLENGTH - length(k) - 3) + 0 : 0 }`;
+/** Start of a script that reads the proxy: `$P` is its container; without one it prints NOPROXY and stops. */
+const PROXY_PRELUDE = `set +e
+P=${PROXY_CTR}
+if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi`;
+
+/**
+ * awk for Traefik's JSON access log: str("RequestHost") and num("DownstreamStatus") read one field of a line,
+ * bucket(ms) is a latency histogram bucket (4 per doubling, read back by `percentile`).
+ */
+const AWK_JSON = String.raw`BEGIN { L2 = log(2) }
+function str(k) { if (!match($0, "\"" k "\":\"[^\"]*")) return ""; v = substr($0, RSTART + length(k) + 4, RLENGTH - length(k) - 4); sub(/\\$/, "", v); return v }
+function num(k) { return match($0, "\"" k "\":-?[0-9]+") ? substr($0, RSTART + length(k) + 3, RLENGTH - length(k) - 3) + 0 : 0 }
+function bucket(ms) { return ms < 1 ? 0 : int(log(ms) / L2 * 4) + 1 }`;
+
+/** awk that counts lines of the plain-text (common) format: traefik set up before landfall switched it to JSON. */
+const AWK_COMMON = String.raw`/^[0-9a-fA-F.:]+ - [^ ]+ \[[^]]+\] "/ { common++ }`;
+
+/** The access log format from a script's `N <json lines> <common lines>` line. */
+const logFormat = (f: string[]): SiteServiceTraffic["format"] => (Number(f[1]) ? "json" : Number(f[2]) ? "common" : "none");
 
 /**
  * Traefik's JSON access log, aggregated on the server: only counts cross ssh, never a line per request.
@@ -33,9 +49,7 @@ function num(k) { return match($0, "\"" k "\":-?[0-9]+") ? substr($0, RSTART + l
  * minute or hour by status class, and the 10 busiest paths, client IPs and failing requests.
  */
 export const TRAFFIC = (secs: number) => String.raw`
-set +e
-P=${PROXY_CTR}
-if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi
+${PROXY_PRELUDE}
 [ -f ${PROXY_FILE} ] && echo OWN
 ${SITE_LINES}
 T=$(printf '\t')
@@ -49,14 +63,13 @@ ${AWK_JSON}
   p = str("RequestPath"); sub(/\?.*/, "", p); if (length(p) > 80) p = substr(p, 1, 77) "..."; if (p == "") p = "/"
   if (first == "" || t < first) first = t; if (t > last) last = t
   C[h SUBSEP s]++; CB[h SUBSEP s] += num("DownstreamContentSize")
-  L[h SUBSEP (ms < 1 ? 0 : int(log(ms) / log(2) * 4) + 1)]++
+  L[h SUBSEP bucket(ms)]++
   S[h SUBSEP substr(t, 1, B) SUBSEP int(s / 100)]++
   PA[h SUBSEP p]++; if (s >= 400) { PE[h SUBSEP p]++; E[h SUBSEP s " " p]++ }
   I[h SUBSEP str("ClientHost")]++
   n++; next
 }
-# The plain-text (common) format: traefik set up before landfall switched it to JSON.
-/^[0-9a-fA-F.:]+ - [^ ]+ \[[^]]+\] "/ { common++ }
+${AWK_COMMON}
 END {
   print "N\t" n + 0 "\t" common + 0 "\t" first "\t" last
   for (x in C) { split(x, a, SUBSEP); print "C\t" a[1] "\t" a[2] "\t" C[x] "\t" CB[x] }
@@ -137,7 +150,7 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
     if (f[0] === "NOPROXY") t.proxy = false;
     else if (f[0] === "OWN") t.own = true;
     else if (f[0] === "N") {
-      t.format = Number(f[1]) ? "json" : Number(f[2]) ? "common" : "none";
+      t.format = logFormat(f);
       if (f[3]) ((t.from = f[3]), (t.to = f[4]));
     } else if (f[0] === "C") {
       const x = host(f[1]);
@@ -188,9 +201,7 @@ export async function traffic(s: Server, secs: number): Promise<Traffic> {
  * from files the first CERTIFICATE block. Plus the proxy's ACME errors in the span.
  */
 const CERTS = (secs: number) => String.raw`
-set +e
-P=${PROXY_CTR}
-if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi
+${PROXY_PRELUDE}
 ${SITE_LINES}
 ${REDIRECTS_LINE}
 readf() { cat "$1" 2>/dev/null || sudo -n cat "$1" 2>/dev/null; }
@@ -416,9 +427,7 @@ export interface SiteServiceTraffic {
 
 /** Per Traefik service of one site (their names start with "<site>_"): status codes, a latency histogram, requests through a -match router. */
 export const SERVICE_TRAFFIC = (site: string, secs: number) => String.raw`
-set +e
-P=${PROXY_CTR}
-if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi
+${PROXY_PRELUDE}
 docker logs --since ${secs}s "$P" 2>&1 | LC_ALL=C awk -v pre=${shq(`${site}_`)} '
 ${AWK_JSON}
 # A plain substring test skips lines of other sites before any regex runs.
@@ -426,12 +435,12 @@ index($0, "\"ServiceName\":\"" pre) {
   # str() sets v: keep the service in its own variable.
   name = str("ServiceName"); sub(/@.*/, "", name)
   s = num("DownstreamStatus"); ms = num("Duration") / 1000000
-  C[name SUBSEP s]++; L[name SUBSEP (ms < 1 ? 0 : int(log(ms) / log(2) * 4) + 1)]++
+  C[name SUBSEP s]++; L[name SUBSEP bucket(ms)]++
   if (index(str("RouterName"), "${MATCH_SUFFIX}@")) M[name]++
   n++; next
 }
 /^\{.*"ServiceName":/ { n++; next }
-/^[0-9a-fA-F.:]+ - [^ ]+ \[[^]]+\] "/ { common++ }
+${AWK_COMMON}
 END {
   print "N\t" n + 0 "\t" common + 0
   for (x in C) { split(x, a, SUBSEP); print "C\t" a[1] "\t" a[2] "\t" C[x] }
@@ -448,7 +457,7 @@ export function parseServiceTraffic(out: string): SiteServiceTraffic {
   for (const line of out.split("\n")) {
     const f = line.split("\t");
     if (f[0] === "NOPROXY") r.proxy = false;
-    else if (f[0] === "N") r.format = Number(f[1]) ? "json" : Number(f[2]) ? "common" : "none";
+    else if (f[0] === "N") r.format = logFormat(f);
     else if (f[0] === "C") svc(f[1]).codes[f[2]] = Number(f[3]);
     else if (f[0] === "L") svc(f[1]).hist[f[2]] = Number(f[3]);
     else if (f[0] === "M") svc(f[1]).matched = Number(f[2]);
