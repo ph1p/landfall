@@ -102,12 +102,11 @@ function Header() {
   const running = runningJobs().length;
   return (
     <header className="col-span-full flex items-center gap-3 px-5 border-b border-line bg-panel max-[760px]:px-3.5 max-[760px]:gap-2">
-      <a className="font-[650] text-[15px] flex items-center gap-[9px] tracking-[-.015em] text-fg hover:no-underline" href="#/">
-        <svg viewBox="0 0 16 16" aria-hidden="true" className="size-6 flex-none">
-          <rect width="16" height="16" rx="4" fill="var(--accent)" />
-          <path d="M4 5h8M4 8h8M4 11h5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-        landfall <small className="font-medium text-faint text-xs tracking-normal px-[7px] py-px rounded-full bg-hover max-[760px]:hidden">{st.version}</small>
+      <a className="flex items-center gap-[9px] text-fg hover:no-underline" href="#/">
+        <span className="font-mono font-bold text-[17px] tracking-[-.04em]">
+          <span className="text-accent">&gt;</span>landfall
+        </span>
+        <small className="font-medium text-faint text-xs tracking-normal px-[7px] py-px rounded-full bg-hover max-[760px]:hidden">{st.version}</small>
       </a>
       {st.update && (
         <button
