@@ -10,6 +10,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | page        | commands |
 | ----------- | -------- |
 | Overview    | `lf server list --check`, recent deploys, `lf config` (defaults, where landfall puts things) |
+| Map         | every server and what runs on it, as connected nodes; adds a server, a site or a domain, and deploys a dropped project (see below) |
 | Server menu | `lf server info`, `server use`, `reboot`, `server rm`, `server uninstall` |
 | Sites       | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `sites rm`. A site's menu runs `lf check <site>`, `lf stats <site>`, and opens its traffic |
 | Stats       | `lf stats` (new sample every 5s while open), `lf disk` on request, Clean up… (`lf prune`) |
@@ -40,6 +41,30 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 - The **Traefik** section lists the server's redirects (`lf redirects`), each with its DNS and HTTPS state.
 - **Add…** and **Change…** run `lf redirect add`; **Remove…** runs `lf redirect rm`.
 - A redirects file edited by hand is reported there, and the buttons stay off until it is fixed.
+
+## Map
+
+**Map** in the sidebar draws your whole infrastructure on one page (`#map`).
+
+- Columns from left to right: this machine and its projects, servers, Traefik, sites and apps, their containers and volumes, and domains.
+- Each server gets its own band. Servers that ssh cannot reach still show, in red.
+- Lines show how things connect. Green is routed and up, red is failing or refused, yellow is a warning.
+- A dashed line means no domain reaches it: only a tunnel does (`lf tunnel`). Deploy and redirect lines are dashed too.
+- Domains show whether their DNS points at the server and whether HTTPS answers.
+- Compose projects landfall did not deploy show as *not landfall's*. Containers no route reaches are grouped by Compose project.
+- Click a node for its details and actions in a side panel: logs, restart, redeploy, settings, open in the browser.
+- Double-click a node to open its page.
+- Dashed **Add** nodes fill the gaps: **Add a server**, **Set up this server** (`lf setup`), **Deploy a site** and **Add a domain** (`lf domains`).
+- Drag a local project onto a server's band to deploy it there. The deploy dialog opens first.
+- Hover a node to light its direct neighbours. Select it to light its whole path, from this machine to its domains.
+- The search box dims everything that does not match and counts the matches. Enter jumps to the next one.
+- The buttons next to it hide containers, volumes, domains, apps that are not landfall's, and the Add nodes.
+- The status button counts what is down or warning. Click it to jump to the next problem; it shows **All up** when nothing is.
+- **Fold on the map** in a server's panel shows only the server and its proxy, with a count of its sites, problems and domains. The button in the top right folds or unfolds every server.
+- Scroll to pan; Ctrl or ⌘ and scroll to zoom. Drag the background to pan. The fit button shows the whole map again.
+- When the map is larger than the window, a small overview sits in the bottom right. Click or drag in it to move there.
+- Keys: `/` finds, `n` jumps to the next problem (`N` back), `+` and `-` zoom, `0` fits, Esc clears the selection.
+- The browser remembers the hidden layers and folded servers.
 
 ## Security and limits
 

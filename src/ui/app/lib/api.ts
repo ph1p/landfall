@@ -13,11 +13,16 @@ export function go(sel: string | null, tab = S.tab) {
   if (location.hash !== hash) ((ours = true), (location.hash = hash));
   else route();
 }
+/** The infrastructure map; its hash has no slash, so no server name can take it. */
+export function goMap() {
+  if (location.hash !== "#map") ((ours = true), (location.hash = "#map"));
+}
 export function route() {
   // Back or forward leaves the page a dialog was opened on: a dialog left open would act on what is no longer shown.
   if (!ours && dialogOpen()) closeDialog();
   ours = false;
   const [, name, tab] = location.hash.split("/");
+  S.map = location.hash === "#map";
   S.sel = name ? decodeURIComponent(name) : null;
   S.tab = tab && (tab in STORE || pluginNameOf(tab)) ? tab : "sites";
   if (S.sel && server()) load(S.sel, S.tab);

@@ -14,6 +14,7 @@ type Store<T> = Record<string, Slot<T>>;
 export const S = {
   state: null as unknown as T.State, // /api/state, loaded before the first render
   sel: null as string | null, // selected server name
+  map: false, // the infrastructure map (#map) is shown
   tab: "sites",
   overview: {} as Store<T.Overview>, // name -> {data} | {error} | {loading}
   firewall: {} as Store<T.Firewall>,

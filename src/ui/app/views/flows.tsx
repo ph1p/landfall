@@ -777,6 +777,8 @@ interface DeployOpts {
   name?: string;
   /** An image deploy from an empty folder (deployImage): this machine's images, offered for the image field. */
   images?: string[];
+  /** The server the form starts with, in place of the project's or the default: a drop on the map. */
+  server?: string;
 }
 /**
  * Deploy a local folder (det from /api/fs or an upload). upload: a temporary folder, so no .landfall.json.
@@ -786,7 +788,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const p = det.project;
   const re = o.site;
   const servers = S.state.servers.map((s) => ({ value: s.name, label: s.name }));
-  const target = re?.server ?? p?.server ?? defaultServer() ?? "";
+  const target = o.server ?? re?.server ?? p?.server ?? defaultServer() ?? "";
   const name = re?.name ?? o.name ?? det.name;
   const image = det.kind === "image";
   // An image deploy without a name: the image's, as blog for ghcr.io/me/blog:1.2.
@@ -1109,9 +1111,9 @@ export function redeploy(path: string, server: string, name: string, kind?: stri
 }
 
 /** Detect the project in path, then open the deploy dialog for it. */
-export function deployFrom(path: string) {
+export function deployFrom(path: string, server?: string) {
   browse(path).then(
-    (x) => deployDialog(x.detected),
+    (x) => deployDialog(x.detected, { server }),
     (e) => toast(errorMessage(e)),
   );
 }
@@ -1128,7 +1130,7 @@ const PICK = "inline text-accent cursor-pointer text-md font-normal";
  * Pick a folder on this machine: recent projects, a folder browser, or drop/choose files to upload.
  * site: an existing site the folder redeploys (one this machine does not remember a folder for).
  */
-export async function folderDialog(path?: string, site?: Redeploy) {
+export async function folderDialog(path?: string, site?: Redeploy, server?: string) {
   let b: Browse;
   try {
     b = await browse(path);
@@ -1136,16 +1138,16 @@ export async function folderDialog(path?: string, site?: Redeploy) {
     return toast(errorMessage(e));
   }
   // Files dropped while it is open redeploy the site too.
-  openDialog(<FolderDialog b={b} site={site} />, "wide", site);
+  openDialog(<FolderDialog b={b} site={site} server={server} />, "wide", site);
 }
 
-function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
+function FolderDialog({ b, site, server }: { b: Browse; site?: Redeploy; server?: string }) {
   const recent = site ? [] : (S.state.projects ?? []).slice(0, 8);
   const parts = b.path.split("/").filter(Boolean);
-  const to = (p: string) => () => void folderDialog(p, site);
+  const to = (p: string) => () => void folderDialog(p, site, server);
   const crumb = "px-1.5! py-px!";
   return (
-    <form method="dialog" className={DFORM} onSubmit={(e) => (e.preventDefault(), deployDialog(b.detected, { site }))}>
+    <form method="dialog" className={DFORM} onSubmit={(e) => (e.preventDefault(), deployDialog(b.detected, { site, server }))}>
       <h2 id="dlg-title" className={DTITLE}>
         {site ? `Redeploy ${site.name}` : "Deploy a folder"}
       </h2>
@@ -1160,7 +1162,7 @@ function FolderDialog({ b, site }: { b: Browse; site?: Redeploy }) {
           <legend>Recent</legend>
           <div className={LIST}>
             {recent.map((r) => (
-              <button key={r.path} type="button" className={ROW} title="Deploy again" onClick={() => deployFrom(r.path)}>
+              <button key={r.path} type="button" className={ROW} title="Deploy again" onClick={() => deployFrom(r.path, server)}>
                 <b>{r.name}</b>
                 <span className="dim">
                   → {r.server}
