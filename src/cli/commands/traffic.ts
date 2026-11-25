@@ -4,6 +4,8 @@ import { bytes } from "../../core/facts";
 import { ms } from "../../core/format";
 import { overview } from "../../core/remote";
 import {
+  ACCESS_LOG_HINT,
+  accessLogIssue,
   CERT_DAYS_BAD,
   certs,
   checkUrl,
@@ -15,6 +17,7 @@ import {
   type Check,
   type Detail,
   type Summary,
+  type Traffic,
 } from "../../core/traffic";
 import { c, fail, info, table, warn, printJson } from "../../core/term";
 import { siteTrafficView } from "../../core/views";
@@ -82,17 +85,16 @@ export const trafficCmd = defineCommand({
     if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
     const one = site ? siteTraffic(t, site) : null;
     if (o.json) return void printJson(site ? siteTrafficView(t, site) : t);
-    if (t.format === "common") {
-      return warn(
-        t.own
-          ? `${name}'s traefik writes its access log as plain text: add --accesslog.format=json to its command to see traffic here`
-          : `traefik on ${name} writes its access log as plain text: \`lf traefik setup${o.server ? ` -s ${name}` : ""}\` switches it to JSON (traefik restarts for a moment)`,
-      );
+    // A log landfall cannot read: say why, and how to fix it, before "no requests".
+    const problem = accessLogProblem(t, name, o.server ? ` -s ${name}` : "");
+    if (problem) {
+      warn(problem);
+      if (t.format !== "json") return;
     }
     const span = spanLabel(secs);
     if (t.format === "none") {
       return info(
-        `no requests on ${name} in the last ${span}${t.own ? c.dim(" (or its traefik has no access log: --accesslog=true --accesslog.format=json)") : ""}`,
+        `no requests on ${name} in the last ${span}${t.accessLog === "unknown" && t.own ? c.dim(` (or its traefik has no access log: ${ACCESS_LOG_HINT})`) : ""}`,
       );
     }
     // The container log is capped (lf log-limit): it may not reach back the whole span.
@@ -118,6 +120,17 @@ export const trafficCmd = defineCommand({
     console.log(c.dim(`\nlf traffic <site> for its paths, errors and clients`));
   },
 });
+
+/** Why lf traffic shows nothing from this proxy's access log, and the command or edit that fixes it. */
+function accessLogProblem(t: Traffic, name: string, sflag: string): string | undefined {
+  const issue = accessLogIssue(t);
+  if (!issue) return;
+  const fix = `\`lf traefik access-log${sflag}\``;
+  if (issue.kind === "file")
+    return `traefik on ${name} writes its access log to a file, and lf traffic reads its output: remove --accesslog.filepath from its command`;
+  if (issue.kind === "off") return `traefik on ${name} has no access log: ${fix} turns it on (traefik restarts for a moment)`;
+  return `traefik on ${name} writes its access log as plain text: ${issue.fixable ? `${fix} switches it to JSON (traefik restarts for a moment)` : `${ACCESS_LOG_HINT}, then recreate it`}`;
+}
 
 function mergeSummary(xs: Summary[]): Summary {
   const s: Summary = { requests: 0, bytes: 0, classes: { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0 }, codes: {}, p50: 0, p95: 0 };

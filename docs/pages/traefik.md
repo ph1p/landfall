@@ -8,9 +8,10 @@ lf traefik setup --dashboard traefik           # dashboard at traefik.<main doma
 lf traefik dashboard                           # the dashboard on localhost through an SSH tunnel, no domain needed
 lf traefik setup --host-network                # bind 80/443 on the host (--no-host-network switches back)
 lf traefik setup --no-http3                    # turn HTTP/3 off (on by default)
+lf traefik setup --no-access-log               # no JSON access log, so no lf traffic (on by default)
 ```
 
-landfall's Traefik is the container `traefik` from `/opt/landfall/traefik/docker-compose.yml`. Setup remembers image, network mode, HTTP/3, e-mail, staging and dashboard per server, so re-running it keeps them. In `lf ui`: a server's settings, Traefik → Settings….
+landfall's Traefik is the container `traefik` from `/opt/landfall/traefik/docker-compose.yml`. Setup remembers image, network mode, HTTP/3, access log, e-mail, staging and dashboard per server, so re-running it keeps them. In `lf ui`: a server's settings, Traefik → Settings….
 
 By default Docker publishes 80/443 to it. Sites work the same in both modes:
 
@@ -54,7 +55,7 @@ lf traefik use proxy-traefik-1 -s vps          # or name it
 ```
 
 - landfall reads network, HTTPS entrypoint and cert resolver from the container's flags. For a file-configured Traefik, pass `--network proxy --entrypoint websecure --resolver letsencrypt`.
-- The choice is stored in `/opt/landfall/proxy.env`. landfall never changes that Traefik.
+- The choice is stored in `/opt/landfall/proxy.env`. landfall does not change that Traefik. The exception is `lf traefik access-log on|off`, when you run it: it adds or removes the JSON access log flags in its compose file ([Monitoring](monitoring.md#traffic)).
 - Your containers behind it (Compose projects with `traefik.http.routers.*.rule` labels) show in `lf ls` and the web UI as "not deployed by landfall", with domains and folder. landfall never touches them.
 - Deploying one of their domains warns: Traefik would send visitors to only one.
 - `lf adopt <project>` turns one into a site (see [Running without landfall](deploy.md#running-without-landfall)).

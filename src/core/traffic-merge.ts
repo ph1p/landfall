@@ -29,6 +29,43 @@ export interface HostTraffic extends Detail {
   hist: Record<string, number>;
 }
 
+/**
+ * What the proxy's flags say about its access log: JSON or plain text on stdout (what landfall reads), off,
+ * written to a file inside the container, or unknown (configured by a file or variables landfall does not read).
+ */
+export type AccessLog = "json" | "common" | "off" | "file" | "unknown";
+
+/** The access log landfall reads: on stdout, as JSON lines. landfall's Traefik starts with these; `lf traefik access-log on` adds them. */
+export const ACCESS_LOG_FLAGS = ["--accesslog=true", "--accesslog.format=json"];
+
+/** How to turn on the access log by hand, for a Traefik landfall cannot change itself. */
+export const ACCESS_LOG_HINT = `add ${ACCESS_LOG_FLAGS.join(" ")} to its command (or accessLog: {format: json} to its config file)`;
+
+/**
+ * Why the proxy's access log gives landfall nothing to count: off, written to a file, or plain text. `fixable`:
+ * `lf traefik access-log` can fix it from the flags; a file path or a config landfall cannot read is left to you.
+ */
+export function accessLogIssue(t: Pick<Traffic, "accessLog" | "format">): { kind: "off" | "file" | "common"; fixable: boolean } | undefined {
+  if (t.accessLog === "off" || t.accessLog === "file") return { kind: t.accessLog, fixable: t.accessLog === "off" };
+  if (t.accessLog === "common" || t.format === "common") return { kind: "common", fixable: t.accessLog === "common" };
+}
+
+/** The proxy container's log, which holds the access log: Docker's log driver and its size cap. */
+export interface ProxyLog {
+  driver: string;
+  maxSize?: string;
+  maxFile?: number;
+  /** On disk, rotated files included; missing when this login cannot read it. */
+  bytes?: number;
+}
+
+/** "capped at 10m × 3 files", "no size limit", or "" for a driver that keeps no file (journald, syslog). */
+export function logLimitText(l: ProxyLog): string {
+  if (!["json-file", "local"].includes(l.driver)) return "";
+  if (!l.maxSize) return "no size limit";
+  return `capped at ${l.maxSize}${(l.maxFile ?? 1) > 1 ? ` × ${l.maxFile} files` : ""}`;
+}
+
 export interface Traffic {
   at: string;
   since: number;
@@ -39,6 +76,10 @@ export interface Traffic {
   own: boolean;
   /** What the log holds: JSON lines landfall reads, only plain-text lines, or nothing in the span. */
   format: "json" | "common" | "none";
+  /** The access log as the proxy's flags configure it: `lf traefik access-log` turns it on when it is not "json". */
+  accessLog: AccessLog;
+  /** Where Docker keeps the proxy's log: `lf traefik access-log clear` empties it. */
+  log?: ProxyLog;
   /** First and last request the log still has in the span. */
   from?: string;
   to?: string;

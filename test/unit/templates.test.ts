@@ -504,7 +504,7 @@ describe("templates", () => {
 
   test("traefik settings: flags win over what the server remembers", () => {
     const server = { host: "x", traefikImage: "traefik:v3.4", hostNetwork: true, email: "a@x" };
-    expect(traefikSettings(server, {})).toEqual({ email: "a@x", staging: false, image: "traefik:v3.4", hostNetwork: true, http3: true });
+    expect(traefikSettings(server, {})).toEqual({ email: "a@x", staging: false, image: "traefik:v3.4", hostNetwork: true, http3: true, accessLog: true });
     expect(traefikSettings(server, { image: "traefik:v3.6", hostNetwork: false })).toMatchObject({ image: "traefik:v3.6", hostNetwork: false });
     expect(traefikSettings({ host: "x" }, {}).image).toBe(DEFAULT_TRAEFIK_IMAGE);
     expect(traefikSettings({ host: "x", http3: false }, {}).http3).toBe(false);

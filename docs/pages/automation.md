@@ -29,7 +29,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
-| maintenance | `updates`, `scan`, `prune`, `traefik status`, `redirects`, `history` |
+| maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `redirects`, `history` |
 | plugins | `plugins`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
 
 - `ls --others` adds containers landfall did not deploy: `{sites, others}`.
@@ -38,6 +38,8 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `certs` lists each domain under `domains` with its `site`. A server redirect's host has no `site`; its `redirect` is the target.
 - `scale` and `weight` print `{site, services}`; each service has `replicas`, `source`, `update`, and `weight` and `split` in a traffic split, and `match` when it has one.
 - `weight --stats` prints `{site, since, format, services}`. `since` is in seconds; `format` is `json`, `common` (plain-text log, no counts) or `none`. Each service has `service`, `split`, `weight`, `match`, `requests`, `matched`, `classes` (`2xx` to `5xx`) and `p50` and `p95` in milliseconds.
+- `traffic` and `traffic <site>` include `accessLog`: how the proxy's flags configure its access log. It is `json`, `common` (plain text), `off`, `file` (written inside the container) or `unknown` (a config file landfall does not read). `lf traefik access-log on` fixes `off` and `common`. `log` is the proxy's container log: `driver`, `maxSize` and `maxFile` (its cap, missing when there is none) and `bytes` (on disk, only when the login can read it).
+- `traefik access-log` prints `{container, own, accessLog, log}`. `log` is as in `traffic`, or `null` without a proxy.
 - `ls` and `sites info` add `scale` to a site that uses replicas, rolling deploys or a split: per service, its `replicas` wanted and `running`.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
@@ -95,6 +97,7 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 - `lf update --packages` / `--security` (package upgrades), `lf reboot`
 - `lf users rm`, `lf users passwd`
 - `lf swap off`, `lf services restart`, plain restarts
+- `lf traefik access-log clear` (the emptied log is gone)
 - `lf server uninstall`
 - `lf trivy rm` (the next scan downloads Trivy again)
 - `lf registry logout` (log in again with `lf registry login`)

@@ -100,12 +100,13 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 
 | command | what it does |
 |---|---|
-| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--dashboard-user admin] [--dashboard-password p] [--staging] [--image img] [--host-network] [--no-http3] [--force]` | Installs or reconfigures Traefik. Dashboard password default: generated. `--force` overwrites hand edits. |
+| `lf traefik setup [--email e] [--dashboard host\|traefik\|off] [--dashboard-user admin] [--dashboard-password p] [--staging] [--image img] [--host-network] [--no-http3] [--no-access-log] [--force]` | Installs or reconfigures Traefik. Dashboard password default: generated. `--force` overwrites hand edits. |
 | `lf traefik use [container] [--network n --entrypoint e --resolver r]` | Use your own Traefik. |
 | `lf traefik rm [--certs]` | Removes landfall's Traefik (undoable), or stops using yours. |
 | `lf traefik dashboard [-l local] [--lan] [--port p]` | Dashboard on localhost via SSH tunnel. |
 | `lf traefik status [--json]` / `logs [-f] [-n 100] [--access]` / `restart` | Container and routes, logs (`--access`: with requests), restart. `lf traefik` = `status`. |
 | `lf redirects [--json]` | Server redirects with DNS and HTTPS state. Alias: `redirect ls`. |
+| `lf traefik access-log [on\|off\|clear] [--json]` | Alone: whether Traefik writes the JSON access log `lf traffic` reads, the log's size and its cap. `on` / `off`: turns it on or off; on your own Traefik, adds or removes two flags in its compose file and recreates it. Undoable. `clear`: empties the container log (json-file only); cannot be undone. [Monitoring](monitoring.md#traffic) |
 | `lf redirect add <host> <url> [--temporary] [--no-path]` | Redirects a host to a URL, with no site behind it. Path and query are appended; `--no-path` drops them. `--temporary`: 302/307. Adding a host again changes it. Needs landfall's Traefik. Undoable. |
 | `lf redirect rm <host...>` | Removes server redirects. Undoable. |
 | `lf firewall [--json]` | ufw rules; reachability per listening port. |

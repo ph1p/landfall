@@ -83,6 +83,13 @@ export function TraefikView({ n }: { n: string }) {
           hint: "Faster on lossy and mobile connections; browsers that can't use it fall back to HTTP/2.",
         },
         {
+          name: "accessLog",
+          label: "Access log (JSON)",
+          type: "check",
+          value: x.traefik.accessLog,
+          hint: "One line per request in Traefik's output: the Traffic tab counts them.",
+        },
+        {
           name: "mode",
           label: "Ports",
           type: "select",
@@ -108,6 +115,7 @@ export function TraefikView({ n }: { n: string }) {
           "setup",
           ...sv(n),
           v.http3 ? "--http3" : "--no-http3",
+          v.accessLog ? "--access-log" : "--no-access-log",
           v.mode === "host" ? "--host-network" : "--no-host-network",
           v.staging ? "--staging" : "--no-staging",
         ];
@@ -267,7 +275,8 @@ export function TraefikView({ n }: { n: string }) {
         <Body>
           {foreign && (
             <Note>
-              Sites go through <b className={MONO}>{foreign}</b>, a Traefik landfall did not install and never changes: it is configured in its own files.
+              Sites go through <b className={MONO}>{foreign}</b>, a Traefik landfall did not install: it is configured in its own files. landfall changes it
+              only when you turn its access log on or off.
             </Note>
           )}
           <Kv
@@ -284,6 +293,7 @@ export function TraefikView({ n }: { n: string }) {
                   <span className="dim">off</span>
                 ),
               ],
+              ["access log", x.traefik.accessLog ? "on (JSON)" : <span className="dim">off</span>],
               ["files", <span className={MONO}>{paths.traefik}/docker-compose.yml</span>],
               [
                 "certificates",

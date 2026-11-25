@@ -1,10 +1,11 @@
 import { X509Certificate } from "node:crypto";
 import https from "node:https";
+import { ACCESS_LOG_READ, parseAccessLog, parseProxyLog } from "./accesslog";
 import type { Server } from "./config";
 import { currentRelease, MATCH_SUFFIX, matchText, routerName, SITE_LINES, siteHosts, readSiteLine, splitGroups, type SiteMeta } from "./compose";
 import { REDIRECTS_LINE, redirectsOf } from "./server-redirects";
 import { runScript, shq } from "./ssh";
-import { PROXY_CTR, PROXY_FILE } from "./templates";
+import { PROXY_FILE, PROXY_PRELUDE } from "./templates";
 import { fail } from "./term";
 import { cls, mergeHosts, summarize, zero, type HostTraffic, type StatusClass, type Summary, type Traffic } from "./traffic-merge";
 
@@ -22,11 +23,6 @@ export const spanLabel = (secs: number) => (secs % 86400 === 0 ? `${secs / 86400
 
 /** Up to 6 hours per minute, longer spans per hour: a chart stays at a few hundred points. */
 const bucketLen = (secs: number) => (secs <= 6 * 3600 ? 16 : 13);
-
-/** Start of a script that reads the proxy: `$P` is its container; without one it prints NOPROXY and stops. */
-const PROXY_PRELUDE = `set +e
-P=${PROXY_CTR}
-if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi`;
 
 /**
  * awk for Traefik's JSON access log: str("RequestHost") and num("DownstreamStatus") read one field of a line,
@@ -51,6 +47,9 @@ const logFormat = (f: string[]): SiteServiceTraffic["format"] => (Number(f[1]) ?
 export const TRAFFIC = (secs: number) => String.raw`
 ${PROXY_PRELUDE}
 [ -f ${PROXY_FILE} ] && echo OWN
+# No sudo here, it runs on every refresh: the log's size only when this login can read it (root).
+S=""
+${ACCESS_LOG_READ}
 ${SITE_LINES}
 T=$(printf '\t')
 docker logs --since ${secs}s "$P" 2>&1 | LC_ALL=C awk -v B=${bucketLen(secs)} '
@@ -141,6 +140,8 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
     proxy: true,
     own: false,
     format: "none",
+    accessLog: parseAccessLog(out),
+    log: parseProxyLog(out),
     total: mergeHosts([], keys),
     sites: [],
     hosts: [],

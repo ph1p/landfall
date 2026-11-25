@@ -1,10 +1,12 @@
 import { useEffect, type ReactNode } from "react";
 import { svText, S, plural, render, sv } from "../lib/store";
-import { siteTraffic } from "../../../core/traffic-merge";
-import { ms } from "../../../core/format";
-import type { Cert, Detail, Summary } from "../lib/types";
+import { ACCESS_LOG_HINT, accessLogIssue, logLimitText, siteTraffic } from "../../../core/traffic-merge";
+import { bytes, ms } from "../../../core/format";
+import type { Cert, Detail, Summary, Traffic } from "../lib/types";
 import { ensure, load } from "../lib/api";
 import { run } from "../lib/jobs";
+import { confirmDlg } from "../ui/dialog";
+import { MenuBtn } from "../ui/menu";
 import { Actions, Badge, Body, BoneRows, Btn, Card, CardHead, Empty, Note, Spin, Sub, pending, waiting, cx, NUM, HIDE, MONO, Table } from "../ui/kit";
 import { Zero, can, size } from "./shared";
 import { Meter, Meters } from "./stats";
@@ -93,6 +95,77 @@ function List({ title, cols, rows }: { title: string; cols: [string, string?][];
   );
 }
 
+/** Why Traefik's access log shows nothing here, with a button for `lf traefik access-log` where it can fix it. */
+function AccessLogNote({ n, t }: { n: string; t: Traffic }) {
+  const issue = accessLogIssue(t);
+  if (!issue) return null;
+  const fix = (label: string) => (
+    <Btn
+      cls="sm"
+      title="lf traefik access-log: recreates Traefik, requests fail for a moment"
+      on={() => run(["traefik", "access-log", ...sv(n), "-y"], { server: n, after: () => (load(n, "traffic", true), []) })}
+    >
+      {label}
+    </Btn>
+  );
+  if (issue.kind === "file")
+    return (
+      <Note kind="warn">
+        Traefik writes its access log to a file inside its container, and landfall reads its output. Remove <span className="mono">--accesslog.filepath</span>{" "}
+        from its command.
+      </Note>
+    );
+  if (issue.kind === "off") return <Note kind="warn">Traefik has no access log, so landfall cannot count requests. {fix("Turn on access log")}</Note>;
+  return (
+    <Note kind="warn">
+      Traefik writes its access log as plain text. {issue.fixable ? fix("Switch to JSON") : `To switch it to JSON, ${ACCESS_LOG_HINT}, then recreate it.`}
+    </Note>
+  );
+}
+
+/** lf traefik access-log on, off and clear: what the proxy's log allows. */
+function AccessLogMenu({ n, t }: { n: string; t: Traffic }) {
+  const after = () => (load(n, "traffic", true), []);
+  const recreate = t.own ? "recreates your Traefik from its compose file" : "rewrites and restarts landfall's Traefik";
+  const turn = (on: boolean) => ({
+    label: on ? "Turn on" : "Turn off",
+    hint: `lf traefik access-log ${on ? "on" : "off"}`,
+    run: () =>
+      confirmDlg({
+        title: `Turn ${on ? "on" : "off"} Traefik's access log on ${n}?`,
+        text: `This ${recreate}: requests fail for a moment. lf undo reverts it.${on ? "" : " This tab then has nothing new to count."}`,
+        ok: on ? "Turn on" : "Turn off",
+        danger: !on,
+        onOk: () => run(["traefik", "access-log", on ? "on" : "off", ...sv(n), "-y"], { server: n, after }),
+      }),
+  });
+  const size = t.log?.bytes === undefined ? "" : ` (${bytes(t.log.bytes)})`;
+  return (
+    <MenuBtn
+      title="Traefik's access log"
+      label="Access log"
+      items={[
+        (t.accessLog === "off" || t.accessLog === "common") && turn(true),
+        (t.accessLog === "json" || t.accessLog === "common" || t.accessLog === "file") && turn(false),
+        "-",
+        t.log?.driver === "json-file" && {
+          label: "Clear…",
+          cls: "danger",
+          hint: "lf traefik access-log clear",
+          run: () =>
+            confirmDlg({
+              title: `Empty Traefik's log on ${n}${size}?`,
+              text: "The requests counted here and Traefik's own messages go. This cannot be undone.",
+              ok: "Empty log",
+              danger: true,
+              onOk: () => run(["traefik", "access-log", "clear", ...sv(n), "-y"], { server: n, after }),
+            }),
+        },
+      ]}
+    />
+  );
+}
+
 /** Traefik's access log: requests, errors, response times, by site and path. */
 export function TrafficView({ n }: { n: string }) {
   useEffect(() => ensure("certs", n, "/certs"));
@@ -104,6 +177,11 @@ export function TrafficView({ n }: { n: string }) {
           {l}
         </Btn>
       ))}
+      {st?.data?.proxy && (
+        <span className="ml-auto">
+          <AccessLogMenu n={n} t={st.data} />
+        </span>
+      )}
     </Actions>
   );
   const wait = pending(st, "reading Traefik's access log…");
@@ -116,25 +194,12 @@ export function TrafficView({ n }: { n: string }) {
     );
   const t = st!.data!;
   if (!t.proxy) return <Note>No Traefik on {n}: nothing to count. Set up the server to install it.</Note>;
-  if (t.format === "common")
+  // A log landfall cannot read: why, and the fix, instead of an empty span.
+  const logNote = <AccessLogNote n={n} t={t} />;
+  if (t.format !== "json" && accessLogIssue(t))
     return (
       <>
-        <Note kind="warn">
-          Traefik writes its access log as plain text.{" "}
-          {t.own ? (
-            <>
-              Add <span className="mono">--accesslog.format=json</span> to its command to see traffic here.
-            </>
-          ) : (
-            <Btn
-              cls="sm"
-              title="lf traefik setup: restarts Traefik for a moment"
-              on={() => run(["traefik", "setup", ...sv(n), "-y"], { server: n, after: () => (load(n, "traffic", true), []) })}
-            >
-              Switch to JSON
-            </Btn>
-          )}
-        </Note>
+        {logNote}
         <CertsCard n={n} />
       </>
     );
@@ -144,7 +209,10 @@ export function TrafficView({ n }: { n: string }) {
         {spans}
         <Card>
           <Empty title="No requests in this span">
-            <p className="dim">Traefik's access log has nothing from the last {S.since}.</p>
+            <p className="dim">
+              Traefik's access log has nothing from the last {S.since}.
+              {t.own && t.accessLog === "unknown" && <> If your Traefik has no access log, {ACCESS_LOG_HINT}.</>}
+            </p>
           </Empty>
         </Card>
         <CertsCard n={n} />
@@ -199,6 +267,7 @@ export function TrafficView({ n }: { n: string }) {
           <span className="faint">{t.sites.find((x) => x.site === focus)?.hosts.join(" ") ?? ""}</span>
         </div>
       ) : null}
+      {logNote}
       {spans}
       <Meters>
         <Meter label="Requests" p={null} value={count(T.requests)} sub={`${focus ? focus : plural(t.sites.length, "site")} · ${size(T.bytes)} sent`} />
@@ -301,7 +370,7 @@ export function TrafficView({ n }: { n: string }) {
             <Spin />{" "}
           </>
         )}
-        from Traefik's access log, read {new Date(t.at).toLocaleTimeString()}
+        from Traefik's access log{t.log && logLimitText(t.log) && <> ({logLimitText(t.log)})</>}, read {new Date(t.at).toLocaleTimeString()}
         {reach} · <span className="mono">{cmd}</span>
       </p>
     </>

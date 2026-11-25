@@ -1,12 +1,30 @@
 import { defineCommand, logOpts, serverOpt } from "../cmd";
-import { checkEmail, checkInt, resolveServer } from "../../core/config";
+import { accessLogStatus, clearProxyLog, planAccessLog, readProxyCompose, writeAccessLog } from "../../core/accesslog";
+import { bytes } from "../../core/format";
+import { adminLogin } from "../../core/privilege";
+import { ACCESS_LOG_HINT, logLimitText, type AccessLog } from "../../core/traffic";
+import { checkEmail, checkInt, resolveServer, type Server } from "../../core/config";
 import { assessTraefik, foreignProxy, probeServer } from "../../core/inventory";
 import { dashboardHosts, dashboardRouters, dockerLogs, hasDashboardTunnel } from "../../core/remote";
 import { DEFAULT_USER, installTraefik, removeTraefik, traefikSettings, traefikState, traefikStatus as traefikStatusOf, useProxy } from "../../core/traefik";
 import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/tunnel";
 import { runScript, shq, sshExec } from "../../core/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/templates";
-import { c, confirm, confirmRemoval, fail, info, ok, printJson } from "../../core/term";
+import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table } from "../../core/term";
+
+/** lf traefik setup: install or reconfigure landfall's Traefik, after the checks that keep it from breaking the server. */
+async function setupTraefik(name: string, server: Server, opts: Parameters<typeof installTraefik>[2]) {
+  const probe = await probeServer(server);
+  const t = assessTraefik(probe);
+  if (t.status === "conflict") fail(`not touching ${name}: ${t.detail}`);
+  if (t.proxy) fail(`${name} already has its own traefik: ${t.detail}. landfall does not reconfigure it (lf traefik use)`);
+  // On the host network traefik's tunnel entrypoint binds 127.0.0.1:${TUNNEL_PORT} itself: taken, it would not start.
+  if (traefikSettings(server, { hostNetwork: opts.hostNetwork }).hostNetwork) {
+    const taken = probe.listen.find((l) => l.port === TUNNEL_PORT && l.proc !== "traefik");
+    if (taken) fail(`port ${TUNNEL_PORT} is in use by ${taken.proc}; traefik on the host network needs it for lf tunnel`);
+  }
+  await installTraefik(name, server, opts);
+}
 
 export const traefikSetup = defineCommand({
   name: "traefik setup",
@@ -18,6 +36,7 @@ export const traefikSetup = defineCommand({
     image: { type: "string", desc: `traefik image, remembered (default: ${DEFAULT_TRAEFIK_IMAGE})` },
     "host-network": { type: "boolean", desc: "run on the host network: real client IPs, ufw applies; remembered (--no-host-network)" },
     http3: { type: "boolean", desc: "HTTP/3 over QUIC on 443/udp, on by default; remembered (--no-http3 turns it off)" },
+    "access-log": { type: "boolean", desc: "the JSON access log lf traffic reads, on by default; remembered (--no-access-log turns it off)" },
     dashboard: {
       type: "string",
       desc: "serve the traefik dashboard on this domain (basic auth), remembered; `traefik` = traefik.<main domain>, `off` removes it",
@@ -28,21 +47,13 @@ export const traefikSetup = defineCommand({
   },
   async run(_, o) {
     const { name, server } = resolveServer(o.server);
-    const probe = await probeServer(server);
-    const t = assessTraefik(probe);
-    if (t.status === "conflict") fail(`not touching ${name}: ${t.detail}`);
-    if (t.proxy) fail(`${name} already has its own traefik: ${t.detail}. landfall does not reconfigure it (lf traefik use)`);
-    // On the host network traefik's tunnel entrypoint binds 127.0.0.1:${TUNNEL_PORT} itself: taken, it would not start.
-    if (traefikSettings(server, { hostNetwork: o["host-network"] }).hostNetwork) {
-      const taken = probe.listen.find((l) => l.port === TUNNEL_PORT && l.proc !== "traefik");
-      if (taken) fail(`port ${TUNNEL_PORT} is in use by ${taken.proc}; traefik on the host network needs it for lf tunnel`);
-    }
-    await installTraefik(name, server, {
+    await setupTraefik(name, server, {
       email: o.email && checkEmail(o.email),
       staging: o.staging,
       image: o.image,
       hostNetwork: o["host-network"],
       http3: o.http3,
+      accessLog: o["access-log"],
       dashboard: o.dashboard,
       dashboardUser: o["dashboard-user"],
       dashboardPassword: o["dashboard-password"],
@@ -57,7 +68,8 @@ export const traefikUse = defineCommand({
   summary: `Deploy sites through a Traefik that already runs on the server (yours, not landfall's).
 
 landfall reads network, entrypoint and cert resolver from the container's flags;
-pass them when it is configured by a file. That Traefik is never changed.`,
+pass them when it is configured by a file. landfall does not change that Traefik,
+except for lf traefik access-log when you run it.`,
   options: {
     server: serverOpt,
     network: { type: "string", desc: "docker network traefik watches (providers.docker.network)" },
@@ -146,6 +158,86 @@ export const traefikLogs = defineCommand({
     ]);
   },
 });
+
+export const traefikAccessLog = defineCommand({
+  name: "traefik access-log",
+  args: "[on|off|clear]",
+  summary: `Show, turn on, turn off or empty Traefik's JSON access log, which lf traffic reads.
+
+Without an argument it shows whether the log is on, Docker's size limit for it and its size.
+on and off change the command of your own Traefik (lf traefik use) in its compose file and recreate
+the container; on landfall's Traefik they run lf traefik setup and are remembered. lf undo reverts both.
+clear empties the container's log file: the requests lf traffic counts start again. It cannot be undone.`,
+  options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output (status)" } },
+  async run([action], o) {
+    if (action && !["on", "off", "clear"].includes(action)) fail(`unknown action ${action}: on, off or clear`);
+    const { name, server: login } = resolveServer(o.server);
+    let server = login;
+    let p = await readProxyCompose(server);
+    if (!p) return fail(`no traefik on ${name} (lf traefik setup)`);
+    const via = o.server ? ` -s ${name}` : "";
+    if (!action) {
+      const v = accessLogStatus(p);
+      if (o.json) return void printJson(v);
+      const l = p.log;
+      table([
+        ["traefik", `${p.container} (${p.own ? "yours" : "landfall's"})`],
+        ["access log", ACCESS_LOG_TEXT[p.accessLog]],
+        ...(l ? [["log", [l.driver, logLimitText(l), l.bytes === undefined ? "" : bytes(l.bytes)].filter(Boolean).join(", ")]] : []),
+      ]);
+      if (l && !logLimitText(l).startsWith("capped")) info(c.dim(`lf log-limit${via} caps the logs of every container, traefik's included`));
+      return;
+    }
+    if (action === "clear") {
+      const log = p.log;
+      if (log?.driver !== "json-file") return fail(`${p.container} keeps no log file landfall can empty (log driver ${log?.driver ?? "unknown"})`);
+      const size = log.bytes === undefined ? "" : ` (${bytes(log.bytes)})`;
+      await confirmRemoval(`Empty the log of ${p.container}${size}? lf traffic and lf traefik logs lose what it holds; this cannot be undone.`);
+      if (!p.root) server = await adminLogin(server, "lf traefik access-log clear");
+      await clearProxyLog(server, p.container);
+      return ok(`emptied the log of ${p.container}: lf traffic${via} counts requests from now on`);
+    }
+    const on = action === "on";
+    const want = on ? "json" : "off";
+    if (p.accessLog === want) return ok(`the access log of ${p.container} is already ${on ? "on, as JSON" : "off"}`);
+    if (!p.own) {
+      // landfall's own Traefik: writing its compose file again adds or drops the flags, and the server remembers it.
+      if (!(await confirm(`Rewrite and restart landfall's traefik on ${name}? Requests through it fail for a moment.`))) return;
+      return setupTraefik(name, server, { dashboardUser: DEFAULT_USER, accessLog: on });
+    }
+    if (on && p.accessLog === "file")
+      fail(`${p.container} writes its access log to a file; lf traffic reads stdout: remove --accesslog.filepath from its command`);
+    if (p.accessLog === "unknown")
+      fail(`landfall cannot read how ${p.container} is configured; ${on ? ACCESS_LOG_HINT : "remove accessLog from its config by hand"}, then recreate it`);
+    // A compose file under /root: read and write it as root (a root key login, or the sudo password).
+    if (p.text === undefined && p.files.length === 1 && !p.root) {
+      server = await adminLogin(server, "lf traefik access-log");
+      p = (await readProxyCompose(server)) ?? p;
+    }
+    const plan = planAccessLog(p, on);
+    if ("error" in plan)
+      return fail(`cannot change ${p.container} for you: ${plan.error}; ${on ? ACCESS_LOG_HINT : "remove its --accesslog flags"}, then recreate it`);
+    step(`${on ? "adding the access log flags to" : "removing the access log flags from"} the command of ${c.bold(plan.service)}:`);
+    showDiff(plan.file, p.text!, plan.text, console.error);
+    if (!(await confirm(`Recreate ${p.container}? Requests through it fail for a moment.`))) return;
+    await writeAccessLog(server, plan);
+    ok(
+      on
+        ? `${p.container} writes its access log as JSON: lf traffic${via} shows requests from now on`
+        : `${p.container} writes no access log: lf traffic${via} has nothing new to count`,
+    );
+    info(c.dim("lf undo puts the compose file back"));
+  },
+});
+
+/** How `lf traefik access-log` names each state of the log. */
+const ACCESS_LOG_TEXT: Record<AccessLog, string> = {
+  json: "on, JSON (what lf traffic reads)",
+  common: "on, plain text (lf traffic needs JSON: lf traefik access-log on)",
+  off: "off",
+  file: "on, written to a file in the container (lf traffic reads stdout)",
+  unknown: "set by a config file landfall does not read",
+};
 
 export const traefikRestart = defineCommand({
   name: "traefik restart",

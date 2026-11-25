@@ -65,6 +65,7 @@ function help() {
         "traefik status",
         "traefik dashboard",
         "traefik logs",
+        "traefik access-log",
         "traefik restart",
         "traefik rm",
         "redirects",

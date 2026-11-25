@@ -44,7 +44,7 @@ async function printStats(name: string, meta: SiteMeta, secs: number, traffic: P
   if (!t.proxy) fail(`no traefik on ${name} (lf traefik setup)`);
   const rows = splitStats(meta, t);
   if (json) return printJson({ site: meta.name, since: secs, format: t.format, services: rows });
-  if (t.format === "common") return warn(`traefik on ${name} writes its access log as plain text: \`lf traefik setup\` switches it to JSON`);
+  if (t.format === "common") return warn(`traefik on ${name} writes its access log as plain text: \`lf traefik access-log\` switches it to JSON`);
   console.log(`${c.bold(meta.name)}${c.dim(` · last ${spanLabel(secs)}`)}`);
   for (const split of new Set(rows.map((r) => r.split))) {
     const group = rows.filter((r) => r.split === split);
@@ -64,7 +64,7 @@ async function printStats(name: string, meta: SiteMeta, secs: number, traffic: P
       ]),
     ]);
   }
-  if (t.format === "none") info(c.dim(`no requests in the last ${spanLabel(secs)} (or traefik has no access log: lf traefik setup)`));
+  if (t.format === "none") info(c.dim(`no requests in the last ${spanLabel(secs)} (or traefik has no access log: lf traefik access-log)`));
 }
 
 export const scale = defineCommand({

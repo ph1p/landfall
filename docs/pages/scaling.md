@@ -162,7 +162,7 @@ b        10 (10%)   893 (9%)     41       2 (0%)  14 (2%)   45ms  420ms
 - 4XX and 5XX count status codes; the percentage is of the service's requests.
 - P50 and P95 are response times, from a histogram: within about 20%.
 - `--since` takes `30m`, `24h` or `7d`, up to what the container log holds (`lf log-limit`).
-- The counts are read on the server with awk; only the sums cross ssh. Traefik must log JSON (`lf traefik setup`).
+- The counts are read on the server with awk; only the sums cross ssh. Traefik must log JSON (`lf traefik access-log` turns it on for your own Traefik).
 
 ### A/B testing
 

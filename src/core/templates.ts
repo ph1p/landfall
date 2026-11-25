@@ -1,3 +1,5 @@
+import { ACCESS_LOG_FLAGS } from "./traffic-merge";
+
 /** Everything landfall puts on a server lives below this root. */
 export const ROOT = "/opt/landfall";
 export const SITES = `${ROOT}/sites`;
@@ -79,6 +81,11 @@ export const OWN_PROXY: Proxy = { container: "traefik", network: NETWORK, entryp
 
 /** Shell: name of the proxy container. */
 export const PROXY_CTR = `"$(sed -n 's/^container=//p' ${PROXY_FILE} 2>/dev/null | grep . || echo traefik)"`;
+
+/** Start of a script that reads the proxy: `$P` is its container; without one it prints NOPROXY and stops. */
+export const PROXY_PRELUDE = `set +e
+P=${PROXY_CTR}
+if ! docker inspect "$P" >/dev/null 2>&1; then echo NOPROXY; exit 0; fi`;
 
 /** `key=value` lines (or words) of PROXY_FILE; undefined when incomplete. */
 export function parseProxy(text: string): Proxy | undefined {
@@ -647,6 +654,8 @@ export interface TraefikOpts {
   hostNetwork?: boolean;
   /** HTTP/3 (QUIC) on websecure; bridge mode also publishes 443/udp. */
   http3?: boolean;
+  /** The JSON access log on stdout that lf traffic reads; on unless false. */
+  accessLog?: boolean;
   dashboard?: { host: string; htpasswd: string };
 }
 
@@ -673,9 +682,8 @@ export function traefikCompose(o: TraefikOpts): string {
     "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json",
     "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
     "--log.level=INFO",
-    "--accesslog=true",
     // JSON lines: lf traffic aggregates them on the server; plain log lines without color codes for lf certs.
-    "--accesslog.format=json",
+    ...(o.accessLog === false ? [] : ACCESS_LOG_FLAGS),
     "--log.nocolor=true",
   ];
   // Optional: Let's Encrypt no longer mails expiry warnings, the address is only an account contact.

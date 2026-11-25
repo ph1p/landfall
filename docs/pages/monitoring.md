@@ -10,12 +10,30 @@ lf check example.com --resolve 198.51.100.4   # one domain, against an address b
 
 ## Traffic
 
-`traffic` sums Traefik's access log (JSON lines on stdout, set by `lf traefik setup`) with awk on the server; only counts cross ssh.
+`traffic` sums Traefik's access log (JSON lines on stdout: landfall's Traefik writes them, `lf traefik access-log` turns them on for your own) with awk on the server; only counts cross ssh.
 
 - History reaches as far as the container log (`lf log-limit` caps it); `--since` takes up to 30d.
 - Up to 6h counts per minute, longer per hour. Response times come from a histogram, within about 20%.
-- An older Traefik logs plain text: `lf traefik setup` switches it to JSON (brief restart).
-- Your own Traefik (`lf traefik use`) needs `--accesslog=true --accesslog.format=json` in its command.
+- `lf traffic` and the web UI say when Traefik has no access log, logs plain text, or logs to a file.
+
+The access log is Traefik's container log. Manage it with `lf traefik access-log`:
+
+```sh
+lf traefik access-log -s vps                   # on or off, the log's size on disk and its size cap
+lf traefik access-log on -s vps                # turn on the JSON log; Traefik restarts once; lf undo reverts it
+lf traefik access-log off -s vps               # turn it off; lf traffic then has nothing to count
+lf traefik access-log clear -s vps             # empty the log now; old traffic is gone, cannot be undone
+lf log-limit 20m -s vps                        # cap every container log, Traefik's too (see System)
+```
+
+- The web UI has the same actions in the Traffic tab, under "Access log". Its footer shows the log's size cap.
+- Without a cap (`no size limit`), the log grows until the disk is full. `lf log-limit` sets one.
+- `clear` works when Docker keeps the log as a `json-file` (the default). It asks first.
+- On landfall's Traefik, `on` and `off` rewrite the Traefik setup, like `lf traefik setup --access-log` / `--no-access-log`. The choice is remembered.
+- On your own Traefik (`lf traefik use`), they add or remove `--accesslog=true --accesslog.format=json` in the service's `command:` in its compose file. It shows the change and asks first.
+- A compose file only root can read (under `/root`) needs root: landfall uses a root key login, or asks for the sudo password once.
+- It refuses when the Traefik takes its config from a file, comes from several compose files, or sets `--accesslog.filepath`. Then change the flags yourself (or `accessLog: {format: json}` in its config file).
+- `off` refuses when the access log is not set by flags in the command, for example by environment variables.
 - For the services of a traffic split, `lf weight <site> --stats` counts per service ([Scaling](scaling.md)).
 
 ## Certificates

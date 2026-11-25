@@ -15,7 +15,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | Sites       | `lf ls`, `sites info`, `deploy`, `rollback`, `release rm`, `logs`, `restart`/`stop`/`start`, `env`, `secret`, `domains`, `auth`, `tunnel`, `scale`, `weight`, `sites rm`. A site's menu runs `lf check <site>`, `lf stats <site>`, and opens its traffic |
 | Stats       | `lf stats` (new sample every 5s while open), `lf disk` on request, Clean up… (`lf prune`) |
 | Traffic     | `lf traffic --since 1h/24h/7d`, `lf certs`; a site's `lf traffic <site>`. The Sites tab shows failing requests of the last 24h and whether each domain answers over HTTPS |
-| Traefik     | `lf traefik status` (routes), `traefik logs`, `traefik restart`, `traefik use`, `traefik rm` |
+| Traefik     | `lf traefik status` (routes), `traefik logs`, `traefik restart`, `traefik use`, `traefik access-log on/off/clear` (Traffic tab, "Access log"), `traefik setup --no-access-log` (Settings), `traefik rm` |
 | Updates     | `lf updates`, `lf update` |
 | Firewall    | `lf firewall` and subcommands |
 | Users       | `lf users` and subcommands; shown only where landfall may manage users |

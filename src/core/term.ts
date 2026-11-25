@@ -147,7 +147,8 @@ export function openUrl(url: string) {
 }
 
 /** A line diff of a file landfall rewrites, changed lines with one line of context. */
-export function showDiff(file: string, before: string, after: string) {
+/** The lines that differ, with one line of context, on stdout (or `out`). */
+export function showDiff(file: string, before: string, after: string, out: (s: string) => void = console.log) {
   const a = before.split("\n");
   const b = after.split("\n");
   // Longest common subsequence, from the end: small files only (compose files).
@@ -163,13 +164,13 @@ export function showDiff(file: string, before: string, after: string) {
     else lines.push(["+", b[j++]]);
   }
   const near = (k: number) => lines.slice(Math.max(0, k - 1), k + 2).some(([t]) => t !== " ");
-  console.log(c.bold(`--- ${file}`));
+  out(c.bold(`--- ${file}`));
   let gap = false;
   lines.forEach(([t, l], k) => {
     if (t === " " && !near(k)) return void (gap = true);
-    if (gap) console.log(c.dim("  …"));
+    if (gap) out(c.dim("  …"));
     gap = false;
-    console.log(t === "+" ? c.green(`+ ${l}`) : t === "-" ? c.red(`- ${l}`) : c.dim(`  ${l}`));
+    out(t === "+" ? c.green(`+ ${l}`) : t === "-" ? c.red(`- ${l}`) : c.dim(`  ${l}`));
   });
 }
 

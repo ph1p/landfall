@@ -24,6 +24,8 @@ export interface Server {
   hostNetwork?: boolean;
   /** HTTP/3 on 443/udp; on unless false. */
   http3?: boolean;
+  /** landfall's traefik writes the access log lf traffic reads; on unless false. */
+  accessLog?: boolean;
   /**
    * Main domains. The first is the primary: sites default to <site>.<primary>, and a bare
    * name like `blog` means blog.<primary>. The others are listed and DNS-checked too.

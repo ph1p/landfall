@@ -40,6 +40,7 @@ export interface TraefikInstall {
   image?: string;
   hostNetwork?: boolean;
   http3?: boolean;
+  accessLog?: boolean;
   dashboard?: string;
   dashboardUser: string;
   dashboardPassword?: string;
@@ -66,18 +67,27 @@ export async function newLogin(user: string, password?: string, flag = "user") {
 }
 
 /** What `installTraefik` will run with: flags first, then what the server entry remembers. */
-export function traefikSettings(server: Server, o: Pick<TraefikInstall, "email" | "staging" | "image" | "hostNetwork" | "http3">) {
+export function traefikSettings(server: Server, o: Pick<TraefikInstall, "email" | "staging" | "image" | "hostNetwork" | "http3" | "accessLog">) {
   return {
     email: o.email ?? server.email ?? defaults().email,
     staging: !!(o.staging ?? server.staging),
     image: o.image || server.traefikImage || DEFAULT_TRAEFIK_IMAGE,
     hostNetwork: !!(o.hostNetwork ?? server.hostNetwork),
     http3: (o.http3 ?? server.http3) !== false,
+    accessLog: (o.accessLog ?? server.accessLog) !== false,
   };
 }
 
 export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
-  [t.image, t.hostNetwork ? "host network" : "ports 80/443 published", t.http3 ? "HTTP/3" : "no HTTP/3", t.staging && "LE staging"].filter(Boolean).join(", ");
+  [
+    t.image,
+    t.hostNetwork ? "host network" : "ports 80/443 published",
+    t.http3 ? "HTTP/3" : "no HTTP/3",
+    !t.accessLog && "no access log",
+    t.staging && "LE staging",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
 /** Install traefik and remember its settings on the lf server entry `name` (if registered). */
 export async function installTraefik(name: string, server: Server, o: TraefikInstall) {
@@ -146,6 +156,7 @@ ensure_running traefik`,
       traefikImage: t.image === DEFAULT_TRAEFIK_IMAGE ? undefined : t.image,
       hostNetwork: t.hostNetwork || undefined,
       http3: t.http3 ? undefined : false,
+      accessLog: t.accessLog ? undefined : false,
       dashboard,
     };
     await updateConfig((cfg) => {

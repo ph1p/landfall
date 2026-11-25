@@ -109,7 +109,7 @@ export const trafficView = (server: Server, secs: number) => traffic(server, sec
 
 /** `lf traffic <site> --json`: only the requests of a site (or a domain); no counts when it had none. */
 export function siteTrafficView(t: Traffic, site: string) {
-  return { site, since: t.since, bucket: t.bucket, format: t.format, from: t.from, to: t.to, ...siteTraffic(t, site) };
+  return { site, since: t.since, bucket: t.bucket, format: t.format, accessLog: t.accessLog, from: t.from, to: t.to, ...siteTraffic(t, site) };
 }
 
 /** `lf traefik status --json`: the proxy container and the routes it serves. */
