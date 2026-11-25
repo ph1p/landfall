@@ -7,6 +7,7 @@ import { defineConfig } from "vitest/config";
 const tmp = fs.mkdtempSync(join(tmpdir(), "landfall-tests-"));
 
 // Its own config, so vitest does not run from vite.config.ts's root (the lf ui page).
+// GITHUB_ACTIONS and GITLAB_CI are blanked so a CI run's tests record deploys like a local run (ciRun).
 export default defineConfig({
-  test: { env: { TMPDIR: tmp }, globalSetup: "test/unit/teardown.ts" },
+  test: { env: { TMPDIR: tmp, GITHUB_ACTIONS: "", GITLAB_CI: "" }, globalSetup: "test/unit/teardown.ts" },
 });

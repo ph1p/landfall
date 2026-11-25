@@ -1404,8 +1404,8 @@ function FolderDialog({ b, site, server }: { b: Browse; site?: Redeploy; server?
             type="file"
             hidden
             multiple
-            // @ts-expect-error not in React's types
-            webkitdirectory=""
+            // a spread, so it type-checks whether or not React's types know webkitdirectory
+            {...{ webkitdirectory: "" }}
             onChange={(e) => {
               const files = [...(e.target.files ?? [])];
               upload(
