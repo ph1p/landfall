@@ -209,7 +209,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `exclude` / `include` | more to leave out / to send anyway, in `.gitignore` syntax |
 | `buildLocal` | build images on this machine and send them; the server only runs them |
 | `hooks` | [lifecycle hooks](hooks.md): hook name to a shell command or a list of them |
-| `service` | the compose service the server hooks run in (default: the one serving the site's domains) |
+| `hookService` | the compose service the server hooks of `.landfall.json` run in (default: the one serving the site's domains); `package.json`'s hooks use `landfall.service` |
 | `git` | [git rules](git.md): `branch`, `tag` (globs or lists), `prerelease`, `requireClean`; `url` at the top level. Per environment under `environments` |
 | `environments` | named targets like `staging`: any keys above that differ. The name defaults to `<name>-<env>`. Domains are never inherited. Pick one with `-E` or `$LANDFALL_ENV` |
 

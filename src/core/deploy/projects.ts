@@ -311,7 +311,7 @@ const namedVolumes = (a: Detected["analysis"]) =>
 export function detectProject(path: string): Detected {
   const d = detectKind(path);
   try {
-    const hooks = readHooks([resolve(path, d.project?.dir ?? "."), path], { ...d.project, dir: path });
+    const hooks = readHooks(path, d.project);
     // What the deploy refuses, the dialog reports up front.
     refuseStaticServerHooks(hooks, d.kind);
     return hooks ? { ...d, hooks } : d;

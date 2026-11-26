@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { basename, join } from "node:path";
 import { nodeStage, packageManager } from "./node";
+import { readPackage } from "../lib/config";
 
 /**
  * An app that landfall writes the Dockerfile for:
@@ -56,12 +57,7 @@ export const files = (cwd: string) => {
     first,
     /** package.json, parsed once; {} without one. */
     get pkg(): any {
-      try {
-        pkg ??= JSON.parse(read("package.json") || "{}");
-      } catch {
-        pkg = {};
-      }
-      return pkg;
+      return (pkg ??= readPackage(cwd)?.pkg ?? {});
     },
   };
 };

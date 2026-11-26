@@ -1,4 +1,4 @@
-import { HOOK_WHEN, HOOKS, hookWhat, isLocalHook, type Hook } from "../../../core/site/hook-names";
+import { HOOK_WHEN, HOOKS, hookSource, isLocalHook, type Hook } from "../../../core/site/hook-names";
 import type { ProjectHooks } from "../../../core/site/hooks";
 import type { Group, Values } from "../ui/dialog";
 
@@ -17,7 +17,7 @@ export function HookList({ hooks, only }: { hooks: Pick<ProjectHooks, "run" | "s
     <ul className="m-0 p-0 list-none grid gap-1">
       {list.map((h) => (
         <li key={h} className="min-w-0">
-          <code>{h}</code> <span className="break-all">{hookWhat(pm, run[h]!)}</span>{" "}
+          <code>{h}</code> <span className="break-all">{hookSource(pm).what(run[h]!)}</span>{" "}
           <span className="dim">
             {isLocalHook(h) ? "here" : `on the server${service ? `, in ${service}` : ""}`}, {HOOK_WHEN[h]}
           </span>

@@ -21,48 +21,56 @@ const web = [{ name: "web", networks: ["default"], build: true, port: 3000 }];
 describe("readHooks", () => {
   test("reads hooks as lists, with the package manager of the lockfile", () => {
     const d = project({ scripts, landfall: { hooks: { prebuild: ["lint"], predeploy: "test", release: "db:migrate" } } });
-    expect(readHooks([d])).toEqual({ dir: d, pm: "pnpm", run: { prebuild: ["lint"], predeploy: ["test"], release: ["db:migrate"] } });
+    expect(readHooks(d)).toEqual({ dir: d, pm: "pnpm", run: { prebuild: ["lint"], predeploy: ["test"], release: ["db:migrate"] } });
   });
 
   test("no package.json, no landfall section or no hooks: none", () => {
-    expect(readHooks([join(os.tmpdir(), "lf-no-such-dir")])).toBeUndefined();
-    expect(readHooks([project({ scripts })])).toBeUndefined();
-    expect(readHooks([project({ scripts, landfall: { hooks: {} } })])).toBeUndefined();
+    expect(readHooks(join(os.tmpdir(), "lf-no-such-dir"))).toBeUndefined();
+    expect(readHooks(project({ scripts }))).toBeUndefined();
+    expect(readHooks(project({ scripts, landfall: { hooks: {} } }))).toBeUndefined();
   });
 
   test("refuses unknown hooks, missing scripts and wrong shapes", () => {
-    expect(() => readHooks([project({ scripts, landfall: { hooks: { predeplo: "test" } } })])).toThrow(/unknown hook "predeplo"/);
-    expect(() => readHooks([project({ scripts, landfall: { hooks: { verify: ["smoke", "e2e"] } } })])).toThrow(/runs e2e, which "scripts" does not have/);
-    expect(() => readHooks([project({ scripts, landfall: { hooks: { verify: 1 } } })])).toThrow(/script name or a list/);
-    expect(() => readHooks([project({ scripts, landfall: { service: 1 } })])).toThrow(/must name a compose service/);
+    expect(() => readHooks(project({ scripts, landfall: { hooks: { predeplo: "test" } } }))).toThrow(/unknown hook "predeplo"/);
+    expect(() => readHooks(project({ scripts, landfall: { hooks: { verify: ["smoke", "e2e"] } } }))).toThrow(/runs e2e, which "scripts" does not have/);
+    expect(() => readHooks(project({ scripts, landfall: { hooks: { verify: 1 } } }))).toThrow(/script name or a list/);
+    expect(() => readHooks(project({ scripts, landfall: { service: 1 } }))).toThrow(/must name a compose service/);
   });
 });
 
 describe("readHooks from .landfall.json", () => {
   test("reads shell commands, without a package manager, run in the project folder", () => {
-    const h = readHooks(["/nowhere"], { dir: "/p", service: "app", hooks: { release: "php artisan migrate --force", verify: ["curl -fs $LANDFALL_URL/up"] } });
+    const h = readHooks("/nowhere", { hookService: "app", hooks: { release: "php artisan migrate --force", verify: ["curl -fs $LANDFALL_URL/up"] } });
     expect(h).toEqual({
-      dir: "/p",
+      dir: "/nowhere",
       service: "app",
       run: { release: ["php artisan migrate --force"], verify: ["curl -fs $LANDFALL_URL/up"] },
     });
   });
 
   test("refuses unknown hooks, empty commands and hooks in both files", () => {
-    expect(() => readHooks([], { dir: "/p", hooks: { deploy: "x" } })).toThrow(/\.landfall\.json: unknown hook "deploy"/);
-    expect(() => readHooks([], { dir: "/p", hooks: { verify: [" "] } })).toThrow(/hooks\.verify must be a command or a list/);
+    expect(() => readHooks("/nowhere", { hooks: { deploy: "x" } })).toThrow(/\.landfall\.json: unknown hook "deploy"/);
+    expect(() => readHooks("/nowhere", { hooks: { verify: [" "] } })).toThrow(/hooks\.verify must be a command or a list/);
     const d = project({ scripts, landfall: { hooks: { predeploy: "test" } } });
-    expect(() => readHooks([d], { dir: d, hooks: { verify: "true" } })).toThrow(/hooks in both package.json .* keep them in one/);
+    expect(() => readHooks(d, { hooks: { verify: "true" } })).toThrow(/hooks in both package.json .* keep them in one/);
   });
 
-  test("a service in .landfall.json applies to package.json's hooks", () => {
-    const d = project({ scripts, landfall: { hooks: { release: "db:migrate" } } });
-    expect(readHooks([d], { dir: d, service: "web" })?.service).toBe("web");
+  test("each file names the service of its own hooks", () => {
+    const npm = project({ scripts, landfall: { hooks: { release: "db:migrate" } } });
+    expect(() => readHooks(npm, { hookService: "web" })).toThrow(/hookService is for \.landfall\.json's hooks/);
+    const svc = project({ scripts, landfall: { service: "web" } });
+    expect(() => readHooks(svc, { hooks: { release: "true" } })).toThrow(/landfall\.service is for package\.json's hooks/);
+    expect(() => readHooks("/nowhere", { hookService: "", hooks: { release: "true" } })).toThrow(/"hookService" must name a compose service/);
+  });
+
+  test("package.json in the project's dir first, else in the folder", () => {
+    const d = project({ scripts, landfall: { hooks: { predeploy: "test" } } });
+    expect(readHooks(d, { dir: "no-such-sub" })?.dir).toBe(d);
   });
 });
 
 test("project settings next to the hooks are not hook errors", () => {
-  const h = readHooks([project({ scripts: { test: "x" }, landfall: { name: "shop", domains: ["shop.com"], hooks: { predeploy: "test" } } })]);
+  const h = readHooks(project({ scripts: { test: "x" }, landfall: { name: "shop", domains: ["shop.com"], hooks: { predeploy: "test" } } }));
   expect(h?.run).toEqual({ predeploy: ["test"] });
 });
 

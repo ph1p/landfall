@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { expandHost } from "../traefik/redirects";
@@ -314,8 +314,8 @@ export interface ProjectConfig {
   buildLocal?: boolean;
   /** Lifecycle hooks as shell commands: hook name → a command or a list of them (package.json's landfall.hooks name npm scripts instead). */
   hooks?: Record<string, string | string[]>;
-  /** The compose service the server hooks run in (default: the one serving the site's domains). */
-  service?: string;
+  /** The compose service `hooks` run in on the server (default: the one serving the site's domains); package.json's landfall.service is its hooks'. */
+  hookService?: string;
   /** Which git refs may deploy (branch/tag globs), and the repository's URL. An environment's rule is its own: never inherited. */
   git?: GitConfig;
   /** Named targets (staging…): the same project deployed again as its own site, with what differs here. */
@@ -340,25 +340,50 @@ export const envSiteName = (name: string, env = activeEnvironment()) => (env ? `
 /** The project file in a directory. */
 const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
+const packages = new Map<string, { stamp: string; read: PackageRead }>();
+type PackageRead = { text: string; pkg?: any; error?: string };
+
+/**
+ * The package.json in `cwd`, parsed (or why not), undefined without one. A deploy reads it for its settings,
+ * its kind and its hooks: it is parsed again only when the file changed. Shared: never change what it returns.
+ */
+export function readPackage(cwd: string): PackageRead | undefined {
+  const file = resolve(cwd, "package.json");
+  let stamp: string;
+  try {
+    const st = fs.statSync(file);
+    if (!st.isFile()) return undefined;
+    stamp = `${st.ino}:${st.size}:${st.mtimeMs}`;
+  } catch {
+    return undefined;
+  }
+  const hit = packages.get(file);
+  if (hit?.stamp === stamp) return hit.read;
+  let read: PackageRead;
+  try {
+    const text = fs.readFileSync(file, "utf8");
+    try {
+      read = { text, pkg: JSON.parse(text) };
+    } catch (e: any) {
+      read = { text, error: String(e?.message ?? e) };
+    }
+  } catch {
+    return undefined;
+  }
+  packages.set(file, { stamp, read });
+  return read;
+}
+
 /**
  * package.json's "landfall" section, if it has one. It holds any key of .landfall.json; its hooks name npm
  * scripts, where .landfall.json's are shell commands. A broken package.json without the section is the build's business, not landfall's.
  * Returns package.json, parsed, with its "landfall" section checked; undefined without that section.
  */
 export function packageJson(cwd: string): { pkg: any; section: Record<string, any> } | undefined {
-  let text: string;
-  try {
-    text = fs.readFileSync(join(cwd, "package.json"), "utf8");
-  } catch {
-    return undefined;
-  }
-  let pkg: any;
-  try {
-    pkg = JSON.parse(text);
-  } catch (e: any) {
-    if (!text.includes('"landfall"')) return undefined;
-    return fail(`could not read package.json: ${e?.message ?? e}`);
-  }
+  const read = readPackage(cwd);
+  if (!read) return undefined;
+  if (read.error !== undefined) return read.text.includes('"landfall"') ? fail(`could not read package.json: ${read.error}`) : undefined;
+  const pkg = read.pkg;
   const section = pkg?.landfall;
   if (section === undefined) return undefined;
   if (!section || typeof section !== "object" || Array.isArray(section))
@@ -366,7 +391,7 @@ export function packageJson(cwd: string): { pkg: any; section: Record<string, an
   return { pkg, section };
 }
 
-/** The project settings in package.json's "landfall" section: all of it but the hooks (npm scripts, read by readHooks). */
+/** The project settings in package.json's "landfall" section: all of it but the hooks (npm scripts) and their service, read by readHooks. */
 function packageProject(cwd: string): Partial<ProjectConfig> | undefined {
   const { hooks: _h, service: _s, ...rest } = packageJson(cwd)?.section ?? {};
   return Object.keys(rest).length ? rest : undefined;

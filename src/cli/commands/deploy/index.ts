@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, join, relative } from "node:path";
 import { defineCommand, serverOpt } from "../../cmd";
 import { deploySource, pickEnvironmentForRef, type Connect } from "../../../core/deploy/source";
 import {
@@ -60,6 +60,27 @@ import {
 import { KINDS, planDeploy } from "./plan";
 import { checkLive, showRoutes } from "./output";
 import { nextReleaseId } from "./release";
+
+/** The keys of .landfall.json a deploy with --save works out and writes; it keeps the others as they are. */
+const DEPLOY_DECIDES = new Set<string>([
+  "name",
+  "server",
+  "domains",
+  "redirects",
+  "image",
+  "port",
+  "sendImage",
+  "dir",
+  "compose",
+  "start",
+  "spa",
+  "static",
+  "volumes",
+  "worker",
+  "gitignore",
+  "buildLocal",
+  "build",
+] satisfies (keyof ProjectConfig)[]);
 
 /** The first upload of a site above this size asks first. */
 const BIG_UPLOAD = 100 * 1024 * 1024;
@@ -219,7 +240,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     // --git with no .landfall.json here: the commit's settings.
     if (source.project) project = source.project;
     const src = source.dir;
-    const hooks = readHooks([resolve(src, dirArg ?? project.dir ?? "."), src], { ...project, dir: src });
+    const hooks = readHooks(src, project, dirArg ?? project.dir);
     if (hooks && (["prebuild", "postbuild", "predeploy"] as const).some((h) => hooks.run[h])) source.prepare();
     if (project.name && !source.project) info(c.dim(`using ${projectSources(cwd).join(" and ")}${environment ? `, environment ${environment}` : ""}`));
 
@@ -557,14 +578,11 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
           if (o.volume?.length || project.volumes) saved.volumes = volumes;
           if (worker && !fromImage) saved.worker = true;
           if (gitignore) saved.gitignore = true;
-          // Written by hand: kept as they are.
-          if (project.exclude) saved.exclude = project.exclude;
-          if (project.include) saved.include = project.include;
-          if (project.hooks) saved.hooks = project.hooks;
-          if (project.service) saved.service = project.service;
           if (buildLocal) saved.buildLocal = true;
           if (buildCmd !== undefined) saved.build = buildCmd;
-          saveProject(cwd, saved);
+          // Keys a deploy does not decide (exclude, include, hooks, …) were written by hand: kept as they are.
+          const kept = Object.fromEntries(Object.entries(project).filter(([k]) => !DEPLOY_DECIDES.has(k)));
+          saveProject(cwd, { ...kept, ...saved });
           rememberProject({ path: cwd, name, server: serverName, domains: all, kind, ...(environment ? { environment } : {}) });
         }
 

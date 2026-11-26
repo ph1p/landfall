@@ -115,11 +115,12 @@ Shell commands need their programs in that container's image.
 npm script hooks need the scripts and the package manager, as an app image built from the project has.
 Lacking the package manager, landfall uses `npm`.
 
-A Compose site with several services can name one with `service`, in either file:
+A Compose site with several services can name one.
+Each file names the service of its own hooks: `hookService` in `.landfall.json`, `landfall.service` in `package.json`.
 
 ```json
 {
-  "service": "web",
+  "hookService": "web",
   "hooks": {
     "release": "./manage.py migrate"
   }

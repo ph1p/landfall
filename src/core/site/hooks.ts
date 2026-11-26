@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import type { Release } from "./meta";
 import { mainService } from "./routing";
-import { packageJson, PROJECT_FILE, type ProjectConfig } from "../lib/config";
+import { packageJson, PROJECT_FILE, readPackage, type ProjectConfig } from "../lib/config";
 import { usesBun } from "../deploy/frameworks";
-import { HOOKS, hooksFile, hookWhat, SERVER_HOOKS, type Hook, type LocalHook, type ServerHook } from "./hook-names";
+import { HOOKS, hookSource, SERVER_HOOKS, type Hook, type LocalHook, type ServerHook } from "./hook-names";
 import { packageManager } from "../deploy/node";
 import { files } from "../deploy/runtimes";
 import { journal, shq } from "../ssh/ssh";
@@ -63,30 +64,29 @@ const checkService = (from: string, key: string, service: unknown) => {
 };
 
 /**
- * The project's hooks: package.json's landfall.hooks (npm scripts) in the first of `dirs` that has a
- * package.json, or the `hooks` of `project`, the .landfall.json settings read from `project.dir` (shell
- * commands). Both at once is refused: each hook would be ambiguous. None without hooks.
+ * The project's hooks: package.json's landfall.hooks (npm scripts), from the package.json in `dir` (relative to
+ * `src`), else in `src`; or .landfall.json's hooks (shell commands) from `project`, run in `src`. Both at once is
+ * refused: each hook would be ambiguous. Each file names the service of its own hooks. None without hooks.
  */
-export function readHooks(dirs: string[], project?: Pick<ProjectConfig, "hooks" | "service"> & { dir: string }): ProjectHooks | undefined {
+export function readHooks(src: string, project?: Pick<ProjectConfig, "dir" | "hooks" | "hookService">, dir = project?.dir): ProjectHooks | undefined {
+  const pkgDir = [resolve(src, dir ?? "."), src].find((d) => readPackage(d));
   // The section's other keys are project settings (see loadProject).
-  let pkgDir: string | undefined, read: ReturnType<typeof packageJson>;
-  for (const d of dirs)
-    if ((read = packageJson(d))) {
-      pkgDir = d;
-      break;
-    }
-  checkService("package.json", "landfall.service", read?.section.service);
-  checkService(PROJECT_FILE, "service", project?.service);
-  const service: string | undefined = project?.service ?? read?.section.service;
-
+  const read = pkgDir ? packageJson(pkgDir) : undefined;
   const own = hookMap(PROJECT_FILE, "hooks", project?.hooks, "command");
   const npm = hookMap("package.json", "landfall.hooks", read?.section.hooks, "script name");
-  const hasOwn = Object.keys(own).length > 0;
-  if (hasOwn && Object.keys(npm).length)
-    fail(`hooks in both package.json (landfall.hooks, npm scripts) and ${PROJECT_FILE} (hooks, commands): keep them in one`);
+  const [hasOwn, hasNpm] = [Object.keys(own).length > 0, Object.keys(npm).length > 0];
+  if (hasOwn && hasNpm) fail(`hooks in both package.json (landfall.hooks, npm scripts) and ${PROJECT_FILE} (hooks, commands): keep them in one`);
+  checkService("package.json", "landfall.service", read?.section.service);
+  checkService(PROJECT_FILE, "hookService", project?.hookService);
 
-  if (hasOwn) return { dir: project!.dir, ...(service && { service }), run: own };
-  if (!Object.keys(npm).length || !read || !pkgDir) return;
+  if (hasOwn) {
+    if (read?.section.service !== undefined)
+      fail(`package.json: landfall.service is for package.json's hooks; name the service of ${PROJECT_FILE}'s hooks with "hookService" there`);
+    return { dir: src, ...(project!.hookService && { service: project!.hookService }), run: own };
+  }
+  if (!hasNpm || !read || !pkgDir) return;
+  if (project?.hookService !== undefined)
+    fail(`${PROJECT_FILE}: hookService is for ${PROJECT_FILE}'s hooks; name the service of package.json's hooks with landfall.service there`);
   const scripts: Record<string, unknown> = read.pkg.scripts ?? {};
   for (const [name, list] of Object.entries(npm)) {
     const missing = list.filter((s) => !(s in scripts));
@@ -94,6 +94,7 @@ export function readHooks(dirs: string[], project?: Pick<ProjectConfig, "hooks" 
   }
   const has = files(pkgDir).has;
   const pm = packageManager(has, usesBun({ has, pkg: read.pkg }), read.pkg.packageManager).name;
+  const service: string | undefined = read.section.service;
   return { dir: pkgDir, pm, ...(service && { service }), run: npm };
 }
 
@@ -156,10 +157,11 @@ export function runLocalHook(h: ProjectHooks | undefined, hook: LocalHook, vars:
   const entries = h?.run[hook];
   if (!h || !entries || skip.skips(hook, entries)) return;
   const env = { ...process.env, ...hookEnv(hook, vars) };
+  const kind = hookKind(h.pm);
   for (const s of entries) {
-    const what = hookWhat(h.pm, [s]);
+    const what = kind.what([s]);
     step(`hook ${hook}: ${what}`);
-    const [cmd, args, shell] = h.pm ? [h.pm, ["run", s], process.platform === "win32"] : [s, [], true];
+    const [cmd, args, shell] = kind.local(s);
     // stdin closed: a test runner sees no terminal and runs once instead of watching. stdout is for results.
     const r = spawnSync(cmd, args, { cwd: h.dir, env, stdio: ["ignore", 2, 2], shell });
     if (r.status === 0) continue;
@@ -169,10 +171,10 @@ export function runLocalHook(h: ProjectHooks | undefined, hook: LocalHook, vars:
   }
 }
 
-/** A static site's container is nginx, without the project's package.json: its npm script server hooks are refused. */
+/** A static site's container is nginx, without the project's package.json: server hooks that need it are refused. */
 export function refuseStaticServerHooks(h: ProjectHooks | undefined, kind: string) {
   const server = SERVER_HOOKS.filter((k) => h?.run[k]);
-  if (kind === "static" && h?.pm && server.length)
+  if (kind === "static" && h && hookKind(h.pm).needsPackageJson && server.length)
     fail(
       `package.json: ${server.join(", ")} run in the site's container, and a static site's (nginx) has no package.json; use prebuild, postbuild or predeploy, or shell commands in ${PROJECT_FILE}'s hooks`,
     );
@@ -185,10 +187,11 @@ export function releaseHooks(h: ProjectHooks | undefined, services: Release["ser
   if (!Object.keys(run).length) return;
   refuseStaticServerHooks(h, kind);
   const names = services.map((s) => s.name).join(", ");
+  const { file, serviceKey } = hookKind(h.pm);
   const named = h.service ? services.find((s) => s.name === h.service) : undefined;
-  if (h.service && !named) fail(`${hooksFile(h.pm)}: the hooks' service is ${h.service}, which is not a service of the release (${names})`);
+  if (h.service && !named) fail(`${file}: the hooks' service is ${h.service}, which is not a service of the release (${names})`);
   const svc = named ?? mainService({ id: "", at: "", services }) ?? services.find((s) => s.build) ?? (services.length === 1 ? services[0] : undefined);
-  if (!svc) fail(`${hooksFile(h.pm)}: which service do the server hooks run in? Name it with "service": "<name>" (services: ${names})`);
+  if (!svc) fail(`${file}: which service do the server hooks run in? Name it with ${serviceKey} (services: ${names})`);
   return { ...(h.pm && { pm: h.pm }), service: svc!.name, ...(svc!.port && { port: svc!.port }), run };
 }
 
@@ -225,6 +228,23 @@ const IN_CONTAINER = [
 const COMMANDS_IN_CONTAINER = `for s; do sh -c "$s" || { echo "failed: $s" >&2; exit 1; }; done`;
 
 /**
+ * Everything that differs between npm script hooks (a package manager) and shell command hooks (none): where
+ * they come from, how they read, how they run here (command, arguments, through a shell) and in the container
+ * (the script and its $0), and whether that container needs the project's package.json.
+ */
+function hookKind(pm: string | undefined) {
+  const source = hookSource(pm);
+  return pm
+    ? {
+        ...source,
+        local: (s: string) => [pm, ["run", s], process.platform === "win32"] as const,
+        container: [IN_CONTAINER, pm] as const,
+        needsPackageJson: true,
+      }
+    : { ...source, local: (s: string) => [s, [] as string[], true] as const, container: [COMMANDS_IN_CONTAINER, "sh"] as const, needsPackageJson: false };
+}
+
+/**
  * Shell for a hook, from the site folder: one container for all its scripts, from `dir` (a release folder
  * or `current`). `run`: a one-off container of the new release (Traefik never routes to it; its depends_on
  * start first). `exec`: the running container. A failure runs `onFail` (blocking hooks) or is logged.
@@ -236,8 +256,9 @@ export function hookLines(call: HookCall | undefined, mode: "run" | "exec", dir:
     .join(" ");
   const how =
     mode === "run" ? `dc run --rm -T --label traefik.enable=false --entrypoint sh ${e} ${shq(call.service)}` : `dc exec -T ${e} ${shq(call.service)} sh`;
-  const what = hookWhat(call.pm, call.scripts);
-  const [inner, zero] = call.pm ? [IN_CONTAINER, call.pm] : [COMMANDS_IN_CONTAINER, "sh"];
+  const kind = hookKind(call.pm);
+  const what = kind.what(call.scripts);
+  const [inner, zero] = kind.container;
   const failed = `hook ${call.hook} failed: ${what}`;
   return [
     `log ${shq(`hook ${call.hook}: ${what}`)}`,
