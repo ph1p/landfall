@@ -68,8 +68,16 @@ x-landfall:
   port: 3000
   sticky: true                     # a cookie pins each client to one container; sticky: my_cookie names it
   healthcheck: /health             # Traefik sends nothing to a container that fails it
-  # healthcheck: { path: /health, interval: 10s, timeout: 3s }
-  ratelimit: 20                    # requests per second per client IP; { average: 20, burst: 50 }
+  # or, with its own interval and timeout:
+  # healthcheck:
+  #   path: /health
+  #   interval: 10s
+  #   timeout: 3s
+  ratelimit: 20                    # requests per second per client IP
+  # or, with a burst:
+  # ratelimit:
+  #   average: 20
+  #   burst: 50
   headers:                         # response headers; an empty value removes one
     X-Frame-Options: DENY
   compress: true                   # gzip and brotli
@@ -89,10 +97,14 @@ Use it to send a few requests to a new version (a canary).
 services:
   stable:
     image: ghcr.io/me/app:1.4
-    x-landfall: { port: 3000, weight: 90 }
+    x-landfall:
+      port: 3000
+      weight: 90
   canary:
     image: ghcr.io/me/app:1.5
-    x-landfall: { port: 3000, weight: 10 }
+    x-landfall:
+      port: 3000
+      weight: 10
 ```
 
 ```sh
@@ -119,13 +131,16 @@ lf weight blog stable=0 canary=100
 services:
   a:
     image: ghcr.io/me/app:1.4
-    x-landfall: { port: 3000, weight: 100 }
+    x-landfall:
+      port: 3000
+      weight: 100
   b:
     image: ghcr.io/me/app:1.5
     x-landfall:
       port: 3000
       weight: 0                         # no random share: only matching requests reach b
-      match: { cookie: variant=b }      # or { header: X-Variant=b }, or both
+      match:
+        cookie: variant=b               # or header: X-Variant=b, or both
 ```
 
 ```sh

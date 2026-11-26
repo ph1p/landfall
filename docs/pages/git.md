@@ -48,11 +48,19 @@ The rules live in `.landfall.json`, per environment:
 ```json
 {
   "name": "shop",
-  "git": { "url": "git@github.com:acme/shop.git" },
+  "git": {
+    "url": "git@github.com:acme/shop.git"
+  },
   "environments": {
-    "dev": { "git": { "branch": "develop" } },
-    "test": { "git": { "branch": ["main", "release/*"] } },
-    "prod": { "git": { "tag": "v*", "requireClean": true } }
+    "dev": {
+      "git": { "branch": "develop" }
+    },
+    "test": {
+      "git": { "branch": ["main", "release/*"] }
+    },
+    "prod": {
+      "git": { "tag": "v*", "requireClean": true }
+    }
   }
 }
 ```

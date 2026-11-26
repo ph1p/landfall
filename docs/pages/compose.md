@@ -21,20 +21,33 @@ Static, Dockerfile and image sites are Compose sites too; landfall writes their 
 services:
   app:
     build: .
-    env_file: [{ path: .env, required: false }]
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@db:5432/app
-    depends_on: { db: { condition: service_healthy } }
+    depends_on:
+      db:
+        condition: service_healthy
     x-landfall:
       port: 3000                       # Traefik serves the site's domains from here
   admin:
     image: adminer
-    x-landfall: { port: 8080, domains: [db.example.com] }   # its own domains
+    x-landfall:
+      port: 8080
+      domains:
+        - db.example.com               # its own domains
   db:
     image: postgres:17-alpine
-    environment: { POSTGRES_USER: app, POSTGRES_DB: app, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}" }
-    volumes: [db:/var/lib/postgresql/data]
-    healthcheck: { test: pg_isready -U app, interval: 5s }
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_DB: app
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U app
+      interval: 5s
 volumes:
   db:
 ```
@@ -56,11 +69,16 @@ volumes:
 x-landfall:
   port: 3000                                # the site's domains
   routes:
-    - { port: 3001, subdomain: admin }      # admin.<each site domain>
-    - { port: 9000, domains: [s3.example.com] }
+    - port: 3001
+      subdomain: admin                      # admin.<each site domain>
+    - port: 9000
+      domains:
+        - s3.example.com
   private:
     cms: 3002                               # lf tunnel blog cms
-    manage: { port: 3003, path: /manage }   # lf tunnel blog manage opens http://localhost:3003/manage
+    manage:                                 # lf tunnel blog manage opens http://localhost:3003/manage
+      port: 3003
+      path: /manage
 ```
 
 For a service with only private ports, `lf tunnel <site> <service>` opens the one named like it, else its first.
