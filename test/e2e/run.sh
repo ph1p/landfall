@@ -783,12 +783,12 @@ lf git key gh:acme/shop -s box --rm -y >/dev/null 2>&1 || die "git key --rm"
 pass "git key makes a deploy key on the server and removes it"
 lf sites rm gitapp -y >/dev/null 2>&1 || die "sites rm gitapp"
 # Auto-deploy: a site the server builds follows its branch; new commits deploy, config changes wait for lf deploy.
-mkdir -p "$WORK/auto" && cd "$WORK/auto"
+mkdir -p "$WORK/gitauto" && cd "$WORK/gitauto"
 git init -q -b main && git config user.email e2e@example.com && git config user.name e2e
 printf 'FROM busybox:1.37\nCOPY index.html /www/index.html\nEXPOSE 8000\nCMD httpd -f -p 8000 -h /www\n' > Dockerfile
 echo "auto one" > index.html && git add -A && git commit -qm one
-git clone -q --bare . "$WORK/auto.git"
-docker cp "$WORK/auto.git" "$NAME:/srv/auto.git" && srv chown -R deploy /srv/auto.git
+git clone -q --bare . "$WORK/gitauto.git"
+docker cp "$WORK/gitauto.git" "$NAME:/srv/auto.git" && srv chown -R deploy /srv/auto.git
 # The commits that follow are made on the server, as deploy, and pushed to the repository it fetches.
 asdeploy() { srv su deploy -s /bin/sh -c "$1"; }
 srv sh -c 'mkdir -p /srv/auto-work && chown deploy /srv/auto-work' && asdeploy 'git clone -q /srv/auto.git /srv/auto-work'
