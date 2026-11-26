@@ -2,6 +2,8 @@
 // No node: imports here, so the web page can import the UI block types.
 import type { Server } from "../lib/config";
 
+export type { Server };
+
 /** A command-line option of a plugin command, as `lf <plugin> <command> --help` shows it. */
 export interface PluginOption {
   type: "string" | "boolean";
@@ -15,8 +17,9 @@ export interface PluginOption {
 export interface PluginContext {
   /** The plugin's name. */
   plugin: string;
-  /** The server's name as the user gave it (-s), and its resolved ssh settings. Absent for local commands. */
+  /** The server's name as the user gave it (-s), or the default server's. "" for a local command. */
   name: string;
+  /** The server's resolved ssh settings (host, user, port…). Undefined for a local command: do not read it there. */
   server: Server;
   /**
    * Runs bash on the server over ssh with `set -euo pipefail` and landfall's helpers (`record`, `saved`, `svc`,
@@ -34,14 +37,23 @@ export interface PluginContext {
   fail(msg: string): never;
   /** Asks yes/no in a terminal; -y answers yes; without a terminal it fails with a clear message. */
   confirm(question: string, def?: boolean): Promise<boolean>;
+  /**
+   * Asks yes/no before something that could lock someone out or break a running service. -y does not answer it,
+   * and without a terminal it is no: offer a --force option for scripts instead.
+   */
+  confirmRisky(question: string): Promise<boolean>;
+  /** Asks for a line of text in a terminal. -y or no terminal: def, or the command fails (take the value as an option too). */
+  ask(question: string, def?: string): Promise<string>;
   /** Prints rows as aligned columns on stdout. */
   table(rows: string[][]): void;
   /** Prints a value as JSON on stdout (for --json). */
   json(value: unknown): void;
+  /** Prints lines of results on stdout (a heading, a summary). Progress goes to log instead. */
+  print(...lines: string[]): void;
   /** Terminal colors; plain text when stdout is not a terminal. */
   color: Record<"bold" | "dim" | "red" | "green" | "yellow" | "blue" | "cyan", (s: string) => string>;
   /** Where landfall keeps things on the server. */
-  paths: { root: string; sites: string };
+  paths: { root: string; sites: string; traefik: string };
   /** Runs another lf command in this process, e.g. ["harden", "fail2ban"]. Same server unless argv says -s. */
   lf(argv: string[]): Promise<number>;
 }
@@ -52,10 +64,20 @@ export interface PluginCommand {
   args?: string;
   summary: string;
   options?: Record<string, PluginOption>;
-  /** No server: no -s, and ctx has no name or server. */
+  /** No server: no -s, ctx.name is "" and ctx.server undefined. */
   local?: boolean;
+  /** args: the positional arguments. opts: option values by name, defaults filled in, plus landfall's (server, yes…). */
   run(ctx: PluginContext, args: string[], opts: Record<string, any>): Promise<void | number>;
 }
+
+/** Options landfall gives every plugin command, with their short forms: a plugin's own must use other names and letters. */
+export const RESERVED_OPTIONS: Readonly<Record<string, string>> = { help: "h", yes: "y", environment: "E", "ask-sudo": "K", server: "s" };
+const RESERVED_SHORTS = new Set(Object.values(RESERVED_OPTIONS));
+/** Whether a plugin may not use this option name (--name) or short form (-x). */
+export const reservedOption = (name: string) => Object.hasOwn(RESERVED_OPTIONS, name);
+export const reservedShort = (short: string) => RESERVED_SHORTS.has(short);
+/** Command and option names. */
+export const COMMAND_NAME = /^[a-z][a-z0-9-]*$/;
 
 // ---- web UI ------------------------------------------------------------------
 
@@ -152,13 +174,13 @@ export interface PluginInfo {
   error?: string;
 }
 
-/** The argv an action runs once its fields are filled: positional values in field order, flags after. */
 /** The command an action runs, as shown to the user (fields as placeholders, -y left out). */
 export function actionCommand(a: UiAction): string {
   const fields = (a.fields ?? []).map((f) => (f.type === "check" ? `[${f.flag}]` : f.flag ? `[${f.flag} <${f.name}>]` : `<${f.name}>`));
   return `lf ${[...a.argv.filter((x) => x !== "-y"), ...fields].join(" ")}`;
 }
 
+/** The argv an action runs once its fields are filled: positional values in field order, flags after. */
 export function actionArgv(a: UiAction, values: Record<string, string | boolean | undefined> = {}): string[] {
   const out = [...a.argv];
   for (const f of a.fields ?? []) {

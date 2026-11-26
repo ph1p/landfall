@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url";
 import { configDir, resolveServer, writeAtomic, type Server } from "../lib/config";
 import { adminLogin } from "../ssh/privilege";
 import { runScript, shq } from "../ssh/ssh";
-import { PRELUDE, ROOT, SITES } from "../ssh/templates";
-import { c, confirm, fail, info, ok, printJson, step, table, warn } from "../lib/term";
-import { PLUGIN_NAME, type Plugin, type PluginContext, type PluginInfo } from "./plugin-api";
+import { PRELUDE, ROOT, SITES, TRAEFIK_DIR } from "../ssh/templates";
+import { ask, c, confirm, confirmRisky, fail, info, ok, printJson, step, table, warn } from "../lib/term";
+import { COMMAND_NAME, PLUGIN_NAME, reservedOption, reservedShort, type Plugin, type PluginContext, type PluginInfo } from "./plugin-api";
 
 /** Your plugins: each a .mjs/.js file, or a folder with index.mjs/index.js (or package.json "main"). */
 export const PLUGIN_DIR = join(configDir, "plugins");
@@ -67,11 +67,26 @@ export function checkPlugin(p: unknown): string {
   const x = p as Plugin;
   if (typeof x.name !== "string" || !PLUGIN_NAME.test(x.name)) return `name must be lowercase letters, digits and dashes, not ${JSON.stringify(x.name)}`;
   if (typeof x.summary !== "string" || !x.summary) return "needs a summary";
+  if (x.commands !== undefined && !Array.isArray(x.commands)) return "commands must be an array";
+  const seen = new Set<string>();
   for (const cmd of x.commands ?? []) {
-    if (typeof cmd?.name !== "string" || (cmd.name && !/^[a-z][a-z0-9-]*$/.test(cmd.name))) return `command name ${JSON.stringify(cmd?.name)} is not valid`;
-    if (typeof cmd.run !== "function") return `command ${JSON.stringify(cmd.name)} has no run()`;
-    if (typeof cmd.summary !== "string") return `command ${JSON.stringify(cmd.name)} has no summary`;
+    if (typeof cmd?.name !== "string" || (cmd.name && !COMMAND_NAME.test(cmd.name))) return `command name ${JSON.stringify(cmd?.name)} is not valid`;
+    const what = `command ${JSON.stringify(cmd.name)}`;
+    if (seen.has(cmd.name)) return `${what} is defined twice`;
+    seen.add(cmd.name);
+    if (typeof cmd.run !== "function") return `${what} has no run()`;
+    if (typeof cmd.summary !== "string") return `${what} has no summary`;
+    for (const [k, o] of Object.entries(cmd.options ?? {})) {
+      if (!COMMAND_NAME.test(k)) return `${what}: option name ${JSON.stringify(k)} is not valid`;
+      if (reservedOption(k)) return `${what}: --${k} is landfall's own option; name yours differently`;
+      if (o?.type !== "string" && o?.type !== "boolean") return `${what}: option --${k} needs type "string" or "boolean"`;
+      if (o.short !== undefined && (typeof o.short !== "string" || !/^[a-zA-Z]$/.test(o.short)))
+        return `${what}: option --${k} has a short form that is not one letter`;
+      if (o.short && reservedShort(o.short)) return `${what}: -${o.short} is landfall's own; give --${k} another short form`;
+    }
   }
+  if (x.aliases !== undefined && (typeof x.aliases !== "object" || Object.values(x.aliases).some((v) => typeof v !== "string")))
+    return "aliases must map names to command names";
   if (x.panel && (typeof x.panel.label !== "string" || typeof x.panel.load !== "function")) return "panel needs a label and load()";
   return "";
 }
@@ -187,10 +202,13 @@ export function pluginContext(plugin: string, on: string | undefined | null, run
     log: { step, ok, info, warn },
     fail,
     confirm,
+    confirmRisky,
+    ask,
     table,
     json: printJson,
+    print: (...lines) => void process.stdout.write(lines.map((l) => `${l}\n`).join("")),
     color: c,
-    paths: { root: ROOT, sites: SITES },
+    paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR },
     lf: (argv) => (runLf ? runLf(name !== undefined && !argv.includes("-s") ? [...argv, "-s", name] : argv) : fail("lf() runs only in a command")),
   };
 }

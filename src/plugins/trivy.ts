@@ -186,8 +186,7 @@ export default definePlugin({
           ],
         ]);
         if (data.files?.findings.length) {
-          console.log("");
-          console.log(bold("Findings in site files"));
+          ctx.print("", bold("Findings in site files"));
           ctx.table(data.files.findings.slice(0, 20).map((f) => [f.severity, f.site, where(f), dim(f.title)]));
         }
       },

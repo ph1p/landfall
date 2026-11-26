@@ -12,7 +12,8 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const { PRELUDE } = await import("../../src/core/ssh/templates");
 const { shq } = await import("../../src/core/ssh/ssh");
-const { actionArgv, pluginTab } = await import("../../src/core/plugins/plugin-api");
+const { actionArgv, pluginTab, RESERVED_OPTIONS } = await import("../../src/core/plugins/plugin-api");
+const { GLOBAL_OPTS, serverOpt } = await import("../../src/cli/cmd");
 const core = await import("../../src/core/plugins/plugins");
 const f2b = await import("../../src/plugins/fail2ban");
 const trivy = await import("../../src/plugins/trivy");
@@ -44,10 +45,13 @@ function fakeCtx(reply = "") {
       throw new Error(m);
     },
     confirm: async () => true,
+    confirmRisky: async () => false,
+    ask: async (_q: string, def?: string) => def ?? "",
     table: () => {},
     json: () => {},
+    print: () => {},
     color: new Proxy({}, { get: () => (s: string) => s }),
-    paths: { root: "/opt/landfall", sites: "/opt/landfall/sites" },
+    paths: { root: "/opt/landfall", sites: "/opt/landfall/sites", traefik: "/opt/landfall/traefik" },
     lf: async () => 0,
   } as unknown as PluginContext;
   return { ctx, calls };
@@ -73,6 +77,23 @@ describe("checkPlugin", () => {
     expect(core.checkPlugin({ name: "a", summary: "s", commands: [{ name: "X", summary: "", run() {} }] })).toMatch(/not valid/);
     expect(core.checkPlugin({ name: "a", summary: "s", commands: [{ name: "x", summary: "" }] })).toMatch(/no run/);
     expect(core.checkPlugin({ name: "a", summary: "s", panel: { label: "A" } })).toMatch(/panel/);
+  });
+  test("checks commands' names and options", () => {
+    const cmd = (extra: object) => ({ name: "a", summary: "s", commands: [{ name: "x", summary: "", run() {}, ...extra }] });
+    expect(core.checkPlugin(cmd({ options: { limit: { type: "string", short: "l", desc: "d" } } }))).toBe("");
+    expect(core.checkPlugin({ name: "a", summary: "s", commands: [cmd({}).commands[0], cmd({}).commands[0]] })).toMatch(/defined twice/);
+    expect(core.checkPlugin(cmd({ options: { server: { type: "string", desc: "d" } } }))).toMatch(/--server is landfall's own/);
+    expect(core.checkPlugin(cmd({ options: { yes: { type: "boolean", desc: "d" } } }))).toMatch(/--yes is landfall's own/);
+    expect(core.checkPlugin(cmd({ options: { n: { type: "number", desc: "d" } } }))).toMatch(/type "string" or "boolean"/);
+    expect(core.checkPlugin(cmd({ options: { n: { type: "string", short: "s", desc: "d" } } }))).toMatch(/-s is landfall's own/);
+    expect(core.checkPlugin(cmd({ options: { n: { type: "string", short: "ab", desc: "d" } } }))).toMatch(/one letter/);
+    expect(core.checkPlugin(cmd({ options: { Bad: { type: "string", desc: "d" } } }))).toMatch(/option name/);
+    expect(core.checkPlugin({ name: "a", summary: "s", commands: {} })).toMatch(/array/);
+    expect(core.checkPlugin({ name: "a", summary: "s", aliases: { b: 1 } })).toMatch(/aliases/);
+  });
+  test("the reserved options are every option landfall adds to a plugin command", () => {
+    const own = { ...GLOBAL_OPTS, server: serverOpt };
+    expect(RESERVED_OPTIONS).toEqual(Object.fromEntries(Object.entries(own).map(([k, o]) => [k, o.short])));
   });
   test("the built-in plugins pass", () => {
     for (const p of BUILTIN) expect(core.checkPlugin(p), p.name).toBe("");
@@ -122,12 +143,6 @@ describe("plugin commands", () => {
     expect(pluginCommands({ ...p, commands: [{ name: "", summary: "", options: { yes: { type: "boolean", desc: "" } }, async run() {} }] }, lf)).toHaveLength(
       1,
     );
-    // landfall's own options win over a plugin's.
-    const [own] = pluginCommands(
-      { ...p, commands: [{ name: "", summary: "", options: { yes: { type: "boolean", desc: "" }, json: { type: "boolean", desc: "" } }, async run() {} }] },
-      lf,
-    );
-    expect(Object.keys(own.options ?? {})).toEqual(["server", "json"]);
     expect(
       Object.keys(pluginCommands({ ...p, panel: undefined, commands: [{ name: "x", summary: "", local: true, async run() {} }] }, lf)[0].options ?? {}),
     ).toEqual([]);
@@ -284,6 +299,19 @@ describe("trivy files", () => {
       { site: "shop", error: "no space left" },
       { site: "bad", error: "Trivy's output did not parse" },
     ]);
+  });
+});
+
+describe("pluginContext", () => {
+  test("a local command's context prints results on stdout and has no server", () => {
+    const ctx = core.pluginContext("test", null);
+    expect(ctx.name).toBe("");
+    expect(ctx.server).toBeUndefined();
+    expect(ctx.paths).toEqual({ root: "/opt/landfall", sites: "/opt/landfall/sites", traefik: "/opt/landfall/traefik" });
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    ctx.print("a", "b");
+    expect(out).toHaveBeenCalledWith("a\nb\n");
+    out.mockRestore();
   });
 });
 

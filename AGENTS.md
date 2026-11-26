@@ -52,7 +52,7 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/core/lib/term.ts` | output helpers (`step`, `ok`, `info`, `warn`, `fail`, `printJson`, `table`) and prompts |
 | `src/core/lib/config.ts` | local config, servers, `.landfall.json` (`ProjectConfig`), environments |
 | `src/core/views/views.ts` | the objects that `--json` prints and the web UI reads |
-| `src/core/plugins/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it). |
+| `src/core/plugins/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it). Published as `landfall/plugin`: a change here is a public API change |
 | `src/core/plugins/plugins.ts` | loading plugins (built in and `~/.config/landfall/plugins`), the context their code runs with |
 | `src/plugins/` | the built-in plugins (fail2ban, trivy), written against the same API |
 | `src/cli/plugins.ts` | turns plugin commands and aliases into `lf` commands |

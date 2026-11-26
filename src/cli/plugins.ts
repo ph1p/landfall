@@ -1,5 +1,5 @@
 // Plugins on the command line: their commands become lf commands, their panels `lf <plugin>`.
-import { GLOBAL_OPTS, serverOpt, type Command } from "./cmd";
+import { serverOpt, type Command } from "./cmd";
 import { aliases, byName } from "./registry";
 import { actionCommand, type Plugin, type PluginCommand, type UiAction, type UiBlock, type UiCell } from "../core/plugins/plugin-api";
 import { dropPlugin, pluginContext, plugins } from "../core/plugins/plugins";
@@ -7,16 +7,13 @@ import { c, printJson, table } from "../core/lib/term";
 
 type Runner = (argv: string[]) => Promise<number>;
 
-/** Options landfall itself gives every command: a plugin's own must not shadow them. */
-const RESERVED = new Set([...Object.keys(GLOBAL_OPTS), "server"]);
-
 function toCommand(p: Plugin, pc: PluginCommand, lf: Runner): Command {
-  const own = Object.fromEntries(Object.entries(pc.options ?? {}).filter(([k]) => !RESERVED.has(k)));
   return {
     name: pc.name ? `${p.name} ${pc.name}` : p.name,
     args: pc.args,
     summary: pc.summary,
-    options: pc.local ? own : { server: serverOpt, ...own },
+    // checkPlugin refuses options that would shadow landfall's own.
+    options: pc.local ? pc.options : { server: serverOpt, ...pc.options },
     run: (pos, opts) => pc.run(pluginContext(p.name, pc.local ? null : opts.server, lf), pos, opts),
   };
 }

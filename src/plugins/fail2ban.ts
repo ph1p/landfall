@@ -166,8 +166,10 @@ export default definePlugin({
             j.maxretry !== undefined && `after ${j.maxretry} failures`,
             j.findtime !== undefined && `in ${duration(j.findtime)}`,
           ];
-          console.log(`${bold(j.name)}: ${j.banned} banned now${dim(` · ${j.total} in total · ${j.failed} failing · ${conf.filter(Boolean).join(" ")}`)}`);
-          for (const ip of j.ips) console.log(`  ${ip}`);
+          ctx.print(
+            `${bold(j.name)}: ${j.banned} banned now${dim(` · ${j.total} in total · ${j.failed} failing · ${conf.filter(Boolean).join(" ")}`)}`,
+            ...j.ips.map((ip) => `  ${ip}`),
+          );
         }
         if (st.jails.some((j) => j.ips.length)) ctx.log.info(dim("lf fail2ban unban <ip> lets one in again"));
       },
