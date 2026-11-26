@@ -170,6 +170,6 @@ lf history --json                                     # confirm what changed
 | `another deploy or change of <site> is running (<who>): …` | wait, or check `lf history`. A lock from a cut-off run expires after an hour |
 | `cannot connect to <host>: …` | ssh failed; the rest is ssh's last line |
 | `installing … needs root: …` | the login is not root and has no passwordless sudo. Give the sudo password (`$LANDFALL_SUDO_PASSWORD`), add a root key login (`lf server config --root-login`), or install it as root with the command the message names |
-| `hook <name> failed: <pm> run <script>` | a [lifecycle hook](hooks.md) from `package.json` failed. Fix it, or `--skip-hook <name>` with the user's consent |
+| `hook <name> failed: <pm> run <script>` or `hook <name> failed: <command>` | a [lifecycle hook](hooks.md) from `package.json` or `.landfall.json` failed. Fix it, or `--skip-hook <name>` with the user's consent |
 
 More in [Troubleshooting](troubleshooting.md).

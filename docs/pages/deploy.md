@@ -106,13 +106,24 @@ lf deploy -d app.example.com
 The first deploy writes `.landfall.json`. Commit it:
 
 ```json
-{ "name": "my-site", "server": "vps", "domains": ["example.com", "www.example.com"] }
+{
+  "name": "my-site",
+  "server": "vps",
+  "domains": ["example.com", "www.example.com"]
+}
 ```
 
 A Node project can keep them in `package.json` under `"landfall"`; `.landfall.json` then holds only what differs:
 
 ```json
-{ "name": "my-site", "landfall": { "name": "my-site", "server": "vps", "domains": ["example.com"] } }
+{
+  "name": "my-site",
+  "landfall": {
+    "name": "my-site",
+    "server": "vps",
+    "domains": ["example.com"]
+  }
+}
 ```
 
 ## Environment variables
@@ -198,7 +209,7 @@ When ssh cannot connect, deploy says why: `cannot connect to <host>: <ssh's last
 
 ## Hooks
 
-`package.json` scripts can run along a deploy: tests before it, migrations in the new release, a smoke test after the start.
+Shell commands in `.landfall.json`, or `package.json` scripts, can run along a deploy: tests before it, migrations in the new release, a smoke test after the start.
 See [Lifecycle hooks](hooks.md).
 
 ```sh
@@ -261,14 +272,17 @@ To write the job by hand: with `-y`, `lf deploy` runs unattended. It needs an ss
 
 ```yaml
 # .github/workflows/deploy.yml
-on: { push: { branches: [main] } }
+on:
+  push:
+    branches: [main]
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: webfactory/ssh-agent@v0.9.0
-        with: { ssh-private-key: "${{ secrets.DEPLOY_KEY }}" }
+        with:
+          ssh-private-key: "${{ secrets.DEPLOY_KEY }}"
       - run: ssh-keyscan -H 203.0.113.10 >> ~/.ssh/known_hosts
       - run: npx landfall deploy -s deploy@203.0.113.10 -y
 ```
@@ -315,8 +329,15 @@ lf logs -E staging
 
 ```json
 {
-  "name": "shop", "server": "vps", "domains": ["shop.example.com"],
-  "environments": { "staging": { "server": "test-vps", "domains": ["staging.example.com"] } }
+  "name": "shop",
+  "server": "vps",
+  "domains": ["shop.example.com"],
+  "environments": {
+    "staging": {
+      "server": "test-vps",
+      "domains": ["staging.example.com"]
+    }
+  }
 }
 ```
 
@@ -335,7 +356,8 @@ The release's `compose.yaml` holds the merged result (variables left as `${...}`
 # compose.staging.yaml
 services:
   web:
-    environment: { LOG_LEVEL: debug }
+    environment:
+      LOG_LEVEL: debug
   mailpit:
     image: axllent/mailpit
 ```

@@ -38,6 +38,29 @@ describe("readHooks", () => {
   });
 });
 
+describe("readHooks from .landfall.json", () => {
+  test("reads shell commands, without a package manager, run in the project folder", () => {
+    const h = readHooks(["/nowhere"], { dir: "/p", service: "app", hooks: { release: "php artisan migrate --force", verify: ["curl -fs $LANDFALL_URL/up"] } });
+    expect(h).toEqual({
+      dir: "/p",
+      service: "app",
+      run: { release: ["php artisan migrate --force"], verify: ["curl -fs $LANDFALL_URL/up"] },
+    });
+  });
+
+  test("refuses unknown hooks, empty commands and hooks in both files", () => {
+    expect(() => readHooks([], { dir: "/p", hooks: { deploy: "x" } })).toThrow(/\.landfall\.json: unknown hook "deploy"/);
+    expect(() => readHooks([], { dir: "/p", hooks: { verify: [" "] } })).toThrow(/hooks\.verify must be a command or a list/);
+    const d = project({ scripts, landfall: { hooks: { predeploy: "test" } } });
+    expect(() => readHooks([d], { dir: d, hooks: { verify: "true" } })).toThrow(/hooks in both package.json .* keep them in one/);
+  });
+
+  test("a service in .landfall.json applies to package.json's hooks", () => {
+    const d = project({ scripts, landfall: { hooks: { release: "db:migrate" } } });
+    expect(readHooks([d], { dir: d, service: "web" })?.service).toBe("web");
+  });
+});
+
 test("project settings next to the hooks are not hook errors", () => {
   const h = readHooks([project({ scripts: { test: "x" }, landfall: { name: "shop", domains: ["shop.com"], hooks: { predeploy: "test" } } })]);
   expect(h?.run).toEqual({ predeploy: ["test"] });
@@ -69,9 +92,14 @@ describe("releaseHooks", () => {
     expect(releaseHooks({ ...h, run: { prebuild: ["lint"] } }, web, "static")).toBeUndefined();
   });
 
+  test("commands keep no package manager, and may run in a static site's container", () => {
+    const cmds = { dir: "/p", run: { verify: ["wget -qO- $LANDFALL_URL"] } };
+    expect(releaseHooks(cmds, web, "static")).toEqual({ service: "web", port: 3000, run: { verify: ["wget -qO- $LANDFALL_URL"] } });
+  });
+
   test("refuses server hooks on a static site and an unknown service", () => {
     expect(() => releaseHooks(h, web, "static")).toThrow(/static site/);
-    expect(() => releaseHooks({ ...h, service: "api" }, web, "compose")).toThrow(/landfall.service is api/);
+    expect(() => releaseHooks({ ...h, service: "api" }, web, "compose")).toThrow(/package.json: the hooks' service is api/);
   });
 });
 
@@ -91,6 +119,14 @@ describe("hookLines", () => {
     const lines = hookLines(call("postdeploy"), "exec", "current");
     expect(lines.join("\n")).toContain("dc exec -T -e 'LANDFALL_HOOK=postdeploy' -e 'LANDFALL_URL=http://127.0.0.1:3000'");
     expect(lines).not.toContain("exit 1");
+  });
+
+  test("shell commands run with sh -c, one after another", () => {
+    const cmds = { service: "app", run: { release: ["php artisan migrate --force", "php artisan cache:clear"] } };
+    const lines = hookLines(serverCall(cmds, "release", skipper({}), {}), "run", "releases/2", ['eval "$undo"']).join("\n");
+    expect(lines).toContain(`'sh' 'php artisan migrate --force' 'php artisan cache:clear' </dev/null >&2`);
+    expect(lines).toContain('sh -c "$s"');
+    expect(lines).toContain("hook release failed: php artisan migrate --force; php artisan cache:clear");
   });
 
   test("failedHook finds the hook in an error", () => {

@@ -1,8 +1,8 @@
-import { HOOK_WHEN, HOOKS, isLocalHook, type Hook } from "../../../core/site/hook-names";
+import { HOOK_WHEN, HOOKS, hookWhat, isLocalHook, type Hook } from "../../../core/site/hook-names";
 import type { ProjectHooks } from "../../../core/site/hooks";
 import type { Group, Values } from "../ui/dialog";
 
-/** package.json's landfall.hooks as a deploy reads them or a release keeps them: hook → npm scripts. */
+/** The hooks as a deploy reads them or a release keeps them: hook → npm scripts (with a pm) or shell commands. */
 type HookRun = ProjectHooks["run"];
 
 /** The defined hooks among `only`, in the order they run. */
@@ -10,14 +10,14 @@ export const definedHooks = (run: HookRun | undefined, only: readonly Hook[] = H
 
 /** One line per hook: name, scripts, where and when it runs. */
 export function HookList({ hooks, only }: { hooks: Pick<ProjectHooks, "run" | "service"> & { pm?: string }; only?: readonly Hook[] }) {
-  const { run, pm = "npm", service } = hooks;
+  const { run, pm, service } = hooks;
   const list = definedHooks(run, only);
   if (!list.length) return null;
   return (
     <ul className="m-0 p-0 list-none grid gap-1">
       {list.map((h) => (
         <li key={h} className="min-w-0">
-          <code>{h}</code> <span className="break-all">{run[h]!.map((s) => `${pm} run ${s}`).join(", ")}</span>{" "}
+          <code>{h}</code> <span className="break-all">{hookWhat(pm, run[h]!)}</span>{" "}
           <span className="dim">
             {isLocalHook(h) ? "here" : `on the server${service ? `, in ${service}` : ""}`}, {HOOK_WHEN[h]}
           </span>

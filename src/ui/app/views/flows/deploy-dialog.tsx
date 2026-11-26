@@ -7,7 +7,7 @@ import { Btn, BtnGroup, cx } from "../../ui/kit";
 import { allows, hasRule, namesAt, ruleText } from "../../../../core/deploy/refs";
 import { dialog, invalid, siteNameError, words, domainOk, userError, passwordError, type Values } from "../../ui/dialog";
 import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "../env";
-import { DEPLOY_HOOKS } from "../../../../core/site/hook-names";
+import { DEPLOY_HOOKS, hooksFile } from "../../../../core/site/hook-names";
 import { hookChoice } from "../hooks";
 import { defaultServer, mainDomain, tunnelOnly } from "./server-dialogs";
 import { autoDomain, imageName } from "./names";
@@ -69,7 +69,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     const bad = out.find((d) => !domainOk(d!));
     return [out as string[], bad && `Not a domain: ${bad}`];
   };
-  const hooks = hookChoice(det.hooks?.run, DEPLOY_HOOKS, "deploy", "From package.json's landfall.hooks.");
+  const hooks = hookChoice(det.hooks?.run, DEPLOY_HOOKS, "deploy", `From ${hooksFile(det.hooks?.pm)}.`);
   // What the deploy redirects without --redirect: .landfall.json's, else the site's.
   const savedRedirects = (p?.redirects ?? re?.redirects ?? []).join(" ");
   const sends = p?.sendImage === true ? "send" : p?.sendImage === false ? "pull" : "";

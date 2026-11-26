@@ -185,7 +185,8 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 
 - The first `lf deploy` writes it. Later deploys update it from their flags.
 - Every key but `name` and `domains` is optional.
-- Any key can also live in `package.json` under `"landfall"`, next to the [hooks](hooks.md).
+- Any key can also live in `package.json` under `"landfall"`.
+  There, `hooks` name npm scripts; in `.landfall.json` they are shell commands (see [hooks](hooks.md)).
 - `.landfall.json` wins for a key both files set.
 - A deploy writes to `.landfall.json` only the keys that differ from `package.json`, and no file when none do.
 
@@ -207,6 +208,8 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `gitignore` | leave out of the upload what the folder's `.gitignore` files ignore |
 | `exclude` / `include` | more to leave out / to send anyway, in `.gitignore` syntax |
 | `buildLocal` | build images on this machine and send them; the server only runs them |
+| `hooks` | [lifecycle hooks](hooks.md): hook name to a shell command or a list of them |
+| `service` | the compose service the server hooks run in (default: the one serving the site's domains) |
 | `git` | [git rules](git.md): `branch`, `tag` (globs or lists), `prerelease`, `requireClean`; `url` at the top level. Per environment under `environments` |
 | `environments` | named targets like `staging`: any keys above that differ. The name defaults to `<name>-<env>`. Domains are never inherited. Pick one with `-E` or `$LANDFALL_ENV` |
 
@@ -215,7 +218,11 @@ Every command, file and environment variable. `lf <command> --help` prints one c
   "name": "blog",
   "server": "vps",
   "domains": ["blog.example.com"],
-  "environments": { "staging": { "domains": ["staging.blog.example.com"] } }
+  "environments": {
+    "staging": {
+      "domains": ["staging.blog.example.com"]
+    }
+  }
 }
 ```
 

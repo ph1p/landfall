@@ -312,6 +312,10 @@ export interface ProjectConfig {
   include?: string[];
   /** Images are built on this machine and sent to the server, which then only runs them. */
   buildLocal?: boolean;
+  /** Lifecycle hooks as shell commands: hook name → a command or a list of them (package.json's landfall.hooks name npm scripts instead). */
+  hooks?: Record<string, string | string[]>;
+  /** The compose service the server hooks run in (default: the one serving the site's domains). */
+  service?: string;
   /** Which git refs may deploy (branch/tag globs), and the repository's URL. An environment's rule is its own: never inherited. */
   git?: GitConfig;
   /** Named targets (staging…): the same project deployed again as its own site, with what differs here. */
@@ -337,8 +341,8 @@ export const envSiteName = (name: string, env = activeEnvironment()) => (env ? `
 const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
 /**
- * package.json's "landfall" section, if it has one. It holds any key of .landfall.json, and the hooks
- * (hooks, service). A broken package.json without the section is the build's business, not landfall's.
+ * package.json's "landfall" section, if it has one. It holds any key of .landfall.json; its hooks name npm
+ * scripts, where .landfall.json's are shell commands. A broken package.json without the section is the build's business, not landfall's.
  * Returns package.json, parsed, with its "landfall" section checked; undefined without that section.
  */
 export function packageJson(cwd: string): { pkg: any; section: Record<string, any> } | undefined {
@@ -362,7 +366,7 @@ export function packageJson(cwd: string): { pkg: any; section: Record<string, an
   return { pkg, section };
 }
 
-/** The project settings in package.json's "landfall" section: all of it but the hooks. */
+/** The project settings in package.json's "landfall" section: all of it but the hooks (npm scripts, read by readHooks). */
 function packageProject(cwd: string): Partial<ProjectConfig> | undefined {
   const { hooks: _h, service: _s, ...rest } = packageJson(cwd)?.section ?? {};
   return Object.keys(rest).length ? rest : undefined;

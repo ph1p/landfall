@@ -1,7 +1,38 @@
 # Lifecycle hooks
 
-Hooks run npm scripts at fixed points of a deploy, a rollback and a removal.
-Declare them in `package.json`, next to the scripts.
+Hooks run commands at fixed points of a deploy, a rollback and a removal.
+They work for any project, in any language.
+Declare them in one of two places:
+
+- `.landfall.json`: each hook is a shell command. Use this for any project.
+- `package.json`: each hook names an npm script. Use this for a Node.js project that already has the scripts.
+
+## In `.landfall.json`
+
+A hook is a shell command or a list of them.
+
+```json
+{
+  "name": "shop",
+  "hooks": {
+    "prebuild": ["composer validate", "vendor/bin/phpunit"],
+    "release": "php artisan migrate --force",
+    "verify": "curl -fsS $LANDFALL_URL/up",
+    "onfailure": "./scripts/notify.sh",
+    "predestroy": "php artisan backup:run"
+  }
+}
+```
+
+- Local hooks (`prebuild`, `postbuild`, `predeploy`, `onfailure`) run with `sh` in the folder of `.landfall.json`.
+- Server hooks run with `sh -c` in the site's container, in its working directory.
+  The command must exist in the image: `php`, `python`, `curl` and so on.
+- `lf deploy` keeps the `hooks` key when it updates `.landfall.json`.
+- An [environment](/reference#landfalljson) can set its own `hooks`. They replace the project's hooks for that environment.
+
+## In `package.json`
+
+A hook is a script name or a list of them.
 landfall runs them with the project's package manager (from the lockfile): npm, pnpm, yarn or bun.
 
 ```json
@@ -29,10 +60,15 @@ landfall runs them with the project's package manager (from the lockfile): npm, 
 }
 ```
 
-- A hook is a script name or a list. A list runs in order and stops at the first failure.
-- On the server, a hook's scripts share one container.
-- An unknown hook, or a script missing from `scripts`, is an error before anything runs.
-- The section can also hold the [project settings](/reference#landfalljson).
+- A script missing from `scripts` is an error before anything runs.
+- The `landfall` section can also hold the [project settings](/reference#landfalljson).
+
+## Rules for both
+
+- A list runs in order and stops at the first failure.
+- On the server, a hook's commands or scripts share one container.
+- An unknown hook is an error before anything runs.
+- Declare hooks in one file only. Hooks in both files are an error.
 
 ## The hooks
 
@@ -75,14 +111,35 @@ lf sites rm
 
 `release`, `verify`, `postdeploy`, `prerollback`, `postrollback` and `predestroy` run in the site's container on the server.
 That is the service serving the site's domains, else the one landfall builds.
-It needs the scripts and the package manager, as an app image built from the project has; lacking the package manager, landfall uses `npm`.
-A Compose site with several services can name one:
+Shell commands need their programs in that container's image.
+npm script hooks need the scripts and the package manager, as an app image built from the project has.
+Lacking the package manager, landfall uses `npm`.
+
+A Compose site with several services can name one with `service`, in either file:
 
 ```json
-{ "landfall": { "service": "web", "hooks": { "release": "db:migrate" } } }
+{
+  "service": "web",
+  "hooks": {
+    "release": "./manage.py migrate"
+  }
+}
 ```
 
-A static site runs in nginx, without `package.json`: it can use only `prebuild`, `postbuild`, `predeploy` and `onfailure`.
+```json
+{
+  "landfall": {
+    "service": "web",
+    "hooks": {
+      "release": "db:migrate"
+    }
+  }
+}
+```
+
+A static site runs in nginx, without `package.json`.
+With npm script hooks, it can use only `prebuild`, `postbuild`, `predeploy` and `onfailure`.
+Shell commands from `.landfall.json` can also run on the server, with the tools of the nginx image (`sh`, `wget`).
 
 `release` runs once in a one-off container of the new release (`docker compose run --rm`), however many replicas the service has.
 Traefik never routes to it. Its dependencies, like a database, start first.
@@ -123,7 +180,7 @@ The output and the journal (`lf history`) name skipped hooks.
 ## In the web UI
 
 - The deploy dialog lists the folder's hooks, where each runs and when.
-- A broken `landfall.hooks` section shows its error there, before the deploy fails on it.
+- Broken hooks show their error there, before the deploy fails on them.
 - Each hook has a box in the dialog. Untick one to skip it this once (`--skip-hook <name>`).
 - Redeploy, Roll back, Switch to this and Delete offer the same boxes for the hooks they would run.
 - A site's details show the live release's hooks; each release row names its hooks.
@@ -131,7 +188,7 @@ The output and the journal (`lf history`) name skipped hooks.
 ## Output and failures
 
 Hook output goes to the deploy log, on stderr.
-A failing hook is named: `hook verify failed: npm run smoke`.
+A failing hook is named: `hook verify failed: npm run smoke`, or `hook verify failed: curl -fsS $LANDFALL_URL/up`.
 
 The new release replaces the old one in place; no second copy runs.
 
@@ -140,6 +197,11 @@ The new release replaces the old one in place; no second copy runs.
   Write migrations the previous release can run with: add columns before the code uses them, drop them a release later.
 
 ## Examples
+
+```sh
+# scripts/notify.sh: onfailure, from .landfall.json
+curl -fsS -X POST "$CHAT_WEBHOOK" -d "text=$LANDFALL_PROJECT: deploy failed at $LANDFALL_FAILED_STEP"
+```
 
 ```js
 // scripts/smoke.mjs: verify that the app answers

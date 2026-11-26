@@ -138,7 +138,7 @@ Everything is at **[ph1p.github.io/landfall](https://ph1p.github.io/landfall/)**
 | [Compose sites](https://ph1p.github.io/landfall/compose) | `x-landfall`, routes, private ports, IP allowlists, volumes |
 | [Day-to-day](https://ph1p.github.io/landfall/sites) | logs, env, secrets, domains, logins, tunnels, restart, removal |
 | [Scaling and load balancing](https://ph1p.github.io/landfall/scaling) | replicas, rolling deploys, traffic split |
-| [Lifecycle hooks](https://ph1p.github.io/landfall/hooks) | npm scripts around build, deploy, rollback and removal |
+| [Lifecycle hooks](https://ph1p.github.io/landfall/hooks) | commands or npm scripts around build, deploy, rollback and removal |
 | [Volumes and backups](https://ph1p.github.io/landfall/volumes) | scheduled and offsite backups, push and pull data |
 | [Updates](https://ph1p.github.io/landfall/updates) | OS packages, images, Docker Compose, vulnerability scans |
 | [Traefik](https://ph1p.github.io/landfall/traefik) | landfall's Traefik, HTTP/3, the dashboard, your own Traefik |

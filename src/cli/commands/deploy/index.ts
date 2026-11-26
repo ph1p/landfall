@@ -219,7 +219,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
     // --git with no .landfall.json here: the commit's settings.
     if (source.project) project = source.project;
     const src = source.dir;
-    const hooks = readHooks([resolve(src, dirArg ?? project.dir ?? "."), src]);
+    const hooks = readHooks([resolve(src, dirArg ?? project.dir ?? "."), src], { ...project, dir: src });
     if (hooks && (["prebuild", "postbuild", "predeploy"] as const).some((h) => hooks.run[h])) source.prepare();
     if (project.name && !source.project) info(c.dim(`using ${projectSources(cwd).join(" and ")}${environment ? `, environment ${environment}` : ""}`));
 
@@ -560,6 +560,8 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
           // Written by hand: kept as they are.
           if (project.exclude) saved.exclude = project.exclude;
           if (project.include) saved.include = project.include;
+          if (project.hooks) saved.hooks = project.hooks;
+          if (project.service) saved.service = project.service;
           if (buildLocal) saved.buildLocal = true;
           if (buildCmd !== undefined) saved.build = buildCmd;
           saveProject(cwd, saved);

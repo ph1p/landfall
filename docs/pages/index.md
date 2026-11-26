@@ -52,7 +52,7 @@ Every command resolves defaults the same way:
 | [Compose sites](compose.md) | `x-landfall`, routes, private ports, IP allowlists, volumes, published ports |
 | [Day-to-day](sites.md) | logs, releases, env, secrets, domains, logins, tunnels, restart and removal |
 | [Scaling and load balancing](scaling.md) | replicas, rolling deploys, load balancer options, traffic split |
-| [Lifecycle hooks](hooks.md) | npm scripts before and after build, deploy, rollback and removal |
+| [Lifecycle hooks](hooks.md) | commands or npm scripts before and after build, deploy, rollback and removal |
 | [Volumes and backups](volumes.md) | volumes, backups, scheduled and offsite backups, push and pull data |
 | [Updates](updates.md) | OS packages, images, Docker Compose, vulnerability scans |
 | [Traefik](traefik.md) | landfall's Traefik, HTTP/3, the dashboard, using your own Traefik |

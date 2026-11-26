@@ -1,19 +1,20 @@
 import { spawnSync } from "node:child_process";
 import type { Release } from "./meta";
 import { mainService } from "./routing";
-import { packageJson } from "../lib/config";
+import { packageJson, PROJECT_FILE, type ProjectConfig } from "../lib/config";
 import { usesBun } from "../deploy/frameworks";
-import { HOOKS, SERVER_HOOKS, type Hook, type LocalHook, type ServerHook } from "./hook-names";
+import { HOOKS, hooksFile, hookWhat, SERVER_HOOKS, type Hook, type LocalHook, type ServerHook } from "./hook-names";
 import { packageManager } from "../deploy/node";
 import { files } from "../deploy/runtimes";
 import { journal, shq } from "../ssh/ssh";
 import { c, fail, info, step, warn } from "../lib/term";
 
 /**
- * Lifecycle hooks: package.json's `landfall.hooks` maps a point of a deploy, rollback or removal to npm
- * scripts. The ones around the build run here, in the project folder; the ones that need the release's
- * code and the production .env run on the server, in the site's container. No agent: a hook is one more
- * `docker compose run` or `exec` in the deploy's script.
+ * Lifecycle hooks map a point of a deploy, rollback or removal to what runs there: npm scripts from
+ * package.json's `landfall.hooks`, or shell commands from .landfall.json's `hooks` (any language). The ones
+ * around the build run here, in the project folder; the ones that need the release's code and the production
+ * .env run on the server, in the site's container. No agent: a hook is one more `docker compose run` or
+ * `exec` in the deploy's script.
  */
 
 /** Hooks whose failure stops what they guard; the others (post*, onfailure) only report. */
@@ -21,53 +22,79 @@ const BLOCKING: readonly Hook[] = ["prebuild", "predeploy", "release", "verify",
 /** Hooks that run before the app (re)starts, or as it goes away: no LANDFALL_URL to test against. */
 const NO_URL: readonly ServerHook[] = ["release", "prerollback", "predestroy"];
 
-/** What package.json's landfall section says. */
+/** The project's hooks, from package.json or .landfall.json. */
 export interface ProjectHooks {
-  /** The folder of the package.json: local hooks run there. */
+  /** The folder local hooks run in: package.json's, or .landfall.json's. */
   dir: string;
-  /** npm, pnpm, yarn or bun: from the lockfile. */
-  pm: string;
-  /** landfall.service: the compose service server hooks run in (default: the one serving the site's domains). */
+  /** npm, pnpm, yarn or bun, from the lockfile: package.json's hooks (npm scripts). Without it, the hooks are .landfall.json's shell commands. */
+  pm?: string;
+  /** The compose service server hooks run in (default: the one serving the site's domains). */
   service?: string;
   run: Partial<Record<Hook, string[]>>;
 }
 
 /** Saved with each release in site.json: a rollback or `lf sites rm` runs them from anywhere. */
 export interface ReleaseHooks {
-  pm: string;
+  /** The package manager of npm script hooks; none for shell commands. */
+  pm?: string;
   service: string;
   /** The port the service listens on in its container: LANDFALL_URL of verify and postdeploy. */
   port?: number;
   run: Partial<Record<ServerHook, string[]>>;
 }
 
-/** package.json's landfall.hooks in the first of `dirs` that has a package.json; none without hooks. */
-export function readHooks(dirs: string[]): ProjectHooks | undefined {
-  const dir = dirs.find((d) => files(d).has("package.json"));
-  if (!dir) return;
-  // The section's other keys are project settings (see loadProject).
-  const read = packageJson(dir);
-  if (!read) return;
-  const { pkg, section } = read;
-  if (section.service !== undefined && (typeof section.service !== "string" || !section.service))
-    fail('package.json: "landfall.service" must name a compose service');
-  const hooks = section.hooks ?? {};
-  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) fail('package.json: "landfall.hooks" must map hooks to script names');
+/** A hooks object as written: hook → a `what` or a list of them. None (or null) is no hooks. */
+function hookMap(from: string, key: string, hooks: unknown, what: string): Partial<Record<Hook, string[]>> {
+  if (hooks == null) return {};
+  if (typeof hooks !== "object" || Array.isArray(hooks)) fail(`${from}: "${key}" must map hooks to a ${what} or a list of them`);
   const run: Partial<Record<Hook, string[]>> = {};
-  const scripts: Record<string, unknown> = pkg.scripts ?? {};
-  for (const [name, value] of Object.entries<unknown>(hooks)) {
-    if (!(HOOKS as readonly string[]).includes(name)) fail(`package.json: unknown hook "${name}" in landfall.hooks (hooks: ${HOOKS.join(", ")})`);
+  for (const [name, value] of Object.entries<unknown>(hooks as Record<string, unknown>)) {
+    if (!(HOOKS as readonly string[]).includes(name)) fail(`${from}: unknown hook "${name}" in ${key} (hooks: ${HOOKS.join(", ")})`);
     const list = typeof value === "string" ? [value] : value;
-    if (!Array.isArray(list) || !list.length || list.some((s) => typeof s !== "string" || !s))
-      fail(`package.json: landfall.hooks.${name} must be a script name or a list of them`);
-    const missing = (list as string[]).filter((s) => !(s in scripts));
-    if (missing.length) fail(`package.json: landfall.hooks.${name} runs ${missing.join(", ")}, which "scripts" does not have`);
+    if (!Array.isArray(list) || !list.length || list.some((s) => typeof s !== "string" || !s.trim()))
+      fail(`${from}: ${key}.${name} must be a ${what} or a list of them`);
     run[name as Hook] = list as string[];
   }
-  if (!Object.keys(run).length) return;
-  const has = files(dir).has;
-  const pm = packageManager(has, usesBun({ has, pkg }), pkg.packageManager).name;
-  return { dir, pm, ...(section.service && { service: section.service }), run };
+  return run;
+}
+
+const checkService = (from: string, key: string, service: unknown) => {
+  if (service !== undefined && (typeof service !== "string" || !service)) fail(`${from}: "${key}" must name a compose service`);
+};
+
+/**
+ * The project's hooks: package.json's landfall.hooks (npm scripts) in the first of `dirs` that has a
+ * package.json, or the `hooks` of `project`, the .landfall.json settings read from `project.dir` (shell
+ * commands). Both at once is refused: each hook would be ambiguous. None without hooks.
+ */
+export function readHooks(dirs: string[], project?: Pick<ProjectConfig, "hooks" | "service"> & { dir: string }): ProjectHooks | undefined {
+  // The section's other keys are project settings (see loadProject).
+  let pkgDir: string | undefined, read: ReturnType<typeof packageJson>;
+  for (const d of dirs)
+    if ((read = packageJson(d))) {
+      pkgDir = d;
+      break;
+    }
+  checkService("package.json", "landfall.service", read?.section.service);
+  checkService(PROJECT_FILE, "service", project?.service);
+  const service: string | undefined = project?.service ?? read?.section.service;
+
+  const own = hookMap(PROJECT_FILE, "hooks", project?.hooks, "command");
+  const npm = hookMap("package.json", "landfall.hooks", read?.section.hooks, "script name");
+  const hasOwn = Object.keys(own).length > 0;
+  if (hasOwn && Object.keys(npm).length)
+    fail(`hooks in both package.json (landfall.hooks, npm scripts) and ${PROJECT_FILE} (hooks, commands): keep them in one`);
+
+  if (hasOwn) return { dir: project!.dir, ...(service && { service }), run: own };
+  if (!Object.keys(npm).length || !read || !pkgDir) return;
+  const scripts: Record<string, unknown> = read.pkg.scripts ?? {};
+  for (const [name, list] of Object.entries(npm)) {
+    const missing = list.filter((s) => !(s in scripts));
+    if (missing.length) fail(`package.json: landfall.hooks.${name} runs ${missing.join(", ")}, which "scripts" does not have`);
+  }
+  const has = files(pkgDir).has;
+  const pm = packageManager(has, usesBun({ has, pkg: read.pkg }), read.pkg.packageManager).name;
+  return { dir: pkgDir, pm, ...(service && { service }), run: npm };
 }
 
 /**
@@ -122,30 +149,32 @@ function hookEnv(hook: Hook, vars: Record<string, string | undefined>): Record<s
 }
 
 /**
- * Runs a local hook's scripts in order, output on stderr, until one fails. A blocking hook's failure fails
- * the command; the others warn.
+ * Runs a local hook's entries in order, output on stderr, until one fails: `<pm> run <script>`, or a shell
+ * command. A blocking hook's failure fails the command; the others warn.
  */
 export function runLocalHook(h: ProjectHooks | undefined, hook: LocalHook, vars: Record<string, string | undefined>, skip: Skipper) {
-  const scripts = h?.run[hook];
-  if (!h || !scripts || skip.skips(hook, scripts)) return;
+  const entries = h?.run[hook];
+  if (!h || !entries || skip.skips(hook, entries)) return;
   const env = { ...process.env, ...hookEnv(hook, vars) };
-  for (const s of scripts) {
-    step(`hook ${hook}: ${h.pm} run ${s}`);
+  for (const s of entries) {
+    const what = hookWhat(h.pm, [s]);
+    step(`hook ${hook}: ${what}`);
+    const [cmd, args, shell] = h.pm ? [h.pm, ["run", s], process.platform === "win32"] : [s, [], true];
     // stdin closed: a test runner sees no terminal and runs once instead of watching. stdout is for results.
-    const r = spawnSync(h.pm, ["run", s], { cwd: h.dir, env, stdio: ["ignore", 2, 2], shell: process.platform === "win32" });
+    const r = spawnSync(cmd, args, { cwd: h.dir, env, stdio: ["ignore", 2, 2], shell });
     if (r.status === 0) continue;
     const why = r.error ? r.error.message : `exit ${r.status ?? r.signal}`;
-    if (BLOCKING.includes(hook)) fail(`hook ${hook} failed: ${h.pm} run ${s} (${why}); --skip-hook ${hook} deploys without it`);
-    return void warn(`hook ${hook} failed: ${h.pm} run ${s} (${why})`);
+    if (BLOCKING.includes(hook)) fail(`hook ${hook} failed: ${what} (${why}); --skip-hook ${hook} deploys without it`);
+    return void warn(`hook ${hook} failed: ${what} (${why})`);
   }
 }
 
-/** A static site's container is nginx, without the project's package.json: its server hooks are refused. */
+/** A static site's container is nginx, without the project's package.json: its npm script server hooks are refused. */
 export function refuseStaticServerHooks(h: ProjectHooks | undefined, kind: string) {
   const server = SERVER_HOOKS.filter((k) => h?.run[k]);
-  if (kind === "static" && server.length)
+  if (kind === "static" && h?.pm && server.length)
     fail(
-      `package.json: ${server.join(", ")} run in the site's container, and a static site's (nginx) has no package.json; use prebuild, postbuild or predeploy`,
+      `package.json: ${server.join(", ")} run in the site's container, and a static site's (nginx) has no package.json; use prebuild, postbuild or predeploy, or shell commands in ${PROJECT_FILE}'s hooks`,
     );
 }
 
@@ -157,16 +186,17 @@ export function releaseHooks(h: ProjectHooks | undefined, services: Release["ser
   refuseStaticServerHooks(h, kind);
   const names = services.map((s) => s.name).join(", ");
   const named = h.service ? services.find((s) => s.name === h.service) : undefined;
-  if (h.service && !named) fail(`package.json: landfall.service is ${h.service}, which is not a service of the release (${names})`);
+  if (h.service && !named) fail(`${hooksFile(h.pm)}: the hooks' service is ${h.service}, which is not a service of the release (${names})`);
   const svc = named ?? mainService({ id: "", at: "", services }) ?? services.find((s) => s.build) ?? (services.length === 1 ? services[0] : undefined);
-  if (!svc) fail(`package.json: which service do the hooks run in? Name it: "landfall": { "service": "<name>" } (services: ${names})`);
-  return { pm: h.pm, service: svc!.name, ...(svc!.port && { port: svc!.port }), run };
+  if (!svc) fail(`${hooksFile(h.pm)}: which service do the server hooks run in? Name it with "service": "<name>" (services: ${names})`);
+  return { ...(h.pm && { pm: h.pm }), service: svc!.name, ...(svc!.port && { port: svc!.port }), run };
 }
 
 /** A server hook to run in a remote script: where, its scripts, and the LANDFALL_* it gets. */
 export interface HookCall {
   hook: ServerHook;
-  pm: string;
+  /** None: `scripts` are shell commands. */
+  pm?: string;
   service: string;
   scripts: string[];
   env: Record<string, string>;
@@ -178,7 +208,7 @@ export function serverCall(hooks: ReleaseHooks | undefined, hook: ServerHook, sk
   if (!hooks || !scripts || skip.skips(hook, scripts)) return;
   // Inside the container, the app listens on its own port: no domain, DNS or certificate in the way.
   const url = NO_URL.includes(hook) || !hooks.port ? undefined : `http://127.0.0.1:${hooks.port}`;
-  return { hook, pm: hooks.pm, service: hooks.service, scripts, env: hookEnv(hook, { ...vars, LANDFALL_URL: url }) };
+  return { hook, ...(hooks.pm && { pm: hooks.pm }), service: hooks.service, scripts, env: hookEnv(hook, { ...vars, LANDFALL_URL: url }) };
 }
 
 /**
@@ -190,6 +220,9 @@ const IN_CONTAINER = [
   `[ -n "$p" ] || { echo "neither $0 nor npm is in the container" >&2; exit 127; }`,
   `for s; do "$p" run "$s" || { echo "$p run $s failed" >&2; exit 1; }; done`,
 ].join("\n");
+
+/** In the container: each shell command in turn, until one fails (the arguments = commands). */
+const COMMANDS_IN_CONTAINER = `for s; do sh -c "$s" || { echo "failed: $s" >&2; exit 1; }; done`;
 
 /**
  * Shell for a hook, from the site folder: one container for all its scripts, from `dir` (a release folder
@@ -203,11 +236,12 @@ export function hookLines(call: HookCall | undefined, mode: "run" | "exec", dir:
     .join(" ");
   const how =
     mode === "run" ? `dc run --rm -T --label traefik.enable=false --entrypoint sh ${e} ${shq(call.service)}` : `dc exec -T ${e} ${shq(call.service)} sh`;
-  const what = `${call.pm} run ${call.scripts.join(", ")}`;
+  const what = hookWhat(call.pm, call.scripts);
+  const [inner, zero] = call.pm ? [IN_CONTAINER, call.pm] : [COMMANDS_IN_CONTAINER, "sh"];
   const failed = `hook ${call.hook} failed: ${what}`;
   return [
     `log ${shq(`hook ${call.hook}: ${what}`)}`,
-    `if ! (cd -P ${dir} && ${how} -c ${shq(IN_CONTAINER)} ${[call.pm, ...call.scripts].map(shq).join(" ")} </dev/null >&2); then`,
+    `if ! (cd -P ${dir} && ${how} -c ${shq(inner)} ${[zero, ...call.scripts].map(shq).join(" ")} </dev/null >&2); then`,
     ...(BLOCKING.includes(call.hook)
       ? [...onFail, `echo ${shq(`${failed}; --skip-hook ${call.hook} goes on without it`)} >&2`, "exit 1"]
       : [`log ${shq(`${failed} (not undone: ${call.hook} only reports)`)}`]),
@@ -220,6 +254,6 @@ export const failedHook = (msg: string) => msg.match(/\bhook (\w+) failed\b/)?.[
 
 /** --skip-hooks and --skip-hook, for the commands that run hooks. */
 export const SKIP_OPTIONS = {
-  "skip-hooks": { type: "boolean", desc: "run none of package.json's landfall.hooks (said, and noted in lf history)" },
+  "skip-hooks": { type: "boolean", desc: "run none of the lifecycle hooks (said, and noted in lf history)" },
   "skip-hook": { type: "string", multiple: true, desc: "do not run this hook (e.g. verify)" },
 } as const;

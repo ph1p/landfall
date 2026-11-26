@@ -213,7 +213,7 @@ export interface Detected {
   stack: Tag[];
   /** The images it runs or builds on, so a deploy says what it pulls. */
   images?: UsedImage[];
-  /** package.json's lifecycle hooks, as a deploy from here reads them; or why they cannot be read. */
+  /** The lifecycle hooks (package.json or .landfall.json), as a deploy from here reads them; or why they cannot be read. */
   hooks?: ProjectHooks;
   hooksError?: string;
 }
@@ -311,7 +311,7 @@ const namedVolumes = (a: Detected["analysis"]) =>
 export function detectProject(path: string): Detected {
   const d = detectKind(path);
   try {
-    const hooks = readHooks([resolve(path, d.project?.dir ?? "."), path]);
+    const hooks = readHooks([resolve(path, d.project?.dir ?? "."), path], { ...d.project, dir: path });
     // What the deploy refuses, the dialog reports up front.
     refuseStaticServerHooks(hooks, d.kind);
     return hooks ? { ...d, hooks } : d;

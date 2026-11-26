@@ -11,6 +11,11 @@ export const DEPLOY_HOOKS: readonly Hook[] = [...LOCAL_HOOKS, "release", "verify
 export const ROLLBACK_HOOKS: readonly Hook[] = ["prerollback", "postrollback"];
 export const isLocalHook = (h: Hook) => (LOCAL_HOOKS as readonly string[]).includes(h);
 
+/** How a hook's entries run, as the output says it: `<pm> run <script>` from package.json, the commands themselves from .landfall.json (no pm). */
+/** The file hooks come from: package.json's are npm scripts (they have a package manager), .landfall.json's shell commands. */
+export const hooksFile = (pm: string | undefined) => (pm ? "package.json" : ".landfall.json");
+export const hookWhat = (pm: string | undefined, entries: readonly string[]) => (pm ? `${pm} run ${entries.join(", ")}` : entries.join("; "));
+
 /** When each hook runs, as the docs and the web page say it. */
 export const HOOK_WHEN: Record<Hook, string> = {
   prebuild: "before the build",

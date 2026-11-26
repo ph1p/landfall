@@ -27,7 +27,7 @@ Key facts for agents:
 - [Day-to-day](docs/pages/sites.md): logs, env, secrets, domains, logins, tunnels, restart and removal
 - [Git deploys](docs/pages/git.md): branch and tag rules per environment, `--ref`/`--tag`, `lf promote`, server fetch, `lf ci init`, `lf autodeploy`
 - [Scaling and load balancing](docs/pages/scaling.md): replicas, rolling deploys, load balancer options, traffic split
-- [Lifecycle hooks](docs/pages/hooks.md): npm scripts run around build, deploy, rollback and removal, their environment variables
+- [Lifecycle hooks](docs/pages/hooks.md): shell commands (.landfall.json) or npm scripts (package.json) run around build, deploy, rollback and removal, their environment variables
 - [Volumes and backups](docs/pages/volumes.md): volumes, backups, schedules, offsite copies, push and pull
 - [History and undo](docs/pages/history.md): the server journal and what `lf undo` reverts
 - [Plugins](docs/pages/plugins.md): fail2ban and Trivy, installing plugins, writing commands and web UI sections
