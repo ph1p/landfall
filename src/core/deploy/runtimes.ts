@@ -49,15 +49,14 @@ export const files = (cwd: string) => {
     const name = names.find(has);
     return name ? read(name) : "";
   };
-  let pkg: any;
   return {
     has,
     read,
     list,
     first,
-    /** package.json, parsed once; {} without one. */
+    /** package.json, parsed (readPackage caches it); {} without one. */
     get pkg(): any {
-      return (pkg ??= readPackage(cwd)?.pkg ?? {});
+      return readPackage(cwd)?.pkg ?? {};
     },
   };
 };

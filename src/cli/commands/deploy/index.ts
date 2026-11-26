@@ -61,7 +61,7 @@ import { KINDS, planDeploy } from "./plan";
 import { checkLive, showRoutes } from "./output";
 import { nextReleaseId } from "./release";
 
-/** The keys of .landfall.json a deploy with --save works out and writes; it keeps the others as they are. */
+/** The keys of .landfall.json a deploy with --save works out and writes (the saved.* lines in run); it keeps the others as they are. */
 const DEPLOY_DECIDES = new Set<string>([
   "name",
   "server",

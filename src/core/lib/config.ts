@@ -340,8 +340,9 @@ export const envSiteName = (name: string, env = activeEnvironment()) => (env ? `
 /** The project file in a directory. */
 const projectFile = (cwd: string) => join(cwd, PROJECT_FILE);
 
+/** The last package.json files read, by path; a long-running `lf ui` keeps only these. */
 const packages = new Map<string, { stamp: string; read: PackageRead }>();
-type PackageRead = { text: string; pkg?: any; error?: string };
+type PackageRead = { pkg: any; error?: undefined } | { pkg?: undefined; error: string; landfall: boolean };
 
 /**
  * The package.json in `cwd`, parsed (or why not), undefined without one. A deploy reads it for its settings,
@@ -355,6 +356,7 @@ export function readPackage(cwd: string): PackageRead | undefined {
     if (!st.isFile()) return undefined;
     stamp = `${st.ino}:${st.size}:${st.mtimeMs}`;
   } catch {
+    packages.delete(file);
     return undefined;
   }
   const hit = packages.get(file);
@@ -363,13 +365,15 @@ export function readPackage(cwd: string): PackageRead | undefined {
   try {
     const text = fs.readFileSync(file, "utf8");
     try {
-      read = { text, pkg: JSON.parse(text) };
+      read = { pkg: JSON.parse(text) };
     } catch (e: any) {
-      read = { text, error: String(e?.message ?? e) };
+      read = { error: String(e?.message ?? e), landfall: text.includes('"landfall"') };
     }
   } catch {
     return undefined;
   }
+  packages.delete(file);
+  if (packages.size >= 32) packages.delete(packages.keys().next().value!);
   packages.set(file, { stamp, read });
   return read;
 }
@@ -382,7 +386,7 @@ export function readPackage(cwd: string): PackageRead | undefined {
 export function packageJson(cwd: string): { pkg: any; section: Record<string, any> } | undefined {
   const read = readPackage(cwd);
   if (!read) return undefined;
-  if (read.error !== undefined) return read.text.includes('"landfall"') ? fail(`could not read package.json: ${read.error}`) : undefined;
+  if (read.error !== undefined) return read.landfall ? fail(`could not read package.json: ${read.error}`) : undefined;
   const pkg = read.pkg;
   const section = pkg?.landfall;
   if (section === undefined) return undefined;

@@ -72,21 +72,22 @@ export function readHooks(src: string, project?: Pick<ProjectConfig, "dir" | "ho
   const pkgDir = [resolve(src, dir ?? "."), src].find((d) => readPackage(d));
   // The section's other keys are project settings (see loadProject).
   const read = pkgDir ? packageJson(pkgDir) : undefined;
-  const own = hookMap(PROJECT_FILE, "hooks", project?.hooks, "command");
-  const npm = hookMap("package.json", "landfall.hooks", read?.section.hooks, "script name");
+  const [npmSource, ownSource] = [hookSource("npm"), hookSource(undefined)];
+  const own = hookMap(ownSource.file, ownSource.key, project?.hooks, "command");
+  const npm = hookMap(npmSource.file, npmSource.key, read?.section.hooks, "script name");
   const [hasOwn, hasNpm] = [Object.keys(own).length > 0, Object.keys(npm).length > 0];
   if (hasOwn && hasNpm) fail(`hooks in both package.json (landfall.hooks, npm scripts) and ${PROJECT_FILE} (hooks, commands): keep them in one`);
-  checkService("package.json", "landfall.service", read?.section.service);
-  checkService(PROJECT_FILE, "hookService", project?.hookService);
+  const [ownService, npmService]: (string | undefined)[] = [project?.hookService, read?.section.service];
+  checkService(npmSource.file, npmSource.serviceKey, npmService);
+  checkService(ownSource.file, ownSource.serviceKey, ownService);
+  if (!hasOwn && !hasNpm) return;
 
-  if (hasOwn) {
-    if (read?.section.service !== undefined)
-      fail(`package.json: landfall.service is for package.json's hooks; name the service of ${PROJECT_FILE}'s hooks with "hookService" there`);
-    return { dir: src, ...(project!.hookService && { service: project!.hookService }), run: own };
-  }
-  if (!hasNpm || !read || !pkgDir) return;
-  if (project?.hookService !== undefined)
-    fail(`${PROJECT_FILE}: hookService is for ${PROJECT_FILE}'s hooks; name the service of package.json's hooks with landfall.service there`);
+  // Each file names the service of its own hooks.
+  const [used, other, otherService] = hasOwn ? [ownSource, npmSource, npmService] : [npmSource, ownSource, ownService];
+  if (otherService !== undefined)
+    fail(`${other.file}: ${other.serviceKey} is for ${other.file}'s hooks; name the service of ${used.file}'s hooks with ${used.serviceKey} there`);
+  if (hasOwn) return { dir: src, ...(ownService && { service: ownService }), run: own };
+  if (!read || !pkgDir) return; // never: package.json has the hooks
   const scripts: Record<string, unknown> = read.pkg.scripts ?? {};
   for (const [name, list] of Object.entries(npm)) {
     const missing = list.filter((s) => !(s in scripts));
@@ -94,8 +95,7 @@ export function readHooks(src: string, project?: Pick<ProjectConfig, "dir" | "ho
   }
   const has = files(pkgDir).has;
   const pm = packageManager(has, usesBun({ has, pkg: read.pkg }), read.pkg.packageManager).name;
-  const service: string | undefined = read.section.service;
-  return { dir: pkgDir, pm, ...(service && { service }), run: npm };
+  return { dir: pkgDir, pm, ...(npmService && { service: npmService }), run: npm };
 }
 
 /**
@@ -174,7 +174,7 @@ export function runLocalHook(h: ProjectHooks | undefined, hook: LocalHook, vars:
 /** A static site's container is nginx, without the project's package.json: server hooks that need it are refused. */
 export function refuseStaticServerHooks(h: ProjectHooks | undefined, kind: string) {
   const server = SERVER_HOOKS.filter((k) => h?.run[k]);
-  if (kind === "static" && h && hookKind(h.pm).needsPackageJson && server.length)
+  if (kind === "static" && h && h.pm && server.length)
     fail(
       `package.json: ${server.join(", ")} run in the site's container, and a static site's (nginx) has no package.json; use prebuild, postbuild or predeploy, or shell commands in ${PROJECT_FILE}'s hooks`,
     );
@@ -239,9 +239,8 @@ function hookKind(pm: string | undefined) {
         ...source,
         local: (s: string) => [pm, ["run", s], process.platform === "win32"] as const,
         container: [IN_CONTAINER, pm] as const,
-        needsPackageJson: true,
       }
-    : { ...source, local: (s: string) => [s, [] as string[], true] as const, container: [COMMANDS_IN_CONTAINER, "sh"] as const, needsPackageJson: false };
+    : { ...source, local: (s: string) => [s, [] as string[], true] as const, container: [COMMANDS_IN_CONTAINER, "sh"] as const };
 }
 
 /**

@@ -13,11 +13,12 @@ export function HookList({ hooks, only }: { hooks: Pick<ProjectHooks, "run" | "s
   const { run, pm, service } = hooks;
   const list = definedHooks(run, only);
   if (!list.length) return null;
+  const { what } = hookSource(pm);
   return (
     <ul className="m-0 p-0 list-none grid gap-1">
       {list.map((h) => (
         <li key={h} className="min-w-0">
-          <code>{h}</code> <span className="break-all">{hookSource(pm).what(run[h]!)}</span>{" "}
+          <code>{h}</code> <span className="break-all">{what(run[h]!)}</span>{" "}
           <span className="dim">
             {isLocalHook(h) ? "here" : `on the server${service ? `, in ${service}` : ""}`}, {HOOK_WHEN[h]}
           </span>
