@@ -46,6 +46,7 @@ Every command resolves defaults the same way:
 
 | guide | covers |
 |---|---|
+| [Try it locally](try-locally.md) | a Docker container as a test server: setup, deploy, tenants, no VPS needed |
 | [Servers](servers.md) | `lf setup` for fresh and existing servers, setup flags, registering servers, NAS and other systems |
 | [Deploy a site](deploy.md) | site kinds, env and secrets, CI, what gets uploaded, environments, main domains |
 | [Git deploys](git.md) | branch and tag rules per environment, `--ref`/`--tag`, promote, server fetch, CI, auto-deploy |

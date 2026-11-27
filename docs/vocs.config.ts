@@ -19,6 +19,7 @@ export default defineConfig({
   ],
   sidebar: [
     { text: "Introduction", link: "/" },
+    { text: "Try it locally", link: "/try-locally" },
     {
       text: "Sites",
       items: [
