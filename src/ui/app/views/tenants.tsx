@@ -8,7 +8,7 @@ import { confirmDlg, dialog, domainOk, keyError, type Values } from "../ui/dialo
 import { bytes } from "../../../core/lib/format";
 import { copy } from "./domains";
 import { toast } from "../ui/toast";
-import { LIMIT_RULES } from "../../../core/server/tenant-policy";
+import { LIMIT_RULES, tenantLogin } from "../../../core/server/tenant-policy";
 
 // Every change is an lf tenant command: the page checks what the CLI would refuse, the CLI decides.
 
@@ -54,7 +54,8 @@ export function TenantsView({ n }: { n: string }) {
   const wait = pending(st, `reading the tenants of ${n}…`);
   if (wait) return wait;
   const v = st!.data!;
-  const host = serverNamed(n)?.saved?.host ?? n;
+  const saved = serverNamed(n)?.saved;
+  const login = (u: string) => tenantLogin(u, saved?.host ?? n, saved?.port);
   const sized = v.tenants.some((t) => t.disk !== undefined);
   const active = v.tenants.filter((t) => t.active);
 
@@ -109,7 +110,7 @@ export function TenantsView({ n }: { n: string }) {
             items={[
               t.active && { label: "Domains…", hint: "lf tenant domains", run: () => domainsDlg(n, t) },
               t.active && { label: "Limits…", hint: "lf tenant limits", run: () => limitsDlg(n, t) },
-              t.active && { label: `Copy: lf server add ${t.user}@${host}`, run: () => copy(`lf server add ${t.user}@${host}`) },
+              t.active && { label: `Copy: lf server add ${t.user} …`, run: () => copy(login(t.user)) },
               t.active && "-",
               t.active && t.running && { label: "Stop Docker", cls: "danger", hint: "lf tenant stop", run: stop },
               t.active && !t.running && { label: "Start Docker", hint: "lf tenant start", run: () => lf(n, ["tenant", "start", t.user]) },

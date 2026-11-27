@@ -8,6 +8,10 @@ export const LIMIT_RULES = {
   tasks: { re: /^(none|\d+)$/, hint: "a number" },
 } as const;
 
+/** How a tenant registers its login. Not `user@host` as the name: ssh would read that as user and host, past the alias. */
+export const tenantLogin = (user: string, host: string, port?: number) =>
+  `lf server add ${user} --host ${host}${port && port !== 22 ? ` --port ${port}` : ""} --user ${user} -i <key>`;
+
 /** What a tenant login may run. A command missing here is refused on a tenant server. */
 export const TENANT_COMMANDS: ReadonlySet<string> = new Set([
   "deploy",

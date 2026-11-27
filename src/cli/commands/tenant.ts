@@ -25,7 +25,8 @@ import {
   type TenantsView,
 } from "../../core/server/tenants";
 import { serverTarget } from "../target";
-import { LIMIT_RULES } from "../../core/server/tenant-policy";
+import { LIMIT_RULES, tenantLogin } from "../../core/server/tenant-policy";
+import { effectiveSsh } from "../../core/ssh/sshconfig";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 const limitOpts = {
@@ -105,7 +106,8 @@ the server. lf tenant off undoes all of it.`,
     const { script, env } = addScript({ user, key, domains, port, limits, firewall });
     await asRoot(admin, script, env);
     ok(`added tenant ${user} to ${name} (port ${port})`);
-    info(`next, as ${user}: lf server add ${user}@${server.host} && lf traefik setup`);
+    const ssh = effectiveSsh(server);
+    info(`next, as ${user}: ${tenantLogin(user, ssh.hostname, ssh.port)} && lf traefik setup -s ${user}`);
   },
 });
 

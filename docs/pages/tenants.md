@@ -76,8 +76,10 @@ Then point the tenant's domains at the server (an `A`/`AAAA` record, or a wildca
 the tenant two lines: its user name and the server's address. `tenant add` prints them:
 
 ```
-next, as anna: lf server add anna@203.0.113.7 && lf traefik setup
+next, as anna: lf server add anna --host 203.0.113.7 --user anna -i <key> && lf traefik setup -s anna
 ```
+
+`<key>` is the private half of the key given with `--key`.
 
 ### What the first tenant changes
 
