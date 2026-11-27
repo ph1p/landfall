@@ -8,11 +8,13 @@ import { OWN_PROXY, PRELUDE } from "../../src/core/ssh/templates";
 
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
+const envs: (Record<string, unknown> | undefined)[] = [];
 const reply = { stdout: "20260101120000\n" };
 vi.mock("../../src/core/ssh/ssh", async (orig) => ({
   ...(await orig<typeof import("../../src/core/ssh/ssh")>()),
-  runScript: async (_s: unknown, script: string) => {
+  runScript: async (_s: unknown, script: string, o?: { env?: Record<string, unknown> }) => {
     scripts.push(script);
+    envs.push(o?.env);
     return { code: 0, stdout: reply.stdout, stderr: "" };
   },
 }));
@@ -23,6 +25,8 @@ const { overview } = await import("../../src/core/server/overview");
 const { removeSite } = await import("../../src/core/site/lifecycle");
 const { rmSplit, siteLines, switchJournal } = await import("../../src/core/site/switch");
 const { serverCall, skipper } = await import("../../src/core/site/hooks");
+const { harden } = await import("../../src/core/server/security");
+const { system } = await import("../../src/core/server/system");
 
 const server = { host: "example.com" } as any;
 const release = (id: string) => ({ id, at: "", services: [{ name: "web", networks: ["default"], build: true, port: 8000 }] });
@@ -219,5 +223,45 @@ describe("site shell run here", () => {
     const as = PRELUDE.split("\n").find((l) => l.startsWith("_as()"))!;
     const r = sh(`set -euo pipefail\nSUDO=false\n${as}\n${rmSplit("blog")}`);
     expect(r.code).toBe(0);
+  });
+});
+
+describe("security", () => {
+  test("harden: every part parses, runs only when named, and journals each change", async () => {
+    scripts.length = envs.length = 0;
+    await harden(server, ["ssh-options", "kernel", "time", "accounts", "secrets"]);
+    const [script] = scripts;
+    parses(script);
+    expect(envs[0]).toMatchObject({
+      H_SSH: false,
+      H_FAIL2BAN: false,
+      H_UPDATES: false,
+      H_SSH_OPTIONS: true,
+      H_KERNEL: true,
+      H_TIME: true,
+      H_ACCOUNTS: true,
+      H_SECRETS: true,
+    });
+    for (const s of [
+      `sshd_dropin /etc/ssh/sshd_config.d/01-landfall-options.conf "sshd: no empty passwords, no X11 forwarding" 'PermitEmptyPasswords no'`,
+      "'net.ipv4.tcp_syncookies = 1'",
+      'record "kernel settings in /etc/sysctl.d/90-landfall.conf"',
+      "record \"turned on time sync\" '$SUDO timedatectl set-ntp false'",
+      'user_nopw "$u"',
+      'record "only the owner reads $f"',
+    ])
+      expect(script).toContain(s);
+  });
+
+  test("the system probe parses", async () => {
+    scripts.length = 0;
+    reply.stdout = "root=1\n";
+    await system(server);
+    reply.stdout = "20260101120000\n";
+    parses(scripts[0]);
+    expect(scripts[0]).toContain("SYSCTL");
+    expect(scripts[0]).toContain("-name node_modules -prune");
+    expect(scripts[0]).toContain('case "$f" in *.pem|*.key)');
+    expect(scripts[0]).toContain("/proc/sys/net/ipv4/tcp_syncookies");
   });
 });

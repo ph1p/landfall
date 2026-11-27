@@ -145,7 +145,7 @@ Everything is at **[ph1p.github.io/landfall](https://ph1p.github.io/landfall/)**
 | [Server administration](https://ph1p.github.io/landfall/system) | firewall, services, SSH keys, users, swap, hardening |
 | [Traffic, certificates and checks](https://ph1p.github.io/landfall/monitoring) | request stats, certificate state, HTTPS checks |
 | [History and undo](https://ph1p.github.io/landfall/history) | the server journal, what `lf undo` reverts |
-| [Plugins](https://ph1p.github.io/landfall/plugins) | fail2ban, Trivy, installing and writing plugins |
+| [Plugins](https://ph1p.github.io/landfall/plugins) | exposure checks, fail2ban, Trivy, installing and writing plugins |
 | [Web UI](https://ph1p.github.io/landfall/web-ui) | `lf ui`, its pages, its security model |
 | [Scripts, CI and AI agents](https://ph1p.github.io/landfall/automation) | non-interactive use, `--json`, secrets, exit codes, recipes |
 | [Reference](https://ph1p.github.io/landfall/reference) | every command, file and environment variable |

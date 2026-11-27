@@ -7,6 +7,7 @@ import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, keyError } from "../ui/dialog";
 import { size } from "./shared";
 import { KEY_SERVICES, serviceName } from "../../../core/site/status";
+import { HARDEN_INFO, HARDEN_PARTS } from "../../../core/server/harden-parts";
 
 // ---- system ----------------------------------------------------------------
 
@@ -325,6 +326,22 @@ export function rebootDlg(n: string) {
   });
 }
 
+/** lf harden with the parts to run: those the advice asks for are ticked. */
+function hardenDlg(n: string, adv: Advice[]) {
+  const asked = new Set(adv.flatMap((a) => (a.fix?.argv[0] === "harden" ? a.fix.argv.slice(1) : [])));
+  dialog({
+    title: `Harden ${n}`,
+    text: "Each change is journaled: lf undo takes it back.",
+    fields: HARDEN_PARTS.map((p) => ({ name: p, type: "check" as const, label: p, hint: HARDEN_INFO[p].what, value: asked.has(p) })),
+    ok: "Harden",
+    onOk: (v) => {
+      const parts = HARDEN_PARTS.filter((p) => v[p]);
+      if (!parts.length) return false;
+      run(["harden", ...parts, ...sv(n)], { server: n });
+    },
+  });
+}
+
 const LEVEL: Record<string, string> = { risk: "bad", warn: "warn", info: "" };
 /** What `lf security` says, with its fixes as buttons. */
 function securityCard(n: string, i: SystemInfo) {
@@ -369,6 +386,13 @@ function securityCard(n: string, i: SystemInfo) {
       <CardHead>
         Security {adv.length ? <Badge kind={risks ? "bad" : "warn"}>{plural(adv.length, "thing")} to look at</Badge> : <Badge kind="ok">nothing to fix</Badge>}{" "}
         <Sub className={MONO}>lf security</Sub>
+        {i.root && (
+          <Actions>
+            <Btn cls="sm" on={() => hardenDlg(n, adv)}>
+              Harden…
+            </Btn>
+          </Actions>
+        )}
       </CardHead>
       {adv.length ? (
         <Scroll>

@@ -37,8 +37,8 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf keys [--json]` | Keys in `authorized_keys` of root and `/home/*`. ★ marks this machine's key. Alias: `keys ls`. |
 | `lf keys add [key\|file.pub] [-u user] [--generate]` | Adds a public key (default: login user). `--generate` makes a pair at `~/.ssh/<server>_<user>`. Undoable. |
 | `lf keys rm <fingerprint\|comment> [-u user] [--force]` | By comment or fingerprint prefix. This machine's key needs `--force`. Undoable. |
-| `lf security [--json]` | Checks ssh password/root login, firewall, fail2ban, auto updates, pending reboot; names each fix. |
-| `lf harden [ssh\|fail2ban\|updates…] [--force]` | ssh passwords off, fail2ban on, automatic security updates on; all three by default. Locking out password-only users needs `--force`. Undoable. |
+| `lf security [--json]` | Checks ssh, accounts, firewall, fail2ban, updates, reboot, kernel settings, time sync, open site `.env` files and risky files in releases; names each fix. |
+| `lf harden [part…] [--force]` | Default: ssh passwords off, fail2ban on, automatic security updates on. Only when named: `ssh-options`, `kernel`, `time`, `accounts`, `secrets`. Locking out password-only users needs `--force`. Undoable. |
 | `lf users [--json]` | Root and uid 1000+ accounts: sudo (passwordless?), password set/locked/none, keys, shell. ★ marks landfall's login. Alias: `users ls`. |
 | `lf users add <name> [-k key\|file.pub] [--generate-key] [-p pw \| --password-stdin] [--sudo [--nopasswd]] [--shell s]` | Adds an account with a home, given a key, new pair or password. Undoable. |
 | `lf users rm <name> [--keep-home]` | Removes an account and its home. Refuses root, landfall's and the admin login. Not undoable. |
@@ -143,6 +143,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf plugin add <file\|folder> [--force]` | A `.mjs`/`.js` file, or folder with `index.mjs` or package.json `main`. Checked by loading. `--force` replaces one. |
 | `lf plugin rm <name>` | Also `~/.config/landfall/plugin-data/<name>`. Built-ins stay. |
 | `lf plugin new <name> [--out file]` | Starter plugin: a command and a UI section. |
+| `lf exposure check [dir] [--json] [--strict] [--allow p] [--allow-port n]` | Local: risky files the upload would send, compose ports. Exits 1 on high/medium (`--strict`: any). For a `predeploy` hook. |
 | `lf fail2ban [--json]` | Jails (ban time, find time, max retries), banned IPs. Alias: `bans`. |
 | `lf fail2ban ban <ip> [--jail sshd]` | Bans an IP now. Undo unbans it. |
 | `lf fail2ban unban <ip>` | In every jail. Undo bans it again. Alias: `unban`. |
@@ -249,6 +250,8 @@ Every command, file and environment variable. `lf <command> --help` prints one c
     backup.sh                       only with `lf volume backup --schedule`
   journal.log                       every change, with the shell that reverts it
 /etc/ssh/sshd_config.d/00-landfall.conf   ssh hardening from `lf setup`
+/etc/ssh/sshd_config.d/01-landfall-options.conf   only after `lf harden ssh-options`
+/etc/sysctl.d/90-landfall.conf            only after `lf harden kernel`
 ```
 
 - `lf setup` also installs Docker with the compose plugin, rsync, ufw (only where setup turns it on), fail2ban (only where ssh passwords stay on) and unattended-upgrades.

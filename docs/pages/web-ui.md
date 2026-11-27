@@ -20,7 +20,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | Updates     | `lf updates`, `lf update` |
 | Firewall    | `lf firewall` and subcommands |
 | Users       | `lf users` and subcommands; shown only where landfall may manage users |
-| System      | `lf system`, `services`, `keys`, `swap`, `hostname`, `timezone`, `log-limit` |
+| System      | `lf system`, `lf security` (a button per fix; Harden… picks the `lf harden` parts), `services`, `keys`, `swap`, `hostname`, `timezone`, `log-limit` |
 | Plugins     | one per plugin with a section, e.g. *fail2ban* (`lf fail2ban`, `fail2ban ban`/`unban`/`config`), *Trivy* (`lf trivy`, `trivy images`/`files`/`rm`). See [Plugins](plugins.md) |
 | History     | `lf history`, `lf undo` |
 | Settings    | `lf server config` (`--cloud`: Change next to provider, or the provider in the header), `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard`, `lf registries`, `registry login`/`logout` |
@@ -39,6 +39,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 - Deploy, Redeploy, Roll back and Delete list the [hooks](hooks.md) they run, each with a box to skip it (`--skip-hook`).
 - So do a build change in **Edit** and a volume change with **Redeploy now**: both redeploy the site.
 - The deploy dialog takes redirect hosts next to the domains (`lf deploy --redirect`).
+- The deploy dialog lists what `lf exposure check` finds: secrets, agent settings, dumps and junk files the upload would send, and ports the compose file publishes. See [Plugins](plugins.md#exposure).
 - A site's **Edit** dialog takes redirect hosts next to its domains (`lf domains --redirect`). The site row shows each one with an arrow to the first domain.
 - The **Traefik** section lists the server's redirects (`lf redirects`), each with its DNS and HTTPS state.
 - **Add…** and **Change…** run `lf redirect add`; **Remove…** runs `lf redirect rm`.

@@ -8,7 +8,7 @@ import { routePlan } from "../site/routing";
 import { volumeName } from "../site/compose-edit";
 import { wantedVars, type RequiredVar } from "../site/env-vars";
 import type { SiteKind } from "../site/meta";
-import { seedFolders, uploadList } from "./ignore";
+import { seedFolders, uploadListSync } from "./ignore";
 import { detectBuild, usesBun, type Build } from "./frameworks";
 import { nodeFrom, nodeStage, packageManager } from "./node";
 import { detectRuntime, files, head, tail, type Runtime } from "./runtimes";
@@ -294,7 +294,7 @@ function seedsOf(path: string, names: string[], exclude?: string[], project?: Pr
   const near = names.filter((n) => fs.statSync(join(path, n), { throwIfNoEntry: false })?.isDirectory());
   if (!near.length) return;
   try {
-    const found = seedFolders(path, uploadList(path, { exclude, gitignore: project?.gitignore, rules: project })).filter((f) => near.includes(f));
+    const found = seedFolders(path, uploadListSync(path, { exclude, gitignore: project?.gitignore, rules: project })).filter((f) => near.includes(f));
     return found.length ? found : undefined;
   } catch {
     return;

@@ -59,7 +59,7 @@ Every command resolves defaults the same way:
 | [Server administration](system.md) | firewall, services, SSH keys, users, swap, hardening |
 | [Traffic, certificates and checks](monitoring.md) | request stats, certificate state, HTTPS checks |
 | [History and undo](history.md) | the server journal and what `lf undo` can revert |
-| [Plugins](plugins.md) | fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
+| [Plugins](plugins.md) | exposure checks, fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
 | [Web UI](web-ui.md) | `lf ui`, its pages and their commands, security model |
 | [Scripts, CI and AI agents](automation.md) | non-interactive use, `--json`, secrets, exit codes, recipes |
 | [Reference](reference.md) | every command, local and remote files, environment variables |

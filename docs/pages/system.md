@@ -66,14 +66,41 @@ lf keys add ~/anna2.pub -u anna            # more keys, as for any user
 ## Security
 
 ```sh
-lf security                       # ssh passwords, root login, firewall, fail2ban, automatic updates, pending reboot
-lf harden                         # all of: ssh (keys only), fail2ban, updates; or name the parts
+lf security                       # what is open on the server, and how to close it
+lf harden                         # ssh (keys only), fail2ban and updates; or name the parts
 lf harden ssh                     # asks first; refuses while a user logs in with a password only (--force)
+lf harden kernel time             # parts that run only when named
 lf keys add --generate -u anna    # new pair at ~/.ssh/<server>_anna, its public key on the server
 ```
 
 - `lf security` doesn't warn about ufw being off behind an AWS, Google Cloud, Azure, Oracle or Alibaba firewall, nor about missing fail2ban with keys only.
 - `lf harden ssh` always refuses while sshd refuses keys (`PubkeyAuthentication no`), even with `--force`.
-- `lf setup` and `lf server add` end with the same advice; the web UI's system tab has a button per fix. Each fix is journaled: `lf undo` takes it back.
+- `lf setup` and `lf server add` end with the same advice. The web UI's system tab has a button per fix.
+- **Harden…** in the web UI's security card lets you tick the `lf harden` parts to run. The parts the advice asks for are ticked.
+- Each fix is journaled: `lf undo` takes it back.
 - Automatic updates know apt (unattended-upgrades), dnf (dnf-automatic) and apk (a daily `apk upgrade` from cron).
+- `lf security` checks:
+  - ssh: password and root login, empty passwords, X11 forwarding;
+  - accounts: accounts without a password, and accounts other than root with user id 0;
+  - firewall, fail2ban, automatic updates, security updates waiting, a pending reboot;
+  - kernel network settings (redirects, source routing, SYN cookies, reverse path filter) and kernel info leaks;
+  - time sync;
+  - site `.env` files that other accounts can read;
+  - files in each site's live release that should not be there: `.env`, `.git`, private keys, agent settings
+    (`.claude`, `.cursor`), database dumps, `.DS_Store` and the rest of the [exposure](plugins.md#exposure) list.
+- Security updates waiting are counted from the package manager's cache (apt, dnf, yum, zypper), without network.
+- Most findings have a fix: an `lf harden` part or `lf update --security`.
+  Files in a release have none on the server: leave them out with `exclude` in `.landfall.json` and deploy again.
+- `lf harden` without arguments runs ssh, fail2ban and updates. These parts run only when you name them:
+
+| part | what it does |
+|---|---|
+| `ssh-options` | writes `/etc/ssh/sshd_config.d/01-landfall-options.conf`: `PermitEmptyPasswords no`, `X11Forwarding no` |
+| `kernel` | writes `/etc/sysctl.d/90-landfall.conf` and loads it. The values keep Docker working |
+| `time` | turns on time sync with `timedatectl` (systemd only) |
+| `accounts` | locks empty passwords. The accounts' ssh keys keep working |
+| `secrets` | makes site `.env` files readable by their owner only |
+
+- `lf undo` takes each part back. For `kernel` it also puts the running values back.
+- Installing security updates (`lf update --security`) cannot be undone.
 - Without root or sudo, landfall only checks sshd's settings. It reads them from `sshd -T`, what sshd really uses: `Include` files count and the first value wins.

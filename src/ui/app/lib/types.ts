@@ -13,6 +13,7 @@ type View<F extends (...args: any) => any> = Awaited<ReturnType<F>>;
 
 export type { Advice, Stats };
 export type { Detected } from "../../../core/deploy/projects";
+export type { ExposureCheck } from "../../../core/deploy/exposure";
 export type { Remembered } from "../../../core/deploy/remembered";
 export type { Analysis } from "../../../core/site/analyze";
 export type { Release, Route, Service, SiteKind, SiteMeta } from "../../../core/site/meta";

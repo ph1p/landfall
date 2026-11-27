@@ -23,13 +23,13 @@ pass() { printf '\033[32mPASS\033[0m %s\n' "$*"; }
 die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 # E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
-SECTIONS="static spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
+SECTIONS="static exposure spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
   system versions git security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
 needs() {
   case $1 in
     environments) echo secrets ;;
     updates | traffic | prune) echo dockerfile ;;
-    versions) echo static ;;
+    versions | exposure) echo static ;;
     domains | traefik | remove) echo image ;;
     # main's traefik setup is the later run that keeps undo from reverting setup's traefik.
     undo) echo static dockerfile main firewall ;;
@@ -145,6 +145,27 @@ out=$(lf deploy -d 'site.test`)' -y 2>&1) && die "deploy accepts a bad domain"
 echo "$out" | has uploading && die "deploy uploads before checking the domain"
 lf deploy --keep abc -y >/dev/null 2>&1 && die "deploy accepts --keep abc"
 pass "deploy rejects bad input"
+fi
+
+if want exposure; then echo "== exposure"
+mkdir -p "$WORK/exp/.claude" && cd "$WORK/exp"
+echo '<h1>exp</h1>' > index.html && echo '{}' > .claude/settings.local.json
+cat > .landfall.json <<JSON
+{"name": "exp", "hooks": {"predeploy": "node $ROOT/dist/cli.mjs exposure check"}}
+JSON
+out=$(lf exposure check 2>&1) && die "exposure check passes .claude"
+has ".claude/" <<<"$out" || { echo "$out"; die "exposure check names .claude"; }
+lf exposure check --allow .claude/ >/dev/null 2>&1 || die "exposure check --allow"; pass "exposure check flags .claude, --allow accepts it"
+out=$(lf deploy -y 2>&1) && die "deploy goes on after a failed exposure check"
+srv test ! -e /opt/landfall/sites/exp || die "the predeploy check stops the upload"; pass "a predeploy exposure check stops the deploy"
+srv sh -c 'mkdir -p /opt/landfall/sites/site/current/.git && echo x > /opt/landfall/sites/site/current/dump.sql'
+out=$(lf security -s box --json) || die "security --json"
+{ has '"id": "release-files:site"' <<<"$out" && has '"path": ".git/"' <<<"$out" && has '"path": "dump.sql"' <<<"$out"; } \
+  || { echo "$out"; die "security finds files in a release"; }
+srv rm -rf /opt/landfall/sites/site/current/.git /opt/landfall/sites/site/current/dump.sql
+{ ! lf security -s box --json | has '"release-files:'; } || die "no release advice once the files are gone"
+pass "security finds .git and a dump in a release"
+cd "$WORK"
 fi
 
 if want spa; then echo "== spa"
@@ -874,6 +895,27 @@ pass "harden updates on alpine: daily apk upgrade, crond running"
 lf undo -s box -y >/dev/null 2>&1 || die "undo apk updates"
 { lf security -s box --json | has '"autoUpdates": false' && ! docker exec "$NAME" test -e /etc/periodic/daily/landfall-upgrade; } \
   || die "undo apk updates"; pass "undo removes the apk upgrade job"
+# Opt-in parts: an account without a password, a site .env others can read, sshd options, kernel settings.
+srv sh -c 'adduser -D bob && passwd -d bob >/dev/null && mkdir -p /opt/landfall/sites/sec && echo K=v > /opt/landfall/sites/sec/.env && chmod 644 /opt/landfall/sites/sec/.env'
+out=$(lf security -s box --json) || die "security --json"
+{ has '"id": "empty-passwords"' <<<"$out" && has '"id": "open-env"' <<<"$out"; } || { echo "$out"; die "security finds bob and the open .env"; }
+pass "security finds an account without a password and an open .env"
+lf harden accounts secrets ssh-options kernel -s box >"$WORK/opt.log" 2>&1 || { cat "$WORK/opt.log"; die "harden accounts secrets ssh-options kernel"; }
+[ "$(srv awk -F: '$1 == "bob" {print $2}' /etc/shadow)" = "*" ] || die "harden accounts locks bob's empty password"
+[ "$(srv stat -c %a /opt/landfall/sites/sec/.env)" = 600 ] || die "harden secrets: only the owner reads .env"
+srv grep -q '^X11Forwarding no' /etc/ssh/sshd_config.d/01-landfall-options.conf || die "harden ssh-options writes its drop-in"
+srv grep -q '^net.ipv4.tcp_syncookies = 1' /etc/sysctl.d/90-landfall.conf || die "harden kernel writes its sysctl file"
+out=$(lf security -s box --json)
+{ ! has '"empty-passwords"' <<<"$out" && ! has '"open-env"' <<<"$out"; } || { echo "$out"; die "no advice after harden"; }
+pass "harden accounts, secrets, ssh-options and kernel"
+lf undo -s box -y >/dev/null 2>&1 || die "undo harden opt-in parts"
+[ "$(srv stat -c %a /opt/landfall/sites/sec/.env)" = 644 ] || die "undo gives .env its old mode back"
+[ -z "$(srv awk -F: '$1 == "bob" {print $2}' /etc/shadow)" ] || die "undo gives bob his empty password back"
+{ ! srv test -e /etc/sysctl.d/90-landfall.conf && ! srv test -e /etc/ssh/sshd_config.d/01-landfall-options.conf; } || die "undo removes the files"
+pass "undo takes the opt-in parts back"
+out=$(lf harden time -s box 2>&1) && die "harden time without timedatectl"
+has "chrony or ntpd" <<<"$out" || die "harden time says what to install: $out"; pass "harden time refuses clearly without systemd"
+srv sh -c 'deluser bob 2>/dev/null; rm -rf /opt/landfall/sites/sec'
 fi
 
 if want traefik; then echo "== traefik host network"

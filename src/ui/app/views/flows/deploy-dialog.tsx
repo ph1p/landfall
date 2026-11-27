@@ -1,6 +1,6 @@
 import { S, http, plural, sv, tilde } from "../../lib/store";
 import { expandHost, redirectHosts } from "../../../../core/traefik/redirects";
-import type { Detected, GitInfo, Redeploy } from "../../lib/types";
+import type { Detected, ExposureCheck, GitInfo, Redeploy } from "../../lib/types";
 import { loadGit } from "../../lib/api";
 import { run } from "../../lib/jobs";
 import { Btn, BtnGroup, cx } from "../../ui/kit";
@@ -74,7 +74,11 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
   const savedRedirects = (p?.redirects ?? re?.redirects ?? []).join(" ");
   const sends = p?.sendImage === true ? "send" : p?.sendImage === false ? "pull" : "";
   // A git checkout: deploy its working tree, as always, or a clean export of a branch or tag (lf deploy --ref/--tag).
-  const g = o.upload || o.images ? undefined : await loadGit(det.path, true);
+  // And what lf exposure check finds in the upload: shown beside the form, so nothing risky goes out unnoticed.
+  const [g, x] = await Promise.all([
+    o.upload || o.images ? undefined : loadGit(det.path, true),
+    o.images ? undefined : http<ExposureCheck>(`/api/exposure?path=${encodeURIComponent(det.path)}`).catch(() => undefined),
+  ]);
   const source = g?.repo ? sourceFields(g) : undefined;
   dialog({
     title: re ? `Redeploy ${name}` : name ? `Deploy ${name}` : "Deploy a Docker image",
@@ -85,7 +89,7 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
           ? `Uploaded ${plural(o.files ?? 0, "file")}. Not remembered: drop it again to redeploy.`
           : `From ${tilde(det.path)}${p ? " (settings from .landfall.json)" : ""}`) +
       (re ? `\nGoes live as a new release of ${name} on ${re.server}: volumes keep their data, and Roll back returns to the current one.` : ""),
-    aside: <DeployAside d={det} g={g} />,
+    aside: <DeployAside d={det} g={g} x={x} />,
     sidebar: true,
     fields: [
       ...(source ? [source] : []),

@@ -69,6 +69,10 @@ _set_migration() {
 
 /** sshd drop-in written by setup's hardening. */
 export const SSHD_CONF = "/etc/ssh/sshd_config.d/00-landfall.conf";
+/** sshd drop-in written by `lf harden ssh-options`. */
+export const SSHD_OPTIONS_CONF = "/etc/ssh/sshd_config.d/01-landfall-options.conf";
+/** Kernel settings written by `lf harden kernel`. */
+export const SYSCTL_CONF = "/etc/sysctl.d/90-landfall.conf";
 
 /** The Traefik that routes landfall's sites. */
 export interface Proxy {
@@ -136,6 +140,11 @@ esac`;
 export const REBOOT_NEEDED = String.raw`reboot_needed() { [ -f /var/run/reboot-required ] && return 0; command -v needs-restarting >/dev/null 2>&1 || return 1; needs-restarting -r >/dev/null 2>&1; [ $? = 1 ]; }`;
 
 export const PKG_MGR = String.raw`pkg_mgr() { for m in apt-get dnf yum apk zypper; do command -v $m >/dev/null 2>&1 && { echo $m; return 0; }; done; echo none; }`;
+
+/** Shell: users whose password field is empty (anyone could log in as them where passwords work). Needs root. */
+export const EMPTY_PASSWORDS = String.raw`awk -F: '$2 == "" {print $1}' /etc/shadow`;
+/** Shell: site env files the group or others can read; landfall writes them 600. Needs root. */
+export const OPEN_ENV_FILES = String.raw`find ${SITES} -maxdepth 2 -type f -name '.env*' \( -perm -004 -o -perm -040 \)`;
 
 /**
  * Read-only security checks shared by setup's probe, lf system and lf harden. Needs $SUDO (empty as
@@ -309,6 +318,33 @@ user_del() {
 # busybox chpasswd reports success on stderr: its output shows only when it fails.
 user_nopw() { $SUDO usermod -p '*' "$1" 2>/dev/null || { e=$(printf '%s:*\n' "$1" | $SUDO chpasswd -e 2>&1) || { log "$e"; return 1; }; }; }
 sshd_reload() { $SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd 2>/dev/null || $SUDO service ssh reload 2>/dev/null || true; }
+# sshd_dropin <file> <what> <line>...: writes the lines to an sshd_config.d file and makes sshd_config include that folder.
+# Tested with sshd -t, reloaded and journaled as <what>. A failed test puts both files back and returns 1.
+sshd_dropin() {
+  local file=$1 what=$2 want back=""
+  shift 2
+  want=$(printf '%s\n' "$@")
+  if [ "$($SUDO cat "$file" 2>/dev/null || true)" != "$want" ]; then
+    $SUDO install -d /etc/ssh/sshd_config.d
+    back=$(saved "$file")
+    printf '%s\n' "$want" | $SUDO tee "$file" >/dev/null
+  fi
+  if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
+    if [ -n "$back" ]; then back="$back; "; fi
+    back="$back$(saved /etc/ssh/sshd_config)"
+    printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
+  fi
+  [ -n "$back" ] || return 0
+  log "$what"
+  if $SUDO sshd -t; then
+    sshd_reload
+    record "$what" "$back; sshd_reload"
+  else
+    log "sshd config test failed, putting the old config back"
+    eval "$back"
+    return 1
+  fi
+}
 
 # Journal. LANDFALL_RUN/LANDFALL_ACTOR/LANDFALL_CMD/LANDFALL_CLI (and LANDFALL_UPDATE, how to update lf) come from runScript. Writing it never fails a script.
 _clean() { printf %s "$1" | tr '\t\n' '  '; }
@@ -397,26 +433,9 @@ fi
 root_login=prohibit-password
 if [ "$(sshd_opt permitrootlogin)" = no ]; then root_login=no; fi
 # 00- so it wins over cloud-init's 50-cloud-init.conf: sshd keeps the first value it reads.
-want=$(printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login")
-undo=""
-if [ "$($SUDO cat ${SSHD_CONF} 2>/dev/null || true)" != "$want" ]; then
-  $SUDO install -d /etc/ssh/sshd_config.d
-  undo=$(saved ${SSHD_CONF})
-  printf '%s\n' "$want" | $SUDO tee ${SSHD_CONF} >/dev/null
-fi
-if ! grep -qE '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
-  if [ -n "$undo" ]; then undo="$undo; "; fi
-  undo="$undo$(saved /etc/ssh/sshd_config)"
-  printf 'Include /etc/ssh/sshd_config.d/*.conf\n%s' "$($SUDO cat /etc/ssh/sshd_config)" | $SUDO tee /etc/ssh/sshd_config >/dev/null
-fi
-if [ -z "$undo" ]; then :
-elif $SUDO sshd -t; then
-  sshd_reload
-  record "hardened sshd (keys only, root login $root_login)" "$undo; sshd_reload"
-else
-  log "sshd config test failed, putting the old config back"
-  eval "$undo"
-fi
+# A failed sshd -t leaves the old config: carry on to the warning below.
+sshd_dropin ${SSHD_CONF} "hardened sshd (keys only, root login $root_login)" \
+  'PasswordAuthentication no' 'KbdInteractiveAuthentication no' "PermitRootLogin $root_login" || true
 pw=$(sshd_passwords)
 [ -z "$pw" ] || [ "$pw" = no ] || log "warning: sshd still accepts passwords; a Match block or another file in /etc/ssh overrides ${SSHD_CONF} (check: sudo sshd -T)"
 }

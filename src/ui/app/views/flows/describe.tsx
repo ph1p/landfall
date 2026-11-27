@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { plural } from "../../lib/store";
-import type { Detected, GitInfo } from "../../lib/types";
+import type { Detected, ExposureCheck, GitInfo } from "../../lib/types";
 import { Badge, cx } from "../../ui/kit";
 import { DEPLOY_HOOKS } from "../../../../core/site/hook-names";
 import { HookList } from "../hooks";
@@ -173,8 +173,36 @@ export function UsedImages({ d }: { d: Detected }) {
   );
 }
 
+const SEVERITY_KIND = { high: "bad", medium: "warn", low: "" } as const;
+
+/** lf exposure check: files the upload would send and ports the compose file opens that do not belong on a server. */
+function Exposure({ x }: { x: ExposureCheck }) {
+  const all = [...x.ports.map((p) => ({ ...p, what: `${p.service} ${p.port}` })), ...x.files.map((f) => ({ ...f, what: f.path }))];
+  if (!all.length && !x.composeError) return <p className="m-0 text-faint">No secrets, agent settings, dumps or open ports in the upload.</p>;
+  return (
+    <>
+      <ul className="m-0 p-0 list-none flex flex-col gap-1">
+        {all.map((f) => (
+          <li key={f.what}>
+            <Badge kind={SEVERITY_KIND[f.severity]}>{f.severity}</Badge> <span className="font-mono text-sm wrap-anywhere">{f.what}</span>
+            <span className="block text-faint text-sm">{f.why}</span>
+          </li>
+        ))}
+      </ul>
+      {x.composeError && <p className="m-0 text-warn">{x.composeError}</p>}
+      {all.length > 0 && (
+        <p className="m-0 mt-1.5 text-dim text-sm">
+          {x.files.length ? "Leave files out with exclude in .landfall.json. " : ""}
+          {x.ports.length ? "Bind ports to 127.0.0.1. " : ""}
+          {x.ok ? "Only low findings." : 'A predeploy hook "lf exposure check" stops such a deploy.'}
+        </p>
+      )}
+    </>
+  );
+}
+
 /** The deploy dialog's right column: what landfall found, the services it runs and the images it pulls. */
-export function DeployAside({ d, g }: { d: Detected; g?: GitInfo }) {
+export function DeployAside({ d, g, x }: { d: Detected; g?: GitInfo; x?: ExposureCheck }) {
   const repo = g?.repo;
   return (
     <>
@@ -207,6 +235,12 @@ export function DeployAside({ d, g }: { d: Detected; g?: GitInfo }) {
           <UsedImages d={d} />
         </div>
       ) : null}
+      {x && (
+        <div>
+          <h3 className={ASIDE_HEAD}>Exposure</h3>
+          <Exposure x={x} />
+        </div>
+      )}
       {d.hooks || d.hooksError ? (
         <div>
           <h3 className={ASIDE_HEAD}>Hooks</h3>

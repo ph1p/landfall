@@ -28,7 +28,63 @@ describe("security", () => {
       firewall: "active",
       autoUpdates: true,
       reboot: true,
+      openEnv: [],
+      releaseFiles: [],
     });
+  });
+
+  test("parses accounts, kernel settings, open .env files and files in releases", () => {
+    const i = parseSystem(
+      [
+        out("sshd_permitemptypasswords=yes", "sshd_x11forwarding=yes", "empty_password_users=guest ", "uid0=toor ", "security_updates=3"),
+        "SYSCTL\tnet.ipv4.tcp_syncookies\t1",
+        "SYSCTL\tnet.ipv4.conf.all.accept_redirects\t1",
+        "SYSCTL\tkernel.kptr_restrict\t2",
+        "OPENENV\t/opt/landfall/sites/blog/.env",
+        "REL\tblog\t/opt/landfall/sites/blog/releases/1",
+        "RF\td\t0\t/opt/landfall/sites/blog/releases/1/.git",
+        "RF\tf\t0\t/opt/landfall/sites/blog/releases/1/public/.DS_Store",
+        "RF\tf\t0\t/opt/landfall/sites/blog/releases/1/ca.pem",
+        "RF\tf\t1\t/opt/landfall/sites/blog/releases/1/key.pem",
+        "REL\tshop\t/opt/landfall/sites/shop/releases/2",
+        "RF\tf\t0\t/opt/landfall/sites/shop/releases/2/dump.sql",
+      ].join("\n"),
+    );
+    const s = i.security;
+    expect([s.emptyPasswords, s.x11Forwarding, s.emptyPasswordUsers, s.uid0, s.securityUpdates]).toEqual([true, true, ["guest"], ["toor"], 3]);
+    expect(s.kernel).toEqual({ "net.ipv4.tcp_syncookies": "1", "net.ipv4.conf.all.accept_redirects": "1", "kernel.kptr_restrict": "2" });
+    expect(s.openEnv).toEqual(["/opt/landfall/sites/blog/.env"]);
+    expect(s.releaseFiles?.map((f) => `${f.severity} ${f.site} ${f.path}`)).toEqual([
+      "high blog .git/",
+      "low blog public/.DS_Store",
+      "high blog key.pem",
+      "medium shop dump.sql",
+    ]);
+    const l = advise(i, { name: "web", loginUser: "deploy" });
+    expect(l.map((a) => [a.id, a.level])).toEqual([
+      ["empty-passwords", "risk"],
+      ["uid0", "risk"],
+      ["ssh-options", "risk"],
+      ["release-files:blog", "risk"],
+      ["kernel", "warn"],
+      ["security-updates", "warn"],
+      ["open-env", "warn"],
+      ["release-files:shop", "warn"],
+    ]);
+    const by = Object.fromEntries(l.map((a) => [a.id, a]));
+    // Only the redirect setting is loose: kptr_restrict=2 is stricter than wanted, not looser.
+    expect(by.kernel.why).toMatch(/^net\.ipv4\.conf\.all\.accept_redirects is 1\./);
+    expect(by["release-files:blog"].title).toBe("blog has 3 files it should not: .git/ …");
+    expect(by["release-files:blog"].fix).toBeUndefined();
+    expect(by["security-updates"].fix).toMatchObject({ argv: ["update", "--security", "-s", "web"], confirm: "Package upgrades cannot be undone." });
+    expect(by["empty-passwords"].fix?.argv).toEqual(["harden", "accounts", "-s", "web"]);
+    // Unique titles: the web UI keys the list by them.
+    expect(new Set(l.map((a) => a.title)).size).toBe(l.length);
+  });
+
+  test("with automatic updates, waiting security updates are only a note", () => {
+    const l = advise(parseSystem(out("auto_updates=on", "security_updates=1")), { name: "web", loginUser: "deploy" });
+    expect(l.find((a) => a.id === "security-updates")).toMatchObject({ level: "info", title: "1 security update waiting" });
   });
 
   test("without root nothing is guessed", () => {

@@ -112,7 +112,7 @@ describe("loadPlugins", () => {
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       const loaded = await core.loadPlugins(BUILTIN);
-      expect(loaded.map((l) => l.plugin.name)).toEqual(["fail2ban", "trivy", "one", "three", "two"]);
+      expect(loaded.map((l) => l.plugin.name)).toEqual(["exposure", "fail2ban", "trivy", "one", "three", "two"]);
     } finally {
       err.mockRestore();
     }
@@ -127,7 +127,7 @@ describe("loadPlugins", () => {
     write("one.mjs", plugin("one"));
     process.env.LANDFALL_NO_PLUGINS = "1";
     try {
-      expect((await core.loadPlugins(BUILTIN)).map((l) => l.plugin.name)).toEqual(["fail2ban", "trivy"]);
+      expect((await core.loadPlugins(BUILTIN)).map((l) => l.plugin.name)).toEqual(["exposure", "fail2ban", "trivy"]);
     } finally {
       delete process.env.LANDFALL_NO_PLUGINS;
     }
@@ -160,7 +160,7 @@ describe("plugin commands", () => {
       err.mockRestore();
     }
     const names = core.plugins().map((l) => l.plugin.name);
-    expect(names).toEqual(["fail2ban", "trivy", "fine"]);
+    expect(names).toEqual(["exposure", "fail2ban", "trivy", "fine"]);
     expect(byName.has("fine")).toBe(true);
     expect(aliases.fines).toBe("fine");
     expect(aliases.unban).toBe("fail2ban unban");

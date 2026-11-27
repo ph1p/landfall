@@ -38,7 +38,7 @@ import { traffic } from "../traefik/traffic";
 import { siteTraffic, type Traffic } from "../traefik/traffic-merge";
 import { TUNNELS_DIR } from "../ssh/tunnel";
 import { effectiveSsh, findHostBlock, sameMachineLogins, SSH_CONFIG } from "../ssh/sshconfig";
-import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, TRAEFIK_DIR } from "../ssh/templates";
+import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, SSHD_OPTIONS_CONF, SYSCTL_CONF, TRAEFIK_DIR } from "../ssh/templates";
 import { fail } from "../lib/term";
 import { listUsers } from "../server/users";
 import { readRedirects } from "../traefik/server-redirects";
@@ -197,6 +197,8 @@ function locations() {
       { path: PROXY_FILE, what: "only when sites use a Traefik the server already had" },
       { path: JOURNAL, what: "every change with its undo (lf log, lf undo)" },
       { path: SSHD_CONF, what: "ssh hardening from lf setup" },
+      { path: SSHD_OPTIONS_CONF, what: "only after lf harden ssh-options" },
+      { path: SYSCTL_CONF, what: "only after lf harden kernel" },
       { path: "user deploy", what: "lf setup's deploy user (--deploy-user), in group docker" },
       { path: "packages", what: "Docker + compose plugin, ufw, fail2ban, unattended-upgrades" },
       { path: ".<file>.landfall-*", what: "backups next to each file landfall changed" },

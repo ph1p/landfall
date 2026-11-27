@@ -6,8 +6,12 @@ import { cloudFirewall, PLATFORM } from "./facts";
 import { keygen } from "../ssh/login";
 import { runScript } from "../ssh/ssh";
 import { effectiveSsh } from "../ssh/sshconfig";
-import { fullSystem, system, type SystemInfo } from "./system";
-import { HARDEN_SSH, PRELUDE } from "../ssh/templates";
+import { fullSystem, KERNEL_PROC, KERNEL_SETTINGS, system, type SystemInfo } from "./system";
+import { EMPTY_PASSWORDS, HARDEN_SSH, OPEN_ENV_FILES, PRELUDE, SITES, SSHD_OPTIONS_CONF, SYSCTL_CONF } from "../ssh/templates";
+import { shq } from "../lib/quote";
+import { bySeverity, type Severity } from "../site/file-rules";
+import { plural } from "../lib/format";
+import { HARDEN_PARTS, hardenFlag, type HardenPart } from "./harden-parts";
 import { c, fail, interactive, report } from "../lib/term";
 
 export type Level = "risk" | "warn" | "info";
@@ -20,10 +24,12 @@ export interface Advice {
   fix?: { label: string; argv: string[]; confirm?: string; user?: string };
 }
 
-export const HARDEN_PARTS = ["ssh", "fail2ban", "updates"] as const;
-export type HardenPart = (typeof HARDEN_PARTS)[number];
+export { DEFAULT_HARDEN_PARTS, HARDEN_PARTS, type HardenPart } from "./harden-parts";
 
 const list = (l: string[]) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} and ${l.at(-1)}` : l[0]);
+/** The first n of a list, and how many more. */
+const few = (l: string[], n: number) => (l.length > n ? `${l.slice(0, n).join(", ")} and ${l.length - n} more` : list(l));
+const LEVEL_OF: Record<Severity, Advice["level"]> = { high: "risk", medium: "warn", low: "info" };
 
 /** What to do before turning passwords off, for users who log in with a password only. */
 export const addKeyFirst = (users: string[]) =>
@@ -132,6 +138,95 @@ export function advise(i: SystemInfo, ctx: { name: string; loginUser: string }):
       fix: { label: "Turn them on", argv: ["harden", "updates", ...srv] },
     });
   }
+  if (s.emptyPasswordUsers?.length) {
+    const u = s.emptyPasswordUsers;
+    out.push({
+      id: "empty-passwords",
+      level: "risk",
+      title: `${u.length === 1 ? "An account has" : `${u.length} accounts have`} no password: ${list(u)}`,
+      why: "Anyone at the console logs in as them without typing anything, and over ssh too where PermitEmptyPasswords is on. Locking the password keeps their ssh keys working.",
+      fix: { label: "Lock them", argv: ["harden", "accounts", ...srv], confirm: `${list(u)} can no longer log in with a password; lf undo takes it back.` },
+    });
+  }
+  if (s.uid0?.length) {
+    out.push({
+      id: "uid0",
+      level: "risk",
+      title: `Root under another name: ${list(s.uid0)}`,
+      why: "An account with user id 0 is root, whatever its name. Unless you made it on purpose, someone may have left a way back in: remove it (userdel) or give it its own id.",
+    });
+  }
+  if (s.emptyPasswords || s.x11Forwarding) {
+    out.push({
+      id: "ssh-options",
+      level: s.emptyPasswords ? "risk" : "info",
+      title: s.emptyPasswords ? "SSH lets accounts without a password in" : "SSH forwards X11",
+      why: [
+        s.emptyPasswords && "PermitEmptyPasswords yes: an account without a password logs in by name alone.",
+        s.x11Forwarding && "X11Forwarding yes: a server has no screen, and a compromised one can reach the desktop of whoever logs in with ssh -X.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      fix: { label: "Turn it off", argv: ["harden", "ssh-options", ...srv] },
+    });
+  }
+  const loose = KERNEL_SETTINGS.filter(({ key, value, ok }) => {
+    const v = s.kernel?.[key];
+    return v !== undefined && v !== value && !ok?.includes(v);
+  });
+  if (loose.length) {
+    out.push({
+      id: "kernel",
+      level: "warn",
+      title: `${loose.length} kernel ${loose.length === 1 ? "setting is" : "settings are"} loose`,
+      why: `${loose.map((k) => `${k.key} is ${s.kernel![k.key]}`).join(", ")}. They let others reroute or spoof this server's traffic, or help an attacker who already runs code here. Docker keeps working with the safe values.`,
+      fix: { label: "Tighten them", argv: ["harden", "kernel", ...srv] },
+    });
+  }
+  if (i.ntp === false) {
+    out.push({
+      id: "time",
+      level: "warn",
+      title: "Clock is not synced",
+      why: "TLS certificates, logs and one-time codes need the right time. A clock that drifts makes Let's Encrypt and logins fail in odd ways.",
+      fix: { label: "Turn on time sync", argv: ["harden", "time", ...srv] },
+    });
+  }
+  if (s.securityUpdates) {
+    const n = s.securityUpdates;
+    out.push({
+      id: "security-updates",
+      level: s.autoUpdates ? "info" : "warn",
+      title: `${plural(n, "security update")} waiting`,
+      why: s.autoUpdates
+        ? "Automatic updates install them on their next run; install them now to close the holes today."
+        : "Each fixes a known hole that stays open until it is installed.",
+      fix: { label: "Install them", argv: ["update", "--security", ...srv], confirm: "Package upgrades cannot be undone." },
+    });
+  }
+  if (s.openEnv?.length) {
+    const f = s.openEnv;
+    out.push({
+      id: "open-env",
+      level: "warn",
+      title: `${f.length === 1 ? "A site's secrets are" : `${f.length} site secret files are`} readable by others`,
+      why: `${few(f, 3)}: any account or process on the server can read the passwords in them. landfall writes them readable by their owner only.`,
+      fix: { label: "Make them private", argv: ["harden", "secrets", ...srv] },
+    });
+  }
+  const sites = Map.groupBy(s.releaseFiles ?? [], (f) => f.site);
+  for (const [site, files] of sites) {
+    const top = files.toSorted(bySeverity);
+    out.push({
+      id: `release-files:${site}`,
+      level: LEVEL_OF[top[0].severity],
+      title: `${site} has ${files.length === 1 ? "a file" : `${files.length} files`} it should not: ${top[0].path}${files.length > 1 ? " …" : ""}`,
+      why: `${few(
+        top.map((f) => `${f.path} (${f.why})`),
+        4,
+      )}. They are in the live release, where the site can serve them. Leave them out with exclude in .landfall.json, check with lf exposure check, and deploy again.`,
+    });
+  }
   if (s.reboot) {
     out.push({
       id: "reboot",
@@ -154,7 +249,7 @@ export function printAdvice(list: Advice[]) {
 
 /** The server's system info and what to fix on it. `admin`: a root or sudo login already at hand. */
 export async function securityOf(name: string, s: Server, admin?: Server) {
-  const i = admin ? await system(admin) : await fullSystem(s);
+  const i = admin ? await system(admin, { security: true }) : await fullSystem(s);
   return { ...i, advice: advise(i, { name, loginUser: effectiveSsh(s).user }) };
 }
 
@@ -177,7 +272,7 @@ if [ "$H_SSH" = 1 ]; then
 ${HARDEN_SSH}
   else log "no /etc/ssh, ssh skipped"; fi
 fi
-if [ "$H_F2B" = 1 ]; then
+if [ "$H_FAIL2BAN" = 1 ]; then
   if ! command -v fail2ban-client >/dev/null 2>&1; then
     log "installing fail2ban"
     pkg_install fail2ban || { echo "could not install fail2ban (RHEL-likes have it in EPEL)" >&2; exit 1; }
@@ -197,6 +292,53 @@ if [ "$H_F2B" = 1 ]; then
     if [ $up = 1 ]; then record "started fail2ban" 'svc stop fail2ban; svc disable fail2ban'
     else echo "fail2ban did not start; see: lf services logs fail2ban" >&2; exit 1; fi
   fi
+fi
+if [ "$H_SSH_OPTIONS" = 1 ]; then
+  if [ -d /etc/ssh ]; then
+    sshd_dropin ${SSHD_OPTIONS_CONF} "sshd: no empty passwords, no X11 forwarding" 'PermitEmptyPasswords no' 'X11Forwarding no'
+  else log "no /etc/ssh, ssh-options skipped"; fi
+fi
+if [ "$H_KERNEL" = 1 ]; then
+  want=$(printf '%s\n' ${KERNEL_SETTINGS.map((k) => shq(`${k.key} = ${k.value}`)).join(" ")})
+  if [ "$($SUDO cat ${SYSCTL_CONF} 2>/dev/null || true)" != "$want" ]; then
+    log "tightening kernel network settings"
+    # The values now, so lf undo puts the running kernel back too, not only the file.
+    prev=""
+    while read -r k f; do { read -r v < "$f"; } 2>/dev/null && prev="$prev $k=$v"; done <<'KEYS'
+${KERNEL_PROC}
+KEYS
+    $SUDO install -d /etc/sysctl.d
+    undo=$(saved ${SYSCTL_CONF})
+    printf '%s\n' "$want" | $SUDO tee ${SYSCTL_CONF} >/dev/null
+    record "kernel settings in ${SYSCTL_CONF}" "$undo; \$SUDO sysctl -q -w$prev >/dev/null 2>&1 || true"
+  fi
+  # A container, or a kernel without IPv6, cannot set every key: the file still applies at boot where it can.
+  $SUDO sysctl -q -p ${SYSCTL_CONF} >/dev/null 2>&1 || log "warning: some kernel settings did not apply now (a container, or a kernel without that setting)"
+fi
+if [ "$H_TIME" = 1 ]; then
+  command -v timedatectl >/dev/null 2>&1 || { echo "time sync: landfall turns it on with timedatectl (systemd); here, install and start chrony or ntpd" >&2; exit 1; }
+  if [ "$(timedatectl show -p NTP --value 2>/dev/null)" != yes ]; then
+    log "turning on time sync"
+    $SUDO timedatectl set-ntp true || { echo "could not turn on time sync: install systemd-timesyncd or chrony first" >&2; exit 1; }
+    record "turned on time sync" '$SUDO timedatectl set-ntp false'
+  elif [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != yes ]; then
+    log "time sync is on but not synced yet: it needs UDP port 123 out to a time server"
+  fi
+fi
+if [ "$H_ACCOUNTS" = 1 ]; then
+  # "*": no password can match, and unlike passwd -l ("!") sshd without PAM still takes the account's keys.
+  for u in $($SUDO ${EMPTY_PASSWORDS}); do
+    log "locking the empty password of $u"
+    user_nopw "$u"
+    record "locked the empty password of $u" "\$SUDO passwd -d $(printf %q "$u") >/dev/null"
+  done
+fi
+if [ "$H_SECRETS" = 1 ] && [ -d ${SITES} ]; then
+  while IFS= read -r f; do
+    m=$($SUDO stat -c %a "$f")
+    $SUDO chmod go-rwx "$f"
+    record "only the owner reads $f" "\$SUDO chmod $m $(printf %q "$f")"
+  done < <($SUDO ${OPEN_ENV_FILES})
 fi
 if [ "$H_UPDATES" = 1 ]; then
   case "$(pkg_mgr)" in
@@ -254,7 +396,7 @@ fi
 /** Runs as an admin login (root or passwordless sudo); every change is journaled for lf undo. */
 export async function harden(admin: Server, parts: HardenPart[]) {
   await runScript(admin, PRELUDE + HARDEN, {
-    env: { H_SSH: parts.includes("ssh"), H_F2B: parts.includes("fail2ban"), H_UPDATES: parts.includes("updates") },
+    env: Object.fromEntries(HARDEN_PARTS.map((p) => [hardenFlag(p), parts.includes(p)])),
   });
 }
 

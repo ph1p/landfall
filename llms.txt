@@ -30,7 +30,7 @@ Key facts for agents:
 - [Lifecycle hooks](docs/pages/hooks.md): shell commands (.landfall.json) or npm scripts (package.json) run around build, deploy, rollback and removal, their environment variables
 - [Volumes and backups](docs/pages/volumes.md): volumes, backups, schedules, offsite copies, push and pull
 - [History and undo](docs/pages/history.md): the server journal and what `lf undo` reverts
-- [Plugins](docs/pages/plugins.md): fail2ban and Trivy, installing plugins, writing commands and web UI sections
+- [Plugins](docs/pages/plugins.md): exposure checks, fail2ban and Trivy, installing plugins, writing commands and web UI sections
 - [Troubleshooting](docs/pages/troubleshooting.md): error messages and fixes
 
 ## Optional

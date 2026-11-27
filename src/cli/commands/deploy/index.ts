@@ -384,7 +384,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
         const files = KINDS[kind].files;
         const gitignore = !!(o.gitignore ?? project.gitignore);
         const buildLocal = !!(o["build-local"] ?? project.buildLocal);
-        const list = files === undefined ? [] : uploadList(dir, { exclude: app?.ignore, project: src, gitignore, rules: project });
+        const list = files === undefined ? [] : await uploadList(dir, { exclude: app?.ignore, project: src, gitignore, rules: project });
         // The first upload of a site says what it sends: a folder of data or a build cache is easy to miss.
         if (files !== undefined && !prev) {
           const { total, files: n, largest } = uploadSize(list);

@@ -7,6 +7,7 @@ import { listServers, reachAll, target } from "../../core/views/dashboard";
 import { browse, emptyFolder, jobCwd, receiveUpload } from "./local";
 import { localImages } from "../../core/deploy/buildlocal";
 import { ciView } from "../../core/deploy/ci";
+import { checkProject } from "../../core/deploy/exposure";
 import { readAutodeploy } from "../../core/deploy/autodeploy";
 import { SITE_NAME, requireSite, validName } from "../../core/site/site";
 import { envView } from "../../core/site/dotenv";
@@ -227,6 +228,12 @@ export async function api(req: Request, path: string[], policy: JobArgsPolicy): 
     const cwd = jobCwd(q.get("path") ?? "");
     if (!cwd) throw new Error("path is required");
     return json(await ciView(cwd, q.get("forge") || undefined));
+  }
+  // What lf exposure check would report: risky files the upload would send, published compose ports. The deploy dialog shows it.
+  if (what === "exposure" && method === "GET") {
+    const cwd = jobCwd(q.get("path") ?? "");
+    if (!cwd) throw new Error("path is required");
+    return json(await checkProject(cwd));
   }
   if (what === "image-folder" && method === "POST") return json({ path: emptyFolder() });
   if (what === "upload" && method === "POST") {

@@ -85,6 +85,8 @@ landfall runs them with the project's package manager (from the lockfile): npm, 
 | `postrollback` | after `lf rollback` switched | the restored release's container | a warning |
 | `predestroy` | before `lf sites rm` removes anything | the running container | nothing is removed |
 
+A `predeploy` hook can run `lf exposure check`. It stops the deploy when the upload would send secrets, agent settings or database dumps. See [Plugins](plugins.md#exposure).
+
 - The `pre` hooks, `release` and `verify` stop what they guard.
 - The `post` hooks and `onfailure` only report. A failing `onfailure` does not run itself again.
 

@@ -81,7 +81,7 @@ export interface Wanted {
   packages?: boolean;
 }
 
-const isLoopback = (addr: string) => /^(127\.|\[?::1\]?(%|$)|localhost)/.test(addr);
+export const isLoopback = (addr: string) => /^(127\.|\[?::1\]?(%|$)|localhost)/.test(addr);
 const isV6 = (addr: string) => addr.includes(":");
 /** "25" for tcp, "53/udp" for udp. */
 const portName = (l: Pick<Listener, "proto" | "port">) => (l.proto === "tcp" ? `${l.port}` : `${l.port}/udp`);

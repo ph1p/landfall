@@ -48,7 +48,7 @@ function interpolate(text: string, env: Record<string, string | undefined>): str
 }
 
 /** A short-syntax port (`8080:80`, `127.0.0.1:3000:3000/tcp`, `3000-3002`) in the long form `docker compose config` prints. */
-function longPort(p: unknown): any[] {
+export function longPort(p: unknown): any[] {
   if (p && typeof p === "object") return [p];
   const [spec, protocol = "tcp"] = String(p).split("/");
   const at = spec.lastIndexOf(":");

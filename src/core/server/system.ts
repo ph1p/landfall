@@ -1,11 +1,62 @@
 import type { Server } from "../lib/config";
 import { runScript, shq, writeFileCmd } from "../ssh/ssh";
 import { rootLogin } from "../ssh/privilege";
-import { CLOUD, KV, kvRecord, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS } from "../ssh/templates";
+import { CLOUD, EMPTY_PASSWORDS, KV, kvRecord, OPEN_ENV_FILES, PKG_MGR, PRELUDE, REBOOT_NEEDED, SEC_CHECKS, SITES } from "../ssh/templates";
+import { classify, FILE_RULES, KEY_NAMES, type Severity } from "../site/file-rules";
 import { serviceName } from "../site/status";
 import { fail } from "../lib/term";
 import { cloudFor } from "./facts";
 import { localFingerprints, parseKeyLine, type AuthorizedKey } from "./keys";
+
+/** Kernel settings `lf harden kernel` writes. `ok`: other values that are safe too. */
+export const KERNEL_SETTINGS: { key: string; value: string; ok?: string[] }[] = [
+  // SYN floods: answer with a cookie instead of keeping half-open connections.
+  { key: "net.ipv4.tcp_syncookies", value: "1" },
+  // Drop packets whose source address could not come in on that interface (2: loose, safe with Docker and several networks).
+  { key: "net.ipv4.conf.all.rp_filter", value: "2", ok: ["1"] },
+  // ICMP redirects and source routing let others reroute this server's traffic; a server needs neither.
+  { key: "net.ipv4.conf.all.accept_redirects", value: "0" },
+  { key: "net.ipv4.conf.default.accept_redirects", value: "0" },
+  { key: "net.ipv6.conf.all.accept_redirects", value: "0" },
+  { key: "net.ipv4.conf.all.send_redirects", value: "0" },
+  { key: "net.ipv4.conf.all.accept_source_route", value: "0" },
+  { key: "net.ipv6.conf.all.accept_source_route", value: "0" },
+  { key: "net.ipv4.icmp_echo_ignore_broadcasts", value: "1" },
+  // Kernel addresses and the kernel log help an attacker who already runs code here.
+  { key: "kernel.kptr_restrict", value: "1", ok: ["2"] },
+  { key: "kernel.dmesg_restrict", value: "1" },
+  { key: "fs.protected_symlinks", value: "1" },
+  { key: "fs.protected_hardlinks", value: "1" },
+  // No core dumps of setuid programs: they can hold password hashes.
+  { key: "fs.suid_dumpable", value: "0" },
+];
+
+/** "key /proc/sys/path" lines for a `while read -r k f` heredoc: no fork per key, unlike sysctl -n. */
+export const KERNEL_PROC = KERNEL_SETTINGS.map((k) => `${k.key} /proc/sys/${k.key.replace(/\./g, "/")}`).join("\n");
+
+/** At most this many risky files per site; more only adds noise. */
+const RELEASE_LIMIT = 50;
+
+/** Files in each site's live release that should not be there (exposure.ts FILE_RULES); node_modules is skipped. */
+function releaseScan(): string {
+  const any = (dir: boolean) =>
+    FILE_RULES.filter((r) => !!r.dir === dir)
+      .flatMap((r) => r.names)
+      .map((n) => `-name ${shq(n)}`)
+      .join(" -o ");
+  return String.raw`
+for site in $(ls -1 ${SITES} 2>/dev/null); do
+  dir=$(readlink -f ${SITES}/"$site"/current 2>/dev/null) || continue
+  [ -d "$dir" ] || continue
+  printf 'REL\t%s\t%s\n' "$site" "$dir"
+  S find "$dir" -name node_modules -prune -o \( -type d \( ${any(true)} \) -print -prune \) -o \( -type f \( ${any(false)} \) -print \) 2>/dev/null |
+    head -n ${RELEASE_LIMIT} | while IFS= read -r f; do
+      t=f; [ -d "$f" ] && t=d
+      k=0; case "$f" in ${KEY_NAMES.join("|")}) S grep -qs 'PRIVATE KEY' "$f" && k=1 ;; esac
+      printf 'RF\t%s\t%s\t%s\n' "$t" "$k" "$f"
+    done
+done`;
+}
 
 /** Everything `lf system` shows, read in one go; root-only parts need root or passwordless sudo. */
 const SYSTEM = String.raw`
@@ -14,6 +65,8 @@ ${KV}
 SUDO=""; R=1
 if [ "$(id -u)" -ne 0 ]; then if sudo -n true 2>/dev/null; then SUDO=sudo; else R=0; fi; fi
 ${SEC_CHECKS}
+${PKG_MGR}
+pm=$(pkg_mgr)
 kv root "$R"
 kv user "$(id -un)"
 [ -f /etc/synoinfo.conf ] && kv platform synology
@@ -48,10 +101,30 @@ if command -v fail2ban-client >/dev/null 2>&1; then
   if S fail2ban-client ping >/dev/null 2>&1; then kv fail2ban running; else kv fail2ban stopped; fi
 else kv fail2ban missing; fi
 # Security: what sshd really uses (sshd -T needs root), who has a password, firewall, updates.
-S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|pubkeyauthentication)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
+S sshd -T 2>/dev/null | awk '$1 ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|pubkeyauthentication|permitemptypasswords|x11forwarding)$/ && !seen[$1]++ { print "sshd_" $1 "=" $2 }'
 [ "$R" = 1 ] && kv password_users "$(password_users)"
-${PKG_MGR}
-kv pkg "$(pkg_mgr)"
+# The rest of the security checks only for lf system and lf security (SEC=1): the other readers need none of it.
+if [ "$SEC" = 1 ]; then
+  [ "$R" = 1 ] && kv empty_password_users "$(S ${EMPTY_PASSWORDS} 2>/dev/null | tr '\n' ' ')"
+  kv uid0 "$(awk -F: '$3 == 0 && $1 != "root" {printf "%s ", $1}' /etc/passwd 2>/dev/null)"
+  while read -r k f; do
+    { read -r v < "$f"; } 2>/dev/null && printf 'SYSCTL\t%s\t%s\n' "$k" "$v"
+  done <<'KEYS'
+${KERNEL_PROC}
+KEYS
+  # Security updates the package manager already knows about, from its cache: no network here.
+  # No cache (dnf -C, zypper --no-refresh fail): unknown rather than none. apk has no security list.
+  case $pm in
+    apt-get) kv security_updates "$(apt list --upgradable 2>/dev/null | grep -c -- '-security')" ;;
+    dnf | yum) u=$($pm -C -q updateinfo list --security 2>/dev/null) && kv security_updates "$(printf '%s\n' "$u" | grep -ciE '/sec\.|[[:space:]]security[[:space:]]')" ;;
+    zypper) u=$(zypper -n --no-refresh -q list-patches --category security 2>/dev/null) && kv security_updates "$(printf '%s\n' "$u" | grep -c '| security')" ;;
+  esac
+  if [ "$R" = 1 ]; then
+    S ${OPEN_ENV_FILES} 2>/dev/null | sed 's/^/OPENENV\t/'
+    ${releaseScan()}
+  fi
+fi
+kv pkg "$pm"
 kv ufw "$(ufw_state)"
 ${REBOOT_NEEDED}
 kv reboot "$(reboot_needed && echo 1)"
@@ -102,6 +175,30 @@ export interface Security {
   platform?: string;
   /** aws, gcp, …: the provider, where the server's hardware strings name one (facts.ts CLOUDS). */
   cloud?: string;
+  /** sshd lets accounts without a password log in (PermitEmptyPasswords). */
+  emptyPasswords?: boolean;
+  /** sshd forwards X11 (X11Forwarding). */
+  x11Forwarding?: boolean;
+  /** Accounts that have no password at all (/etc/shadow, needs root). */
+  emptyPasswordUsers?: string[];
+  /** Accounts other than root with user id 0: root under another name. */
+  uid0?: string[];
+  /** KERNEL_SETTINGS keys this kernel has, with their current values. */
+  kernel?: Record<string, string>;
+  /** Security updates the package manager's cache knows about and that are not installed (apt, dnf, yum, zypper). */
+  securityUpdates?: number;
+  /** Site env files (.env, .env backups) that others than their owner can read. */
+  openEnv?: string[];
+  /** Files in sites' live releases that should not be on a web server. */
+  releaseFiles?: ReleaseFile[];
+}
+
+export interface ReleaseFile {
+  site: string;
+  /** Relative to the release; folders end in /. */
+  path: string;
+  severity: Severity;
+  why: string;
 }
 
 export interface SystemInfo {
@@ -146,13 +243,27 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
   };
   const enabled = new Map<string, string>();
   let daemon: string | undefined;
+  const kernel: Record<string, string> = {};
+  const openEnv: string[] = [];
+  const releaseFiles: ReleaseFile[] = [];
+  let site = "";
+  let release = "";
   for (const line of out.split("\n")) {
     const f = line.split("\t");
     if (f[0] === "SWAP") info.swap.push({ file: f[1], type: f[2], size: +f[3] || 0, used: +f[4] || 0 });
     else if (f[0] === "DAEMON") daemon = f.slice(1).join("\t");
     else if (f[0] === "SVC" && f[1]) info.services.push({ unit: f[1], load: f[2], active: f[3], sub: f[4], description: f.slice(5).join("\t") });
     else if (f[0] === "UF" && f[1]) enabled.set(f[1], f[2]);
-    else if (f[0] === "KEY") {
+    else if (f[0] === "SYSCTL" && f[1]) kernel[f[1]] = f[2] ?? "";
+    else if (f[0] === "OPENENV" && f[1]) openEnv.push(f.slice(1).join("\t"));
+    else if (f[0] === "REL") [, site, release] = f;
+    else if (f[0] === "RF" && site && f.length >= 4) {
+      const full = f.slice(3).join("\t");
+      const path = full.startsWith(`${release}/`) ? full.slice(release.length + 1) : full;
+      const dir = f[1] === "d";
+      const r = classify(path.slice(path.lastIndexOf("/") + 1), dir, f[2] === "1");
+      if (r) releaseFiles.push({ site, path: dir ? `${path}/` : path, severity: r.severity, why: r.why });
+    } else if (f[0] === "KEY") {
       const k = parseKeyLine(f.slice(2).join("\t"));
       if (k) info.keys.push({ user: f[1], ...k, ...(mine.has(k.fingerprint) ? { mine: true } : {}) });
     }
@@ -183,6 +294,14 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
     reboot: v.reboot === "1",
     platform: v.platform || undefined,
     cloud: v.cloud || undefined,
+    emptyPasswords: v.sshd_permitemptypasswords ? v.sshd_permitemptypasswords === "yes" : undefined,
+    x11Forwarding: v.sshd_x11forwarding ? v.sshd_x11forwarding === "yes" : undefined,
+    emptyPasswordUsers: v.empty_password_users?.split(/\s+/).filter(Boolean),
+    uid0: v.uid0?.split(/\s+/).filter(Boolean),
+    kernel: Object.keys(kernel).length ? kernel : undefined,
+    securityUpdates: v.security_updates ? +v.security_updates || 0 : undefined,
+    openEnv: v.root === "1" ? openEnv : undefined,
+    releaseFiles: v.root === "1" ? releaseFiles : undefined,
   };
   if (v.platform === "synology") info.managed = "DSM keeps this itself: change it in Control Panel (Regional Options, Info Center, Container Manager)";
   if (v.log_driver !== undefined) {
@@ -205,8 +324,9 @@ export function parseSystem(out: string, mine = new Set<string>()): SystemInfo {
   return info;
 }
 
-export async function system(s: Server): Promise<SystemInfo> {
-  const { stdout } = await runScript(s, SYSTEM, { capture: true });
+/** security: also the checks only lf system and lf security show (accounts, kernel, files in releases). */
+export async function system(s: Server, o: { security?: boolean } = {}): Promise<SystemInfo> {
+  const { stdout } = await runScript(s, SYSTEM, { capture: true, env: { SEC: !!o.security } });
   const info = parseSystem(stdout, localFingerprints(s));
   if (s.cloud) info.security.cloud = cloudFor(s) || undefined;
   return info;
@@ -214,10 +334,10 @@ export async function system(s: Server): Promise<SystemInfo> {
 
 /** Read as root when the login has no sudo but root's key works: other users' keys and the bans need it. */
 export async function fullSystem(s: Server): Promise<SystemInfo> {
-  const i = await system(s);
+  const i = await system(s, { security: true });
   if (i.root) return i;
   const root = await rootLogin(s);
-  return root ? system(root) : i;
+  return root ? system(root, { security: true }) : i;
 }
 
 // Changes. Each runs as a login with root or passwordless sudo (adminLogin) and journals its undo.

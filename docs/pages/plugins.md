@@ -1,7 +1,7 @@
 # Plugins
 
-A plugin adds commands to `lf` and a section to the server page of `lf ui`. landfall ships `fail2ban` and
-`trivy`. Yours are JavaScript files in `~/.config/landfall/plugins`.
+A plugin adds commands to `lf` and a section to the server page of `lf ui`. landfall ships `exposure`,
+`fail2ban` and `trivy`. Yours are JavaScript files in `~/.config/landfall/plugins`.
 
 A plugin runs bash over ssh, like landfall: no agent on the server. Every button in its web UI section runs an
 `lf` command, shown as a job.
@@ -25,6 +25,44 @@ lf plugin new disk-alert --out ./disk-alert.mjs   # write it elsewhere; install 
 Plugins run with your user's rights on this computer. Install only plugins you trust.
 
 ## Built-in plugins
+
+### exposure
+
+Finds what a deploy should not show the internet: files that do not belong on a web server, and open ports.
+`lf security` checks the same files in the sites already on the server.
+
+```sh
+lf exposure check                 # check this project before a deploy; exits 1 on a high or medium finding
+lf exposure check --strict        # also exit 1 on low findings (.DS_Store, logs, editor folders)
+lf exposure check --allow .claude/ --allow-port 25565   # accept a path (.gitignore syntax) or a port
+```
+
+What it flags:
+
+- **high**: `.env` files, `.git`, ssh and private keys, keystores, `.npmrc`, `.netrc`, `.htpasswd`, cloud
+  credentials (`.aws`, `.kube`, `credentials.json`), Terraform state, shell history.
+- **medium**: AI agent settings (`.claude`, `.cursor`, `.windsurf`, `.aider*`, `settings.local.json`), database
+  dumps (`*.sql`, `*.sqlite`, `*.dump`), `.svn`, `.hg`, backup and swap files.
+- **low**: `.DS_Store`, `Thumbs.db`, `__MACOSX`, `.vscode`, `.idea`, `*.log`.
+- **ports**: a port that Docker publishes on a public address. Docker bypasses ufw, so the port is open even when
+  the firewall blocks it. Databases, caches and the Docker API (5432, 3306, 6379, 27017, 2375, …) are high.
+
+- `check` looks only at what `lf deploy` would upload. Files the upload already leaves out (`.env`, `.git`,
+  `.DS_Store`, your `exclude` rules) do not count.
+- `check` reads ports from the compose file. A plain compose file loses its ports on the server, so it has none.
+- `*.pem` and `*.key` count only when they hold a private key. Certificates pass.
+
+To stop a deploy that would upload such files, add a predeploy hook to `.landfall.json`:
+
+```json
+{
+  "hooks": { "predeploy": "lf exposure check" }
+}
+```
+
+Remove a finding with an `exclude` rule in `.landfall.json`, or bind the port to `127.0.0.1` in the compose file.
+
+The deploy dialog of `lf ui` shows what `lf exposure check` finds in the folder, beside the form.
 
 ### fail2ban
 

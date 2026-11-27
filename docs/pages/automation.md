@@ -30,7 +30,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `traefik strict-tls`, `redirects`, `history` |
-| plugins | `plugins`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
+| plugins | `plugins`, `exposure check`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
 
 - `ls --others` adds containers landfall did not deploy: `{sites, others}`.
 - `domains` lists the server's addresses under `ips`, and redirect hosts under `redirects`, each with `to`.
