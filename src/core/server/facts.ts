@@ -54,7 +54,7 @@ export interface Support {
 }
 
 /** What landfall can do on a server; `why` says what is missing for each false one. */
-const CAPS = ["setup", "packages", "docker", "compose", "firewall", "services", "admin", "users"] as const;
+export const CAPS = ["setup", "packages", "docker", "compose", "firewall", "services", "admin", "users", "tenants"] as const;
 export type Cap = (typeof CAPS)[number];
 export interface Caps {
   can: Record<Cap, boolean>;
@@ -171,6 +171,7 @@ export function capabilities(f: Facts, rootKey = false): Caps {
   need("firewall", !noUfw(f.platform, f.pkg, f.ufw) && admin, noUfw(f.platform, f.pkg, f.ufw) ?? why.admin!);
   need("services", f.init !== "other", "no systemd or OpenRC");
   need("users", !p?.users && !!f.usertool && admin, p?.users ?? (f.usertool ? why.admin! : "no useradd or adduser to manage users with"));
+  need("tenants", !why.users && f.init === "systemd", why.users ?? "tenants need systemd");
   const can = Object.fromEntries(CAPS.map((k) => [k, !why[k]])) as Caps["can"];
   return { can, why };
 }
@@ -191,7 +192,19 @@ export async function requireCap(s: Server, cap: Cap, what: string): Promise<Fac
 
 /** capabilities(), trying root's key login (as adminLogin does) only when the login itself has no sudo. */
 export async function serverCaps(s: Server, f: Facts): Promise<Caps> {
+  if (s.tenant) return tenantCaps(capabilities(f));
   return capabilities(f, !f.admin && !!(await rootLogin(s)));
+}
+
+/** A tenant login has its own Docker and nothing of the machine. */
+export function tenantCaps(k: Caps): Caps {
+  const can = { ...k.can };
+  const why = { ...k.why };
+  for (const cap of ["setup", "packages", "firewall", "services", "admin", "users", "tenants"] as const) {
+    can[cap] = false;
+    why[cap] = "this login is a tenant: the server's admin does that";
+  }
+  return { can, why };
 }
 
 /**

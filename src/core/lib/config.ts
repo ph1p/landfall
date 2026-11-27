@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import { expandHost } from "../traefik/redirects";
 import { ENVIRONMENT_NAME, type GitConfig, type RefRule } from "../deploy/refs";
 import { fail } from "./term";
+import { tenantRefusal } from "../server/tenant-policy";
 
 /**
  * A server is anything `ssh` can reach. `host` may be an alias from ~/.ssh/config
@@ -42,6 +43,18 @@ export interface Server {
   cloud?: string;
   /** Traefik dashboard, remembered so re-running traefik setup keeps it. */
   dashboard?: { host: string; user: string; htpasswd: string };
+  /** This login is a tenant (`lf tenant add`): its own root and rootless Docker. */
+  tenant?: Tenant;
+}
+
+export interface Tenant {
+  uid: number;
+  /** Stands in for /opt/landfall. */
+  root: string;
+  port: number;
+  domains: string[];
+  /** The address the tenant's containers see the central Traefik come from. */
+  trustedIP?: string;
 }
 
 /** landfall's defaults for every server (`lf config`); a server's own setting wins. */
@@ -192,6 +205,8 @@ export function resolveServer(name?: string): { name: string; server: Server } {
   }
   if (!/^[A-Za-z0-9._@:[\]-]+$/.test(name!) || name!.startsWith("-")) fail(`not a server name: ${name}`);
   const server = cfg.servers[name!] ?? { host: name! };
+  const refused = tenantRefusal(name!, server);
+  if (refused) fail(refused);
   return { name: name!, server };
 }
 

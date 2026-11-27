@@ -11,7 +11,6 @@ import {
   envSiteName,
   expandDomain,
   isTunnelOnly,
-  mainDomain,
   loadConfig,
   loadProject,
   PROJECT_FILE,
@@ -20,6 +19,7 @@ import {
   saveProject,
   type ProjectConfig,
 } from "../../../core/lib/config";
+import { autoBase } from "../../../core/lib/domain-match";
 import { analyze, WEB_PORTS } from "../../../core/site/analyze";
 import { builtImage, currentRelease, type Release, type SiteMeta } from "../../../core/site/meta";
 import { askable, missingVars, wantedVars } from "../../../core/site/env-vars";
@@ -418,7 +418,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
           }
           const prepared = await prepareRelease(server, name, id, { file: compose, generated, env, layer: layered });
           vols = folderVolumes(prepared.config, prev?.volumes);
-          const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server), { auto: kind === "compose" });
+          const a = analyze(prepared.config, prepared.dir, (d) => expandDomain(d, server), { auto: kind === "compose", tenant: !!server.tenant });
           for (const w of a.warnings) warn(w);
           if (a.auto && a.services.some(routed))
             info(c.dim(`no x-landfall in ${compose ?? "compose.yaml"}: routing the HTTP ports it publishes or exposes (\`lf init\` writes them down)`));
@@ -455,8 +455,8 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
               );
             if (!domains.length && !unrouted) {
               // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
-              const main = mainDomain(server);
-              const ip = main ? undefined : pickIp(await serverIps(server));
+              const main = autoBase(server);
+              const ip = main || server.tenant ? undefined : pickIp(await serverIps(server));
               const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
               const answer = await ask("Domain(s) to serve (comma separated; none: reach it by tunnel only):", auto);
               unrouted = answer === "none";

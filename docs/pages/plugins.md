@@ -232,6 +232,7 @@ A plugin whose command or alias is already an `lf` command is skipped as a whole
 | `args` | optional, for `--help`, e.g. `"<ip>"` or `"[site...]"` |
 | `options` | `{ <name>: { type: "string" \| "boolean", desc, short?, default?, multiple? } }` |
 | `local` | `true`: no `-s` and no server; `ctx.name` is `""`, `ctx.server` is undefined |
+| `tenant` | `true`: a [tenant](tenants.md) login may run it too; otherwise only the server's admin may |
 | `run(ctx, args, opts)` | `args` are the positional arguments, `opts` the option values; returns nothing or an exit code |
 
 - Every command gets `-h`/`--help`, `-y`/`--yes`, `-E`/`--environment` and `-K`/`--ask-sudo`. All but local
@@ -250,7 +251,7 @@ A plugin whose command or alias is already an `lf` command is skipped as a whole
 | `ctx.shq(value)` | quotes a value for the shell |
 | `ctx.plugin` | the plugin's name |
 | `ctx.name`, `ctx.server` | the server as `-s` named it (or the default server), and its ssh settings |
-| `ctx.paths.root`, `.sites`, `.traefik` | `/opt/landfall`, its `sites` folder and landfall's Traefik folder |
+| `ctx.paths.root`, `.sites`, `.traefik` | `/opt/landfall`, its `sites` folder and landfall's Traefik folder; for a tenant login, the same under `/opt/landfall/tenants/<user>` |
 | `ctx.log.step/ok/info/warn(msg)` | progress on stderr |
 | `ctx.fail(msg)` | stops with `error: <msg>` and exit code 1 |
 | `ctx.confirm(question, default?)` | asks yes/no; `-y` answers yes; fails without a terminal |
@@ -341,6 +342,7 @@ panel: {
 - `load` runs each time the section opens. Keep it read-only and quick: no prompts, no changes.
 - It gets the same `ctx` as a command, except `ctx.lf`.
 - An unknown `icon` shows a puzzle piece.
+- `tenant: true` shows the section to [tenant](tenants.md) logins too. Without it, they do not see it.
 
 `load` returns blocks:
 

@@ -6,7 +6,8 @@ import { describe, expect, test } from "vitest";
 import { redirectsFile } from "../../src/core/traefik/redirects";
 import { analyze } from "../../src/core/site/analyze";
 import type { SiteMeta } from "../../src/core/site/meta";
-import { covers, parseCertError, parseCerts, readCert } from "../../src/core/traefik/certs";
+import { parseCertError, parseCerts, readCert } from "../../src/core/traefik/certs";
+import { covers } from "../../src/core/lib/domain-match";
 import { parseServiceTraffic, parseSince, parseTraffic, SERVICE_TRAFFIC, spanLabel, splitStats, TRAFFIC } from "../../src/core/traefik/traffic";
 import { mergeHosts, siteTraffic } from "../../src/core/traefik/traffic-merge";
 

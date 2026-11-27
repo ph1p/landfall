@@ -45,6 +45,7 @@ export const sitesList = defineCommand({
       ]);
       if (sites.length) console.log();
     }
+    if (view.tenants?.length) info(`tenants run their own sites: ${view.tenants.map((t) => t.user).join(", ")}. See \`lf tenant ls\``);
     if (!sites.length) return console.log(`no landfall sites on ${name} yet — ${c.bold("lf deploy --domain example.com")}`);
     table([
       [c.dim("NAME"), c.dim("KIND"), c.dim("DOMAINS"), c.dim("SERVICES"), c.dim("RELEASE"), c.dim("UPDATED"), c.dim("STATUS")],

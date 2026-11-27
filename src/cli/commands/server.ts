@@ -19,6 +19,8 @@ import {
   type Server,
 } from "../../core/lib/config";
 import { securityNotes } from "../../core/server/security";
+import { detectTenant } from "../../core/server/tenant";
+import { tenantsOn } from "../../core/server/tenants";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/ssh/sshconfig";
 import { plural, pct } from "../../core/lib/format";
@@ -83,12 +85,18 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     if (domain) entry.domains = withPrimary(entry.domains, domain);
     if (cloud) entry.cloud = cloud;
     else if (cloud === "") delete entry.cloud;
+    if (keyPath) {
+      const tenant = await detectTenant(entry);
+      if (tenant) entry.tenant = tenant;
+      else delete entry.tenant;
+    }
     const saved = await updateConfig((fresh) => {
       patchServer(fresh, name, existing, entry);
       if (o.default || !fresh.default) fresh.default = name;
     });
     ok(`added ${c.bold(name)}${saved.default === name ? c.dim(" (default)") : ""}`);
     if (!keyPath) info(`then: ${c.bold(`lf setup ${name}`)} (asks for the password and installs a key)`);
+    else if (entry.tenant) info(`${entry.user ?? "this login"} is a tenant on ${name}: sites go to ${entry.tenant.root}`);
     else {
       info(c.dim(`next: lf setup ${name} --check shows what setup would install`));
       await securityNotes(name, entry);
@@ -187,6 +195,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     if (server !== saved && !(await canLogin(server))) fail(`cannot log in to ${name}, neither as ${effectiveSsh(saved).user} nor as root`);
     // Deleting ROOT needs root: found now, while the deploy user still exists.
     const root = await loginFor(server, "root");
+    if (await tenantsOn(root.login)) fail(`${name} has tenants: lf tenant off --rm-tenants first, then lf tenant rm <user> --purge for each`);
     const [ov, runs] = await Promise.all([overview(server), readJournal(server)]);
     const st = ov.owner;
     if (st.compose === "foreign") fail(`${TRAEFIK_DIR}/docker-compose.yml was not written by landfall: move it out of ${ROOT} first`);

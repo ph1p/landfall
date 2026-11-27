@@ -122,7 +122,7 @@ function autoRoute(config: any, services: Service[], notes: string[]) {
  * with the release, so data written there seems to vanish on the next deploy.
  * With `auto` (a compose site), a file without any x-landfall is routed by its ports instead.
  */
-export function analyze(config: any, dir: string, expand: (d: string) => string = (d) => d, o: { auto?: boolean } = {}): Analysis {
+export function analyze(config: any, dir: string, expand: (d: string) => string = (d) => d, o: { auto?: boolean; tenant?: boolean } = {}): Analysis {
   const services: Service[] = [];
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -196,7 +196,18 @@ export function analyze(config: any, dir: string, expand: (d: string) => string 
     }
     if (svc.network_mode) {
       if (routed(s)) errors.push(`${name}: a routed service cannot use network_mode: ${svc.network_mode}; Traefik reaches it over a network`);
-      else if (svc.network_mode === "host") warnings.push(`${name} uses network_mode: host: it binds ports on the server itself`);
+      else if (svc.network_mode === "host")
+        warnings.push(
+          o.tenant
+            ? `${name} uses network_mode: host: in your rootless Docker that is your own network namespace, not the server's`
+            : `${name} uses network_mode: host: it binds ports on the server itself`,
+        );
+    }
+    if (o.tenant && svc.privileged) warnings.push(`${name} is privileged: in your rootless Docker that is your user's rights, not root's`);
+    if (o.tenant && x.publish && svc.ports?.length) {
+      const low = svc.ports.filter((p: any) => Number(p.published) > 0 && Number(p.published) < 1024).map((p: any) => p.published);
+      if (low.length) warnings.push(`${name} publishes port ${low.join(", ")}: rootless Docker cannot bind ports below 1024`);
+      warnings.push(`${name} publishes ports: the server's firewall keeps tenants' ports closed to the outside`);
     }
     if (svc.ports?.length && !x.publish && !auto) {
       const ports = svc.ports.map((p: any) => (p.published ? `${p.host_ip ? p.host_ip + ":" : ""}${p.published}:${p.target}` : String(p.target)));

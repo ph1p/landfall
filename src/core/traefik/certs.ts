@@ -1,6 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import https from "node:https";
 import type { Server } from "../lib/config";
+import { covers } from "../lib/domain-match";
 import { SITE_LINES } from "../site/meta";
 import { REDIRECTS_LINE, redirectsOf } from "./server-redirects";
 import { hostSites } from "./traffic";
@@ -119,10 +120,6 @@ export function readCert(b64: string, source: Cert["source"], path?: string, now
     return null;
   }
 }
-
-/** Whether a certificate name covers a host: exact, or a wildcard for exactly one label. */
-export const covers = (name: string, host: string) =>
-  name === host || (name.startsWith("*.") && host.slice(host.indexOf(".") + 1) === name.slice(2) && host.indexOf(".") > 0);
 
 export function parseCerts(out: string, now = new Date()): Certs {
   const r: Certs = { at: now.toISOString(), proxy: true, acme: [], denied: [], certs: [], errors: [], domains: [] };

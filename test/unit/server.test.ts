@@ -561,6 +561,23 @@ describe("server stats", () => {
       expect.objectContaining({ name: "web", site: "blog", project: "blog", service: "web", cpu: 1.5, net: { rx: 682, tx: 84 }, pids: 3, restarts: 2 }),
     ]);
   });
+  test("tenants' slices", () => {
+    const out = [
+      "T1\t1",
+      "SCPU1\t1001\t1000000",
+      "T2\t3",
+      "SCPU2\t1001\t1500000",
+      "cpus=2",
+      "docker=1",
+      "SLICE\t1001\tanna\t1048576\t2147483648\t50000 100000",
+      "SLICE\t1002\tben\t2048\tmax\tmax 100000",
+    ].join("\n");
+    expect(parseStats(out, new Date(0)).tenants).toEqual([
+      { user: "anna", cpu: 25, mem: 1048576, memMax: 2147483648, cpuMax: 50 },
+      { user: "ben", cpu: 0, mem: 2048 },
+    ]);
+    expect(parseStats("T1\t1\nT2\t2\ncpus=1\ndocker=\n").tenants).toBeUndefined();
+  });
   test("no docker access", () => {
     const s = parseStats("T1\t1\nT2\t2\ncpus=1\ndocker=\n", new Date(0));
     expect(s.docker).toBe(false);

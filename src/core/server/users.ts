@@ -4,7 +4,7 @@ import { requireCap } from "./facts";
 import { adminLogin } from "../ssh/privilege";
 import { runScript } from "../ssh/ssh";
 import { effectiveSsh } from "../ssh/sshconfig";
-import { KV, kvRecord, PRELUDE } from "../ssh/templates";
+import { KV, kvRecord, PRELUDE, TENANTS } from "../ssh/templates";
 import { fail } from "../lib/term";
 
 /** Debian's NAME_REGEX: what useradd and busybox's adduser both take, and sudoers.d file names allow (no dots). */
@@ -40,6 +40,8 @@ export interface Account {
   me: boolean;
   /** Why lf will not remove them or take their sudo away (root, landfall's login, the managing login). */
   keep?: string;
+  /** A tenant: lf tenant manages it. */
+  tenant?: boolean;
 }
 
 export interface Users {
@@ -67,7 +69,8 @@ awk -F: '$3 == 0 || ($3 >= 1000 && $3 < 60000) { print $1 ":" $3 ":" $6 ":" $7 }
   r=$($SUDO cat "${SUDOERS}$u" 2>/dev/null)
   rule=""; [ -z "$r" ] || rule=1
   np=""; case "$r" in *NOPASSWD*) np=1 ;; esac
-  printf 'USER\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$u" "$uid" "$home" "$sh" "$(id -nG "$u" 2>/dev/null | tr ' ' ,)" "$k" "$rule" "$np"
+  t=""; [ ! -e "${TENANTS}/$u.json" ] || t=1
+  printf 'USER\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$u" "$uid" "$home" "$sh" "$(id -nG "$u" 2>/dev/null | tr ' ' ,)" "$k" "$rule" "$np" "$t"
 done
 exit 0
 `;
@@ -83,7 +86,7 @@ export function parseUsers(out: string, me = ""): Users {
   }
   const admin = v.admin ?? "";
   const sudo = v.sudo === "1";
-  const accounts = rows.map(([name, uid, home, shell, groups, keys, rule, np]): Account => {
+  const accounts = rows.map(([name, uid, home, shell, groups, keys, rule, np, tenant]): Account => {
     const g = groups ? groups.split(",").filter(Boolean) : [];
     return {
       name,
@@ -105,6 +108,7 @@ export function parseUsers(out: string, me = ""): Users {
             : name === admin
               ? `${name} is the login that manages users here`
               : undefined,
+      ...(tenant === "1" && { tenant: true }),
     };
   });
   const p = v.sshd_passwords;

@@ -42,6 +42,17 @@ function printStats(name: string, s: Stats, site?: string) {
       console.log(`\n${c.bold("Processes")} ${c.dim("(cpu: 100% = one core)")}`);
       table([["pid", "cpu", "memory", "name"].map(c.dim), ...s.procs.slice(0, 8).map((p) => [String(p.pid), `${p.cpu}%`, bytes(p.rss), p.name])]);
     }
+    if (s.tenants?.length) {
+      console.log(`\n${c.bold("Tenants")} ${c.dim("(cpu: 100% = one core)")}`);
+      table([
+        ["tenant", "cpu", "memory"].map(c.dim),
+        ...s.tenants.map((t) => [
+          t.user,
+          `${t.cpu}%${t.cpuMax ? c.dim(` / ${t.cpuMax}%`) : ""}`,
+          `${bytes(t.mem)}${t.memMax ? c.dim(` / ${bytes(t.memMax)}`) : ""}`,
+        ]),
+      ]);
+    }
   }
   if (!s.docker) console.log(c.dim("\nno access to docker: containers not shown (run lf setup)"));
   else if (ctrs.length) {

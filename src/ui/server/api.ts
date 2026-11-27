@@ -1,7 +1,7 @@
 import { pluginContext, pluginNamed, pluginsView } from "../../core/plugins/plugins";
 import { panelView } from "../../core/plugins/plugin-api";
 import { updateCommand, VERSION } from "../../core/lib/version";
-import { DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/lib/config";
+import { DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer, type Server } from "../../core/lib/config";
 import { ENV_NAME } from "../../core/site/env-vars";
 import { SECRET_NAME } from "../../core/site/meta";
 import { listServers, reachAll, target } from "../../core/views/dashboard";
@@ -19,6 +19,7 @@ import { volumes } from "../../core/site/volumes";
 import { USER_NAME } from "../../core/server/users";
 import { trivyState } from "../../core/server/scan";
 import { registries } from "../../core/server/registries";
+import { tenantsView } from "../../core/server/tenants";
 import {
   configView,
   defaultsView,
@@ -123,80 +124,92 @@ async function reach(q: URLSearchParams): Promise<Response> {
   return new Response(stream, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
 }
 
-async function serverRead(name: string, sub: string | undefined, rest: string | undefined, q: URLSearchParams): Promise<Response | undefined> {
-  const { server } = resolveServer(name);
-  const site = () => validName(q.get("site") ?? "");
-  // The same views `--json` prints.
-  switch (sub) {
-    case undefined:
-      return json(await overview(server));
-    case "firewall":
-      return json(await firewallView(server));
-    case "config":
-      return json(await configView(name, server));
-    case "history":
-      return json(await historyBrief(server));
-    case "registries":
-      return json(await registries(server));
-    case "facts":
-      return json(await factsView(name, server));
-    case "stats":
-      return json(await statsView(server));
-    case "disk":
-      return json(await diskView(server));
-    case "prune":
-      return json(await pruneView(server));
-    case "system":
-      return json(await systemView(name, server));
-    case "users":
-      return json(await usersView(server));
-    case "updates":
-      return json(await updatesView(server, q.get("refresh") === "1"));
-    case "scan":
-      return json(await scanView(server, q.get("others") !== "0", q.get("install") === "1"));
-    case "trivy":
-      return json(await trivyState(server, q.get("sizes") !== "0"));
-    case "traffic": {
+type ReadCtx = { name: string; server: Server; rest?: string; q: URLSearchParams };
+export type Read = { tenant: "allow" | "deny"; view: (c: ReadCtx) => Promise<Response> };
+
+const site = (q: URLSearchParams) => validName(q.get("site") ?? "");
+
+// The same views `--json` prints, by route ("" is the overview). Every new read must declare `tenant`: may a tenant login see it?
+export const READS: Record<string, Read> = {
+  "": { tenant: "allow", view: async ({ server }) => json(await overview(server)) },
+  firewall: { tenant: "deny", view: async ({ server }) => json(await firewallView(server)) },
+  tenants: { tenant: "deny", view: async ({ server, q }) => json(await tenantsView(server, q.get("sizes") === "1")) },
+  config: { tenant: "allow", view: async ({ name, server }) => json(await configView(name, server)) },
+  history: { tenant: "allow", view: async ({ server }) => json(await historyBrief(server)) },
+  registries: { tenant: "allow", view: async ({ server }) => json(await registries(server)) },
+  facts: { tenant: "allow", view: async ({ name, server }) => json(await factsView(name, server)) },
+  stats: { tenant: "allow", view: async ({ server }) => json(await statsView(server)) },
+  disk: { tenant: "allow", view: async ({ server }) => json(await diskView(server)) },
+  prune: { tenant: "allow", view: async ({ server }) => json(await pruneView(server)) },
+  system: { tenant: "deny", view: async ({ name, server }) => json(await systemView(name, server)) },
+  users: { tenant: "deny", view: async ({ server }) => json(await usersView(server)) },
+  updates: { tenant: "deny", view: async ({ server, q }) => json(await updatesView(server, q.get("refresh") === "1")) },
+  scan: { tenant: "allow", view: async ({ server, q }) => json(await scanView(server, q.get("others") !== "0", q.get("install") === "1")) },
+  trivy: { tenant: "allow", view: async ({ server, q }) => json(await trivyState(server, q.get("sizes") !== "0")) },
+  traffic: {
+    tenant: "allow",
+    view: async ({ server, q }) => {
       const t = await trafficView(server, parseSince(q.get("since") ?? "24h"));
       const only = q.get("site");
       return json(only ? siteTrafficView(t, only) : t);
-    }
-    case "certs":
-      return json(await certsView(server));
-    case "traefik":
-      return json(await traefikView(server));
-    case "env": {
-      const { env } = await requireSite(server, site(), { deployed: "manage the .env of" });
+    },
+  },
+  certs: { tenant: "allow", view: async ({ server }) => json(await certsView(server)) },
+  traefik: { tenant: "allow", view: async ({ server }) => json(await traefikView(server)) },
+  env: {
+    tenant: "allow",
+    view: async ({ server, q }) => {
+      const { env } = await requireSite(server, site(q), { deployed: "manage the .env of" });
       return json(envView(env, q.get("reveal") === "1"));
-    }
-    case "secrets": {
-      const s = site();
+    },
+  },
+  secrets: {
+    tenant: "allow",
+    view: async ({ server, q }) => {
+      const s = site(q);
       const [, have] = await Promise.all([requireSite(server, s, { deployed: "manage the secrets of" }), readSecrets(server, s)]);
       // Names and sizes only: no route ever sends a secret's content.
       return json({ vars: have.map((x) => ({ key: x.key, length: x.size })) });
-    }
-    case "volumes": {
+    },
+  },
+  volumes: {
+    tenant: "allow",
+    view: async ({ server, q }) => {
       // lf volumes --json: sizes, mounts and backups. sizes=0 skips du (slow on big volumes) but still tells which are empty.
       const sizes = q.get("sizes") !== "0";
-      return json(await volumes(server, site(), sizes, !sizes));
-    }
-    // lf autodeploy <site> --json: the setting, what it saw last, the log tail.
-    case "autodeploy":
-      return json(await readAutodeploy(server, name, site()));
-    case "plugins": {
+      return json(await volumes(server, site(q), sizes, !sizes));
+    },
+  },
+  // lf autodeploy <site> --json: the setting, what it saw last, the log tail.
+  autodeploy: { tenant: "allow", view: async ({ name, server, q }) => json(await readAutodeploy(server, name, site(q))) },
+  plugins: {
+    tenant: "allow",
+    view: async ({ name, rest, q }) => {
       const p = pluginNamed(rest ?? "")?.plugin;
       if (!p?.panel) return failure(`no plugin panel ${rest ?? ""}`, 404);
       return json(await p.panel.load(pluginContext(p.name, name), panelView(p.panel, q.get("view"))));
-    }
-    case "dns": {
+    },
+  },
+  dns: {
+    tenant: "allow",
+    view: async ({ server, q }) => {
       const domains = (q.get("domains") ?? "")
         .split(",")
         .filter((d) => DOMAIN.test(d))
         .slice(0, 50);
       return json(await dnsView(server, domains));
-    }
-  }
-  return undefined;
+    },
+  },
+};
+
+async function serverRead(name: string, sub: string | undefined, rest: string | undefined, q: URLSearchParams): Promise<Response | undefined> {
+  const { server } = resolveServer(name);
+  // A literal "" sub was never the overview.
+  const key = sub ?? "";
+  const read = sub !== "" && Object.hasOwn(READS, key) ? READS[key] : undefined;
+  if (!read) return undefined;
+  if (server.tenant && read.tenant === "deny") return failure(`this view needs the server's admin; ${name} is a tenant login`, 403);
+  return read.view({ name, server, rest, q });
 }
 
 export async function api(req: Request, path: string[], policy: JobArgsPolicy): Promise<Response> {

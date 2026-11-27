@@ -20,6 +20,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | Updates     | `lf updates`, `lf update` |
 | Firewall    | `lf firewall` and subcommands |
 | Users       | `lf users` and subcommands; shown only where landfall may manage users |
+| Tenants     | `lf tenant ls` and subcommands; see [Tenants](tenants.md#in-the-web-ui) |
 | System      | `lf system`, `lf security` (a button per fix; Harden… picks the `lf harden` parts), `services`, `keys`, `swap`, `hostname`, `timezone`, `log-limit` |
 | Plugins     | one per plugin with a section, e.g. *Analytics* (`lf analytics`, `analytics enable`/`disable`/`funnel`, under Monitoring), *fail2ban* (`lf fail2ban`, `fail2ban ban`/`unban`/`config`), *Trivy* (`lf trivy`, `trivy images`/`files`/`rm`). See [Plugins](plugins.md) |
 | History     | `lf history`, `lf undo` |
@@ -44,6 +45,17 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 - The **Traefik** section lists the server's redirects (`lf redirects`), each with its DNS and HTTPS state.
 - **Add…** and **Change…** run `lf redirect add`; **Remove…** runs `lf redirect rm`.
 - A redirects file edited by hand is reported there, and the buttons stay off until it is fixed.
+
+## Tenant logins
+
+On a server where you are a [tenant](tenants.md), the web UI shows only what a tenant may do:
+
+- A tenant badge sits in the header and on Overview.
+- Sites, deploys, stats, traffic, your own Traefik, history and settings work as usual, inside your tenant.
+- System, Updates, Users, Firewall and Tenants are hidden. So are setup, `server upgrade` and `server uninstall`.
+- The Traefik section offers no remove and no foreign proxy.
+- Plugin sections show only when the plugin marks them for tenants (`panel.tenant`).
+- A command the CLI would refuse for a tenant is refused before it runs.
 
 ## Map
 

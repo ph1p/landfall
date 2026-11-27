@@ -36,6 +36,7 @@ export default defineConfig({
       items: [
         { text: "Servers", link: "/servers" },
         { text: "Server administration", link: "/system" },
+        { text: "Tenants", link: "/tenants" },
         { text: "Updates", link: "/updates" },
         { text: "Traefik", link: "/traefik" },
         { text: "Traffic, certificates and checks", link: "/monitoring" },

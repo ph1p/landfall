@@ -7,6 +7,7 @@ import { runScript, shq } from "../../core/ssh/ssh";
 import { PRELUDE } from "../../core/ssh/templates";
 import { c, confirm, confirmRemoval, confirmRisky, fail, info, ok, step, table, warn, printJson } from "../../core/lib/term";
 import { firewallView } from "../../core/views/views";
+import { tenantsOn } from "../../core/server/tenants";
 
 const PORT = /^\d+(:\d+)?(,\d+(:\d+)?)*(\/(tcp|udp))?$/;
 const ADDR = /^[0-9a-fA-F.:]+(\/\d+)?$/;
@@ -159,11 +160,13 @@ ufw_enable`,
 export const firewallDisable = defineCommand({
   name: "firewall disable",
   summary: "Turn ufw off. Rules are kept and apply again after `lf firewall enable`.",
-  options: { server: serverOpt },
+  options: { server: serverOpt, force: { type: "boolean", desc: "even with tenants on the server" } },
   async run(_, o) {
     const { name, server } = serverTarget(o);
     const fw = await firewallState(server);
     if (fw.ufw !== "active") return ok(`firewall on ${name} is already off`);
+    if (!o.force && (await tenantsOn(server)))
+      fail(`${name} has tenants: without the firewall their ports are open to everyone; --force turns it off all the same`);
     if (!(await confirm(`Turn the firewall on ${name} off? Every listening port becomes reachable.`, false))) fail("cancelled");
     await runScript(fw.login, `${PRELUDE}\n$SUDO ufw disable\nrecord "disabled ufw" '$SUDO ufw --force enable >/dev/null'`);
     ok(`firewall on ${name} is off (${fw.rules.length} rules kept)`);

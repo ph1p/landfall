@@ -19,6 +19,7 @@ lf firewall enable | disable             # enable installs ufw if needed and all
 - landfall refuses a change that would block the ssh port, and `enable` while ports in use have no rule. `--force` overrides.
 - Docker-published ports bypass ufw, so deny doesn't close them: bind them to `127.0.0.1` in their compose file.
 - ufw stops at the first match, so `update`, `rm` and its undo keep the rule's position. `update` puts the old rule back if ufw rejects the new one.
+- On a server with [tenants](tenants.md), `disable` refuses: their ports would be open to everyone. `--force` turns ufw off all the same.
 
 ## Server system
 
@@ -62,6 +63,7 @@ lf keys add ~/anna2.pub -u anna            # more keys, as for any user
 - landfall never removes root, its login user, or the login it manages users with, nor takes their sudo.
 - Adding users and sudo changes can be undone. Removing users and passwords cannot: the journal keeps no hashes.
 - Passwords reach the server on the script's stdin, never a command line.
+- `lf users rm` refuses a [tenant](tenants.md): `lf tenant rm <user> --purge` removes it with its data.
 
 ## Security
 

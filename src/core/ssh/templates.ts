@@ -3,6 +3,7 @@ import { ACCESS_LOG_FLAGS } from "../traefik/traffic-merge";
 /** Everything landfall puts on a server lives below this root. */
 export const ROOT = "/opt/landfall";
 export const SITES = `${ROOT}/sites`;
+export const TENANTS = `${ROOT}/tenants`;
 export const TRAEFIK_DIR = `${ROOT}/traefik`;
 /** Traefik's file provider reads every file here; landfall writes TLS_FILE, other files are yours (e.g. certificates). */
 export const DYNAMIC_DIR = `${TRAEFIK_DIR}/dynamic`;
@@ -208,7 +209,8 @@ export const PRELUDE = String.raw`
 # useradd, visudo, gpasswd and friends live in sbin, which a non-root PATH often lacks.
 PATH="$PATH:/usr/sbin:/sbin"
 log() { printf '\033[36m  ->\033[0m %s\n' "$*" >&2; }
-SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+SUDO=""; if [ -n "${"${LANDFALL_TENANT:-}"}" ]; then SUDO=_tenant_no_root; elif [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+_tenant_no_root() { echo "error: this needs root; ask the admin of $LANDFALL_TENANT" >&2; exit 1; }
 ${SEC_CHECKS}
 # Files a container wrote may be root's.
 rmf() { rm -rf "$@" 2>/dev/null || $SUDO rm -rf "$@"; }
@@ -228,7 +230,7 @@ pkg_has() {
   esac >/dev/null 2>&1
 }
 # Whether this login can run root commands: it is root, or it may sudo (-K's password counts: its shim drops -n).
-can_root() { [ -z "$SUDO" ] || { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; }; }
+can_root() { [ "$SUDO" != _tenant_no_root ] && { [ -z "$SUDO" ] || { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; }; }; }
 pkg_install() {
   if ! can_root; then
     if command -v sudo >/dev/null 2>&1; then
@@ -687,6 +689,8 @@ export interface TraefikOpts {
   /** The JSON access log on stdout that lf traffic reads; on unless false. */
   accessLog?: boolean;
   dashboard?: { host: string; htpasswd: string };
+  /** A tenant's Traefik: TLS passed through from the central one, on 127.0.0.1:port only. */
+  tenant?: { uid: number; port: number; trustedIP: string };
 }
 
 /** dynamic/landfall.yml: hosts no router serves get no certificate, so they look like nothing is there. */
@@ -699,18 +703,27 @@ tls:
 `;
 
 export function traefikCompose(o: TraefikOpts): string {
+  const t = o.tenant;
+  if (t) o = { ...o, hostNetwork: false, http3: false, dashboard: undefined };
   const cmd = [
     "--providers.docker=true",
     "--providers.docker.exposedbydefault=false",
     `--providers.docker.network=${NETWORK}`,
     "--providers.file.directory=/etc/traefik/dynamic",
-    "--entrypoints.web.address=:80",
-    "--entrypoints.web.http.redirections.entrypoint.to=websecure",
-    "--entrypoints.web.http.redirections.entrypoint.scheme=https",
+    ...(t
+      ? []
+      : [
+          "--entrypoints.web.address=:80",
+          "--entrypoints.web.http.redirections.entrypoint.to=websecure",
+          "--entrypoints.web.http.redirections.entrypoint.scheme=https",
+        ]),
     "--entrypoints.websecure.address=:443",
+    // Only the central Traefik's address may say who the client is: any other, and a container could fake it.
+    ...(t ? [`--entrypoints.websecure.proxyProtocol.trustedIPs=${t.trustedIP}`] : []),
     "--entrypoints.websecure.http.tls.certresolver=le",
     "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json",
-    "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
+    // Port 80 belongs to the central Traefik: a tenant proves its domains over TLS.
+    t ? "--certificatesresolvers.le.acme.tlschallenge=true" : "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
     "--log.level=INFO",
     // JSON lines: lf traffic aggregates them on the server; plain log lines without color codes for lf certs.
     ...(o.accessLog === false ? [] : ACCESS_LOG_FLAGS),
@@ -730,7 +743,8 @@ export function traefikCompose(o: TraefikOpts): string {
     `traefik.http.routers.${TUNNEL_ROUTER}.entrypoints=tunnel`,
     `traefik.http.routers.${TUNNEL_ROUTER}.service=api@internal`,
     `traefik.http.routers.${TUNNEL_ROUTER}.middlewares=tunnel-only`,
-    "traefik.http.middlewares.tunnel-only.ipallowlist.sourcerange=127.0.0.1/32,${LANDFALL_GATEWAY:-127.0.0.1}/32",
+    // A tenant's tunnel comes through a relay container on the network.
+    `traefik.http.middlewares.tunnel-only.ipallowlist.sourcerange=127.0.0.1/32,${t ? "${LANDFALL_SUBNET:-127.0.0.1/32}" : "${LANDFALL_GATEWAY:-127.0.0.1}/32"}`,
   );
   if (o.dashboard) {
     labels.push(
@@ -753,11 +767,10 @@ ${
   o.hostNetwork
     ? "    network_mode: host\n"
     : `    ports:
-      - "80:80"
-      - "443:443"
+${t ? `      - "127.0.0.1:${t.port}:443"` : '      - "80:80"\n      - "443:443"'}
 ${o.http3 ? '      - "443:443/udp"\n' : ""}`
 }    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${t ? `/run/user/${t.uid}/docker.sock` : "/var/run/docker.sock"}:/var/run/docker.sock:ro
       - ./letsencrypt:/letsencrypt
       - ./dynamic:/etc/traefik/dynamic:ro
 ${o.hostNetwork ? "" : `    networks:\n      - ${NETWORK}\n`}${labels.length ? `    labels:\n${labels.map((l) => `      - ${yamlStr(l)}`).join("\n")}\n` : ""}${

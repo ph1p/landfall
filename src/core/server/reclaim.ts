@@ -28,7 +28,7 @@ export interface PrunePlan {
   /** What `docker system df` calls reclaimable build cache, in bytes. */
   buildCache: number;
   /** Only for --logs. size: bytes of container logs, rotated ones included; journal: 0 when unknown. Both need root. */
-  logs?: { root: boolean; size: number; journal: number };
+  logs?: { root: boolean; size: number; journal: number; noJournal?: boolean };
   /** Networks no container uses, landfall's proxy network aside. They take no disk space. */
   networks: string[];
   /** Only for --volumes: volumes no container mounts, stopped ones included. */
@@ -63,7 +63,7 @@ export function pruneSummary(p: PrunePlan, failed: { what: string }[] = []): str
     p.networks.length && `${n("network", p.networks.length)} networks`,
     n("volume", vols) > 0 && `${n("volume", vols)} volumes`,
     n("backups", p.leftovers?.length ?? 0) > 0 && `the backups of ${n("backups", p.leftovers?.length ?? 0)} removed sites`,
-    p.logs && `container logs and the journal beyond ${JOURNAL_KEEP}`,
+    p.logs && (p.logs.noJournal ? "container logs" : `container logs and the journal beyond ${JOURNAL_KEEP}`),
   ]
     .filter(Boolean)
     .join(", ");

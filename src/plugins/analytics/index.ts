@@ -86,6 +86,7 @@ function needNetwork(ctx: PluginContext, st: State) {
 const commands: PluginCommand[] = [
   {
     name: "enable",
+    tenant: true,
     args: "<site>",
     summary: "Collect analytics on a site's domains, or change its cookie mode (then add the script tag to its pages)",
     options: {
@@ -131,6 +132,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "disable",
+    tenant: true,
     args: "<site>",
     summary: "Stop collecting analytics for a site (its data stays until --purge)",
     options: { purge: { type: "boolean", desc: "also delete the site's collected data (cannot be undone)" } },
@@ -156,6 +158,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "uninstall",
+    tenant: true,
     summary: "Remove the collector and its files from the server, collected data included (--keep-data keeps it)",
     options: { "keep-data": { type: "boolean", desc: "keep the collected data and funnels in /opt/landfall/analytics" } },
     async run(ctx, _args, opts) {
@@ -175,6 +178,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "repair",
+    tenant: true,
     summary: "Rewrite the collector's files and start it again (after an error or a landfall update)",
     async run(ctx) {
       const st = await ready(ctx);
@@ -187,6 +191,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "report",
+    tenant: true,
     args: "[site]",
     summary: "Visitors, pages, sources, journeys, funnels, events, devices and web vitals",
     options: { days, limit: limit(10), json },
@@ -205,6 +210,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "path",
+    tenant: true,
     args: "<site> <page>",
     summary: "Where visitors of a page came from and where they went next",
     options: { days, limit: limit(10), json },
@@ -242,6 +248,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "events",
+    tenant: true,
     args: "[site]",
     summary: "Custom events, outbound links and downloads, with their top properties",
     options: { days, limit: limit(20, "events to list"), json },
@@ -265,6 +272,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "vitals",
+    tenant: true,
     args: "[site]",
     summary: "Core Web Vitals (p75 of LCP, INP, CLS, FCP, TTFB) per site, device and page",
     options: { days, limit: limit(20, "pages to list"), json },
@@ -281,6 +289,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "funnels",
+    tenant: true,
     args: "[site]",
     summary: "The funnels and how many sessions reach each step",
     options: { days, json },
@@ -298,6 +307,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "funnel",
+    tenant: true,
     args: "<site> <name> [<step>...]",
     summary: "Define a funnel: pages in order (* matches anything) or event:Name; --rm removes it",
     options: { rm: { type: "boolean", desc: "remove the funnel (collected data stays)" } },
@@ -326,6 +336,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "export",
+    tenant: true,
     args: "[site]",
     summary: "Print the collected hits as CSV (or JSON lines), one row per pageview, event, vital and visit",
     options: {
@@ -344,6 +355,7 @@ const commands: PluginCommand[] = [
   },
   {
     name: "storage",
+    tenant: true,
     summary: "Show or set how much collected data the server keeps: days, and a size limit",
     options: {
       "keep-days": { type: "string", desc: `delete hits older than this many days (default ${KEEP_DAYS})` },
@@ -397,6 +409,7 @@ export default definePlugin({
   aliases: { vitals: "analytics vitals" },
   commands,
   panel: {
+    tenant: true,
     label: "Analytics",
     group: "Monitoring",
     icon: "activity",

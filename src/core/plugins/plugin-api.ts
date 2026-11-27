@@ -73,6 +73,8 @@ export interface PluginCommand {
   options?: Record<string, PluginOption>;
   /** No server: no -s, ctx.name is "" and ctx.server undefined. */
   local?: boolean;
+  /** A tenant login may run it too: its own rootless Docker, its own paths, no root. Admin logins only otherwise. */
+  tenant?: boolean;
   /** args: the positional arguments. opts: option values by name, defaults filled in, plus landfall's (server, yes…). */
   run(ctx: PluginContext, args: string[], opts: Record<string, any>): Promise<void | number>;
 }
@@ -215,6 +217,8 @@ export interface PluginPanel {
    * them as a switch, `lf <plugin> --view <id>` picks one. The first is the default.
    */
   views?: { id: string; label: string }[];
+  /** A tenant login may open it too (see PluginCommand.tenant). */
+  tenant?: boolean;
   /** view: one of views' ids (the first when none was picked); undefined without views. */
   load(ctx: PluginContext, view?: string): Promise<UiBlock[]>;
 }
@@ -247,7 +251,9 @@ export interface PluginInfo {
   /** builtin, or the file it came from. */
   source: string;
   commands: string[];
-  panel?: { label: string; group: string; icon: string; views?: { id: string; label: string }[] };
+  /** The commands a tenant login may run. */
+  tenantCommands: string[];
+  panel?: { label: string; group: string; icon: string; tenant?: boolean; views?: { id: string; label: string }[] };
   error?: string;
 }
 

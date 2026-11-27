@@ -26,7 +26,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | area | commands |
 |---|---|
 | sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track`, `git key`, `ci init`, `ci rm`, `autodeploy` |
-| servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config` |
+| servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config`, `tenant ls` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `traefik strict-tls`, `redirects`, `history` |
@@ -49,6 +49,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `autodeploy` prints `{site, server, enabled, every, env, rule, url, dir, last, log, cron}`. `last` is the last commit it looked at: `{sha, result, at, ref}`, `result` one of `deployed`, `deploying`, `failed`, `running`, `older`, `skipped-config`. `cron` is missing when the crontab has no line for it.
 - `refs` prints `{repo, url, envs}`. Each environment has `env`, `site`, `server`, `rule`, `ruleText`, `matching` (tags newest first, then branches), `running` (`null`: no release; missing: never deployed), `newest`, `behind` (commits), `auto` (the interval, when it [deploys itself](git.md#auto-deploy-the-server-deploys-new-commits)) and `error` when its server cannot be read.
 - `git track` prints `{url, rules}`, keyed by environment; `""` is the project itself.
+- `tenant ls` prints `{on, state, tenants, ufw}`. `state` is what the first tenant changed, missing while tenants are off. Each tenant has `user`, `uid`, `port`, `domains`, `portDriver`, `active`, `running`, `trustedIP`, `created`, `limits`, and `sites`, `containers`, `memory` and (with `--sizes`) `disk` when they could be read. `memory` and `disk` are bytes.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
 The web UI reads the same JSON, so its shape is stable within a release.
@@ -108,6 +109,8 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 - `lf swap off`, `lf services restart`, plain restarts
 - `lf traefik access-log clear` (the emptied log is gone)
 - `lf server uninstall`
+- `lf tenant rm --purge` (the tenant's user, sites, volumes and images are deleted)
+- the packages `lf tenant add` installs on the first tenant, and `lf tenant off --remove-packages` removing them
 - `lf trivy rm` (the next scan downloads Trivy again)
 - `lf analytics disable --purge` (the site's collected analytics are deleted)
 - `lf analytics storage` with fewer days or a smaller size (the hits that no longer fit are deleted; `lf undo` restores only the settings)

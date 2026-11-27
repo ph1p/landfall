@@ -1,3 +1,4 @@
+import { aliases } from "../core/lib/aliases";
 import type { Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { config } from "./commands/config";
@@ -58,6 +59,7 @@ import {
 } from "./commands/system";
 import { hardenCmd, securityCmd } from "./commands/security";
 import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./commands/users";
+import { tenantAdd, tenantDomains, tenantLimits, tenantList, tenantOff, tenantRemove, tenantRestore, tenantStart, tenantStop } from "./commands/tenant";
 import { ui } from "./commands/ui";
 import { pluginAdd, pluginNew, pluginRemove, pluginsList } from "./commands/plugins";
 import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
@@ -154,6 +156,15 @@ export const commands: Command[] = [
   usersRemove,
   usersPasswd,
   usersSudo,
+  tenantAdd,
+  tenantList,
+  tenantDomains,
+  tenantLimits,
+  tenantStop,
+  tenantStart,
+  tenantRemove,
+  tenantRestore,
+  tenantOff,
   swapCmd,
   hostnameCmd,
   timezoneCmd,
@@ -192,78 +203,8 @@ export const commands: Command[] = [
 ];
 
 /** Shorthands → canonical command names. */
-export const aliases: Record<string, string> = {
-  ls: "sites list",
-  sites: "sites list",
-  servers: "server list",
-  "server ls": "server list",
-  "server ssh": "ssh",
-  "sites logs": "logs",
-  "sites env": "env",
-  "sites secret": "secret",
-  "sites rollback": "rollback",
-  "releases rm": "release rm",
-  "release remove": "release rm",
-  "release delete": "release rm",
-  "sites restart": "restart",
-  "sites stop": "stop",
-  "sites start": "start",
-  "sites ls": "sites list",
-  "sites remove": "sites rm",
-  "server remove": "server rm",
-  uninstall: "server uninstall",
-  "traefik remove": "traefik rm",
-  traefik: "traefik status",
-  firewall: "firewall status",
-  "firewall remove": "firewall rm",
-  log: "history",
-  revert: "undo",
-  web: "ui",
-  info: "server info",
-  "sites domains": "domains",
-  "sites auth": "auth",
-  "sites open": "open",
-  "sites tunnel": "tunnel",
-  "tunnels ls": "tunnels",
-  "redirect ls": "redirects",
-  "redirect list": "redirects",
-  "redirect remove": "redirect rm",
-  "redirects rm": "redirect rm",
-  "redirects add": "redirect add",
-  "tunnels list": "tunnels",
-  upgrade: "update",
-  "server stats": "stats",
-  "server disk": "disk",
-  "server traffic": "traffic",
-  "server certs": "certs",
-  "sites check": "check",
-  volume: "volumes",
-  "volume ls": "volumes",
-  "volume list": "volumes",
-  "volumes ls": "volumes",
-  "volume remove": "volume rm",
-  "volume delete": "volume rm",
-  "server prune": "prune",
-  "server reboot": "reboot",
-  "server system": "system",
-  "services ls": "services",
-  "services list": "services",
-  "keys ls": "keys",
-  "keys list": "keys",
-  "keys remove": "keys rm",
-  "users ls": "users",
-  "users list": "users",
-  "users remove": "users rm",
-  "users password": "users passwd",
-  "server swap": "swap",
-  "server hostname": "hostname",
-  "server timezone": "timezone",
-  "plugin ls": "plugins",
-  "plugin list": "plugins",
-  "plugins ls": "plugins",
-  "plugin remove": "plugin rm",
-  "plugin install": "plugin add",
-};
+
+export { aliases };
 
 export const byName = new Map(commands.map((cmd) => [cmd.name, cmd]));
 

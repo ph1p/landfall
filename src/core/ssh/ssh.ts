@@ -8,6 +8,7 @@ import { bytes } from "../lib/format";
 import type { Entry } from "../deploy/ignore";
 import { LATEST_MIGRATION } from "./migrations";
 import { shq } from "../lib/quote";
+import { remotePath, tenantEnv } from "./paths";
 import { ROOT } from "./templates";
 import { c, CliError, fail, REPORT } from "../lib/term";
 import { updateCommand, VERSION } from "../lib/version";
@@ -174,10 +175,16 @@ function spawnP(
  * put docker in /usr/local/bin, which only login shells have.
  */
 export const REMOTE_PATH = `PATH="$PATH:/usr/local/sbin:/usr/local/bin"`;
+/** REMOTE_PATH, and for a tenant its Docker endpoint. */
+export const remoteEnv = (s: Server) => (s.tenant ? `${REMOTE_PATH}; ${tenantEnv(s)}` : REMOTE_PATH);
 
 /** Run an interactive command (or a login shell when cmd is empty). */
 export async function sshExec(s: Server, cmd: string[] = []): Promise<number> {
-  const { code } = await spawnP("ssh", [...sshArgs(s, { tty: process.stdin.isTTY }), ...(cmd.length ? [`${REMOTE_PATH};`, ...cmd] : [])], {});
+  const { code } = await spawnP(
+    "ssh",
+    [...sshArgs(s, { tty: process.stdin.isTTY }), ...(cmd.length ? [`${remoteEnv(s)};`, ...cmd.map((c) => remotePath(s, c))] : [])],
+    {},
+  );
   return code;
 }
 
@@ -283,6 +290,7 @@ const staleCheck = (say: boolean) =>
   `if [ "$(id -u)" -ne 0 ]; then _have=" $(id -G) "; for _g in $(id -G "$(id -un)" 2>/dev/null || true); do case "$_have" in *" $_g "*) ;; *) ${say ? `echo ${STALE} >&2; ` : ""}exit ${STALE_CODE} ;; esac; done; unset _have _g; fi`;
 
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
+  if (s.tenant && o.sudo) fail(`this needs root on ${s.host}; ask its admin`);
   const env = {
     LANDFALL_RUN: journal.run,
     LANDFALL_ACTOR: journal.actor,
@@ -301,7 +309,7 @@ export async function runScript(s: Server, script: string, o: ScriptOpts = {}): 
   const attempt = (check: string) =>
     shared(s, () =>
       spawnP("ssh", [...sshArgs(s), o.sudo && !sudoPassword ? "sudo -n bash -s" : "bash -s"], {
-        input: withSudo(`set -euo pipefail\n${REMOTE_PATH}\n${header}\n${check}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${script}\n`, o.sudo),
+        input: withSudo(`set -euo pipefail\n${remoteEnv(s)}\n${header}\n${check}\n${waitFor ? `echo ${STARTED} >&2\n` : ""}${remotePath(s, script)}\n`, o.sudo),
         capture: o.capture,
         waitFor,
       }),
@@ -373,7 +381,7 @@ export function reach(s: Server, timeout = 5): Promise<Reach> {
  * a changed host key) is an error with ssh's own words, since lf setup would not help.
  */
 export async function setUpState(s: Server): Promise<"ready" | "bare" | "no-login"> {
-  const { code, stderr } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${ROOT}`], { capture: true, silent: true });
+  const { code, stderr } = await spawnP("ssh", [...sshArgs(s, { batch: true }), `test -d ${remotePath(s, ROOT)}`], { capture: true, silent: true });
   if (code !== 255) return code === 0 ? "ready" : "bare";
   if (/permission denied|too many authentication failures/i.test(stderr)) return "no-login";
   const why = stderr
@@ -432,6 +440,8 @@ const fileList = (list: Entry[]) => list.map((e) => `${e.path}\0`).join("");
  * server), rsync sends only what changed.
  */
 export async function upload(s: Server, localDir: string, remoteDir: string, list: Entry[], seed?: string): Promise<Sent> {
+  remoteDir = remotePath(s, remoteDir);
+  seed = seed && remotePath(s, seed);
   if (!fs.existsSync(localDir)) fail(`directory not found: ${localDir}`);
   const tar = async (sent: Sent) => (await tarUpload(s, localDir, remoteDir, list), sent);
   if (!seed) return tar("tar");
@@ -471,7 +481,7 @@ export async function sshPipe(s: Server, remote: string, local: string[] | { fil
   // COPYFILE_DISABLE stops macOS bsdtar from adding ._ AppleDouble files.
   const env = { ...process.env, COPYFILE_DISABLE: "1" };
   const exit = (p: ChildProcess) => new Promise<number>((done) => p.on("close", (c) => done(c ?? 1)));
-  const ssh = spawn("ssh", [...sshArgs(s), `${REMOTE_PATH}; ${remote}`], {
+  const ssh = spawn("ssh", [...sshArgs(s), `${remoteEnv(s)}; ${remotePath(s, remote)}`], {
     stdio: dir === "up" ? ["pipe", "inherit", "inherit"] : ["ignore", "pipe", "inherit"],
   });
   const done: Promise<number>[] = [exit(ssh)];

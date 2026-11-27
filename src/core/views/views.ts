@@ -63,7 +63,17 @@ export async function factsView(name: string, server: Server) {
   const [ips, caps] = await Promise.all([serverIps(server, f), serverCaps(server, f)]);
   const ip = pickIp(ips);
   // What a site gets when deployed without a domain and no main domain is set: <site>.<this>.
-  return { name, ...f, ...caps, ips, sslipIp: ip ?? null, sslipSuffix: ip ? sslipDomain("", ip).slice(1) : null };
+  const t = server.tenant;
+  return {
+    name,
+    ...f,
+    ...caps,
+    ips,
+    sslipIp: ip ?? null,
+    sslipSuffix: ip ? sslipDomain("", ip).slice(1) : null,
+    role: t ? ("tenant" as const) : ("admin" as const),
+    ...(t && { tenant: { user: server.user ?? "", domains: t.domains, port: t.port } }),
+  };
 }
 
 /** `lf stats --json` and `lf disk --json`. */

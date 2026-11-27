@@ -6,6 +6,7 @@ import { configDir, resolveServer, writeAtomic, type Server } from "../lib/confi
 import { adminLogin } from "../ssh/privilege";
 import { runScript, shq } from "../ssh/ssh";
 import { PRELUDE, ROOT, SITES, TRAEFIK_DIR } from "../ssh/templates";
+import { paths } from "../ssh/paths";
 import { ask, c, confirm, confirmRisky, fail, info, ok, printJson, step, table, warn } from "../lib/term";
 import { printBlocks } from "./print";
 import { COMMAND_NAME, PLUGIN_NAME, reservedOption, reservedShort, type Plugin, type PluginContext, type PluginInfo } from "./plugin-api";
@@ -166,16 +167,22 @@ export function pluginsView(): PluginInfo[] {
         ...(p.commands ?? []).map((x) => (x.name ? `${p.name} ${x.name}` : p.name)),
         ...(p.panel && !p.commands?.some((x) => x.name === "") ? [p.name] : []),
       ],
+      // What a tenant login may run of them (PluginCommand.tenant, PluginPanel.tenant).
+      tenantCommands: [
+        ...(p.commands ?? []).filter((x) => x.tenant).map((x) => (x.name ? `${p.name} ${x.name}` : p.name)),
+        ...(p.panel?.tenant && !p.commands?.some((x) => x.name === "") ? [p.name] : []),
+      ],
       ...(p.panel && {
         panel: {
           label: p.panel.label,
+          ...(p.panel.tenant && { tenant: true }),
           group: p.panel.group ?? "Machine",
           icon: p.panel.icon ?? "puzzle",
           ...(p.panel.views && { views: p.panel.views.map(({ id, label }) => ({ id, label })) }),
         },
       }),
     })),
-    ...failed.map((f) => ({ name: f.name, summary: "", source: f.source, commands: [], error: f.error })),
+    ...failed.map((f) => ({ name: f.name, summary: "", source: f.source, commands: [], tenantCommands: [], error: f.error })),
   ];
 }
 
@@ -241,7 +248,7 @@ export function pluginContext(plugin: string, on: string | undefined | null, run
     blocks: (blocks) => printBlocks(blocks),
     file: (f) => pluginFile(plugin, f),
     color: c,
-    paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR },
+    paths: server ? (({ root, sites, traefik }) => ({ root, sites, traefik }))(paths(server)) : { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR },
     lf: (argv) => (runLf ? runLf(name !== undefined && !argv.includes("-s") ? [...argv, "-s", name] : argv) : fail("lf() runs only in a command")),
   };
 }

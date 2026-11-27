@@ -122,6 +122,7 @@ lf ui                              # all of this in a local web UI
 | **main domain** | Optional, per server (`lf server domain vps example.com`). Sites then default to `<site>.example.com`. Without one, sites get `<site>.<ip-with-dashes>.sslip.io`. |
 | **release** | One per deploy. The last 5 stay (`--keep n`). `lf rollback` switches between them. |
 | **run** | One `lf` invocation that changed a server. `lf history` lists runs. `lf undo` reverts them. |
+| **tenant** | Opt-in. A user on your server with its own rootless Docker, sites and Traefik, limited to the domains you give it (`lf tenant add`). See [Tenants](https://ph1p.github.io/landfall/tenants). |
 
 The site comes from the argument, else from `./.landfall.json`.
 The server comes from `-s`, else from `./.landfall.json`, else the default server (`lf server use`).
@@ -143,6 +144,7 @@ Everything is at **[ph1p.github.io/landfall](https://ph1p.github.io/landfall/)**
 | [Updates](https://ph1p.github.io/landfall/updates) | OS packages, images, Docker Compose, vulnerability scans |
 | [Traefik](https://ph1p.github.io/landfall/traefik) | landfall's Traefik, HTTP/3, the dashboard, your own Traefik |
 | [Server administration](https://ph1p.github.io/landfall/system) | firewall, services, SSH keys, users, swap, hardening |
+| [Tenants](https://ph1p.github.io/landfall/tenants) | sharing a server: users with their own rootless Docker, sites and domains |
 | [Traffic, certificates and checks](https://ph1p.github.io/landfall/monitoring) | request stats, certificate state, HTTPS checks |
 | [Analytics](https://ph1p.github.io/landfall/analytics) | visitors, funnels, events and web vitals on your own server, cookieless by default |
 | [History and undo](https://ph1p.github.io/landfall/history) | the server journal, what `lf undo` reverts |

@@ -6,7 +6,7 @@ import { findRun, laterConflicts, pending, readJournal, removedUsers, stillNeede
 import { switchLogin } from "../../core/ssh/login";
 import { rootLogin } from "../../core/ssh/privilege";
 import { effectiveSsh } from "../../core/ssh/sshconfig";
-import { JOURNAL } from "../../core/ssh/templates";
+import { paths } from "../../core/ssh/paths";
 import { ago, c, confirm, confirmRemoval, fail, info, ok, step, warn, printJson } from "../../core/lib/term";
 import { firewallState, guardSsh } from "../../core/server/firewall";
 import { historyView } from "../../core/views/views";
@@ -63,7 +63,7 @@ export const historyLog = defineCommand({
     const { name, server } = serverTarget(o);
     if (o.json) return printJson(await historyView(server, Number(o.n) || 20));
     const runs = (await readJournal(server)).reverse().slice(0, Number(o.n) || 20);
-    if (!runs.length) return info(`nothing in ${JOURNAL} on ${name} yet`);
+    if (!runs.length) return info(`nothing in ${paths(server).journal} on ${name} yet`);
     for (const r of runs) {
       console.log(runLine(r));
       r.steps.forEach((x, i) => console.log(stepLine(x, i)));

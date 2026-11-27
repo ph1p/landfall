@@ -86,6 +86,10 @@ Enforced by `test/unit/layers.test.ts`:
 5. Commands that change a server: do the work in one `runScript` and journal every change (see below).
 6. Document it in `docs/pages/reference.md` and in the topic page under `docs/pages/`. Add it to the `--json` table in
    `docs/pages/automation.md` if it supports `--json`, and to "What cannot be undone" there if it cannot be undone.
+7. Tenant logins: a command a tenant may run goes into `TENANT_COMMANDS` (`src/core/server/tenant-policy.ts`);
+   everything else is refused for them. A new `READS` route in `src/ui/server/api.ts` declares `tenant`, and a new
+   UI section gets an entry in `SECTION_IF` or `SAME_FOR_TENANTS` (`src/ui/app/lib/sections.ts`). `ui-reads.test.ts`
+   checks both.
 
 ## Invariants
 

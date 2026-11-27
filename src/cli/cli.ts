@@ -9,6 +9,7 @@ import { BUILTIN } from "../plugins";
 import { JOB_INPUT, readJobInput } from "../core/lib/job-input";
 import { exitWithParent } from "../core/lib/job";
 import { journal, setSudoPassword } from "../core/ssh/ssh";
+import { running } from "../core/server/tenant-policy";
 import { askSecret, c, CliError, report, setAssumeYes } from "../core/lib/term";
 import { refreshUpdate, updateCheckOff, updateNotice } from "../core/lib/self-update";
 import { VERSION } from "../core/lib/version";
@@ -57,6 +58,7 @@ function help(print: (text: string) => void = console.log) {
       ],
     ],
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
+    ["Tenants", ["tenant add", "tenant ls", "tenant domains", "tenant limits", "tenant stop", "tenant start", "tenant rm", "tenant restore", "tenant off"]],
     [
       "Traefik",
       [
@@ -179,6 +181,7 @@ async function main(argv: string[], sudoPassword?: string): Promise<number> {
   await sudoFromUser(!!values["ask-sudo"], sudoPassword);
   if (values.environment !== undefined) process.env.LANDFALL_ENV = values.environment;
   journal.cmd = journalCmd(cmd, positionals, values);
+  running.cmd = cmd.name;
   const code = await cmd.run(positionals, values, passthrough);
   return typeof code === "number" ? code : 0;
 }

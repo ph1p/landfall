@@ -2,7 +2,7 @@ import type { Server } from "../lib/config";
 import { SITE_LINES, projectName, readSiteLine } from "../site/meta";
 import { journalSize } from "./reclaim";
 import { runScript } from "../ssh/ssh";
-import { ctrPs, KV, kvRecord, ROOT, SITES } from "../ssh/templates";
+import { ctrPs, KV, kvRecord, ROOT, SITES, TENANTS } from "../ssh/templates";
 
 /** Real filesystems, one line per device, and / whatever it is (overlay in a container, where /etc/hosts is a bind mount of the host's disk). */
 const DISKS = String.raw`df -Pk 2>/dev/null | awk 'NR > 1 && ($6 == "/" || $1 ~ /^\//) && $6 !~ /^\/(snap|boot|etc)(\/|$)/ && !seen[$1]++ { print "DISK\t" $6 "\t" $2 "\t" $3 "\t" $4 }'`;
@@ -12,9 +12,18 @@ const STATS = String.raw`
 set +e
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 ${KV}
+# Tenants' user slices: every one for the admin, only its own for a tenant.
+SL=""
+[ -d ${TENANTS}/ ] && me=$(id -u) && for c in /sys/fs/cgroup/user.slice/user-*.slice; do
+  [ -d "$c" ] || continue
+  u=$(basename "$c" .slice | cut -d- -f2)
+  [ -z "$LANDFALL_TENANT" ] || [ "$u" = "$me" ] || continue
+  n=$(id -nu "$u" 2>/dev/null) && [ -e ${TENANTS}/"$n".json ] && SL="$SL $u"
+done
 sample() {
   printf 'T%s\t%s\n' "$1" "$(cut -d' ' -f1 /proc/uptime)"
   printf 'CPU%s\t%s\n' "$1" "$(head -n1 /proc/stat)"
+  for u in $SL; do printf 'SCPU%s\t%s\t%s\n' "$1" "$u" "$(awk '$1 == "usage_usec" { print $2 }' /sys/fs/cgroup/user.slice/user-$u.slice/cpu.stat 2>/dev/null)"; done
   awk -v n="$1" 'NR > 2 { sub(/:/, " "); printf "NET%s\t%s\t%s\t%s\n", n, $1, $2, $10 }' /proc/net/dev
   # pid, cpu ticks, rss pages, name: the name may hold spaces, so split at ") <state> " after it.
   cat /proc/[0-9]*/stat 2>/dev/null | awk '{ i = match($0, /\) [A-Z] /); p = substr($0, 1, i - 1); split(substr($0, i + 2), a, " "); j = index(p, " ("); print substr(p, 1, j - 1) "\t" (a[12] + a[13]) "\t" a[22] "\t" substr(p, j + 2) }' > "$T/p$1"
@@ -32,6 +41,10 @@ kv load "$(cut -d' ' -f1-3 /proc/loadavg)"
 kv mem "$(awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree):/ {v[$1] = $2} END {print v["MemTotal:"], v["MemAvailable:"], v["SwapTotal:"], v["SwapFree:"]}' /proc/meminfo)"
 kv page "$(getconf PAGESIZE 2>/dev/null || echo 4096)"
 kv docker "$D"
+for u in $SL; do
+  c=/sys/fs/cgroup/user.slice/user-$u.slice
+  printf 'SLICE\t%s\t%s\t%s\t%s\t%s\n' "$u" "$(id -nu "$u")" "$(cat $c/memory.current 2>/dev/null)" "$(cat $c/memory.max 2>/dev/null)" "$(cat $c/cpu.max 2>/dev/null)"
+done
 ${DISKS}
 awk -F'\t' 'NR == FNR { t[$1] = $2; next } ($1 in t) { print "PROC\t" $1 "\t" ($2 - t[$1]) "\t" $3 "\t" $4 }' "$T/p1" "$T/p2" > "$T/procs"
 { sort -t"$(printf '\t')" -k3,3nr "$T/procs" | head -n 8; sort -t"$(printf '\t')" -k4,4nr "$T/procs" | head -n 8; } | sort -u
@@ -84,6 +97,18 @@ export interface Stats {
   /** Whether landfall's login can talk to docker. */
   docker: boolean;
   containers: ContainerStats[];
+  /** Tenants' use (lf tenant add): every tenant for the admin, only its own for a tenant. cpu in percent of one core. */
+  tenants?: TenantStats[];
+}
+
+export interface TenantStats {
+  user: string;
+  cpu: number;
+  /** Bytes. */
+  mem: number;
+  /** The limits lf tenant limits set: bytes, percent of one core. */
+  memMax?: number;
+  cpuMax?: number;
 }
 
 const UNITS: Record<string, number> = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 };
@@ -111,12 +136,16 @@ export function parseStats(out: string, now = new Date()): Stats {
   const restarts = new Map<string, number>();
   const ctrs: string[][] = [];
   const sites = new Map<string, string>();
+  const sliceCpu: Map<string, number>[] = [new Map(), new Map()];
+  const slices: string[][] = [];
   for (const line of out.split("\n")) {
     const f = line.split("\t");
     const k = f[0];
     if (/^T[12]$/.test(k)) t[+k[1] - 1] = Number(f[1]);
     else if (/^CPU[12]$/.test(k)) cpu[+k[3] - 1] = f[1].trim().split(/\s+/).slice(1).map(Number);
     else if (/^NET[12]$/.test(k)) net[+k[3] - 1].set(f[1], [Number(f[2]), Number(f[3])]);
+    else if (/^SCPU[12]$/.test(k)) sliceCpu[+k[4] - 1].set(f[1], Number(f[2]));
+    else if (k === "SLICE") slices.push(f);
     else if (k === "PROC") procs.push({ pid: Number(f[1]), ticks: Number(f[2]), rss: Number(f[3]), name: f.slice(4).join("\t") });
     else if (k === "DISK") disks.push({ mount: f[1], total: +f[2] * 1024, used: +f[3] * 1024, available: +f[4] * 1024 });
     else if (k === "STAT") stat.set(f[1], f);
@@ -183,6 +212,19 @@ export function parseStats(out: string, now = new Date()): Stats {
         };
       })
       .sort((a, b) => (a.site ?? a.project ?? "~").localeCompare(b.site ?? b.project ?? "~") || a.name.localeCompare(b.name)),
+    ...(slices.length && {
+      tenants: slices.map(([, uid, user, mem, memMax, cpuMax]): TenantStats => {
+        const used = (sliceCpu[1].get(uid) ?? 0) - (sliceCpu[0].get(uid) ?? 0);
+        const [quota, period] = (cpuMax ?? "").split(" ").map(Number);
+        return {
+          user,
+          cpu: pct(Math.max(0, used) / 1e4 / secs),
+          mem: Number(mem) || 0,
+          ...(Number(memMax) > 0 && { memMax: Number(memMax) }),
+          ...(quota > 0 && period > 0 && { cpuMax: Math.round((100 * quota) / period) }),
+        };
+      }),
+    }),
   };
 }
 

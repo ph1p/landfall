@@ -127,6 +127,9 @@ lf ssh vps -- docker ps
 lf reboot                                               # reboot, wait, check containers run again
 ```
 
+`lf server uninstall` refuses while the server has tenants. Run `lf tenant off --rm-tenants` first, then
+`lf tenant rm <user> --purge` for each (see [Tenants](tenants.md#turn-tenants-off)).
+
 ### What `server add` changes
 
 Nothing on the server. It writes a `Host <name>` block between `# >>> landfall:<name>` markers
@@ -143,6 +146,7 @@ lf stats blog -w         # one site's containers, refreshed every 5s (--interval
 lf disk                  # space by images, volumes, build cache, sites, container logs
 ```
 
+With [tenants](/tenants), `stats` also shows each tenant's CPU and memory against its limits. A tenant sees only its own.
 `stats` samples one second over ssh; nothing runs on the server between calls. One core = 100% process CPU.
 `disk` adds up folders, so a full disk takes seconds. Without root or passwordless sudo, it may miss root-owned folders and container logs.
 
@@ -285,3 +289,6 @@ change any file. Guard the deploy user's key like root's.
 
 A separate deploy user still helps: without a sudo password it can't install packages or change sshd or the firewall,
 and `lf history` shows its actions under its name.
+
+To let someone deploy without that power, make them a [tenant](tenants.md) instead: a user with its own rootless
+Docker, sites and Traefik, limited to the domains you give it.

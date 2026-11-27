@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
@@ -214,6 +215,35 @@ function noteTunnel(t: Omit<OpenTunnel, "pid" | "cmd" | "at">): () => void {
 /** What ssh prints when the server's sshd has AllowTcpForwarding no: forwards open, then every connection fails. */
 export const FORWARD_DENIED = /administratively prohibited/;
 
+const RELAY_IMAGE = "alpine/socat";
+
+/** The script that starts a relay on the network that reaches addr:port; prints the host port it got. */
+export function relayScript(name: string, addr: string, port: number): string {
+  return `n=
+for x in $(docker network ls -q); do
+  docker network inspect -f '{{range .Containers}}{{.IPv4Address}} {{end}}' "$x" | tr ' ' '\\n' | grep -q '^'${shq(addr)}'/' && { n=$x; break; }
+done
+[ -n "$n" ] || { echo "no Docker network reaches "${shq(addr)} >&2; exit 1; }
+docker run -d --rm --name ${shq(name)} --network "$n" -p 127.0.0.1::${port} ${RELAY_IMAGE} TCP-LISTEN:${port},fork,reuseaddr TCP:${shq(addr)}:${port} >/dev/null
+docker port ${shq(name)} ${port}/tcp | head -n1 | sed 's/.*://'`;
+}
+
+/**
+ * A rootless Docker's containers live in a namespace of their own: the server cannot reach their addresses.
+ * A small container on their network listens on the server's loopback instead, until `stop`.
+ */
+async function relay(s: Server, addr: string, port: number) {
+  const name = `lf-tunnel-${randomBytes(4).toString("hex")}`;
+  const { stdout } = await runScript(s, relayScript(name, addr, port), { capture: true });
+  const at = Number(stdout.trim());
+  const stop = () => runScript(s, `docker rm -f ${shq(name)} >/dev/null 2>&1 || true`, { capture: true }).then(() => {});
+  if (!Number.isInteger(at) || at < 1) {
+    await stop();
+    fail(`the tunnel relay on ${s.host} did not start`);
+  }
+  return { port: at, stop };
+}
+
 /**
  * Forward localhost:<local> to addr:port as the server sees it, until Ctrl-C (or the job is stopped).
  * Nothing changes on the server: no port is published, the site's domains stay as they are.
@@ -225,9 +255,18 @@ export async function openTunnel(
   port: number,
   o: { local?: string; lan?: boolean; path?: string; what: string; note?: string; as?: AsHost; scheme?: string },
 ) {
+  const via = s.tenant && addr !== "127.0.0.1" ? await relay(s, addr, port) : undefined;
+  try {
+    await forward(s, via ? "127.0.0.1" : addr, via?.port ?? port, port, o);
+  } finally {
+    await via?.stop();
+  }
+}
+
+async function forward(s: Server, addr: string, port: number, wanted: number, o: Parameters<typeof openTunnel>[3]) {
   const bind = o.lan ? "0.0.0.0" : "127.0.0.1";
   const want = o.local === undefined ? undefined : checkInt(o.local, "--local", 1, 65535);
-  const local = await freePort(want ?? (port >= 1024 ? port : 8080), bind);
+  const local = await freePort(want ?? (wanted >= 1024 ? wanted : 8080), bind);
   if (want && local !== want) fail(`local port ${want} is taken; pick another with --local`);
   // With `as`, ssh forwards to a side port and the host proxy serves the one shown.
   const fwd = o.as ? await freePort() : local;

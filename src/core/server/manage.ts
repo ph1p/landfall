@@ -41,6 +41,12 @@ printf 'ROOT\t%s\n' "$([ "$(id -u)" -eq 0 ] || [ -n "$S" ] && echo 1)"
 ${LOG_SIZES}
 printf 'JOURNAL\t%s\n' "${JOURNAL_USAGE}"
 `;
+/** A tenant's container logs are its own files, and the system journal is not its to vacuum. */
+const TENANT_LOGS_PLAN = String.raw`
+S=""
+printf 'ROOT\t1\nNOJOURNAL\n'
+${LOG_SIZES}
+`;
 
 export function parsePrunePlan(out: string, all = false): PrunePlan {
   const plan: PrunePlan = { docker: true, all, images: [], buildCache: 0, networks: [] };
@@ -74,6 +80,7 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
     else if (f[0] === "ROOT") logs().root = f[1] === "1";
     else if (f[0] === "LOG") logs().size += (+f[2] || 0) * 1024;
     else if (f[0] === "JOURNAL") logs().journal = journalSize(f[1] ?? "");
+    else if (f[0] === "NOJOURNAL") logs().noJournal = true;
     else if (f[0] === "NET" && f[1]) nets.push(f[1]);
     else if (f[0] === "PROXY") proxyNet = parseProxy(f[1] ?? "")?.network ?? NETWORK;
     else if (f[0] === "VOLUMES") plan.volumes = [];
@@ -111,7 +118,7 @@ export function parsePrunePlan(out: string, all = false): PrunePlan {
 /** volumes "unsized": skip docker system df -v, slow on big servers, for a caller that has the sizes already. */
 export async function prunePlan(s: Server, o: { all?: boolean; logs?: boolean; volumes?: boolean | "unsized" } = {}): Promise<PrunePlan> {
   const vols = o.volumes ? `${VOLUMES_PLAN}${o.volumes === true ? `${VOLUME_SIZES}\n` : ""}` : "";
-  const { stdout } = await runScript(s, `${PRUNE_PLAN}${o.logs ? LOGS_PLAN : ""}${vols}exit 0\n`, { capture: true });
+  const { stdout } = await runScript(s, `${PRUNE_PLAN}${o.logs ? (s.tenant ? TENANT_LOGS_PLAN : LOGS_PLAN) : ""}${vols}exit 0\n`, { capture: true });
   return parsePrunePlan(stdout, o.all);
 }
 
@@ -143,7 +150,11 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
       ? [
           String.raw`ids=$($SUDO docker ps -aq 2>/dev/null)`,
           String.raw`[ -z "$ids" ] || $SUDO docker inspect -f '{{.LogPath}}' $ids 2>/dev/null | $SUDO sh -c 'while IFS= read -r p; do [ -n "$p" ] && : > "$p" && rm -f "$p".*; done'`,
-          `! command -v journalctl >/dev/null 2>&1 || $SUDO journalctl --rotate --vacuum-size=${JOURNAL_KEEP} >/dev/null 2>&1 || printf 'FAILED\\tjournal\\t-\\n'`,
+          ...(s.tenant
+            ? []
+            : [
+                `! command -v journalctl >/dev/null 2>&1 || $SUDO journalctl --rotate --vacuum-size=${JOURNAL_KEEP} >/dev/null 2>&1 || printf 'FAILED\\tjournal\\t-\\n'`,
+              ]),
         ]
       : []),
     `record ${shq(`pruned ${pruneSummary(plan)}`)}`,

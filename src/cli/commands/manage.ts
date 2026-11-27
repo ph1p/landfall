@@ -9,6 +9,7 @@ import { c, confirm, confirmRemoval, fail, info, ok, step, table, warn, printJso
 
 function logSizes(l: NonNullable<PrunePlan["logs"]>) {
   if (!l.root) return `container logs and journal ${c.dim("(sizes need root or passwordless sudo)")}`;
+  if (l.noJournal) return `${bytes(l.size)} of container logs`;
   return `${bytes(l.size)} of container logs, journal ${l.journal ? bytes(l.journal) : c.dim("unknown")}`;
 }
 
@@ -29,7 +30,7 @@ function printPlan(name: string, p: PrunePlan) {
   } else console.log(`${c.bold(name)}: no unused images`);
   console.log(`build cache: ${p.buildCache ? bytes(p.buildCache) : c.dim("0")}${p.all ? "" : c.dim(" reclaimable (--all also removes cache still in use)")}`);
   if (p.networks.length) console.log(`networks: ${p.networks.join(", ")} ${c.dim("(no container uses them)")}`);
-  if (p.logs) console.log(`logs: ${logSizes(p.logs)}, journal kept at ${JOURNAL_KEEP}`);
+  if (p.logs) console.log(`logs: ${logSizes(p.logs)}${p.logs.noJournal ? "" : `, journal kept at ${JOURNAL_KEEP}`}`);
   if (p.volumes) {
     const vols = removableVolumes(p);
     if (vols.length) {
@@ -61,6 +62,7 @@ export const pruneCmd = defineCommand({
   },
   async run(_, o) {
     const { name, server } = serverTarget(o);
+    if (o.logs && server.tenant) fail(`--logs needs root on ${name}; ask its admin`);
     if (!o.json) step(`measuring what can go on ${name}`);
     const plan = await prunePlan(server, { all: o.all, logs: o.logs, volumes: o.volumes });
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);

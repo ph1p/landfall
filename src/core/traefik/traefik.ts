@@ -13,6 +13,7 @@ import {
   updateConfig,
   patchServer,
   type Server,
+  type Tenant,
 } from "../lib/config";
 import { runScript, shq, writeFileCmd } from "../ssh/ssh";
 import {
@@ -79,6 +80,11 @@ export function traefikSettings(server: Server, o: Pick<TraefikInstall, "email" 
   };
 }
 
+function tenantTraefik(t: Tenant) {
+  const trustedIP = t.trustedIP ?? fail("the tenant file has no proxy address; ask the admin to update landfall and run lf tenant add again");
+  return { uid: t.uid, port: t.port, trustedIP };
+}
+
 export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
   [
     t.image,
@@ -108,7 +114,13 @@ export async function installTraefik(name: string, server: Server, o: TraefikIns
     password = o.dashboardPassword ?? randomBytes(12).toString("base64url");
     dashboard = { host, user, htpasswd: await htpasswd(user, password) };
   }
-  const compose = traefikCompose({ ...t, dashboard });
+  const tenant = server.tenant && tenantTraefik(server.tenant);
+  if (tenant) {
+    if (o.hostNetwork) fail("a tenant's Traefik runs behind the server's own; it cannot take the host network");
+    if (dashboard) fail("a tenant's Traefik has no dashboard domain; lf traefik dashboard opens it through a tunnel");
+    Object.assign(t, { hostNetwork: false, http3: false });
+  }
+  const compose = traefikCompose({ ...t, dashboard, tenant });
   if (t.hostNetwork) await openHostPorts(server, t.http3);
   await runScript(
     server,
@@ -120,7 +132,13 @@ ${writeFileCmd("dynamic/landfall.yml", TLS_FILE)}
 # The dashboard tunnel arrives from the gateway of the network (bridge mode): only it may use the tunnel entrypoint.
 gw=$(docker network inspect ${NETWORK} -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null | tr ' ' '\\n' | grep -m1 '[.]' || true)
 printf 'LANDFALL_GATEWAY=%s\\n' "\${gw:-127.0.0.1}" > .env
-if [ -e docker-compose.yml ]; then
+${
+  tenant
+    ? `sub=$(docker network inspect ${NETWORK} -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | tr ' ' '\\n' | grep -m1 '[.]' || true)
+printf 'LANDFALL_SUBNET=%s\\n' "\${sub:-127.0.0.1/32}" >> .env
+`
+    : ""
+}if [ -e docker-compose.yml ]; then
   ${writeFileCmd(".docker-compose.yml.new", compose)}
   # .landfall.sha256: what landfall wrote last. A different file was edited by hand.
   if [ -f .landfall.sha256 ] && ! sha256sum -c --status .landfall.sha256 2>/dev/null && ! cmp -s .docker-compose.yml.new docker-compose.yml && [ -z "${o.force ? "1" : ""}" ]; then

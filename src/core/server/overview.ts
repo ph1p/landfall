@@ -5,7 +5,7 @@ import { isUp, worse, statusKind } from "../site/status";
 import { routed, siteDomains, siteRedirects, siteMain } from "../site/routing";
 import { scaleView, scales, type ScaleRow } from "../site/scale";
 import { runScript } from "../ssh/ssh";
-import { ctrPs, PROXY_CTR, PROXY_FILE, SITES, TUNNEL_ROUTER } from "../ssh/templates";
+import { ctrPs, PROXY_CTR, PROXY_FILE, SITES, TRAEFIK_DIR, TUNNEL_ROUTER } from "../ssh/templates";
 import { warn } from "../lib/term";
 import { REDIRECTS_STATE, redirectsStateOf, type RedirectsState } from "../traefik/server-redirects";
 import { traefikStateOf, type TraefikState } from "../traefik/traefik";
@@ -68,6 +68,8 @@ export interface Overview {
   redirects: RedirectsState;
   /** Who runs the Traefik: an adopted proxy's container, whose compose file is in landfall's Traefik folder. */
   owner: Omit<TraefikState, "sites">;
+  /** The domains the central Traefik passes to tenants: no site here may route them. */
+  tenants?: { user: string; domains: string[] }[];
 }
 
 export interface Unrouted {
@@ -175,6 +177,7 @@ P=${PROXY_CTR}
 printf 'TRAEFIK\\t%s\\t%s\\t%s\\n' "$(docker ps -a --filter "name=^$P$" --format '{{.Status}}' 2>/dev/null || true)" "$P" "$([ -f ${PROXY_FILE} ] && echo 1)"
 ${SITE_LINES}
 ${REDIRECTS_STATE}
+for _f in ${TRAEFIK_DIR}/dynamic/tenant-*.yml; do [ ! -r "$_f" ] || printf 'TENANT\\t%s\\t%s\\n' "$(basename "$_f" .yml)" "$(sed -n 's/^# domains: //p' "$_f")"; done
 ${ctrPs(true)} 2>/dev/null || true
 # Docker is there but does not answer (no access to its socket, daemon down): say why, an empty list would lie.
 ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 || printf 'DOCKER\\t%s\\n' "$(docker ps -q 2>&1 | tail -n1)"; }
@@ -203,6 +206,7 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
     const [kind, a = "", b = "", project = "", service = "", image = "", ports = ""] = line.split("\t");
     if (kind === "READY") o.ready = a === "1";
     if (kind === "DOCKER") o.docker = a || "docker ps failed";
+    if (kind === "TENANT") (o.tenants ??= []).push({ user: a.replace(/^tenant-/, ""), domains: b.split(" ").filter(Boolean) });
     if (kind === "TRAEFIK") {
       o.traefik = a;
       o.proxy = b || "traefik";

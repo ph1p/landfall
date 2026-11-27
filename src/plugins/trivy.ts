@@ -163,6 +163,7 @@ export default definePlugin({
   commands: [
     {
       name: "",
+      tenant: true,
       summary: "Show what Trivy keeps on the server and what the last scans found.",
       options: { json },
       async run(ctx, _, o) {
@@ -193,6 +194,7 @@ export default definePlugin({
     },
     {
       name: "images",
+      tenant: true,
       args: "[site...]",
       summary: "Scan the running images for known vulnerabilities and keep a summary for lf trivy and the web UI (lf scan for every detail).",
       options: { json, others: { type: "boolean", desc: "also containers landfall did not deploy", default: true } },
@@ -221,6 +223,7 @@ export default definePlugin({
     },
     {
       name: "files",
+      tenant: true,
       args: "[site...]",
       summary: "Scan the sites' current releases for secrets and misconfigurations (.env files are skipped). Changes nothing.",
       options: { json },
@@ -244,6 +247,7 @@ export default definePlugin({
     },
     {
       name: "rm",
+      tenant: true,
       summary: "Remove Trivy's image and databases from the server (the next scan downloads them again).",
       async run(ctx) {
         ctx.log.step(`removing Trivy from ${ctx.name}`);
@@ -254,6 +258,7 @@ export default definePlugin({
   ],
   aliases: { "trivy remove": "trivy rm", "trivy scan": "trivy images" },
   panel: {
+    tenant: true,
     label: "Trivy",
     group: "Machine",
     icon: "scan",

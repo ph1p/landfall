@@ -23,7 +23,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf server list [-a] [-c] [--json]` | Registered servers. `--all` adds ssh aliases except git hosts (github.com, `gitlab.*`, `User git` …). `--check` tries a key login: `ok`, `login` (key refused) or `down`. Alias: `servers`. |
 | `lf server info [name] [--json]` | OS and release support, kernel, uptime, CPU, RAM, disk, addresses, containers, the landfall version that changed the server last. Alias: `info`. |
 | `lf server upgrade [name] [--dry-run] [--json]` | Runs the upgrades a server written by an older landfall lacks. Journaled, `lf undo` reverts each. Refuses a server a newer landfall upgraded. `--json` changes nothing. |
-| `lf stats [site] [-w] [--interval 5] [--json]` | Live CPU, memory, swap, disks, network, top processes, per-container usage and restarts. A site limits it to its containers. `-w` refreshes every `--interval` seconds. Alias: `server stats`. |
+| `lf stats [site] [-w] [--interval 5] [--json]` | Live CPU, memory, swap, disks, network, top processes, per-container usage and restarts, and each tenant's use against its limits. A site limits it to its containers. `-w` refreshes every `--interval` seconds. Alias: `server stats`. |
 | `lf disk [--json]` | Disk use: filesystems, Docker images, containers, volumes, build cache (reclaimable), sites and releases, largest volumes and logs, systemd journal. Alias: `server disk`. |
 | `lf traffic [site] [--since 24h] [--json]` | Requests, 4xx/5xx, median and 95% response time, bytes per site, from Traefik's access log. A site or host adds requests per minute/hour, top paths, failures, clients. Alias: `server traffic`. |
 | `lf certs [--since 7d] [--json]` | Certificates per domain (days left, expiry, issuer, staging), Traefik's others, recent certificate errors. Alias: `server certs`. |
@@ -55,9 +55,22 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf server use <name>` | Sets the default server. |
 | `lf config [--tunnel-only] [--email e] [--keep n] [--default name] [--unset key] [--json]` | Defaults for all servers (a server's own wins), and every place landfall writes. |
 | `lf server rm <name> [--ssh-config]` | Forgets a server locally. `--ssh-config` also removes its `Host` block. |
-| `lf server uninstall <name> [--volumes] [--keep-setup] [--force]` | Deletes sites, Traefik and `/opt/landfall`, reverts setup (deploy user, hardening, firewall), forgets the server. Docker, packages, root's key and adopted sites stay. Alias: `uninstall`. |
+| `lf server uninstall <name> [--volumes] [--keep-setup] [--force]` | Deletes sites, Traefik and `/opt/landfall`, reverts setup (deploy user, hardening, firewall), forgets the server. Docker, packages, root's key and adopted sites stay. Refuses while the server has [tenants](tenants.md#turn-tenants-off). Alias: `uninstall`. |
 | `lf ssh [name] [-- cmd]` | Shell, or one command. |
 | `lf keygen <name>` | Creates `~/.ssh/landfall_<name>` and prints the public key. |
+
+**Tenants** (see [Tenants](tenants.md))
+
+| command | what it does |
+|---|---|
+| `lf tenant add <user> --key <key\|file.pub> --domain d [--domain d…] [--port p] [--memory 2G] [--cpu 200%] [--tasks 2000] [--provider-firewall] [--force]` | Adds a user with its own rootless Docker, sites and Traefik, serving only its domains (`*.example.com`: one level of subdomains). The first tenant moves Traefik to the host network (a short outage): it asks first, and `-y` does not answer; `--force` does. Needs ufw, or `--provider-firewall`. Undoable. |
+| `lf tenant ls [--sizes] [--json]` | Every tenant: port, state, Docker, sites, containers, memory, limits, domains. `--sizes` adds disk use. |
+| `lf tenant domains <user> [--add d] [--rm d]` | Gives or takes back domains (both repeat). At least one stays; no overlap with other tenants. Undoable. |
+| `lf tenant limits <user> [--memory 2G] [--cpu 200%] [--tasks 2000]` | Memory, CPU and task limits on the tenant's systemd slice; `none` removes one. Undoable. |
+| `lf tenant stop <user>` / `start <user>` | Stops (asks first) or starts the tenant's Docker. Undoable. |
+| `lf tenant rm <user> [--purge]` | Deactivates: logins, Docker, routes and cron stop; user, data, port and domains stay. Undoable, or `lf tenant restore`. `--purge`: deletes the user and all its data (type the name); cannot be undone. |
+| `lf tenant restore <user>` | Brings a removed tenant back. |
+| `lf tenant off [--rm-tenants] [--remove-packages]` | Reverses what the first tenant changed (a short outage). Refuses while tenants are active, unless `--rm-tenants`. Packages stay unless `--remove-packages`. Undoable, except removed packages. |
 
 **Sites** (see [Deploy a site](deploy.md), [Day-to-day](sites.md), [Volumes and backups](volumes.md))
 
@@ -122,7 +135,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf firewall [--json]` | ufw rules; reachability per listening port. |
 | `lf firewall allow` / `deny <port[/proto]> [--from ip] [--comment c] [--force]` | Adds a rule. Denies go first and win. |
 | `lf firewall update <n\|rule> [--port p] [--from ip] [--comment c] [--action allow\|deny\|limit] [--force]` | Changes a rule. |
-| `lf firewall rm <n\|rule> [--force]` / `enable [--force]` / `disable` | Removes a rule; ufw on/off. `--force`: even if it blocks ssh (enable: ports in use). |
+| `lf firewall rm <n\|rule> [--force]` / `enable [--force]` / `disable [--force]` | Removes a rule; ufw on/off. `--force`: even if it blocks ssh (enable: ports in use; disable: the server has tenants). |
 | `lf updates [--no-refresh] [--all] [--json]` | Pending packages, newer images, Docker/compose versions. |
 | `lf update [site...] [--packages] [--security] [--reboot] [--images] [--compose]` | Image and compose updates are undoable. Alias: `upgrade`. |
 | `lf scan [site...] [--all] [--fixable] [--no-others] [--json] [--remove]` | Trivy vulnerability scan of running images, with fixes. |

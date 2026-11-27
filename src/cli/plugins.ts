@@ -6,6 +6,7 @@ import { fail } from "../core/lib/fail";
 import { dropPlugin, pluginContext, plugins } from "../core/plugins/plugins";
 import { printJson } from "../core/lib/term";
 import { printBlocks } from "../core/plugins/print";
+import { tenantPluginCommands } from "../core/server/tenant-policy";
 
 type Runner = (argv: string[]) => Promise<number>;
 
@@ -72,5 +73,7 @@ export function registerPlugins(lf: Runner) {
       pluginCommandNames.add(cmd.name);
     }
     for (const [k, to] of al) aliases[k] = to;
+    for (const pc of p.commands ?? []) if (pc.tenant) tenantPluginCommands.add(pc.name ? `${p.name} ${pc.name}` : p.name);
+    if (p.panel?.tenant) tenantPluginCommands.add(p.name);
   }
 }

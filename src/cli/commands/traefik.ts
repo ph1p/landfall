@@ -30,9 +30,13 @@ import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/ss
 import { runScript, shq, sshExec } from "../../core/ssh/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/ssh/templates";
 import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table, warn } from "../../core/lib/term";
+import { tenantsOn } from "../../core/server/tenants";
+import { freshTenant } from "../../core/server/tenant";
 
 /** lf traefik setup: install or reconfigure landfall's Traefik, after the checks that keep it from breaking the server. */
 async function setupTraefik(name: string, server: Server, opts: Parameters<typeof installTraefik>[2]) {
+  // The server's own Traefik holds 80/443: the probe below would call that a conflict.
+  if (server.tenant) return installTraefik(name, await freshTenant(name, server), opts);
   const probe = await probeServer(server);
   const t = assessTraefik(probe);
   if (t.status === "conflict") fail(`not touching ${name}: ${t.detail}`);
@@ -66,6 +70,10 @@ export const traefikSetup = defineCommand({
   },
   async run(_, o) {
     const { name, server } = serverTarget(o);
+    if (!server.tenant && (await tenantsOn(server))) {
+      if (o["host-network"] === false) fail(`${name} has tenants: its Traefik stays on the host network (lf tenant off first)`);
+      o["host-network"] = true;
+    }
     await setupTraefik(name, server, {
       email: o.email && checkEmail(o.email),
       staging: o.staging,
@@ -97,6 +105,7 @@ except for lf traefik access-log when you run it.`,
   },
   async run([ctr], o) {
     const { name, server } = serverTarget(o);
+    if (await tenantsOn(server)) fail(`${name} has tenants: they need landfall's Traefik (lf tenant off first)`);
     const probe = await probeServer(server);
     const found = foreignProxy(probe.values.foreign_proxy);
     const container = ctr ?? found?.name;

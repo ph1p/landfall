@@ -59,6 +59,7 @@ export async function rootVia(s: Server): Promise<"root" | "sudo" | "nosudo" | "
  * before anything runs.
  */
 export async function adminLogin(s: Server, what: string): Promise<Server> {
+  noTenant(s, what);
   const me = effectiveSsh(s).user;
   const via = await rootVia(s);
   if (via === "root") return s;
@@ -75,6 +76,9 @@ export async function adminLogin(s: Server, what: string): Promise<Server> {
   return (sudoNote(what, me), s);
 }
 
+// A tenant has no root: asking for a sudo password would only hang or mislead.
+const noTenant = (s: Server, what: string) => s.tenant && fail(`${what} needs root; ${s.host} is a tenant login, ask its admin`);
+
 /** Says, before it runs, that `what` gets root through sudo. */
 export const sudoNote = (what: string, me: string) => info(c.dim(`${what} runs as root: sudo as ${me}${hasSudoPassword() ? " with the password given" : ""}`));
 
@@ -83,6 +87,7 @@ export const sudoNote = (what: string, me: string) => info(c.dim(`${what} runs a
  * Fails, naming `how`, without a terminal, when a password was given already, or when sudo refuses it.
  */
 export async function askSudo(s: Server, what: string, how = ROOT_HINT) {
+  noTenant(s, what);
   const me = effectiveSsh(s).user;
   if (hasSudoPassword() || !interactive())
     fail(`${what} needs root: ${me} is not root and may not sudo${hasSudoPassword() ? " with the password given" : " without a password"}; ${how}`);

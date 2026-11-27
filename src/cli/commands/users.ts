@@ -58,7 +58,7 @@ export const usersList = defineCommand({
       ["", "user", "uid", "sudo", "password", "keys", "shell"].map(c.dim),
       ...u.accounts.map((a) => [
         a.me ? c.green("★") : "",
-        a.name,
+        a.tenant ? `${a.name} ${c.cyan("tenant")}` : a.name,
         String(a.uid),
         a.sudo ? (a.nopasswd ? c.yellow("yes, no password") : "yes") : c.dim("no"),
         pwLabel(a),
@@ -136,6 +136,7 @@ export const usersRemove = defineCommand({
     if (!user) fail("usage: lf users rm <name>");
     const { name, admin, a } = await load(o, user);
     checkTakeable(a, `cannot remove ${user}`);
+    if (a.tenant) fail(`${user} is a tenant: lf tenant rm ${user} --purge removes it`);
     await confirmRemoval(`Remove ${user} from ${name}${o["keep-home"] ? "" : `, with ${a.home}`}? This cannot be undone.`, user);
     await removeUser(admin, user, o["keep-home"]);
     ok(`removed ${user}${o["keep-home"] ? `; ${a.home} stays` : ""}`);
