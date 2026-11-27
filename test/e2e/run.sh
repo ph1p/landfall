@@ -13,7 +13,7 @@ cleanup() {
   [ -z "${UI_PID:-}" ] || kill "$UI_PID" 2>/dev/null || true
   [ -z "${TUNNEL_PID:-}" ] || kill "$TUNNEL_PID" 2>/dev/null || true
   [ "${KEEP:-}" = 1 ] && { echo "kept container $NAME and $WORK"; return; }
-  docker rm -fv "$NAME" "$NAME-fresh" "$NAME-deb" "$NAME-fedora" "$NAME-rocky" >/dev/null 2>&1 || true
+  docker rm -fv "$NAME" "$NAME-tn" "$NAME-fresh" "$NAME-deb" "$NAME-fedora" "$NAME-rocky" >/dev/null 2>&1 || true
   [ -z "${FRESH_PORT:-}" ] || ssh-keygen -R "[127.0.0.1]:$FRESH_PORT" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -24,7 +24,7 @@ die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 # E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
 SECTIONS="static exposure spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
-  system versions git security traefik remove firewall undo ui undo-all uninstall fresh debian dnf"
+  system versions git security traefik remove firewall undo ui undo-all uninstall tenants fresh debian dnf"
 needs() {
   case $1 in
     environments) echo secrets ;;
@@ -1229,6 +1229,111 @@ mkdir -p "$WORK/freshsite" && echo "fresh site" > "$WORK/freshsite/index.html"
 docker exec "$NAME-fresh" sh -c 'id deploy >/dev/null && docker inspect traefik >/dev/null && [ -f /opt/landfall/sites/freshsite/site.json ]' \
   || { cat "$WORK/fresh-deploy.log"; die "deploy --host: setup, traefik, site"; }
 pass "deploy --host sets up a new server with the password, then deploys"
+fi
+
+if want tenants; then echo "== tenants: rootless Docker per user"
+# Ubuntu with systemd and docker-ce: what rootless Docker needs. Its own box, so tenant off can be compared with before.
+TN_SSH=${TN_SSH:-2228}; TN_HTTPS=${TN_HTTPS:-18446}
+docker build -q -t landfall-e2e-tenants "$ROOT/test/e2e/tenants" >/dev/null
+docker rm -fv "$NAME-tn" >/dev/null 2>&1 || true
+# Its own cgroup namespace: rootless dockerd finds user.slice at the root, as on a real server.
+# Volumes for Docker's images: no overlay on overlay.
+docker run -d --name "$NAME-tn" --privileged --cgroupns=private \
+  -v /var/lib/docker -v /var/lib/containerd -v /opt/landfall/tenants -p "$TN_SSH:22" -p "$TN_HTTPS:443" \
+  -e AUTHORIZED_KEY="$(cat "$WORK/key.pub")" landfall-e2e-tenants >/dev/null
+for _ in $(seq 1 60); do docker exec "$NAME-tn" docker info >/dev/null 2>&1 && ssh-keyscan -p "$TN_SSH" 127.0.0.1 >/dev/null 2>&1 && break; sleep 1; done
+tn() { docker exec "$NAME-tn" "$@"; }
+as() { ssh -F "$LANDFALL_SSH_CONFIG" -o BatchMode=yes "$@"; }
+tdocker() { local u=$1; shift; as "$u" "docker -H unix:///run/user/\$(id -u)/docker.sock $*"; }
+tget() { curl -sk --max-time 10 --resolve "$1:$TN_HTTPS:127.0.0.1" "https://$1:$TN_HTTPS/"; }
+texpect() {
+  for _ in $(seq 1 30); do tget "$1" | has "$2" && return; sleep 1; done
+  echo "got: $(tget "$1" | head -c 300)"; die "https://$1 does not contain '$2'"
+}
+state() { tn sh -c 'stat -c "%a %n" /opt/landfall /opt/landfall/* | grep -v /opt/landfall/tenants; docker inspect -f "{{.HostConfig.NetworkMode}}" traefik; ufw show added'; }
+lf setup tbox --host 127.0.0.1 --port "$TN_SSH" --key "$WORK/key" --email test@example.com --staging -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "setup tbox"; }
+state >"$WORK/tn-before.txt"
+lf tenant ls -s tbox --json | has '"on": false' || die "tenant ls on a server without tenants"
+for u in anna ben; do ssh-keygen -q -t ed25519 -N "" -f "$WORK/$u"; done
+
+out=$(lf tenant add anna -s tbox --key "$WORK/anna.pub" -d anna.test -y 2>&1) && die "-y alone accepts the first tenant's outage"
+has "pass --force" <<<"$out" || die "the first tenant asks for --force: $out"
+lf tenant add anna -s tbox --key "$WORK/anna.pub" -d anna.test -d '*.anna.test' --memory 256M --force >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "tenant add anna"; }
+{ has "lf traefik setup" "$WORK/tn.log"; } || die "tenant add says what comes next"
+[ "$(tn docker inspect -f '{{.HostConfig.NetworkMode}}' traefik)" = host ] || die "central Traefik on the host network"
+lf tenant add ben -s tbox --key "$WORK/ben.pub" -d ben.test -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "tenant add ben"; }
+out=$(lf tenant add carl -s tbox --key "$WORK/ben.pub" -d blog.anna.test -y 2>&1) && die "a domain of another tenant"
+has "of tenant anna" <<<"$out" || die "domain clash: $out"
+pass "tenant add: two tenants, a domain only once, central Traefik on the host network"
+
+for u in anna ben; do
+  lf server add "$u" --host 127.0.0.1 --port "$TN_SSH" --user "$u" -i "$WORK/$u" </dev/null >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "server add $u"; }
+  has "is a tenant on" "$WORK/tn.log" || { cat "$WORK/tn.log"; die "server add notices the tenant login $u"; }
+  lf traefik setup -s "$u" --email test@example.com --staging -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "traefik setup as $u"; }
+  tn sh -c "d=/opt/landfall/tenants/$u/traefik/dynamic && cp /e2e/cert.pem /e2e/key.pem \$d/ &&
+    printf 'tls:\n  certificates:\n    - certFile: /etc/traefik/dynamic/cert.pem\n      keyFile: /etc/traefik/dynamic/key.pem\n' > \$d/e2e.yml && chown -R $u: \$d"
+done
+mkdir -p "$WORK/tsite/dist" && echo '<h1>anna blog</h1>' > "$WORK/tsite/dist/index.html"
+(cd "$WORK/tsite" && lf deploy -s anna -d blog.anna.test -y >"$WORK/tn.log" 2>&1) || { cat "$WORK/tn.log"; die "deploy as anna"; }
+texpect blog.anna.test "anna blog"
+pass "a tenant sets up its Traefik and deploys; the central Traefik passes its domain through"
+
+out=$(cd "$WORK/tsite" && lf deploy -s ben -d shop.anna.test -y 2>&1) && die "ben deploys on anna's domain"
+has "not among your domains" <<<"$out" || die "ben on anna's domain: $out"
+tdocker ben run -d --name hijack --network web -l traefik.enable=true -l "'traefik.http.routers.hj.rule=Host(\`blog.anna.test\`)'" \
+  -l traefik.http.routers.hj.entrypoints=websecure -l traefik.http.routers.hj.tls=true -l traefik.http.services.hj.loadbalancer.server.port=80 \
+  traefik/whoami >/dev/null || die "ben runs a container"
+sleep 3; tget blog.anna.test | has "anna blog" || die "ben's label takes anna's domain"
+for id in $(tdocker anna ps -q); do tdocker ben ps -aq | has -x "$id" && die "ben sees anna's container $id"; done
+tdocker anna ps --format '{{.Names}}' | has -x hijack && die "anna sees ben's container"
+pass "a tenant routes only its domains and sees only its containers"
+
+out=$(lf firewall -s ben 2>&1) && die "lf firewall as a tenant"
+has "tenant" <<<"$out" || die "firewall as a tenant: $out"
+for f in /opt/landfall/journal.log /opt/landfall/tenants/anna.json; do
+  as ben "head -c1 $f" >/dev/null 2>&1 && die "ben reads $f"
+done
+for d in /opt/landfall/sites /opt/landfall/tenants/anna; do
+  as ben "ls $d" >/dev/null 2>&1 && die "ben lists $d"
+done
+pass "a tenant cannot run admin commands or read the admin's or another tenant's files"
+
+uid=$(tn id -u anna)
+[ "$(tn systemctl show "user-$uid.slice" -p MemoryMax --value)" = 268435456 ] || die "anna's memory limit"
+tdocker ben run -d --name open -p 9876:80 traefik/whoami >/dev/null || die "ben publishes a port"
+for _ in $(seq 1 10); do tn curl -sf -o /dev/null http://127.0.0.1:9876 && break; sleep 1; done
+tn curl -sf -o /dev/null http://127.0.0.1:9876 || die "ben's port answers on the box"
+ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$NAME-tn")
+docker run --rm alpine wget -q -O /dev/null -T 3 "http://$ip:9876" 2>/dev/null && die "ben's port 9876 open from outside"
+pass "limits on the tenant's slice; ufw keeps a tenant's published port closed"
+
+out=$(lf traefik setup -s tbox --no-host-network -y 2>&1) && die "traefik off the host network with tenants"
+has "tenant" <<<"$out" || die "traefik --no-host-network: $out"
+pass "the central Traefik stays on the host network while there are tenants"
+
+lf tenant rm ben -s tbox -y >/dev/null 2>&1 || die "tenant rm ben"
+as ben true 2>/dev/null && die "ben logs in after tenant rm"
+lf tenant ls -s tbox --json | has '"active": false' || die "ben listed as removed"
+lf undo -s tbox -y >/dev/null 2>&1 || die "undo tenant rm"
+for _ in $(seq 1 30); do tdocker ben ps -q >/dev/null 2>&1 && break; sleep 1; done
+for _ in $(seq 1 30); do tdocker ben ps --format '{{.Names}}' | has traefik && break; sleep 1; done
+tdocker ben ps --format '{{.Names}}' | has traefik || die "undo brings ben's Docker back"
+tdocker ben ps -a --format '{{.Names}}' | has open || die "undo keeps ben's containers"
+lf tenant rm ben -s tbox --purge -y >/dev/null 2>&1 || die "tenant rm --purge"
+tn id ben >/dev/null 2>&1 && die "purge leaves the user"
+tn test -e /opt/landfall/tenants/ben && die "purge leaves ben's files"
+pass "tenant rm locks the tenant out, undo brings it back, --purge deletes it"
+
+out=$(lf tenant off -s tbox -y 2>&1) && die "tenant off with an active tenant"
+has "active: anna" <<<"$out" || die "tenant off with anna: $out"
+lf tenant rm anna -s tbox -y >/dev/null 2>&1 || die "tenant rm anna"
+lf tenant off -s tbox -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "tenant off"; }
+state >"$WORK/tn-after.txt"
+diff "$WORK/tn-before.txt" "$WORK/tn-after.txt" || die "tenant off leaves the server as before"
+lf undo -s tbox -y >/dev/null 2>&1 || die "undo tenant off"
+tn test -f /opt/landfall/tenants/state.json || die "undo tenant off brings the state back"
+pass "tenant off waits for the tenants, puts the server back as before, and can be undone"
+docker rm -fv "$NAME-tn" >/dev/null
 fi
 
 if want debian; then echo "== debian: automatic updates"
