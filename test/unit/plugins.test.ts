@@ -50,6 +50,8 @@ function fakeCtx(reply = "") {
     table: () => {},
     json: () => {},
     print: () => {},
+    blocks: () => {},
+    file: () => "",
     color: new Proxy({}, { get: () => (s: string) => s }),
     paths: { root: "/opt/landfall", sites: "/opt/landfall/sites", traefik: "/opt/landfall/traefik" },
     lf: async () => 0,
@@ -112,7 +114,7 @@ describe("loadPlugins", () => {
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       const loaded = await core.loadPlugins(BUILTIN);
-      expect(loaded.map((l) => l.plugin.name)).toEqual(["exposure", "fail2ban", "trivy", "one", "three", "two"]);
+      expect(loaded.map((l) => l.plugin.name)).toEqual(["analytics", "exposure", "fail2ban", "trivy", "one", "three", "two"]);
     } finally {
       err.mockRestore();
     }
@@ -127,7 +129,7 @@ describe("loadPlugins", () => {
     write("one.mjs", plugin("one"));
     process.env.LANDFALL_NO_PLUGINS = "1";
     try {
-      expect((await core.loadPlugins(BUILTIN)).map((l) => l.plugin.name)).toEqual(["exposure", "fail2ban", "trivy"]);
+      expect((await core.loadPlugins(BUILTIN)).map((l) => l.plugin.name)).toEqual(["analytics", "exposure", "fail2ban", "trivy"]);
     } finally {
       delete process.env.LANDFALL_NO_PLUGINS;
     }
@@ -160,7 +162,7 @@ describe("plugin commands", () => {
       err.mockRestore();
     }
     const names = core.plugins().map((l) => l.plugin.name);
-    expect(names).toEqual(["exposure", "fail2ban", "trivy", "fine"]);
+    expect(names).toEqual(["analytics", "exposure", "fail2ban", "trivy", "fine"]);
     expect(byName.has("fine")).toBe(true);
     expect(aliases.fines).toBe("fine");
     expect(aliases.unban).toBe("fail2ban unban");
@@ -312,6 +314,31 @@ describe("pluginContext", () => {
     ctx.print("a", "b");
     expect(out).toHaveBeenCalledWith("a\nb\n");
     out.mockRestore();
+  });
+
+  test("file() reads what a plugin ships with: a folder plugin's folder, a built-in plugin's source folder", async () => {
+    write("kit/index.mjs", plugin("kit"));
+    write("kit/app/run.sh", "echo hi\n");
+    await core.loadPlugins(BUILTIN);
+    const ctx = core.pluginContext("kit", null);
+    expect(ctx.file("app/run.sh")).toBe("echo hi\n");
+    expect(() => ctx.file("app/gone.sh")).toThrow(/gone\.sh is missing next to/);
+    expect(core.pluginContext("analytics", null).file("app/tz.json")).toMatch(/^\{/);
+  });
+
+  test("blocks() prints UI blocks as text on stdout", () => {
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      core.pluginContext("test", null).blocks([
+        { type: "heading", text: "Speed" },
+        { type: "note", text: "all good" },
+      ]);
+      expect(log.mock.calls.flat().join("\n")).toMatch(/SPEED[\s\S]*all good/);
+    } finally {
+      out.mockRestore();
+      log.mockRestore();
+    }
   });
 });
 

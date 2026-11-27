@@ -4,7 +4,7 @@ allowBuilds:
   vue-demi: false
 minimumReleaseAgeExclude:
   - tsdown@0.23.2
-  - lucide-react@1.73.0 || 1.77.0 || 1.78.0 || 1.80.0
+  - lucide-react@1.73.0 || 1.77.0 || 1.78.0 || 1.80.0 || 1.82.0
   - "@oxfmt/binding-android-arm-eabi@0.79.0 || 0.80.0"
   - "@oxfmt/binding-android-arm64@0.79.0 || 0.80.0"
   - "@oxfmt/binding-darwin-arm64@0.79.0 || 0.80.0"
@@ -50,3 +50,9 @@ minimumReleaseAgeExclude:
   - "@vitest/mocker@5.1.2"
   - "@vitest/spy@5.1.2"
   - vitest@5.1.2
+permissions:
+  tsdown:
+    skills: true
+skills:
+  dirs:
+    - .claude/skills

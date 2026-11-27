@@ -144,6 +144,7 @@ Everything is at **[ph1p.github.io/landfall](https://ph1p.github.io/landfall/)**
 | [Traefik](https://ph1p.github.io/landfall/traefik) | landfall's Traefik, HTTP/3, the dashboard, your own Traefik |
 | [Server administration](https://ph1p.github.io/landfall/system) | firewall, services, SSH keys, users, swap, hardening |
 | [Traffic, certificates and checks](https://ph1p.github.io/landfall/monitoring) | request stats, certificate state, HTTPS checks |
+| [Analytics](https://ph1p.github.io/landfall/analytics) | visitors, funnels, events and web vitals on your own server, cookieless by default |
 | [History and undo](https://ph1p.github.io/landfall/history) | the server journal, what `lf undo` reverts |
 | [Plugins](https://ph1p.github.io/landfall/plugins) | exposure checks, fail2ban, Trivy, installing and writing plugins |
 | [Web UI](https://ph1p.github.io/landfall/web-ui) | `lf ui`, its pages, its security model |

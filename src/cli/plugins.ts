@@ -1,9 +1,11 @@
 // Plugins on the command line: their commands become lf commands, their panels `lf <plugin>`.
 import { serverOpt, type Command } from "./cmd";
 import { aliases, byName } from "./registry";
-import { actionCommand, type Plugin, type PluginCommand, type UiAction, type UiBlock, type UiCell } from "../core/plugins/plugin-api";
+import type { Plugin, PluginCommand } from "../core/plugins/plugin-api";
+import { fail } from "../core/lib/fail";
 import { dropPlugin, pluginContext, plugins } from "../core/plugins/plugins";
-import { c, printJson, table } from "../core/lib/term";
+import { printJson } from "../core/lib/term";
+import { printBlocks } from "../core/plugins/print";
 
 type Runner = (argv: string[]) => Promise<number>;
 
@@ -18,48 +20,22 @@ function toCommand(p: Plugin, pc: PluginCommand, lf: Runner): Command {
   };
 }
 
-const paint = (v: UiCell) => {
-  if (typeof v !== "object") return String(v);
-  return v.kind === "bad" ? c.red(v.text) : v.kind === "warn" ? c.yellow(v.text) : v.kind === "ok" ? c.green(v.text) : v.text;
-};
-
-/** A panel's blocks as text: what `lf <plugin>` prints for a plugin without a command of its own for that. */
-export function printBlocks(blocks: UiBlock[]) {
-  const actions: UiAction[] = [];
-  let first = true;
-  for (const b of blocks) {
-    if (b.type !== "actions" && !first) console.log("");
-    if (b.type !== "actions") first = false;
-    if (b.type === "note") console.log(paint({ text: b.text, kind: b.kind }));
-    else if (b.type === "facts") {
-      if (b.title) console.log(c.bold(b.title));
-      table(b.items.map((i) => [c.dim(i.label), paint(i.value)]));
-    } else if (b.type === "table") {
-      if (b.title) console.log(c.bold(b.title) + (b.sub ? c.dim(` · ${b.sub}`) : ""));
-      if (!b.rows.length) console.log(c.dim(b.empty ?? "none"));
-      else table([b.columns.map(c.dim), ...b.rows.map((r) => r.cells.map(paint))]);
-    } else if (b.type === "text") {
-      if (b.title) console.log(c.bold(b.title));
-      console.log(b.text);
-    }
-    // A table row's actions once, from the first row: an example of what each row offers.
-    if (b.type === "actions") actions.push(...b.items);
-    else if (b.type !== "text") actions.push(...(b.actions ?? []), ...(b.type === "table" ? (b.rows[0]?.actions ?? []) : []));
-  }
-  // What the web UI's buttons run, once each: the way to act on what was shown.
-  const lines = [...new Set(actions.map(actionCommand))];
-  if (lines.length) process.stderr.write(`\n${lines.map((l) => c.dim(`  ${l}`)).join("\n")}\n`);
-}
-
 function panelCommand(p: Plugin, lf: Runner): Command {
+  const views = p.panel!.views ?? [];
+  const ids = views.map((v) => v.id);
   return {
     name: p.name,
     summary: p.summary,
-    options: { server: serverOpt, json: { type: "boolean", desc: "the panel's blocks as JSON" } },
+    options: {
+      server: serverOpt,
+      json: { type: "boolean", desc: "the panel's blocks as JSON" },
+      ...(views.length && { view: { type: "string", desc: `what to show: ${views.map((v) => `${v.id} (${v.label})`).join(", ")}`, default: ids[0] } }),
+    },
     async run(_, opts) {
-      const blocks = await p.panel!.load(pluginContext(p.name, opts.server, lf));
+      if (views.length && !ids.includes(opts.view)) fail(`--view takes ${ids.join(", ")}, not ${opts.view}`);
+      const blocks = await p.panel!.load(pluginContext(p.name, opts.server, lf), views.length ? opts.view : undefined);
       if (opts.json) return void printJson(blocks);
-      printBlocks(blocks);
+      printBlocks(blocks, { actions: true });
     },
   };
 }

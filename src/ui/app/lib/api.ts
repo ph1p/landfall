@@ -149,7 +149,8 @@ export function loadPlugin(n: string, plugin: string) {
   const me = {};
   latest.set(`plugin\0${key}`, me);
   const mine = () => latest.get(`plugin\0${key}`) === me;
-  return http<UiBlock[]>(`/api/servers/${encodeURIComponent(n)}/plugins/${encodeURIComponent(plugin)}`).then(
+  const view = S.pluginView[plugin];
+  return http<UiBlock[]>(`/api/servers/${encodeURIComponent(n)}/plugins/${encodeURIComponent(plugin)}${view ? `?view=${encodeURIComponent(view)}` : ""}`).then(
     (data) => void (mine() && ((S.plugin[key] = { data }), render())),
     (e) => void (mine() && ((S.plugin[key] = { error: errorMessage(e) }), render())),
   );

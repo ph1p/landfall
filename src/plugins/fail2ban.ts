@@ -138,9 +138,16 @@ function needRunning(ctx: PluginContext, state: F2bStatus["fail2ban"]) {
 }
 
 const SETTINGS: UiField[] = [
-  { name: "bantime", label: "Ban for", flag: "--bantime", placeholder: "10m", hint: "600, 10m, 1h, 1d, 1w; -1 bans for good" },
-  { name: "findtime", label: "Count failures over", flag: "--findtime", placeholder: "10m" },
-  { name: "maxretry", label: "Failures before a ban", flag: "--maxretry", placeholder: "5" },
+  {
+    name: "bantime",
+    label: "Ban for",
+    flag: "--bantime",
+    placeholder: "10m",
+    suggest: ["10m", "1h", "1d", "1w", "-1"],
+    hint: "Seconds, or with a unit: 10m, 1h, 1d, 1w. -1 bans for good.",
+  },
+  { name: "findtime", label: "Count failures over", flag: "--findtime", placeholder: "10m", suggest: ["10m", "1h", "1d"], hint: "Seconds, or 10m, 1h, 1d." },
+  { name: "maxretry", label: "Failures before a ban", type: "number", min: 1, flag: "--maxretry", placeholder: "5" },
 ];
 
 export default definePlugin({

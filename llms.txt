@@ -29,6 +29,7 @@ Key facts for agents:
 - [Scaling and load balancing](docs/pages/scaling.md): replicas, rolling deploys, load balancer options, traffic split
 - [Lifecycle hooks](docs/pages/hooks.md): shell commands (.landfall.json) or npm scripts (package.json) run around build, deploy, rollback and removal, their environment variables
 - [Volumes and backups](docs/pages/volumes.md): volumes, backups, schedules, offsite copies, push and pull
+- [Analytics](docs/pages/analytics.md): `lf analytics`, visitors, sources, journeys, funnels, events and web vitals on your own server, cookie modes and EU consent
 - [History and undo](docs/pages/history.md): the server journal and what `lf undo` reverts
 - [Plugins](docs/pages/plugins.md): exposure checks, fail2ban and Trivy, installing plugins, writing commands and web UI sections
 - [Troubleshooting](docs/pages/troubleshooting.md): error messages and fixes

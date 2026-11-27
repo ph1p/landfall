@@ -58,6 +58,7 @@ Every command resolves defaults the same way:
 | [Traefik](traefik.md) | landfall's Traefik, HTTP/3, the dashboard, using your own Traefik |
 | [Server administration](system.md) | firewall, services, SSH keys, users, swap, hardening |
 | [Traffic, certificates and checks](monitoring.md) | request stats, certificate state, HTTPS checks |
+| [Analytics](analytics.md) | visitors, sources, funnels, events and web vitals on your own server, cookieless by default |
 | [History and undo](history.md) | the server journal and what `lf undo` can revert |
 | [Plugins](plugins.md) | exposure checks, fail2ban and Trivy, installing plugins, writing your own commands and web UI sections |
 | [Web UI](web-ui.md) | `lf ui`, its pages and their commands, security model |

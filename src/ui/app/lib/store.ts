@@ -41,6 +41,7 @@ export const S = {
   proxy: {} as Store<T.TraefikStatus>, // name -> {data: lf traefik status --json}, for the Traefik tab
   registries: {} as Store<string[]>, // name -> {data: lf registries --json}, for the Settings tab
   plugin: {} as Store<UiBlock[]>, // "<name>\0<plugin>" -> {data: the plugin panel's blocks}
+  pluginView: {} as Record<string, string>, // plugin -> the view its panel shows (one of its views' ids), same on every server
   open: new Set<string>(), // expanded site rows
   allSvcs: {} as Record<string, boolean>, // servers whose System tab lists every service
   filter: "", // server list filter

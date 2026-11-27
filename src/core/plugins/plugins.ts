@@ -1,12 +1,13 @@
 // Loading plugins, and the context their code runs with.
 import fs from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { configDir, resolveServer, writeAtomic, type Server } from "../lib/config";
 import { adminLogin } from "../ssh/privilege";
 import { runScript, shq } from "../ssh/ssh";
 import { PRELUDE, ROOT, SITES, TRAEFIK_DIR } from "../ssh/templates";
 import { ask, c, confirm, confirmRisky, fail, info, ok, printJson, step, table, warn } from "../lib/term";
+import { printBlocks } from "./print";
 import { COMMAND_NAME, PLUGIN_NAME, reservedOption, reservedShort, type Plugin, type PluginContext, type PluginInfo } from "./plugin-api";
 
 /** Your plugins: each a .mjs/.js file, or a folder with index.mjs/index.js (or package.json "main"). */
@@ -61,6 +62,8 @@ export function pluginEntry(dir: string): string | undefined {
   return ["index.mjs", "index.js"].map((f) => join(dir, f)).find((f) => fs.existsSync(f));
 }
 
+const VIEW_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
 /** What is wrong with a module's export, or "" when it is a plugin. */
 export function checkPlugin(p: unknown): string {
   if (!p || typeof p !== "object") return "exports no plugin (export default definePlugin({ … }))";
@@ -88,6 +91,14 @@ export function checkPlugin(p: unknown): string {
   if (x.aliases !== undefined && (typeof x.aliases !== "object" || Object.values(x.aliases).some((v) => typeof v !== "string")))
     return "aliases must map names to command names";
   if (x.panel && (typeof x.panel.label !== "string" || typeof x.panel.load !== "function")) return "panel needs a label and load()";
+  if (x.panel?.views !== undefined) {
+    const v = x.panel.views;
+    if (!Array.isArray(v) || !v.length) return "panel views must be a list of { id, label }";
+    for (const w of v)
+      if (typeof w?.id !== "string" || !VIEW_ID.test(w.id) || typeof w.label !== "string")
+        return `panel view ${JSON.stringify(w?.id)} needs an id (lowercase letters, digits, dashes) and a label`;
+    if (new Set(v.map((w) => w.id)).size !== v.length) return "panel views must have different ids";
+  }
   return "";
 }
 
@@ -155,13 +166,33 @@ export function pluginsView(): PluginInfo[] {
         ...(p.commands ?? []).map((x) => (x.name ? `${p.name} ${x.name}` : p.name)),
         ...(p.panel && !p.commands?.some((x) => x.name === "") ? [p.name] : []),
       ],
-      ...(p.panel && { panel: { label: p.panel.label, group: p.panel.group ?? "Machine", icon: p.panel.icon ?? "puzzle" } }),
+      ...(p.panel && {
+        panel: {
+          label: p.panel.label,
+          group: p.panel.group ?? "Machine",
+          icon: p.panel.icon ?? "puzzle",
+          ...(p.panel.views && { views: p.panel.views.map(({ id, label }) => ({ id, label })) }),
+        },
+      }),
     })),
     ...failed.map((f) => ({ name: f.name, summary: "", source: f.source, commands: [], error: f.error })),
   ];
 }
 
 const dataFile = (plugin: string, server: string) => join(DATA_DIR, plugin, `${encodeURIComponent(server)}.json`);
+
+/**
+ * A file a plugin ships with. Yours: next to its entry (a folder plugin's folder). Built in: dist/plugins/<name>/ next
+ * to the bundle (tsdown copies what is not code there), else src/plugins/<name>/ when run from source.
+ */
+function pluginFile(plugin: string, name: string): string {
+  const src = pluginNamed(plugin)?.source;
+  const own = src !== undefined && src !== "builtin";
+  const dirs = own ? [dirname(src)] : [`./plugins/${plugin}/`, `../../plugins/${plugin}/`].map((d) => fileURLToPath(new URL(d, import.meta.url)));
+  const file = dirs.map((d) => join(d, name)).find((f) => fs.existsSync(f));
+  if (!file) return fail(`plugin ${plugin}: ${name} is missing${own ? ` next to ${src}` : " from this landfall build: reinstall landfall"}`);
+  return fs.readFileSync(file, "utf8");
+}
 
 /**
  * The context a plugin's code runs with. on: the server as -s gave it (undefined: the default server), or null for
@@ -207,6 +238,8 @@ export function pluginContext(plugin: string, on: string | undefined | null, run
     table,
     json: printJson,
     print: (...lines) => void process.stdout.write(lines.map((l) => `${l}\n`).join("")),
+    blocks: (blocks) => printBlocks(blocks),
+    file: (f) => pluginFile(plugin, f),
     color: c,
     paths: { root: ROOT, sites: SITES, traefik: TRAEFIK_DIR },
     lf: (argv) => (runLf ? runLf(name !== undefined && !argv.includes("-s") ? [...argv, "-s", name] : argv) : fail("lf() runs only in a command")),

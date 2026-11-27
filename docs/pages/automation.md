@@ -30,7 +30,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `traefik strict-tls`, `redirects`, `history` |
-| plugins | `plugins`, `exposure check`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
+| plugins | `plugins`, `analytics report`, `analytics path`, `analytics events`, `analytics vitals`, `analytics funnels`, `analytics storage`, `exposure check`, `fail2ban` (alias `bans`), `trivy`, `trivy images`, `trivy files`, and `lf <plugin>` for a plugin that prints its web UI section |
 
 - `ls --others` adds containers landfall did not deploy: `{sites, others}`.
 - `domains` lists the server's addresses under `ips`, and redirect hosts under `redirects`, each with `to`.
@@ -109,6 +109,9 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 - `lf traefik access-log clear` (the emptied log is gone)
 - `lf server uninstall`
 - `lf trivy rm` (the next scan downloads Trivy again)
+- `lf analytics disable --purge` (the site's collected analytics are deleted)
+- `lf analytics storage` with fewer days or a smaller size (the hits that no longer fit are deleted; `lf undo` restores only the settings)
+- `lf analytics uninstall` (the collector and its files are removed; without `--keep-data` also the collected analytics)
 - `lf registry logout` (log in again with `lf registry login`)
 - `lf git key --rm` (the private key is gone: make a new one and add it to the repository again)
 - installing git or jq on the server (`lf deploy --git`, `lf autodeploy`)

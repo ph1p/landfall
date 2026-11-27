@@ -85,8 +85,11 @@ export interface Field {
   /** type custom: draws the control itself and reports its value through set. */
   render?: (value: FormValue, set: (value: FormValue) => void) => ReactNode;
   options?: { value: string; label: string }[];
-  /** type text: values offered while typing (a datalist); any other value is fine too. */
+  /** type text and number: values offered while typing (a datalist); any other value is fine too. */
   suggest?: string[];
+  /** type number: the smallest and largest whole number accepted. */
+  min?: number;
+  max?: number;
   hint?: string;
   placeholder?: string;
   /** true, or the message when it is empty. */
@@ -149,6 +152,15 @@ export const siteNameError = (x: string) => !new RegExp(S.state.rules.siteName).
 export const words = (s: string) => s.split(/[\s,]+/).filter(Boolean);
 /** A domain the CLI takes (a leading *. for a wildcard). */
 export const domainOk = (d: string) => new RegExp(S.state.rules.domain, "i").test(d.replace(/^\*\./, ""));
+/** What is wrong with a number field's value: it takes whole numbers, within min and max when given. Empty is fine. */
+export function numberError(v: string, min = -Infinity, max = Infinity): string | undefined {
+  if (v === "") return;
+  const n = /^-?\d+$/.test(v) ? Number(v) : NaN;
+  if (n >= min && n <= max) return;
+  const lo = min > -Infinity,
+    hi = max < Infinity;
+  return "A whole number" + (lo && hi ? ` from ${min} to ${max}` : lo ? `, at least ${min}` : hi ? `, at most ${max}` : "");
+}
 /** For a field's check: what is wrong with a port (empty is the field's own business). */
 export const portError = (x: string) => x && !(/^\d+$/.test(x) && +x >= 1 && +x <= 65535) && "A port from 1 to 65535";
 /** For a field's check: what is wrong with a login's user or password (lf newLogin's rules). */
@@ -207,7 +219,8 @@ function FormDialog({ spec, isCurrent }: { spec: DialogSpec; isCurrent: () => bo
     if (!inPlay(x, v)) return "";
     const value = v[f.name];
     if (f.required && f.type !== "check" && f.type !== "custom" && !String(value).trim()) return f.required === true ? `${f.label} is needed` : f.required;
-    return f.check?.(typeof value === "string" ? value.trim() : value, v) || "";
+    const s = typeof value === "string" ? value.trim() : value;
+    return (f.type === "number" && numberError(String(s), f.min, f.max)) || f.check?.(s, v) || "";
   };
   const input = (name: string) => form.current?.elements.namedItem(name) as HTMLElement | null;
   // A collapsed section opens to show what is wrong in it.

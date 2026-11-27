@@ -50,6 +50,13 @@ export interface PluginContext {
   json(value: unknown): void;
   /** Prints lines of results on stdout (a heading, a summary). Progress goes to log instead. */
   print(...lines: string[]): void;
+  /** Prints UI blocks as text on stdout, the way `lf <plugin>` prints a panel: one view for the web UI and the terminal. */
+  blocks(blocks: UiBlock[]): void;
+  /**
+   * Reads a file the plugin ships with (a script it uploads, a template) as text. A folder plugin's files sit in its
+   * folder (`file("app/server.mjs")`), a single-file plugin's next to it. Stops the command when the file is missing.
+   */
+  file(name: string): string;
   /** Terminal colors; plain text when stdout is not a terminal. */
   color: Record<"bold" | "dim" | "red" | "green" | "yellow" | "blue" | "cyan", (s: string) => string>;
   /** Where landfall keeps things on the server. */
@@ -87,9 +94,15 @@ export type UiKind = "" | "ok" | "warn" | "bad" | "info";
 export interface UiField {
   name: string;
   label: string;
-  /** text (default), select (needs options) or check (adds flag when ticked). */
-  type?: "text" | "select" | "check";
-  options?: string[];
+  /** text (default), number (whole number, see min and max), select (needs options) or check (adds flag when ticked). */
+  type?: "text" | "number" | "select" | "check";
+  /** select: the values, or { value, label } to show a label instead. */
+  options?: (string | { value: string; label: string })[];
+  /** text and number: values offered while typing; any other value is fine too. */
+  suggest?: string[];
+  /** number: the smallest and largest value accepted. */
+  min?: number;
+  max?: number;
   value?: string | boolean;
   placeholder?: string;
   hint?: string;
@@ -113,9 +126,61 @@ export interface UiAction {
 
 export type UiCell = string | number | { text: string; kind?: UiKind; mono?: boolean; title?: string };
 
-export type UiBlock =
+/** One bar of a bars or funnel chart. */
+export interface UiBar {
+  label: string;
+  value: number;
+  /** Shown instead of the value (e.g. "1.2k · 34%"). */
+  text?: string;
+  /** Shown on hover. */
+  title?: string;
+  /** Colors the bar: ok, warn, bad; the accent color without. */
+  kind?: UiKind;
+  mono?: boolean;
+  actions?: UiAction[];
+}
+
+/**
+ * A chart, drawn by the web UI and as text bars by `lf <plugin>`.
+ * line: one or more series over labels (days, hours), as lines with the area under the first filled.
+ * bars: horizontal bars, longest first as given (a breakdown: sources, pages, devices).
+ * funnel: steps in order; each bar shows its share of the first and what dropped off since the step before.
+ */
+export type UiChart = { title?: string; sub?: string; actions?: UiAction[] } & (
+  | { chart: "line"; labels: string[]; series: { name: string; values: number[] }[]; /** After each value on hover, e.g. "visitors". */ unit?: string }
+  | {
+      chart: "bars";
+      items: UiBar[];
+      /** Shown instead of an empty chart. */
+      empty?: string;
+      /** The web UI shows only the first n bars, with a button for the rest; `lf <plugin>` prints all. */
+      show?: number;
+    }
+  | { chart: "funnel"; items: UiBar[] }
+);
+
+/** One number of a stats block: a tile with a big value in the web UI, a line in `lf <plugin>`. */
+export interface UiStat {
+  label: string;
+  value: string | number;
+  /** Percent change against the period before; null when there is nothing to compare with (shown as "new"). */
+  change?: number | null;
+  /** A rise is bad (bounce rate, errors): colors the change red instead of green. */
+  lowerIsBetter?: boolean;
+  /** A small trend line under the value, oldest first (e.g. visitors per day). */
+  spark?: number[];
+  /** A quiet line under the value. */
+  note?: string;
+  /** ok shows a live dot next to the value; warn and bad color the value. */
+  kind?: UiKind;
+  /** Shown on hover. */
+  title?: string;
+}
+
+export type UiBlock = (
   | { type: "note"; kind?: UiKind; text: string; actions?: UiAction[] }
   | { type: "facts"; title?: string; items: { label: string; value: UiCell }[]; actions?: UiAction[] }
+  | { type: "stats"; title?: string; sub?: string; items: UiStat[]; actions?: UiAction[] }
   | {
       type: "table";
       title?: string;
@@ -127,7 +192,13 @@ export type UiBlock =
       actions?: UiAction[];
     }
   | { type: "text"; title?: string; text: string; mono?: boolean }
-  | { type: "actions"; items: UiAction[] };
+  | { type: "actions"; items: UiAction[] }
+  | ({ type: "chart" } & UiChart)
+  | { type: "heading"; text: string; sub?: string }
+) & {
+  /** Half width in the web UI: two half blocks in a row share it. */
+  half?: boolean;
+};
 
 /** Icons a panel may name; anything else shows a puzzle piece. */
 export const PANEL_ICONS = ["puzzle", "shield", "bug", "lock", "scan", "activity", "database", "bell", "key", "box", "ban", "search"] as const;
@@ -139,7 +210,13 @@ export interface PluginPanel {
   /** The group it sits in: Apps, Monitoring, Network, Machine (default) or one of its own. */
   group?: string;
   icon?: PanelIcon;
-  load(ctx: PluginContext): Promise<UiBlock[]>;
+  /**
+   * Ways to look at the panel, e.g. [{ id: "7d", label: "7 days" }, { id: "30d", label: "30 days" }]. The web UI shows
+   * them as a switch, `lf <plugin> --view <id>` picks one. The first is the default.
+   */
+  views?: { id: string; label: string }[];
+  /** view: one of views' ids (the first when none was picked); undefined without views. */
+  load(ctx: PluginContext, view?: string): Promise<UiBlock[]>;
 }
 
 export interface Plugin {
@@ -170,8 +247,14 @@ export interface PluginInfo {
   /** builtin, or the file it came from. */
   source: string;
   commands: string[];
-  panel?: { label: string; group: string; icon: string };
+  panel?: { label: string; group: string; icon: string; views?: { id: string; label: string }[] };
   error?: string;
+}
+
+/** The view a panel loads for a request: the asked one when the panel has it, else its first; undefined without views. */
+export function panelView(panel: Pick<PluginPanel, "views">, asked?: string | null): string | undefined {
+  const v = panel.views ?? [];
+  return v.find((x) => x.id === asked)?.id ?? v[0]?.id;
 }
 
 /** The command an action runs, as shown to the user (fields as placeholders, -y left out). */

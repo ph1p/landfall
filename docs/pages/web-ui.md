@@ -21,7 +21,7 @@ The web UI is a front end for the CLI. Each action runs a plain `lf` command as 
 | Firewall    | `lf firewall` and subcommands |
 | Users       | `lf users` and subcommands; shown only where landfall may manage users |
 | System      | `lf system`, `lf security` (a button per fix; Harden… picks the `lf harden` parts), `services`, `keys`, `swap`, `hostname`, `timezone`, `log-limit` |
-| Plugins     | one per plugin with a section, e.g. *fail2ban* (`lf fail2ban`, `fail2ban ban`/`unban`/`config`), *Trivy* (`lf trivy`, `trivy images`/`files`/`rm`). See [Plugins](plugins.md) |
+| Plugins     | one per plugin with a section, e.g. *Analytics* (`lf analytics`, `analytics enable`/`disable`/`funnel`, under Monitoring), *fail2ban* (`lf fail2ban`, `fail2ban ban`/`unban`/`config`), *Trivy* (`lf trivy`, `trivy images`/`files`/`rm`). See [Plugins](plugins.md) |
 | History     | `lf history`, `lf undo` |
 | Settings    | `lf server config` (`--cloud`: Change next to provider, or the provider in the header), `server domain`, `traefik setup` (Settings…, Dashboard…), `traefik dashboard`, `lf registries`, `registry login`/`logout` |
 

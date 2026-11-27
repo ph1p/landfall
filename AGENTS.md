@@ -54,7 +54,8 @@ runs on Node 22.4+, so do not use runtime APIs newer than that in `src/core` or 
 | `src/core/views/views.ts` | the objects that `--json` prints and the web UI reads |
 | `src/core/plugins/plugin-api.ts` | the plugin contract: `Plugin`, `PluginContext`, UI blocks (no `node:` imports; the web page uses it). Published as `landfall/plugin`: a change here is a public API change |
 | `src/core/plugins/plugins.ts` | loading plugins (built in and `~/.config/landfall/plugins`), the context their code runs with |
-| `src/plugins/` | the built-in plugins (exposure, fail2ban, trivy), written against the same API |
+| `src/plugins/` | the built-in plugins, written against the same API. A folder plugin's non-code files (read with `ctx.file`) are copied to `dist/plugins/<name>/` by `tsdown.config.ts` |
+| `src/core/plugins/print.ts` | UI blocks as text: `lf <plugin>` and `ctx.blocks` |
 | `src/cli/plugins.ts` | turns plugin commands and aliases into `lf` commands |
 | `src/cli/commands/plugins.ts` | `lf plugins`, `plugin add`, `plugin rm`, `plugin new` |
 | `src/ui/server/` | `lf ui`: local HTTP server; reads call core directly, writes spawn `lf` jobs. `auth.ts` guards every request, `api.ts` routes, `jobs.ts` runs `lf` |

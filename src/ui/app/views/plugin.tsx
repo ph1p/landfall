@@ -1,12 +1,15 @@
 // A plugin's section: the blocks its panel returns, drawn with the page's own parts. Every button runs an lf job.
-import { S, sv } from "../lib/store";
+import { S, render, sv } from "../lib/store";
 import { loadPlugin, pluginKey } from "../lib/api";
 import { ifOk, run } from "../lib/jobs";
 import { dialog, confirmDlg, type Field } from "../ui/dialog";
-import { ACTS, Actions, Badge, Body, Btn, Card, CardHead, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
-import { actionArgv, actionCommand, type UiAction, type UiBlock, type UiCell } from "../../../core/plugins/plugin-api";
+import { ACTS, Actions, Badge, Body, Btn, BtnGroup, Card, CardHead, Kv, MONO, Note, Sub, Table, cx, pending } from "../ui/kit";
+import { actionArgv, actionCommand, panelView, type UiAction, type UiBlock, type UiCell } from "../../../core/plugins/plugin-api";
+import { Chart, Stats } from "./plugin-chart";
 
 const after = (n: string, plugin: string) => ({ after: ifOk(() => loadPlugin(n, plugin)) });
+
+const optionValue = (o: string | { value: string } | undefined) => (typeof o === "object" ? o.value : o);
 
 /** Asks for the action's fields (or a yes) when it has any, then runs it. */
 function act(n: string, plugin: string, a: UiAction) {
@@ -16,11 +19,14 @@ function act(n: string, plugin: string, a: UiAction) {
       name: f.name,
       label: f.label,
       type: f.type ?? "text",
-      options: f.options?.map((o) => ({ value: o, label: o })),
-      value: f.value ?? (f.type === "check" ? false : f.type === "select" ? f.options?.[0] : ""),
+      options: f.options?.map((o) => (typeof o === "string" ? { value: o, label: o } : o)),
+      value: f.value ?? (f.type === "check" ? false : f.type === "select" ? optionValue(f.options?.[0]) : ""),
+      suggest: f.suggest,
       placeholder: f.placeholder,
       hint: f.hint,
       required: f.required,
+      min: f.min,
+      max: f.max,
     }));
     return dialog({ title: a.title ?? a.label, text: a.confirm, fields, ok: a.label, danger: a.danger, onOk: (v) => go(v) });
   }
@@ -54,6 +60,14 @@ function Cell({ v }: { v: UiCell }) {
 
 function Block({ n, plugin, b }: { n: string; plugin: string; b: UiBlock }) {
   const btns = (items?: UiAction[], small?: boolean) => <Buttons n={n} plugin={plugin} items={items} small={small} />;
+  const head = (h: { title?: string; sub?: string; actions?: UiAction[] }, always = false) =>
+    (always || h.title || h.sub || h.actions?.length) && (
+      <CardHead>
+        {h.title}
+        {h.sub && <Sub>{h.sub}</Sub>}
+        <Actions>{btns(h.actions)}</Actions>
+      </CardHead>
+    );
   switch (b.type) {
     case "note":
       return (
@@ -65,26 +79,24 @@ function Block({ n, plugin, b }: { n: string; plugin: string; b: UiBlock }) {
     case "facts":
       return (
         <Card>
-          {(b.title || b.actions?.length) && (
-            <CardHead>
-              {b.title}
-              <Actions>{btns(b.actions)}</Actions>
-            </CardHead>
-          )}
+          {head(b)}
           <Body>
             <Kv pairs={b.items.map((i) => [i.label, <Cell key={i.label} v={i.value} />])} />
           </Body>
+        </Card>
+      );
+    case "stats":
+      return (
+        <Card>
+          {head(b)}
+          <Stats items={b.items} />
         </Card>
       );
     case "table": {
       const acts = b.rows.some((r) => r.actions?.length);
       return (
         <Card>
-          <CardHead>
-            {b.title}
-            {b.sub && <Sub>{b.sub}</Sub>}
-            <Actions>{btns(b.actions)}</Actions>
-          </CardHead>
+          {head(b, true)}
           {b.rows.length ? (
             <Table cols={[...b.columns.map((c): [string] => [c]), ...(acts ? [["", ACTS] as [string, string]] : [])]}>
               {b.rows.map((r, i) => (
@@ -107,13 +119,66 @@ function Block({ n, plugin, b }: { n: string; plugin: string; b: UiBlock }) {
     case "text":
       return (
         <Card>
-          {b.title && <CardHead>{b.title}</CardHead>}
+          {head(b)}
           <Body className={cx("whitespace-pre-wrap", b.mono && MONO)}>{b.text}</Body>
         </Card>
       );
     case "actions":
       return <div className="flex flex-wrap gap-1.5 mb-4 [.card+&]:mt-5">{btns(b.items)}</div>;
+    case "chart":
+      return (
+        <Card>
+          {head(b)}
+          <Body>
+            <Chart c={b} tail={(x) => (x.actions?.length ? <span className="flex gap-1">{btns(x.actions, true)}</span> : null)} />
+          </Body>
+        </Card>
+      );
+    case "heading":
+      return (
+        <div className="mt-7 mb-2.5 first:mt-0">
+          <h3 className="m-0 text-[15px] font-semibold">{b.text}</h3>
+          {b.sub && <div className="text-dim text-md mt-0.5">{b.sub}</div>}
+        </div>
+      );
   }
+}
+
+/** Consecutive half-width blocks share a row; everything else takes the full width. */
+function rows(blocks: UiBlock[]): (UiBlock | UiBlock[])[] {
+  const out: (UiBlock | UiBlock[])[] = [];
+  for (const b of blocks) {
+    const last = out.at(-1);
+    if (b.half && Array.isArray(last)) last.push(b);
+    else out.push(b.half ? [b] : b);
+  }
+  return out;
+}
+
+function Views({ n, plugin }: { n: string; plugin: string }) {
+  const views = S.state.plugins.find((p) => p.name === plugin)?.panel?.views;
+  if (!views?.length) return null;
+  const cur = panelView({ views }, S.pluginView[plugin]);
+  return (
+    <div className="mb-4">
+      <BtnGroup label="View">
+        {views.map((v) => (
+          <Btn
+            key={v.id}
+            cls={cx("sm", cur === v.id && "primary")}
+            aria-pressed={cur === v.id}
+            on={() => {
+              S.pluginView[plugin] = v.id;
+              render();
+              void loadPlugin(n, plugin);
+            }}
+          >
+            {v.label}
+          </Btn>
+        ))}
+      </BtnGroup>
+    </div>
+  );
 }
 
 export function PluginView({ n, plugin }: { n: string; plugin: string }) {
@@ -121,5 +186,20 @@ export function PluginView({ n, plugin }: { n: string; plugin: string }) {
   const label = S.state.plugins.find((p) => p.name === plugin)?.panel?.label ?? plugin;
   const wait = pending(st, `loading ${label} from ${n}…`, () => loadPlugin(n, plugin));
   if (wait) return wait;
-  return st!.data!.map((b, i) => <Block key={i} n={n} plugin={plugin} b={b} />);
+  return (
+    <>
+      <Views n={n} plugin={plugin} />
+      {rows(st!.data!).map((r, i) =>
+        Array.isArray(r) ? (
+          <div key={i} className="card grid gap-5 md:grid-cols-2 [.card+&]:mt-5 [&>.card]:mt-0!">
+            {r.map((b, j) => (
+              <Block key={j} n={n} plugin={plugin} b={b} />
+            ))}
+          </div>
+        ) : (
+          <Block key={i} n={n} plugin={plugin} b={r} />
+        ),
+      )}
+    </>
+  );
 }

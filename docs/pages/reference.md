@@ -143,6 +143,19 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf plugin add <file\|folder> [--force]` | A `.mjs`/`.js` file, or folder with `index.mjs` or package.json `main`. Checked by loading. `--force` replaces one. |
 | `lf plugin rm <name>` | Also `~/.config/landfall/plugin-data/<name>`. Built-ins stay. |
 | `lf plugin new <name> [--out file]` | Starter plugin: a command and a UI section. |
+| `lf analytics enable <site> [--domain d...] [--cookie off\|on\|consent]` | Collects on the site's domains; again to change domains or the cookie mode. Undoable. See [Analytics](analytics.md). |
+| `lf analytics disable <site> [--purge]` | Stops collecting for the site. Undo turns it back on. `--purge` deletes its data: not undoable. |
+| `lf analytics uninstall [--keep-data]` | Removes the collector and `/opt/landfall/analytics`, collected data included. `--keep-data` keeps the data and funnels. Not undoable. |
+| `lf analytics repair` | Rewrites the collector's files and starts it again. |
+| `lf analytics report [site] [--days n] [--limit n] [--json]` | Visitors, pages, sources, campaigns, journeys, funnels, events, devices, web vitals, against the days before. |
+| `lf analytics path <site> <page> [--days n] [--json]` | Where visitors of a page came from and where they went next. |
+| `lf analytics events [site] [--days n] [--json]` | Custom events, outbound links, downloads, with top properties. |
+| `lf analytics vitals [site] [--days n] [--json]` | p75 of LCP, INP, CLS, FCP, TTFB per site, device and page. Alias: `vitals`. |
+| `lf analytics funnels [site] [--days n] [--json]` | Funnels and how many sessions reach each step. |
+| `lf analytics funnel <site> <name> <step>... [--rm]` | Defines a funnel: pages (`*` matches anything) or `event:Name`. Undoable. |
+| `lf analytics export [site] [--days n] [--format csv\|jsonl]` | Prints every stored hit as CSV or JSON lines on stdout. |
+| `lf analytics storage [--keep-days n] [--max-size 500M\|off] [--json]` | Shows or sets how long collected data is kept and how large it may get. Undoable; deleted hits stay deleted. |
+| `lf analytics [--view 7\|30\|90] [--json]` | The web UI panel as text, charts as bars. |
 | `lf exposure check [dir] [--json] [--strict] [--allow p] [--allow-port n]` | Local: risky files the upload would send, compose ports. Exits 1 on high/medium (`--strict`: any). For a `predeploy` hook. |
 | `lf fail2ban [--json]` | Jails (ban time, find time, max retries), banned IPs. Alias: `bans`. |
 | `lf fail2ban ban <ip> [--jail sshd]` | Bans an IP now. Undo unbans it. |

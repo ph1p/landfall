@@ -1,4 +1,5 @@
 import { pluginContext, pluginNamed, pluginsView } from "../../core/plugins/plugins";
+import { panelView } from "../../core/plugins/plugin-api";
 import { updateCommand, VERSION } from "../../core/lib/version";
 import { DOMAIN, LOGIN_NAME, MIN_PASSWORD, loadConfig, loadProject, resolveServer } from "../../core/lib/config";
 import { ENV_NAME } from "../../core/site/env-vars";
@@ -185,7 +186,7 @@ async function serverRead(name: string, sub: string | undefined, rest: string | 
     case "plugins": {
       const p = pluginNamed(rest ?? "")?.plugin;
       if (!p?.panel) return failure(`no plugin panel ${rest ?? ""}`, 404);
-      return json(await p.panel.load(pluginContext(p.name, name)));
+      return json(await p.panel.load(pluginContext(p.name, name), panelView(p.panel, q.get("view"))));
     }
     case "dns": {
       const domains = (q.get("domains") ?? "")

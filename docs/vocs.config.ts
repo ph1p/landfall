@@ -39,6 +39,7 @@ export default defineConfig({
         { text: "Updates", link: "/updates" },
         { text: "Traefik", link: "/traefik" },
         { text: "Traffic, certificates and checks", link: "/monitoring" },
+        { text: "Analytics", link: "/analytics" },
         { text: "History and undo", link: "/history" },
       ],
     },
