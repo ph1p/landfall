@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { S, sv } from "../../lib/store";
+import { S, isTenant, sv } from "../../lib/store";
 import { expandHost, redirectTarget, type ServerRedirect } from "../../../../core/traefik/redirects";
 import { ensure, fetchInto, load } from "../../lib/api";
 import { TunnelBtn, ifOk, run } from "../../lib/jobs";
@@ -123,6 +123,7 @@ export function TraefikView({ n }: { n: string }) {
   const ts = S.proxy[n]?.data;
   const ctr = ts ? ts.container : o?.traefik ? { name: o.proxy } : null;
   const sites = o?.sites.length ?? 0;
+  const tenant = isTenant(n);
   const removeDlg = () =>
     dialog({
       title: `Remove Traefik from ${n}?`,
@@ -243,24 +244,26 @@ export function TraefikView({ n }: { n: string }) {
                         }),
                     }
                   : null,
-                ctr || foreign ? "-" : null,
-                foreign
-                  ? {
-                      label: `Stop using ${foreign}`,
-                      cls: "danger",
-                      hint: "lf traefik rm",
-                      run: () =>
-                        confirmDlg({
-                          title: `Stop routing sites on ${n} through ${foreign}?`,
-                          text: "It keeps running and keeps routing the sites until they are redeployed. lf traefik setup installs landfall's own afterwards.",
-                          ok: "Stop using it",
-                          danger: true,
-                          onOk: () => run(["traefik", "rm", ...sv(n), "-y"], reload),
-                        }),
-                    }
-                  : ctr
-                    ? { label: "Remove Traefik", cls: "danger", hint: "lf traefik rm", run: removeDlg }
-                    : null,
+                !tenant && (ctr || foreign) ? "-" : null,
+                tenant
+                  ? null
+                  : foreign
+                    ? {
+                        label: `Stop using ${foreign}`,
+                        cls: "danger",
+                        hint: "lf traefik rm",
+                        run: () =>
+                          confirmDlg({
+                            title: `Stop routing sites on ${n} through ${foreign}?`,
+                            text: "It keeps running and keeps routing the sites until they are redeployed. lf traefik setup installs landfall's own afterwards.",
+                            ok: "Stop using it",
+                            danger: true,
+                            onOk: () => run(["traefik", "rm", ...sv(n), "-y"], reload),
+                          }),
+                      }
+                    : ctr
+                      ? { label: "Remove Traefik", cls: "danger", hint: "lf traefik rm", run: removeDlg }
+                      : null,
               ]}
             />
           </Actions>
@@ -473,9 +476,11 @@ function RoutesCard({ n, useDlg }: { n: string; useDlg: (name: string) => void }
             <Body>
               <Note>
                 <b className={MONO}>{t!.foreign}</b> is a Traefik on port 443 that landfall does not use.{" "}
-                <Btn cls="sm" on={() => useDlg(t!.foreign!)}>
-                  Route sites through it
-                </Btn>
+                {!isTenant(n) && (
+                  <Btn cls="sm" on={() => useDlg(t!.foreign!)}>
+                    Route sites through it
+                  </Btn>
+                )}
               </Note>
             </Body>
           )}

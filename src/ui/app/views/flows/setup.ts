@@ -1,11 +1,21 @@
-import { S, plural, serverNamed } from "../../lib/store";
+import { S, isTenant, plural, serverNamed } from "../../lib/store";
 import type { SavedServer } from "../../lib/types";
-import { go } from "../../lib/api";
+import { go, refreshState } from "../../lib/api";
+import { toast } from "../../ui/toast";
 import { run, rep, ifOk, type Job, type JobAction } from "../../lib/jobs";
 import { dialog, promptDlg, domainOk, portError } from "../../ui/dialog";
 import { full, providerOptions } from "./server-dialogs";
 
+/** A tenant login cannot set up the server: its admin did, and lf tenant add made the login. */
+function tenantNoSetup(n: string) {
+  if (!isTenant(n)) return false;
+  toast(`${n} is a tenant login: the server's admin sets it up`);
+  go(n);
+  return true;
+}
+
 export function setupFlow(args: string[], base = args) {
+  if (tenantNoSetup(args[0])) return;
   run(["setup", ...args, "--check"], {
     server: args[0],
     after: (j) => {
@@ -36,6 +46,7 @@ export const securityAfter =
       : undefined;
 
 export function setupWizard(base: string[]) {
+  if (tenantNoSetup(base[0])) return;
   const saved = serverNamed(base[0])?.saved ?? ({} as Partial<SavedServer>);
   dialog({
     title: `Set up ${base[0]}`,
@@ -226,7 +237,7 @@ export function addServer() {
       const [name, host, user, port, key] = [v.name, v.host, v.user, v.port, v.key].map((x: string) => x.trim());
       const args = [name, ...(host ? ["--host", host] : []), ...(user ? ["-u", user] : []), ...(port ? ["-p", port] : []), ...(key ? ["-i", key] : [])];
       // With a password: install the key now, then the setup wizard needs nothing but the alias.
-      const then = ifOk(() => (v.setup ? setupWizard([name]) : go(name)));
+      const then = ifOk(() => (v.setup ? refreshState().then(() => setupWizard([name])) : go(name)));
       if (v.password) run(["server", "add", ...args], { server: name, password: v.password, after: then });
       else if (v.setup) setupWizard(args);
       else run(["server", "add", ...args], { server: name, after: (j) => void go(name, rep(j).advice?.length ? "system" : S.tab) });

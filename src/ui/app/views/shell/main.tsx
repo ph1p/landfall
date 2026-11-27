@@ -1,9 +1,9 @@
 import { useEffect } from "react";
-import { S, server, sv, type Slot } from "../../lib/store";
+import { S, isTenant, server, sv, type Slot } from "../../lib/store";
 import type { Overview } from "../../lib/types";
 import { go, load, needs, pluginNameOf, SECTIONS, STORE } from "../../lib/api";
 import { ifOk, run } from "../../lib/jobs";
-import { Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../../ui/kit";
+import { Badge, Bone, Btn, Card, Dot, Empty, Note, Placeholder, Spin, cx, MONO } from "../../ui/kit";
 import { MenuBtn } from "../../ui/menu";
 import { addServer, setupFlow } from "../flows/setup";
 import { PipelineView } from "../pipeline/pipeline";
@@ -11,6 +11,7 @@ import { StatusDot, FactsLine, FactsNote, errorHint, can, connected, sections, S
 import { copy, runCommand, forget, makeDefault, uninstall } from "../domains";
 import { rebootDlg, SystemView } from "../system";
 import { UsersView } from "../users";
+import { TenantsView } from "../tenants";
 import { UpdatesView } from "../updates";
 import { TunnelsView } from "../tunnels";
 import { StatsView } from "../stats";
@@ -91,6 +92,15 @@ export function Main() {
                 <Star />
               </>
             )}{" "}
+            {isTenant(n) && (
+              <>
+                <Badge
+                  title={`${s.saved?.user ?? "This login"} is a tenant on ${s.saved?.host ?? n}: its own Docker, sites and domains. The server's admin manages the rest.`}
+                >
+                  tenant
+                </Badge>{" "}
+              </>
+            )}
             <span className="font-normal text-faint">/ {(shown.find(([t]) => t === S.tab) ?? SECTIONS.find(([t]) => t === S.tab)!)[1]}</span>
             {reloading && (
               <>
@@ -133,6 +143,7 @@ export function Main() {
               s.registered && "-",
               s.registered && { label: `Forget ${n}`, cls: "danger", hint: "lf server rm", run: () => forget(n) },
               s.registered &&
+                !isTenant(n) &&
                 (!k || k.docker) && {
                   label: "Uninstall landfall…",
                   cls: "danger",
@@ -169,6 +180,8 @@ function LandfallNote({ n }: { n: string }) {
         <Btn cls="sm" title={`Copy: ${S.state.updateCommand}`} on={() => copy(S.state.updateCommand)}>
           Copy update command
         </Btn>
+      ) : isTenant(n) ? (
+        <span className="dim">The server's admin upgrades it.</span>
       ) : (
         <Btn
           cls="sm"
@@ -237,6 +250,8 @@ function View({ n, ov }: { n: string; ov: Slot<Overview> }) {
       return <FirewallView n={n} />;
     case "users":
       return <UsersView n={n} />;
+    case "tenants":
+      return <TenantsView n={n} />;
     case "system":
       return <SystemView n={n} />;
     case "settings":

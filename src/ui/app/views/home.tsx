@@ -68,6 +68,7 @@ export function HomeView() {
           .filter((s) => !awaitingReach(s.name))
           .map((s) => {
             const r = S.reach[s.name];
+            const tenants = S.overview[s.name]?.data?.tenants?.length;
             return (
               <button
                 key={s.name}
@@ -79,8 +80,10 @@ export function HomeView() {
                   <ReachDot n={s.name} className="mr-0" />
                   {s.name}
                   {s.isDefault && <Star />}
+                  {s.saved?.tenant && <Badge title="A tenant login: its own Docker and sites, under the domains the admin gave it">tenant</Badge>}
                 </div>
                 <div className="text-faint text-sm mt-0.5 overflow-hidden text-ellipsis">{s.target}</div>
+                {!!tenants && <div className="text-dim text-xs mt-1">{plural(tenants, "tenant")}</div>}
                 {r && r.state !== "ok" && (
                   <div className={cx("text-xs mt-1", r.state === "login" ? "text-warn" : "text-bad")}>{REACH_WORD[r.state as "login"]}</div>
                 )}

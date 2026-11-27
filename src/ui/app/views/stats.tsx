@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { svText, S, http, plural, render, sv, errorMessage } from "../lib/store";
+import { svText, S, http, plural, render, sv, errorMessage, isTenant } from "../lib/store";
 import type { DiskUsage, PrunePlan } from "../lib/types";
 import { STATS_LOG, fetchInto, load } from "../lib/api";
 import { run } from "../lib/jobs";
@@ -200,6 +200,35 @@ export function StatsView({ n }: { n: string }) {
           </Table>
         </Card>
       )}
+      {!!s.tenants?.length && (
+        <Card>
+          <CardHead>
+            Tenants <Sub>use against the limits of lf tenant limits · cpu 100% = one core</Sub>
+          </CardHead>
+          <Table
+            head={
+              <>
+                <th>Tenant</th>
+                <th className={NUM}>CPU</th>
+                <th className={NUM}>Memory</th>
+              </>
+            }
+          >
+            {s.tenants.map((t) => (
+              <tr key={t.user}>
+                <td className="mono">{t.user}</td>
+                <td className={NUM}>
+                  {t.cpu}%{t.cpuMax ? <span className="faint"> / {t.cpuMax}%</span> : null}
+                </td>
+                <td className={NUM}>
+                  {size(t.mem)}
+                  {t.memMax ? <span className="faint"> / {size(t.memMax)}</span> : null}
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </Card>
+      )}
       <DiskCard n={n} />
       <p className="faint my-3.5">
         {st.loading && (
@@ -303,8 +332,12 @@ function pruneFlow(n: string, d: DiskUsage) {
             {
               name: "logs",
               type: "check",
-              label: `Also empty container logs${d.root ? ` (${size(logs.size)})` : ""} and shrink the systemd journal${d.journald ? ` (${size(d.journald)})` : ""}`,
-              hint: `Old log lines are gone for good; the journal keeps its newest ${JOURNAL_KEEP}. Needs root. lf prune --logs`,
+              label: isTenant(n)
+                ? `Also empty container logs (${size(logs.size)})`
+                : `Also empty container logs${d.root ? ` (${size(logs.size)})` : ""} and shrink the systemd journal${d.journald ? ` (${size(d.journald)})` : ""}`,
+              hint: isTenant(n)
+                ? "Old log lines are gone for good. lf prune --logs"
+                : `Old log lines are gone for good; the journal keeps its newest ${JOURNAL_KEEP}. Needs root. lf prune --logs`,
               // Last field, so the total sits under all the boxes.
               preview: (v) => `Frees up to ${size(most(v))}${v.logs && !d.root ? " and the logs" : ""}.`,
             },

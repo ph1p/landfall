@@ -170,7 +170,7 @@ function AccessLogMenu({ n, t }: { n: string; t: Traffic }) {
 export function TrafficView({ n }: { n: string }) {
   useEffect(() => ensure("certs", n, "/certs"));
   const st = S.traffic[n];
-  const spans = (
+  let spans = (
     <Actions className="m-0 mb-3.5">
       {TRAFFIC_SPANS.map(([v, l]) => (
         <Btn key={v} cls={`sm${S.since === v ? " primary" : ""}`} title={`lf traffic --since ${v}`} on={() => ((S.since = v), load(n, "traffic", true))}>
@@ -184,6 +184,17 @@ export function TrafficView({ n }: { n: string }) {
       )}
     </Actions>
   );
+  const tenants = S.overview[n]?.data?.tenants;
+  if (tenants?.length)
+    spans = (
+      <>
+        {spans}
+        <Note className="mb-3.5">
+          Requests to tenants' domains ({tenants.flatMap((x) => x.domains).join(", ")}) pass through Traefik encrypted and are not in this log. Each tenant sees
+          them in its own.
+        </Note>
+      </>
+    );
   const wait = pending(st, "reading Traefik's access log…");
   if (wait)
     return (

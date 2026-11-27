@@ -1,6 +1,7 @@
+import { STORE, URLS, type CoreTab, type Tab } from "./sections";
 import { S, http, render, server, errorMessage, type Slot, type StoreName } from "./store";
 import type { GitInfo, Reach, RefsView, State } from "./types";
-import { pluginTab, type PluginTab, type UiBlock } from "../../../core/plugins/plugin-api";
+import { pluginTab, type UiBlock } from "../../../core/plugins/plugin-api";
 import { toast } from "../ui/toast";
 import { closeDialog, dialogOpen } from "../ui/dialog";
 
@@ -43,51 +44,7 @@ export function route() {
 
 // ---- loading -------------------------------------------------------------
 
-export type CoreTab = "sites" | "tunnels" | "stats" | "traffic" | "traefik" | "facts" | "updates" | "firewall" | "users" | "system" | "history" | "settings";
-/** A core section, or a plugin's: plugin-<name>. */
-export type Tab = CoreTab | PluginTab;
-export const STORE: Record<CoreTab, StoreName> = {
-  sites: "overview",
-  tunnels: "overview",
-  stats: "stats",
-  traffic: "traffic",
-  traefik: "settings",
-  facts: "facts",
-  updates: "updates",
-  firewall: "firewall",
-  users: "users",
-  system: "system",
-  history: "history",
-  settings: "settings",
-};
-const URLS: Record<CoreTab, string> = {
-  sites: "",
-  tunnels: "",
-  stats: "/stats",
-  traffic: "/traffic",
-  traefik: "/config",
-  facts: "/facts",
-  updates: "/updates",
-  firewall: "/firewall",
-  users: "/users",
-  system: "/system",
-  history: "/history",
-  settings: "/config",
-};
-// A server's sections and the group each sits in, in the list and as tabs on phones; keys 1-9 switch between them.
-export const SECTIONS: [Tab, string, string][] = [
-  ["sites", "Sites", "Apps"],
-  ["tunnels", "Tunnels", "Apps"],
-  ["stats", "Stats", "Monitoring"],
-  ["traffic", "Traffic", "Monitoring"],
-  ["history", "History", "Monitoring"],
-  ["traefik", "Traefik", "Network"],
-  ["firewall", "Firewall", "Network"],
-  ["updates", "Updates", "Machine"],
-  ["users", "Users", "Machine"],
-  ["system", "System", "Machine"],
-  ["settings", "Settings", "Machine"],
-];
+export { SECTIONS, STORE, type CoreTab, type Tab } from "./sections";
 
 /** The plugin a plugin-<name> tab shows, if one with a panel is loaded. */
 export const pluginNameOf = (tab: string) => S.state?.plugins.find((p) => p.panel && !p.error && pluginTab(p.name) === tab)?.name;

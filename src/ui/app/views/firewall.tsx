@@ -69,6 +69,12 @@ export function FirewallView({ n }: { n: string }) {
           ufw below is a second firewall on the server itself: optional here.
         </Note>
       )}
+      {!!S.overview[n]?.data?.tenants?.length && (
+        <Note>
+          Tenants are on: ufw keeps the ports their Docker publishes closed, so keep it enabled. The rules for 80 and 443 the first tenant added go away with{" "}
+          <span className="mono">lf tenant off</span>.
+        </Note>
+      )}
       {!active && fw.blocked.length > 0 && (
         <Note>Turning it on would cut off {fw.blocked.join(", ")}: add rules for them first, or landfall refuses (with a way to do it anyway).</Note>
       )}

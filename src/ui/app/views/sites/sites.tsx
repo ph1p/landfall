@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { S, plural } from "../../lib/store";
 import type { Overview } from "../../lib/types";
 import { go } from "../../lib/api";
-import { Btn, Card, Empty, HIDE, SR, Table } from "../../ui/kit";
+import { Btn, Card, Empty, HIDE, Note, SR, Table } from "../../ui/kit";
 import { ensureDns } from "../domains";
 import { ErrorsCard } from "../traffic";
 import { can } from "../shared";
@@ -36,6 +36,15 @@ function Running({ n, o }: { n: string; o: Overview }) {
     </p>
   );
 }
+
+/** The admin does not see tenants' sites: they run in each tenant's own Docker. */
+const TenantSites = ({ n, o }: { n: string; o: Overview }) =>
+  o.tenants?.length ? (
+    <Note className="my-3.5">
+      {plural(o.tenants.length, "tenant")} {o.tenants.length === 1 ? "runs its" : "run their"} own sites here ({o.tenants.map((t) => t.user).join(", ")}).{" "}
+      <Btn on={() => go(n, "tenants")}>Open Tenants</Btn>
+    </Note>
+  ) : null;
 
 export function SitesView({ n, o }: { n: string; o: Overview }) {
   useEffect(() => ensureDns(n, o), [n, o]);
@@ -95,6 +104,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
             <p className="faint mono">{routed ? `lf deploy ./dist -d example.com -s ${n}` : `lf deploy ./dist -s ${n}`}</p>
           </Empty>
         </Card>
+        <TenantSites n={n} o={o} />
         <OthersCard n={n} o={o} />
       </>
     );
@@ -120,6 +130,7 @@ export function SitesView({ n, o }: { n: string; o: Overview }) {
           ))}
         </Table>
       </Card>
+      <TenantSites n={n} o={o} />
       <ErrorsCard n={n} />
       <OthersCard n={n} o={o} />
     </>

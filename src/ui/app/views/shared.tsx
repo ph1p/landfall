@@ -1,6 +1,7 @@
-import { S, sv } from "../lib/store";
+import { S, isTenant, sv } from "../lib/store";
 import type { Cap, ServerEntry, SiteStatus } from "../lib/types";
-import { SECTIONS, type Tab } from "../lib/api";
+import { SECTIONS } from "../lib/api";
+import { SAME_FOR_TENANTS, showSection, type CoreTab } from "../lib/sections";
 import { pluginTab } from "../../../core/plugins/plugin-api";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
@@ -187,26 +188,17 @@ export const can = (n: string): Record<Cap, boolean> | null => S.facts[n]?.data?
 /** Server n's overview and facts are both in (or failed): until then its page shows placeholders, not a guess. */
 export const connected = (n: string) => [S.overview[n], S.facts[n]].every((x) => x?.data || x?.error);
 /** When each section is worth a tab: the same conditions the CLI checks before doing it. */
-const SECTION_IF: Partial<Record<Tab, (k: Record<Cap, boolean>) => unknown>> = {
-  sites: (k) => k.docker || k.setup,
-  tunnels: (k) => k.docker,
-  traffic: (k) => k.docker,
-  traefik: (k) => k.docker,
-  updates: (k) => k.packages || k.docker,
-  firewall: (k) => k.firewall,
-  users: (k) => k.users,
-};
-/** The server's sections. Behind a provider firewall, ufw is only the second one: its section says "Host firewall". */
 export const sections = (n: string): typeof SECTIONS => {
   const k = can(n);
   const front = S.facts[n]?.data?.cloud?.firewall;
-  const core = SECTIONS.filter(([t]) => !k || (SECTION_IF[t]?.(k) ?? true)).map((s): (typeof SECTIONS)[number] =>
-    front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s,
+  const tenant = isTenant(n);
+  const core = SECTIONS.filter(([t]) => (k ? showSection(t, k, tenant) : !tenant || SAME_FOR_TENANTS.includes(t as CoreTab) || t === "sites")).map(
+    (s): (typeof SECTIONS)[number] => (front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s),
   );
   // Plugin panels join their group (after its own sections), or make a new group at the end.
   const out = [...core];
   for (const p of S.state.plugins) {
-    if (!p.panel || p.error) continue;
+    if (!p.panel || p.error || (tenant && !p.panel.tenant)) continue;
     const last = out.findLastIndex(([, , g]) => g === p.panel!.group);
     const entry: (typeof SECTIONS)[number] = [pluginTab(p.name), p.panel.label, p.panel.group];
     if (last < 0) out.push(entry);

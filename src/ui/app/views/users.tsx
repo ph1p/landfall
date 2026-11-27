@@ -20,7 +20,7 @@ export function UsersView({ n }: { n: string }) {
   const u = st!.data!;
   const go_ = (argv: string[]) => lf(n, argv);
   // What lf refuses to take away (checkTakeable) comes marked as keep.
-  const takeable = (a: Account) => !a.keep;
+  const takeable = (a: Account) => !a.keep && !a.tenant;
 
   const row = (a: Account) => {
     const rm = () =>
@@ -64,6 +64,12 @@ export function UsersView({ n }: { n: string }) {
               <Badge kind="ok" title="landfall logs in as this user">
                 landfall
               </Badge>
+            </>
+          )}
+          {a.tenant && (
+            <>
+              {" "}
+              <Badge title="lf tenant rm removes it, in the Tenants section">tenant</Badge>
             </>
           )}
           {!a.login && (

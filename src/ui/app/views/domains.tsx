@@ -1,11 +1,11 @@
-import { S, plural, sv, tilde } from "../lib/store";
+import { S, plural, serverNamed, sv, tilde } from "../lib/store";
 import type { Detected, Dns, Overview, SiteStatus } from "../lib/types";
 import { fetchInto, go, refreshState } from "../lib/api";
 import { run, ifOk } from "../lib/jobs";
 import { toast } from "../ui/toast";
 import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
-import { autoDomain } from "./flows/names";
+import { autoDomain, domainTaken } from "./flows/names";
 import { browse, openAfter } from "./flows/deploy";
 import { buildForm } from "./flows/build-form";
 import { mainDomain } from "./flows/server-dialogs";
@@ -63,6 +63,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
   const free = autoDomain(n, name);
   const ips = S.dns[n]?.data?.ips ?? [];
   const users = (m.auth ?? []).map((a) => a.split(":")[0]);
+  const own = serverNamed(n)?.saved?.tenant?.domains;
   const build = det && buildForm(det);
   const served = (v: Values) => !build || build.served(v);
   // The untouched form already asks for flags (a detected build not yet saved): only a change from them redeploys.
@@ -93,13 +94,16 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
             value: m.domains.join(" "),
             mono: true,
             off: (v: Values) => v.noDomain,
-            hint: main ? `@ means ${main}, a bare name a subdomain of it.` : undefined,
+            hint:
+              [main && `@ means ${main}, a bare name a subdomain of it.`, own && `Yours to route: ${own.join(", ")}.`].filter(Boolean).join(" ") || undefined,
             check: (x: string) =>
               words(x)
                 .map((d) =>
                   expandHost(d, main) === undefined
                     ? "@ means the main domain, and this server has none"
-                    : !domainOk(expandHost(d, main)!) && `Not a domain: ${d}`,
+                    : !domainOk(expandHost(d, main)!)
+                      ? `Not a domain: ${d}`
+                      : domainTaken(n, expandHost(d, main)!),
                 )
                 .find(Boolean) || undefined,
           },

@@ -10,7 +10,7 @@ import { EnvTable, envUrl, NO_ENV_CHANGE, type EnvChange } from "../env";
 import { DEPLOY_HOOKS, hookSource } from "../../../../core/site/hook-names";
 import { hookChoice } from "../hooks";
 import { defaultServer, mainDomain, tunnelOnly } from "./server-dialogs";
-import { autoDomain, imageName } from "./names";
+import { autoDomain, domainTaken, imageName } from "./names";
 import { DeployAside } from "./describe";
 import { buildForm } from "./build-form";
 import { openAfter } from "./deploy";
@@ -67,7 +67,8 @@ export async function deployDialog(det: Detected, o: DeployOpts = {}) {
     const out = given.map((d) => expandHost(d, main));
     if (out.includes(undefined)) return [[], `@ means the main domain, and ${v.server} has none`];
     const bad = out.find((d) => !domainOk(d!));
-    return [out as string[], bad && `Not a domain: ${bad}`];
+    if (bad) return [out as string[], `Not a domain: ${bad}`];
+    return [out as string[], out.map((d) => domainTaken(v.server, d!)).find(Boolean)];
   };
   const hooks = hookChoice(det.hooks?.run, DEPLOY_HOOKS, "deploy", `From ${hookSource(det.hooks?.pm).file}.`);
   // What the deploy redirects without --redirect: .landfall.json's, else the site's.

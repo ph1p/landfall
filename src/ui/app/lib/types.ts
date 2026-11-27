@@ -8,6 +8,7 @@ import type { Stats } from "../../../core/server/stats";
 import type { Advice } from "../../../core/server/security";
 import type { JobInfo } from "./jobs";
 import type { volumes } from "../../../core/site/volumes";
+import type { tenantsView } from "../../../core/server/tenants";
 
 type View<F extends (...args: any) => any> = Awaited<ReturnType<F>>;
 
@@ -71,6 +72,8 @@ export interface Redeploy {
 
 export type Facts = View<typeof factsView>;
 export type Firewall = View<typeof firewallView>;
+export type Tenants = View<typeof tenantsView>;
+export type TenantRow = Tenants["tenants"][number];
 export type FirewallRule = Firewall["rules"][number];
 export type Config = View<typeof configView>;
 export type DomainDns = Config["dns"][number];

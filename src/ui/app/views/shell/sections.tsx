@@ -29,6 +29,7 @@ import {
   Route,
   Settings,
   Shield,
+  Building2,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -144,4 +145,5 @@ const ICON: Record<CoreTab, LucideIcon> = {
   system: Cpu,
   settings: Settings,
   facts: Cpu,
+  tenants: Building2,
 };

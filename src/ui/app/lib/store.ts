@@ -24,6 +24,7 @@ export const S = {
   det: {} as Record<string, T.Detected | null | false>, // project folder -> what /api/fs detected there (null while reading, false if it failed)
   system: {} as Store<T.SystemInfo>, // name -> {data: lf system --json}
   users: {} as Store<T.Users>, // name -> {data: lf users --json}
+  tenants: {} as Store<T.Tenants>, // name -> {data: lf tenant ls --json --sizes}
   history: {} as Store<T.Run[]>,
   updates: {} as Record<string, Slot<T.Updates> & { refreshing?: boolean }>,
   facts: {} as Store<T.Facts>,
@@ -79,6 +80,8 @@ export const sv = (n: string) => ["-s", n];
 /** " -s n" for a shown command, or "" when n is the default server. */
 export const svText = (n: string) => (S.state.defaults.default === n ? "" : ` -s ${n}`);
 export const serverNamed = (n: string | null | undefined) => S.state?.servers.find((s) => s.name === n);
+/** The login is a tenant's: it sees and runs only what the server's admin left to it. */
+export const isTenant = (n: string | null | undefined) => !!serverNamed(n)?.saved?.tenant;
 /** The open server. */
 export const server = () => serverNamed(S.sel);
 export const tilde = (p: string) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
