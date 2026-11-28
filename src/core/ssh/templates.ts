@@ -4,6 +4,8 @@ import { ACCESS_LOG_FLAGS } from "../traefik/traffic-merge";
 export const ROOT = "/opt/landfall";
 export const SITES = `${ROOT}/sites`;
 export const TENANTS = `${ROOT}/tenants`;
+/** Present while tenants are on: what the server was like before the first one. */
+export const TENANTS_STATE = `${TENANTS}/state.json`;
 export const TRAEFIK_DIR = `${ROOT}/traefik`;
 /** Traefik's file provider reads every file here; landfall writes TLS_FILE, other files are yours (e.g. certificates). */
 export const DYNAMIC_DIR = `${TRAEFIK_DIR}/dynamic`;
@@ -638,7 +640,7 @@ kv sites "$(ls ${SITES} 2>/dev/null | wc -l | tr -d ' ')"
 kv network "$(yn S docker network inspect ${NETWORK})"
 kv proxy "$(grep -v '^#' ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
 kv ufw "$(ufw_state)"
-kv tenants "$(yn test -f ${TENANTS}/state.json)"
+kv tenants "$(yn test -f ${TENANTS_STATE})"
 # Without root sshd -T prints nothing: then our file is all there is to go by.
 pw=$(sshd_passwords)
 if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi

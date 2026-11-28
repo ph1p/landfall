@@ -217,7 +217,7 @@ export const tenantRemove = defineCommand({
     const t = tenantOf(view, user);
     if (o.purge) {
       await confirmRemoval(`Delete tenant ${user} on ${name} with its user, sites, volumes and images? This cannot be undone.`, user);
-      await asRoot(admin, purgeScript(t, view.raw[user]));
+      await asRoot(admin, purgeScript(user, view.raw[user]));
       return void ok(`deleted tenant ${user}`);
     }
     if (!t.active) fail(`${user} is removed already; --purge deletes it`);

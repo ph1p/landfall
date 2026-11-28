@@ -321,7 +321,7 @@ const scripts = {
   start: T.startScript("anna"),
   rm: T.deactivateScript("anna", was),
   restore: T.restoreScript("anna", was),
-  purge: T.purgeScript(anna2, was),
+  purge: T.purgeScript("anna", was),
   rights: T.rightsScript(anna2, was, { cron: false, ports: ["25565/tcp"] }),
   off: T.offScript(st, "{}", {}),
 };
@@ -494,11 +494,11 @@ test("the first tenant checks the central compose file before any change, then w
   expect(c.host).toContain("network_mode: host");
   expect(c.host).toContain("t.example.com");
   const s = scripts.add.script;
-  const check = s.indexOf(`printf '%s' "$TRAEFIK_NOW" | cmp -s -`);
+  const check = s.indexOf(`printf '%s' "$TRAEFIK_BRIDGE" | cmp -s -`);
   expect(check).toBeGreaterThan(-1);
   expect(check).toBeLessThan(s.indexOf("write_state\n"));
   expect(s).toContain(`printf '%s' "$TRAEFIK_HOST" > /opt/landfall/traefik/docker-compose.yml`);
-  expect(scripts.add.env).toMatchObject({ TRAEFIK_NOW: "bridge\n", TRAEFIK_HOST: "host\n" });
+  expect(scripts.add.env).toMatchObject({ TRAEFIK_BRIDGE: "bridge\n", TRAEFIK_HOST: "host\n" });
 });
 
 test("a tenant's open ports close when it is removed and open again when it is restored", () => {
@@ -513,6 +513,11 @@ test("a tenant's open ports close when it is removed and open again when it is r
     spawnSync("bash", ["-c", `set -euo pipefail\n${fn.replaceAll("/opt/landfall/tenants", dir)}\nt_ports ${u}`], { encoding: "utf8" }).stdout;
   expect(ports("ben").split("\n").filter(Boolean)).toEqual(["5000", "9877/tcp"]);
   expect(ports("nobody")).toBe("");
+  fs.writeFileSync(
+    path.join(dir, "cid.json"),
+    T.tenantJson({ user: "cid", uid: 2, port: 20001, domains: ["1.example.com"], active: true, rights: { ports: [] } }),
+  );
+  expect(ports("cid")).toBe("");
   const off = s.slice(s.indexOf("t_off() {"), s.indexOf("\n}", s.indexOf("t_off() {")));
   const on = s.slice(s.indexOf("t_on() {"), s.indexOf("\n}", s.indexOf("t_on() {")));
   expect(off).toContain('ufw --force delete allow "$_p"');
