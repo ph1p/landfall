@@ -390,13 +390,15 @@ export async function updateImages(s: Server, targets: ImageStatus[]) {
     lines.push(`log ${shq(`pulling ${ref}`)}`, `docker pull ${shq(ref)} >&2`, `new=$(docker image inspect -f '{{.Id}}' ${shq(ref)})`);
     for (const t of ts) {
       const svc = t.service ? ` ${shq(t.service)}` : "";
-      const undo = `docker tag $old ${shq(ref)} && cd -P ${shq(t.dir)} && dc up -d${svc}`;
+      // A recreated proxy writes a new Docker log file: fail2ban's web jails follow it.
+      const refresh = t.kind === "site" ? "" : " && f2b_web_refresh";
+      const undo = `docker tag $old ${shq(ref)} && cd -P ${shq(t.dir)} && dc up -d${svc}${refresh}`;
       lines.push(
         `old=$(docker inspect -f '{{.Image}}' ${shq(t.container)})`,
         `if [ "$old" = "$new" ]; then log ${shq(`${t.name} already runs the newest ${ref}`)}; else`,
         `  record ${shq(`updated ${t.name} to the newest ${ref}`)} "${undo.replace(/"/g, '\\"')}"`,
         `  log ${shq(`recreating ${t.container}`)}`,
-        `  (cd -P ${shq(t.dir)} && dc up -d --quiet-pull${svc}) && ensure_running ${shq(t.container)} || exit 1`,
+        `  (cd -P ${shq(t.dir)} && dc up -d --quiet-pull${svc}) && ensure_running ${shq(t.container)}${refresh} || exit 1`,
         "fi",
       );
     }

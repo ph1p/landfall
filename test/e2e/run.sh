@@ -24,11 +24,11 @@ die() { printf '\033[31mFAIL\033[0m %s\n' "$*"; exit 1; }
 
 # E2E_ONLY="volumes ui" runs setup, then only these sections and the ones whose sites they use.
 SECTIONS="static exposure spa dockerfile secrets environments node image compose volumes domains main updates stats traffic prune
-  system versions git security traefik remove firewall undo ui undo-all uninstall tenants fresh debian dnf"
+  system versions git security traefik remove firewall undo ui fail2ban-web undo-all uninstall tenants fresh debian dnf"
 needs() {
   case $1 in
     environments) echo secrets ;;
-    updates | traffic | prune) echo dockerfile ;;
+    updates | traffic | prune | fail2ban-web) echo dockerfile ;;
     versions | exposure) echo static ;;
     domains | traefik | remove) echo image ;;
     # main's traefik setup is the later run that keeps undo from reverting setup's traefik.
@@ -1111,6 +1111,74 @@ job=$(curl -s -b "$JAR" -H 'content-type: application/json' -d '{"argv":'"$argv"
   || die "ui fix starts fail2ban"; pass "ui security fix button starts fail2ban"
 kill "$UI_PID"; wait "$UI_PID" 2>/dev/null || true
 pass "web dashboard: login, host check, servers, jobs"
+fi
+
+if want fail2ban-web; then echo "== fail2ban web jails"
+# After ui: ui wants fail2ban stopped, as security leaves it.
+f2bweb() { lf fail2ban web -s box --json; }
+jailfile=/etc/fail2ban/jail.d/40-landfall-http.local
+logpath() { srv sed -n 's/^logpath *= *//p' $jailfile | head -n1; }
+lf harden fail2ban -s box >"$WORK/f2bw.log" 2>&1 || { cat "$WORK/f2bw.log"; die "harden fail2ban"; }
+get app.test /nope >/dev/null; get app.test / >/dev/null
+{ f2bweb | has '"on": false'; } || die "fail2ban web starts off"
+lf fail2ban web on --flood --ignore 198.51.100.0/24 -s box -y >"$WORK/f2bw.log" 2>&1 || { cat "$WORK/f2bw.log"; die "fail2ban web on"; }
+has "CDN" "$WORK/f2bw.log" || die "web on warns about CDNs"
+out=$(srv fail2ban-client status) || die "fail2ban-client status"
+{ has landfall-http <<<"$out" && has landfall-http-flood <<<"$out"; } || { echo "$out"; die "web on starts both jails"; }
+{ f2bweb | tr -d ' \n' | has '"on":true,"flood":true,"ignore":\["198.51.100.0/24"\],"mode":"bridge","stale":false'; } || { f2bweb; die "fail2ban web --json"; }
+[ "$(logpath)" = "$(srv docker inspect -f '{{.LogPath}}' traefik)" ] || die "the jail reads traefik's log file"
+pass "fail2ban web on: both jails read traefik's log, bans go to DOCKER-USER"
+# The filters on what Traefik and Docker really write: every line parses, the 404 matches.
+get app.test /nope-again >/dev/null
+out=$(srv fail2ban-regex "$(logpath)" /etc/fail2ban/filter.d/landfall-traefik.conf) || { echo "$out"; die "fail2ban-regex on traefik's log"; }
+has -E '^Lines: [0-9]+ lines, 0 ignored, [1-9][0-9]* matched' <<<"$out" || { echo "$out"; die "the filter parses traefik's log and matches its 404s"; }
+out=$(srv fail2ban-regex "$(logpath)" /etc/fail2ban/filter.d/landfall-traefik-flood.conf) || die "fail2ban-regex flood"
+# Traefik's own log lines share the file: not every line is a request.
+has -E '^Lines: [0-9]+ lines, 0 ignored, ([3-9]|[1-9][0-9]+) matched' <<<"$out" || { echo "$out"; die "the flood filter matches every request"; }
+pass "fail2ban-regex: the filters parse traefik's live log"
+inner='{"ClientAddr":"203.0.113.9:4711","ClientHost":"203.0.113.9","DownstreamStatus":404,"RequestHost":"x\",\"ClientHost\":\"198.51.100.66","RequestPath":"/wp-login.php"}'
+line=$(node -e 'process.stdout.write(JSON.stringify({ log: process.argv[1] + "\n", stream: "stdout", time: new Date().toISOString() }))' "$inner")
+printf '%s\n' "$line" | docker exec -i "$NAME" sh -c 'cat > /tmp/f2b-fixture.log'
+out=$(srv fail2ban-regex -v /tmp/f2b-fixture.log /etc/fail2ban/filter.d/landfall-traefik.conf) || { echo "$out"; die "fail2ban-regex fixture"; }
+# -v lists each hit as "|  <host>  <time>"; the matched line itself holds both addresses.
+{ has -E '^Lines: 1 lines, 0 ignored, 1 matched' <<<"$out" && has -E '^\|\s+203\.0\.113\.9\s' <<<"$out" && ! has -E '^\|\s+198\.51\.100\.66\s' <<<"$out"; } \
+  || { echo "$out"; die "a 404 bans its client, never the address in the Host header"; }
+pass "fail2ban-regex: a 404 names its client, a Host header cannot name another"
+lf fail2ban ban 203.0.113.9 --jail landfall-http -s box -y >/dev/null 2>&1 || die "fail2ban ban --jail landfall-http"
+{ srv iptables -S DOCKER-USER | has -- '-j f2b-landfall-http' && srv iptables -S f2b-landfall-http | has 203.0.113.9; } \
+  || { srv iptables -S; die "the ban sits in DOCKER-USER"; }
+pass "a ban by hand blocks HTTP(S) in DOCKER-USER"
+# landfall recreates traefik on the host network. The deploy login cannot reach root here: the jails cannot follow, landfall says so.
+lf traefik setup --host-network >"$WORK/f2bw.log" 2>&1 || { cat "$WORK/f2bw.log"; die "traefik setup --host-network"; }
+has "fail2ban's web jails still read the old log of traefik: run lf fail2ban web on" "$WORK/f2bw.log" || { cat "$WORK/f2bw.log"; die "setup warns the jails stay behind"; }
+{ f2bweb | has '"stale": true'; } || die "fail2ban web: stale after a recreate without root"
+lf fail2ban web on --flood --ignore 198.51.100.0/24 -s box -y >/dev/null 2>&1 || die "web on with traefik on the host network"
+{ [ "$(logpath)" = "$(srv docker inspect -f '{{.LogPath}}' traefik)" ] && srv grep -q 'mode=host' $jailfile && srv grep -q 'iptables-multiport' $jailfile; } \
+  || { srv cat $jailfile; die "web on: host network bans in INPUT on 80/443"; }
+{ f2bweb | tr -d ' \n' | has '"mode":"host","stale":false'; } || die "fail2ban web: host mode"
+pass "without root the jails stay behind and landfall says so; web on bans in INPUT on 80/443"
+# With sudo, the next recreate takes the jails along: new log file, bans back in DOCKER-USER.
+srv sh -c 'apk add -q sudo >/dev/null && echo "deploy ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/e2e-f2b && chmod 440 /etc/sudoers.d/e2e-f2b'
+lf traefik setup --no-host-network >"$WORK/f2bw.log" 2>&1 || { cat "$WORK/f2bw.log"; die "traefik setup --no-host-network"; }
+srv rm -f /etc/sudoers.d/e2e-f2b
+{ has "fail2ban's web jails now read the log of traefik" "$WORK/f2bw.log" && [ "$(logpath)" = "$(srv docker inspect -f '{{.LogPath}}' traefik)" ] && srv grep -q 'mode=bridge' $jailfile; } \
+  || { cat "$WORK/f2bw.log"; srv cat $jailfile; die "the jails follow traefik back"; }
+{ srv fail2ban-client status | has landfall-http-flood; } || die "both jails run after the refresh"
+pass "the jails follow a traefik landfall recreates: log file and where bans go"
+# Recreated by hand: landfall says so, web on fixes it.
+srv sh -c 'cd /opt/landfall/traefik && docker compose up -d --force-recreate >/dev/null 2>&1'
+{ f2bweb | has '"stale": true'; } || die "fail2ban web sees a traefik recreated by hand"
+lf fail2ban web on --flood --ignore 198.51.100.0/24 -s box -y >/dev/null 2>&1 || die "web on again"
+{ f2bweb | has '"stale": false' && [ "$(logpath)" = "$(srv docker inspect -f '{{.LogPath}}' traefik)" ]; } || die "web on follows the new log"
+pass "a traefik recreated by hand is seen, web on follows it"
+lf fail2ban web off -s box -y >/dev/null 2>&1 || die "fail2ban web off"
+{ ! srv fail2ban-client status | has landfall-http && ! srv test -e $jailfile; } || die "web off removes the jails"
+lf undo -s box -y >/dev/null 2>&1 || die "undo web off"
+{ srv fail2ban-client status | has landfall-http-flood; } || die "undo web off brings both jails back"
+lf fail2ban web off -s box -y >/dev/null 2>&1 || die "fail2ban web off again"
+{ ! srv fail2ban-client status | has landfall-http && f2bweb | has '"on": false'; } || die "web off again"
+pass "web off removes the jails, undo brings them back"
+srv sh -c 'rm -f /tmp/f2b-fixture.log'
 fi
 
 if want undo-all; then echo "== undo everything"

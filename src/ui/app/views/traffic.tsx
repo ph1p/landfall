@@ -238,6 +238,8 @@ export function TrafficView({ n }: { n: string }) {
     </Btn>
   );
   const T = focus ? siteTraffic(t, focus) : t.total;
+  // f2bWeb is never set for a tenant login: the jails watch the admin's Traefik.
+  const ban = t.f2bWeb;
   const cmd = `lf traffic${focus ? ` ${focus}` : ""} --since ${S.since}${svText(n)}`;
   if (!T)
     return (
@@ -366,11 +368,31 @@ export function TrafficView({ n }: { n: string }) {
       </div>
       <List
         title="Clients"
-        cols={[["IP"], ["Requests", NUM]]}
+        cols={[["IP"], ["Requests", NUM], ["4xx", NUM], ...(ban ? [[""] as [string]] : [])]}
         rows={T.ips.map((i) => (
           <tr key={i.ip}>
             <td className="mono">{i.ip}</td>
             <td className={NUM}>{count(i.count)}</td>
+            <td className={NUM}>{i.errors ? <Badge kind="warn">{count(i.errors)}</Badge> : null}</td>
+            {ban && (
+              <td className={NUM}>
+                <Btn
+                  cls="sm danger"
+                  title={`lf fail2ban ban ${i.ip} --jail landfall-http`}
+                  on={() =>
+                    confirmDlg({
+                      title: `Ban ${i.ip} on ${n}?`,
+                      text: "fail2ban blocks this address from HTTP and HTTPS for the landfall-http jail's ban time. lf fail2ban unban lifts it.",
+                      ok: "Ban",
+                      danger: true,
+                      onOk: () => run(["fail2ban", "ban", i.ip, "--jail", "landfall-http", ...sv(n), "-y"], { server: n }),
+                    })
+                  }
+                >
+                  Ban
+                </Btn>
+              </td>
+            )}
           </tr>
         ))}
       />

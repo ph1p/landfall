@@ -151,7 +151,7 @@ describe("deploy scripts", () => {
     await setWeights(server, "blog", { b: 0 }, "weight blog b=0");
     const s = scripts.find((x) => x.includes("record "))!;
     parses(s);
-    expect(s).not.toMatch(/\bdc (up|run)|docker (stop|rm)/);
+    expect(s.slice(PRELUDE.length)).not.toMatch(/\bdc (up|run)|docker (stop|rm)/);
     const own = at(s, "managed by landfall", at(s, "u2=$(saved"));
     const put = at(s, "| _put", own);
     at(s, `record 'weight blog b=0' "$u1"`, at(s, "site.json", put));

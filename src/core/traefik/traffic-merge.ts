@@ -16,7 +16,8 @@ export interface Summary {
 
 export interface Detail extends Summary {
   paths: { path: string; count: number; errors: number }[];
-  ips: { ip: string; count: number }[];
+  /** errors: responses 400-405 outside /_lf/, what fail2ban's landfall-http jail counts. */
+  ips: { ip: string; count: number; errors: number }[];
   errors: { status: number; path: string; count: number }[];
   /** Every minute or hour of the span, oldest first, empty ones included. */
   series: ({ at: string } & Record<StatusClass, number>)[];
@@ -74,6 +75,8 @@ export interface Traffic {
   proxy: boolean;
   /** The server's own traefik (lf traefik use): landfall did not configure its log. */
   own: boolean;
+  /** fail2ban's web jails are on (lf fail2ban web on): a client can be banned from HTTP(S). */
+  f2bWeb: boolean;
   /** What the log holds: JSON lines landfall reads, only plain-text lines, or nothing in the span. */
   format: "json" | "common" | "none";
   /** The access log as the proxy's flags configure it: `lf traefik access-log` turns it on when it is not "json". */
@@ -120,7 +123,7 @@ export function mergeHosts(hosts: HostTraffic[], keys: string[]): Detail {
   const codes: Record<string, number> = {};
   const classes = zero();
   const paths = new Map<string, { count: number; errors: number }>();
-  const ips = new Map<string, number>();
+  const ips = new Map<string, { count: number; errors: number }>();
   const errors = new Map<string, number>();
   const series = new Map(keys.map((at) => [at, zero()]));
   let requests = 0,
@@ -135,7 +138,10 @@ export function mergeHosts(hosts: HostTraffic[], keys: string[]): Detail {
       const x = paths.get(p.path) ?? { count: 0, errors: 0 };
       paths.set(p.path, { count: x.count + p.count, errors: x.errors + p.errors });
     }
-    for (const i of h.ips) ips.set(i.ip, (ips.get(i.ip) ?? 0) + i.count);
+    for (const i of h.ips) {
+      const x = ips.get(i.ip) ?? { count: 0, errors: 0 };
+      ips.set(i.ip, { count: x.count + i.count, errors: x.errors + (i.errors ?? 0) });
+    }
     for (const e of h.errors) errors.set(`${e.status} ${e.path}`, (errors.get(`${e.status} ${e.path}`) ?? 0) + e.count);
     for (const s of h.series) {
       const x = series.get(s.at);
@@ -151,7 +157,7 @@ export function mergeHosts(hosts: HostTraffic[], keys: string[]): Detail {
     p50: percentile(hist, 0.5),
     p95: percentile(hist, 0.95),
     paths: top([...paths].map(([path, x]) => ({ path, ...x }))),
-    ips: top([...ips].map(([ip, count]) => ({ ip, count }))),
+    ips: top([...ips].map(([ip, x]) => ({ ip, ...x }))),
     errors: top([...errors].map(([k, count]) => ({ status: Number(k.slice(0, k.indexOf(" "))), path: k.slice(k.indexOf(" ") + 1), count }))),
     series: [...series].map(([at, x]) => ({ at, ...x })),
   };

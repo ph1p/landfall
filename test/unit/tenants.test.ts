@@ -355,16 +355,25 @@ describe("tenant scripts", () => {
     const lock = s.indexOf("flock -w 60 9");
     const state = s.indexOf("write_state\n  record");
     expect(state).toBeGreaterThan(lock);
-    for (const change of ["pkg_install $missing", "apparmor_parser -r", "chmod 0751", 'ufw_add allow "$r"', "dc up -d", "useradd -m"]) {
+    for (const change of ["pkg_install $missing", "apparmor_parser -r", "chmod 0751", 'ufw_add allow "$r"', "traefik_up", "useradd -m"]) {
       const at = s.indexOf(change, lock);
       expect(at, change).toBeGreaterThan(state);
+    }
+  });
+
+  test("fail2ban's web jails follow the central Traefik to and from the host network", () => {
+    for (const s of [scripts.add.script, scripts.off.script]) {
+      const body = s.slice(PRELUDE.length);
+      // traefik_up recreates Traefik, then f2b_web_refresh points the jails at its new log.
+      expect(body).toMatch(/^\s*traefik_up --force-recreate$/m);
+      expect(body).toMatch(/undo="[^\n]*; traefik_up --force-recreate"/);
     }
   });
 
   test("a first tenant add that stopped halfway is not taken for done", () => {
     const s = scripts.add.script;
     const done = s.indexOf("ST_DONE=true");
-    expect(done).toBeGreaterThan(s.indexOf("dc up -d --force-recreate"));
+    expect(done).toBeGreaterThan(s.indexOf("traefik_up --force-recreate"));
     expect(s).toContain('"complete": %s');
     expect(s).toMatch(
       /elif ! grep -q '"complete": true' \/opt\/landfall\/tenants\/state\.json; then\n\s+log "the first lf tenant add stopped halfway; lf tenant off rolls back/,

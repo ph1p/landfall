@@ -4,7 +4,7 @@ import { currentRelease, SITE_LINES, readSiteLine, type SiteMeta } from "../site
 import { MATCH_SUFFIX, routerName } from "../site/traefik-labels";
 import { matchText, siteHosts, splitGroups } from "../site/routing";
 import { runScript, shq } from "../ssh/ssh";
-import { PROXY_FILE, PROXY_PRELUDE } from "../ssh/templates";
+import { F2B_WEB_JAIL, PROXY_FILE, PROXY_PRELUDE } from "../ssh/templates";
 import { fail } from "../lib/term";
 import { cls, mergeHosts, summarize, zero, type HostTraffic, type StatusClass, type Summary, type Traffic } from "./traffic-merge";
 
@@ -46,6 +46,8 @@ const logFormat = (f: string[]): SiteServiceTraffic["format"] => (Number(f[1]) ?
 export const TRAFFIC = (secs: number) => String.raw`
 ${PROXY_PRELUDE}
 [ -f ${PROXY_FILE} ] && echo OWN
+# fail2ban's web jails (lf fail2ban web on) watch the central Traefik, never a tenant's. The jail file is world-readable.
+[ -n "${"${LANDFALL_TENANT:-}"}" ] || [ ! -f ${F2B_WEB_JAIL} ] || echo F2BWEB
 # No sudo here, it runs on every refresh: the log's size only when this login can read it (root).
 S=""
 ${ACCESS_LOG_READ}
@@ -64,7 +66,9 @@ ${AWK_JSON}
   L[h SUBSEP bucket(ms)]++
   S[h SUBSEP substr(t, 1, B) SUBSEP int(s / 100)]++
   PA[h SUBSEP p]++; if (s >= 400) { PE[h SUBSEP p]++; E[h SUBSEP s " " p]++ }
-  I[h SUBSEP str("ClientHost")]++
+  c = str("ClientHost"); I[h SUBSEP c]++
+  # What the landfall-http jail of fail2ban counts: 400-405, never the /_lf/ paths of landfall.
+  if (s >= 400 && s <= 405 && index(p, "/_lf/") != 1) IE[h SUBSEP c]++
   n++; next
 }
 ${AWK_COMMON}
@@ -74,7 +78,7 @@ END {
   for (x in L) { split(x, a, SUBSEP); print "L\t" a[1] "\t" a[2] "\t" L[x] }
   for (x in S) { split(x, a, SUBSEP); print "S\t" a[1] "\t" a[2] "\t" a[3] "\t" S[x] }
   for (x in PA) { split(x, a, SUBSEP); print "P\t" a[1] "\t" a[2] "\t" PA[x] "\t" PE[x] + 0 }
-  for (x in I) { split(x, a, SUBSEP); print "I\t" a[1] "\t" a[2] "\t" I[x] }
+  for (x in I) { split(x, a, SUBSEP); print "I\t" a[1] "\t" a[2] "\t" I[x] "\t" IE[x] + 0 }
   for (x in E) { split(x, a, SUBSEP); print "E\t" a[1] "\t" a[2] "\t" E[x] }
 }' | LC_ALL=C sort -t"$T" -k1,1 -k2,2 -k4,4nr | awk -F'\t' '($1 != "P" && $1 != "I" && $1 != "E") || n[$1 FS $2]++ < 10'
 exit 0
@@ -137,6 +141,7 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
     bucket: bucketLen(secs) === 16 ? "minute" : "hour",
     proxy: true,
     own: false,
+    f2bWeb: false,
     format: "none",
     accessLog: parseAccessLog(out),
     log: parseProxyLog(out),
@@ -148,6 +153,7 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
     const f = line.split("\t");
     if (f[0] === "NOPROXY") t.proxy = false;
     else if (f[0] === "OWN") t.own = true;
+    else if (f[0] === "F2BWEB") t.f2bWeb = true;
     else if (f[0] === "N") {
       t.format = logFormat(f);
       if (f[3]) ((t.from = f[3]), (t.to = f[4]));
@@ -164,7 +170,7 @@ export function parseTraffic(out: string, secs: number, now = new Date()): Traff
       at[c] += Number(f[4]);
       s.set(f[2], at);
     } else if (f[0] === "P") host(f[1]).paths.push({ path: f[2], count: Number(f[3]), errors: Number(f[4]) || 0 });
-    else if (f[0] === "I") host(f[1]).ips.push({ ip: f[2], count: Number(f[3]) });
+    else if (f[0] === "I") host(f[1]).ips.push({ ip: f[2], count: Number(f[3]), errors: Number(f[4]) || 0 });
     else if (f[0] === "E") {
       const i = f[2].indexOf(" ");
       host(f[1]).errors.push({ status: Number(f[2].slice(0, i)), path: f[2].slice(i + 1), count: Number(f[3]) });

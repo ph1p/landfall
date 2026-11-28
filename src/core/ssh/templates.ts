@@ -89,6 +89,61 @@ export const OWN_PROXY: Proxy = { container: "traefik", network: NETWORK, entryp
 /** Shell: name of the proxy container. */
 export const PROXY_CTR = `"$(sed -n 's/^container=//p' ${PROXY_FILE} 2>/dev/null | grep . || echo traefik)"`;
 
+/** lf fail2ban web: the jail file. Its second line says which Traefik container it watches, and how it was turned on. */
+export const F2B_WEB_JAIL = "/etc/fail2ban/jail.d/40-landfall-http.local";
+
+/**
+ * Shell for lf fail2ban web (src/plugins/fail2ban.ts). Its jails read Traefik's Docker log file, whose path changes
+ * with every new container, and the host network needs other ban rules than a bridge.
+ * f2b_web_write <flood 0|1> [ignore…]: writes the jail file for the running proxy.
+ * f2b_web_refresh: does that again after landfall recreated Traefik. A no-op without the jail file or when nothing
+ * changed; never fails the command around it, and is not journaled: it only follows the container.
+ * traefik_up <dc up -d args>: recreates landfall's Traefik, then f2b_web_refresh. Scripts that recreate it use this.
+ */
+const F2B_WEB_SH = String.raw`
+_f2b_proxy() { docker inspect -f '{{.Id}} {{.HostConfig.NetworkMode}} {{.LogPath}}' "$1" 2>/dev/null || true; }
+f2b_web_write() {
+  local p id net lp mode flood=$1 j act
+  shift
+  p=${PROXY_CTR}
+  read -r id net lp <<EOF || true
+$(_f2b_proxy "$p")
+EOF
+  [ -n "$lp" ] || { log "$p has no Docker log file to read"; return 1; }
+  mode=bridge; [ "$net" != host ] || mode=host
+  {
+    echo "# landfall: lf fail2ban web. Rewritten when landfall recreates Traefik; lf fail2ban config <jail> tunes a jail."
+    echo "# container=$id mode=$mode flood=$flood ignore=$(echo "$@" | tr ' ' ,)"
+    for j in landfall-http $([ "$flood" != 1 ] || echo landfall-http-flood); do
+      # Bridge: published ports pass FORWARD, never INPUT; DOCKER-USER is where Docker lets rules in first.
+      # Host network: INPUT, 80 and 443 only, so a ban never takes ssh away.
+      if [ "$mode" = host ]; then act="iptables-multiport[name=$j, port=\"80,443\", protocol=tcp]
+         iptables-multiport[name=$j-udp, port=\"443\", protocol=udp]"
+      else act="iptables-allports[name=$j, chain=DOCKER-USER, protocol=all]"; fi
+      if [ "$j" = landfall-http ]; then set -- landfall-traefik 30 2m "$@"; else set -- landfall-traefik-flood 600 1m "$@"; fi
+      printf '\n[%s]\nenabled = true\nfilter = %s\nlogpath = %s\nbackend = polling\nlogtimezone = UTC\nmaxretry = %s\nfindtime = %s\nbantime = 1h\n' "$j" "$1" "$lp" "$2" "$3"
+      shift 3
+      echo "ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7${"${*:+ $*}"}"
+      echo "action = $act"
+    done
+  } | _put ${F2B_WEB_JAIL}
+}
+f2b_web_refresh() {
+  [ -e ${F2B_WEB_JAIL} ] && [ -z "${"${LANDFALL_TENANT:-}"}" ] || return 0
+  local h id net mode p=${PROXY_CTR}
+  h=$(sed -n 's/^# container=//p' ${F2B_WEB_JAIL} | head -1)
+  read -r id net _ <<EOF || true
+$(_f2b_proxy "$p")
+EOF
+  mode=bridge; [ "$net" != host ] || mode=host
+  case "$h" in "$id mode=$mode "*) return 0 ;; esac
+  if can_root && f2b_web_write "$(printf %s "$h" | sed -n 's/.* flood=\([01]\).*/\1/p')" $(printf %s "$h" | sed -n 's/.* ignore=\([^ ]*\).*/\1/p' | tr , ' ') \
+    && $SUDO fail2ban-client reload >/dev/null 2>&1; then log "fail2ban's web jails now read the log of $p"
+  else log "warning: fail2ban's web jails still read the old log of $p: run lf fail2ban web on"; fi
+}
+traefik_up() { (cd ${TRAEFIK_DIR} && dc up -d "$@" >&2) || return; f2b_web_refresh; }
+`;
+
 /** Start of a script that reads the proxy: `$P` is its container; without one it prints NOPROXY and stops. */
 export const PROXY_PRELUDE = `set +e
 P=${PROXY_CTR}
@@ -423,7 +478,7 @@ ufw_enable() {
     *inactive*) $SUDO ufw --force enable >/dev/null; record "enabled ufw" '$SUDO ufw disable >/dev/null' ;;
   esac
 }
-`;
+${F2B_WEB_SH}`;
 
 /** Keys-only sshd (root keeps key login unless it was off), journaled; also run by lf harden. Needs PRELUDE. */
 export const HARDEN_SSH = String.raw`

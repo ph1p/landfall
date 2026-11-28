@@ -1,6 +1,10 @@
 // fail2ban: what it bans, and banning, unbanning and tuning its jails. A built-in plugin.
 import { definePlugin, type PluginContext, type UiBlock, type UiField } from "../core/plugins/plugin-api";
 import { IP } from "../core/server/system";
+import { isCidr } from "../core/site/x-landfall";
+import { writeFileCmd } from "../core/ssh/ssh";
+import { F2B_WEB_JAIL, PROXY_CTR } from "../core/ssh/templates";
+import { ACCESS_LOG_SH, parseAccessLog } from "../core/traefik/accesslog";
 
 export interface F2bJail {
   name: string;
@@ -150,6 +154,243 @@ const SETTINGS: UiField[] = [
   { name: "maxretry", label: "Failures before a ban", type: "number", min: 1, flag: "--maxretry", placeholder: "5" },
 ];
 
+// ---- lf fail2ban web: ban web scanners and floods from Traefik's access log ----
+
+/** The web jails: what they count and their defaults (tuning: lf fail2ban config <jail>, a 50- file). */
+export const WEB_JAILS = ["landfall-http", "landfall-http-flood"] as const;
+const FILTER_HTTP_FILE = "/etc/fail2ban/filter.d/landfall-traefik.conf";
+const FILTER_FLOOD_FILE = "/etc/fail2ban/filter.d/landfall-traefik-flood.conf";
+/** lf fail2ban config's tuning of the flood jail; it goes when floods go. */
+const TUNE_FLOOD_FILE = "/etc/fail2ban/jail.d/50-landfall-landfall-http-flood.local";
+const WEB_FILES = [FILTER_HTTP_FILE, FILTER_FLOOD_FILE, F2B_WEB_JAIL, "/etc/fail2ban/jail.d/50-landfall-landfall-http.local", TUNE_FLOOD_FILE];
+
+// Traefik's JSON access log as Docker's json-file log stores it: {"log":"{\"ClientAddr\":…}\n","stream":…,"time":…}.
+// Anchored at the line start: Traefik sorts the keys, so ClientAddr and ClientHost come first, and only the TCP
+// connection sets them. A path or Host header cannot name another address: Docker escapes its quotes once more.
+const FILTER_HEAD = String.raw`# landfall: lf fail2ban web. Reads Traefik's JSON access log in Docker's json-file log.
+# ClientAddr and ClientHost come first and only the connection sets them: a request cannot name another address.
+# Requests to /_lf/ (landfall's own endpoints, the analytics collector) never count.
+[Definition]
+_client = ^\{"log":"\{\\"ClientAddr\\":\\"[^\\"]*\\",\\"ClientHost\\":\\"<HOST>\\",
+_own = (?!.*\\"RequestPath\\":\\"/_lf/)
+datepattern = "time":"%%Y-%%m-%%dT%%H:%%M:%%S
+`;
+/** Responses 400–405 (bad request, unauthorized, forbidden, not found…): what scanners get. */
+export const FILTER_HTTP = `${FILTER_HEAD}${String.raw`failregex = %(_client)s(?=.*\\"DownstreamStatus\\":40[0-5],)%(_own)s`}\n`;
+/** Every request: floods. */
+export const FILTER_FLOOD = `${FILTER_HEAD}failregex = %(_client)s%(_own)s\n`;
+
+// Read-only: is fail2ban web on, which container it watches, and what web on needs. S runs as root when it can.
+const WEB_CHECKS = String.raw`
+P=${PROXY_CTR}
+[ ! -e ${F2B_WEB_JAIL} ] || printf 'WEBHEAD\t%s\n' "$(sed -n 's/^# container=//p' ${F2B_WEB_JAIL} | head -1)"
+pr=$(docker inspect -f '{{.Id}} {{.HostConfig.NetworkMode}} {{.LogPath}}' "$P" 2>/dev/null || true)
+printf 'PROXY\t%s\n' "$pr"
+${ACCESS_LOG_SH}
+! command -v iptables >/dev/null 2>&1 || echo IPT
+if can_root; then
+  ! S iptables -n -L DOCKER-USER >/dev/null 2>&1 || echo DU4
+  ! command -v ip6tables >/dev/null 2>&1 || ! S ip6tables -n -L DOCKER-USER >/dev/null 2>&1 || echo DU6
+  lp=$(printf %s "$pr" | cut -d' ' -f3-)
+  if [ -n "$lp" ]; then
+    t=$(S tail -n 200 "$lp" 2>/dev/null | grep -F DownstreamStatus || true)
+    printf 'KEYS\t%s\t%s\n' "$(printf '%s\n' "$t" | grep -c . || true)" \
+      "$(printf '%s\n' "$t" | grep -cE '^[{]"log":"[{]\\"ClientAddr\\":\\"[^\\"]*\\",\\"ClientHost\\":\\"' || true)"
+  fi
+fi
+`;
+const WEB_STATUS = `${WEB_CHECKS}\n${STATUS}`;
+
+export interface F2bWeb {
+  fail2ban: F2bStatus["fail2ban"];
+  /** The web jails are configured (40-landfall-http.local exists). */
+  on: boolean;
+  flood: boolean;
+  /** Addresses never banned, besides private ranges. */
+  ignore: string[];
+  /** Where bans go: DOCKER-USER (bridge network) or INPUT on ports 80 and 443 (host network). */
+  mode?: "bridge" | "host";
+  /** The jails read the log of a Traefik container that is gone (recreated by hand): lf fail2ban web on fixes it. */
+  stale: boolean;
+  jails: F2bJail[];
+  /** Why lf fail2ban web on refuses. */
+  problem?: string;
+  /** Bridge network without ip6tables' DOCKER-USER chain: IPv6 clients cannot be banned. */
+  noIpv6: boolean;
+}
+
+export function parseWeb(out: string, st = parseStatus(out)): F2bWeb {
+  const kv = new Map<string, string>();
+  for (const line of out.split("\n")) {
+    const tab = line.indexOf("\t");
+    if (tab > 0) kv.set(line.slice(0, tab), line.slice(tab + 1));
+    else if (/^(IPT|DU4|DU6)$/.test(line)) kv.set(line, "");
+  }
+  const head = kv.get("WEBHEAD");
+  const [id = "", net = ""] = (kv.get("PROXY") ?? "").trim().split(/\s+/);
+  const mode = id ? (net === "host" ? "host" : "bridge") : undefined;
+  const h = /^(\S*) mode=(\w+) flood=([01]) ignore=(\S*)/.exec(head ?? "");
+  const web: F2bWeb = {
+    fail2ban: st.fail2ban,
+    on: head !== undefined,
+    flood: h?.[3] === "1",
+    ignore: (h?.[4] ?? "").split(",").filter(Boolean),
+    ...(h ? { mode: h[2] as "bridge" | "host" } : {}),
+    stale: head !== undefined && (!h || h[1] !== id || h[2] !== mode),
+    jails: st.jails.filter((j) => (WEB_JAILS as readonly string[]).includes(j.name)),
+    noIpv6: mode === "bridge" && kv.has("DU4") && !kv.has("DU6"),
+  };
+  const log = parseAccessLog(out);
+  const keys = (kv.get("KEYS") ?? "").split("\t").map(Number);
+  const logIs = { common: "not JSON", file: "written to a file", off: "off" } as Record<string, string>;
+  const problem = (
+    [
+      [
+        st.fail2ban === "missing" || st.fail2ban === "stopped",
+        `fail2ban is not ${st.fail2ban === "missing" ? "installed" : "running"}: lf fail2ban install sets it up`,
+      ],
+      [!id, "no Traefik runs here: lf traefik install sets it up"],
+      [
+        kv.has("LD") && kv.get("LD") !== "json-file",
+        `Traefik logs with Docker's ${kv.get("LD")} driver; fail2ban needs json-file, the only one with a file it can read`,
+      ],
+      [log !== "json", `Traefik's access log is ${logIs[log] ?? "set in a config file"}: lf traefik access-log on writes it as JSON to stdout`],
+      [!kv.has("IPT"), "iptables is missing: fail2ban bans with it"],
+      [
+        mode === "bridge" && kv.has("KEYS") && !kv.has("DU4"),
+        "Docker has no DOCKER-USER chain (nftables backend, or iptables off in daemon.json): a ban would not reach Traefik's published ports",
+      ],
+      [keys[0] > 0 && keys[1] < keys[0], "Traefik's access log does not start with ClientAddr, ClientHost: the filter would not read it"],
+    ] as const
+  ).find(([when]) => when)?.[1];
+  if (problem) web.problem = problem;
+  return web;
+}
+
+/** fail2ban's status and the web jails' state, in one round trip. */
+async function webStatus(ctx: PluginContext, admin?: string): Promise<{ st: F2bStatus; web: F2bWeb }> {
+  const read = async (a?: string) => {
+    const out = await ctx.script(WEB_STATUS, a ? { admin: a } : {});
+    const st = parseStatus(out);
+    return { st, web: parseWeb(out, st) };
+  };
+  if (admin) return read(admin);
+  const r = await read();
+  if (r.st.fail2ban !== "noroot") return r;
+  try {
+    return await read("reading fail2ban");
+  } catch {
+    return r;
+  }
+}
+
+// Ends the undo of web on and web off: the jails follow the running Traefik again, fail2ban reads them.
+const UNDO_TAIL = "f2b_web_refresh; \\$SUDO fail2ban-client reload >/dev/null";
+
+// Writes the filters and the jails, keeps a tuning (50- files) except the flood jail's when it goes, reloads.
+// A config fail2ban refuses is put back before anything is journaled.
+const WEB_ON = String.raw`
+undo=""
+files="${FILTER_HTTP_FILE} ${FILTER_FLOOD_FILE} ${F2B_WEB_JAIL}"; [ "$F2B_FLOOD" = 1 ] || files="$files ${TUNE_FLOOD_FILE}"
+for f in $files; do undo="$undo$(saved "$f"); "; done
+${writeFileCmd(FILTER_HTTP_FILE, FILTER_HTTP)}
+${writeFileCmd(FILTER_FLOOD_FILE, FILTER_FLOOD)}
+# shellcheck disable=SC2086
+f2b_web_write "$F2B_FLOOD" $F2B_IGNORE
+[ "$F2B_FLOOD" = 1 ] || _as /etc/fail2ban/jail.d rm -f ${TUNE_FLOOD_FILE}
+if ! { $SUDO fail2ban-client reload >/dev/null 2>&1 && $SUDO fail2ban-client status landfall-http >/dev/null 2>&1; }; then
+  eval "$undo"; $SUDO fail2ban-client reload >/dev/null 2>&1 || true
+  echo "fail2ban did not take the web jails; nothing changed (see: journalctl -u fail2ban, or /var/log/fail2ban.log)" >&2; exit 1
+fi
+record "fail2ban web jails on$([ "$F2B_FLOOD" = 1 ] && echo ' (with floods)' || true)" "$undo ${UNDO_TAIL}"
+`;
+
+const WEB_OFF = String.raw`
+undo=""
+for f in ${WEB_FILES.join(" ")}; do
+  [ -e "$f" ] || continue
+  undo="$undo$(saved "$f"); "
+  _as "$(dirname "$f")" rm -f "$f"
+done
+[ -n "$undo" ] || { echo "already off"; exit 0; }
+$SUDO fail2ban-client reload >/dev/null
+record "fail2ban web jails off" "$undo ${UNDO_TAIL}"
+`;
+
+const NO_IPV6 = "IPv6 clients cannot be banned: ip6tables has no DOCKER-USER chain (Docker's ip6tables is off)";
+
+const CDN =
+  "behind Cloudflare or another CDN, Traefik sees the CDN's addresses, not the visitors': a ban would block everyone coming through that edge. Pass the CDN's ranges with --ignore, or turn this off (lf fail2ban web off).";
+
+function printWeb(ctx: PluginContext, w: F2bWeb) {
+  const { bold, dim } = ctx.color;
+  if (!w.on) {
+    ctx.print(`${bold("web jails")}: off`);
+    if (w.problem) ctx.log.info(dim(`lf fail2ban web on would refuse: ${w.problem}`));
+    else ctx.log.info(dim("lf fail2ban web on bans web scanners from Traefik's access log"));
+    return;
+  }
+  const where = w.mode === "host" ? "INPUT, ports 80 and 443" : "DOCKER-USER, Traefik's published ports";
+  ctx.print(`${bold("web jails")}: on${dim(` · bans go to ${where}${w.ignore.length ? ` · ignores ${w.ignore.join(", ")}` : ""}`)}`);
+  for (const name of [WEB_JAILS[0], ...(w.flood ? [WEB_JAILS[1]] : [])]) {
+    const j = w.jails.find((x) => x.name === name);
+    if (!j) ctx.print(`${bold(name)}: ${w.fail2ban === "running" ? "not loaded by fail2ban" : `fail2ban ${w.fail2ban}`}`);
+    else
+      ctx.print(
+        `${bold(j.name)}: ${j.banned} banned now${dim(` · ${j.total} in total · ban ${duration(j.bantime)} after ${j.maxretry ?? "?"} ${name === WEB_JAILS[0] ? "4xx answers" : "requests"} in ${duration(j.findtime)}`)}`,
+      );
+  }
+  if (w.stale) ctx.log.warn("the web jails watch an old log (Traefik was recreated by hand): run lf fail2ban web on");
+  if (w.noIpv6) ctx.log.warn(NO_IPV6);
+}
+
+/** The panel's word on the web jails: off with a quiet way on (only where it would work), stale, or IPv6 left out. */
+function webBlocks(w: F2bWeb): UiBlock[] {
+  if (!w.on)
+    return w.problem
+      ? []
+      : [
+          {
+            type: "note",
+            kind: "info",
+            text: "fail2ban reads only login logs. It can also ban web scanners from Traefik's access log: clients with many 4xx answers, and with floods, many requests.",
+            actions: [
+              {
+                label: "Ban web scanners",
+                argv: ["fail2ban", "web", "on"],
+                title: "Ban web scanners",
+                fields: [
+                  { name: "flood", label: "Also ban floods (600 requests in a minute)", type: "check", flag: "--flood" },
+                  {
+                    name: "ignore",
+                    label: "Never ban",
+                    flag: "--ignore",
+                    placeholder: "198.51.100.0/24,2001:db8::/32",
+                    hint: "Behind a CDN, its ranges: else a ban blocks everyone coming through it.",
+                  },
+                ],
+              },
+            ],
+          },
+        ];
+  const out: UiBlock[] = [];
+  if (w.stale)
+    out.push({
+      type: "note",
+      kind: "warn",
+      text: "The web jails watch an old log: Traefik was recreated outside landfall.",
+      actions: [
+        {
+          label: "Watch the new log",
+          argv: ["fail2ban", "web", "on", ...(w.flood ? ["--flood"] : []), ...(w.ignore.length ? ["--ignore", w.ignore.join(",")] : [])],
+          primary: true,
+        },
+      ],
+    });
+  if (w.noIpv6) out.push({ type: "note", kind: "warn", text: `${NO_IPV6}.` });
+  return out;
+}
+
 export default definePlugin({
   name: "fail2ban",
   summary: "What fail2ban bans; ban, unban and tune its jails.",
@@ -235,6 +476,45 @@ export default definePlugin({
       },
     },
     {
+      name: "web",
+      args: "[on|off]",
+      summary: "Ban web scanners (4xx answers) and, with --flood, floods from Traefik's access log. Without on or off: show it.",
+      options: {
+        flood: { type: "boolean", desc: "on: also ban clients sending more than 600 requests a minute" },
+        ignore: { type: "string", desc: "on: never ban these addresses or networks, comma-separated (a CDN's ranges)" },
+        json,
+      },
+      async run(ctx, [sub], o) {
+        if (sub === undefined) {
+          const w = (await webStatus(ctx)).web;
+          if (o.json) return ctx.json(w);
+          if (w.fail2ban === "noroot") ctx.fail(noroot(ctx));
+          return printWeb(ctx, w);
+        }
+        if (sub !== "on" && sub !== "off") ctx.fail("usage: lf fail2ban web [on [--flood] [--ignore <ip|cidr>,…] | off]");
+        if (sub === "off") {
+          const out = await ctx.script(WEB_OFF, { admin: "turning off fail2ban's web jails" });
+          return /^already off/m.test(out) ? ctx.log.info(`fail2ban's web jails are off on ${ctx.name}`) : ctx.log.ok("fail2ban no longer bans web clients");
+        }
+        const ignore = String(o.ignore ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        for (const a of ignore) if (!isCidr(a)) ctx.fail(`--ignore takes IPs and networks (198.51.100.0/24), not ${a}`);
+        const w = (await webStatus(ctx, "turning on fail2ban's web jails")).web;
+        if (w.fail2ban === "noroot") ctx.fail(noroot(ctx));
+        if (w.problem) ctx.fail(w.problem);
+        ctx.log.warn(CDN);
+        if (w.noIpv6) ctx.log.warn(NO_IPV6);
+        await ctx.script(WEB_ON, {
+          admin: "turning on fail2ban's web jails",
+          env: { F2B_FLOOD: o.flood ? "1" : "0", F2B_IGNORE: ignore.join(" ") },
+        });
+        ctx.log.ok(`fail2ban bans web clients: 30 4xx answers in 2m${o.flood ? " or 600 requests in 1m" : ""} ban for 1h by default`);
+        ctx.log.info(ctx.color.dim(`lf fail2ban config ${WEB_JAILS[0]}${o.flood ? ` (or ${WEB_JAILS[1]})` : ""} --maxretry <n> tunes it`));
+      },
+    },
+    {
       name: "install",
       summary: "Install fail2ban (where landfall can) and start it with an sshd jail: lf harden fail2ban.",
       run: (ctx) => ctx.lf(["harden", "fail2ban"]),
@@ -245,7 +525,7 @@ export default definePlugin({
     group: "Machine",
     icon: "ban",
     async load(ctx): Promise<UiBlock[]> {
-      const st = await status(ctx);
+      const { st, web } = await webStatus(ctx);
       if (st.fail2ban === "missing")
         return [
           {
@@ -275,6 +555,7 @@ export default definePlugin({
       const banned = st.jails.flatMap((j) => j.ips.map((ip) => ({ ip, jail: j.name })));
       const jailNames = st.jails.map((j) => j.name);
       return [
+        ...webBlocks(web),
         {
           type: "facts",
           items: [
@@ -282,6 +563,7 @@ export default definePlugin({
             ...(st.version ? [{ label: "Version", value: st.version }] : []),
             { label: "Jails", value: st.jails.length },
             { label: "Banned now", value: banned.length },
+            ...(web.on ? [{ label: "Web jails", value: { text: web.flood ? "scanners and floods" : "scanners", kind: "ok" as const } }] : []),
           ],
           actions: [
             {

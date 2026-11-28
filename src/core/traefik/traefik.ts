@@ -161,7 +161,7 @@ printf 'LANDFALL_SUBNET=%s\\n' "\${sub:-127.0.0.1/32}" >> .env
   else
     u=$(saved docker-compose.yml)
     mv .docker-compose.yml.new docker-compose.yml
-    record ${shq(`reconfigured traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && $u && sha256sum docker-compose.yml > .landfall.sha256 && dc up -d --remove-orphans"
+    record ${shq(`reconfigured traefik (${describeTraefik(t)})`)} "cd ${TRAEFIK_DIR} && $u && sha256sum docker-compose.yml > .landfall.sha256 && traefik_up --remove-orphans"
   fi
 else
   ${writeFileCmd("docker-compose.yml", compose)}
@@ -171,7 +171,7 @@ fi
 # Written now: a start that fails below must not make landfall's own file look edited by hand.
 sha256sum docker-compose.yml > .landfall.sha256
 log "starting traefik"
-dc up -d --remove-orphans --quiet-pull
+traefik_up --remove-orphans --quiet-pull
 sleep 2 # traefik exits shortly after start on a bad config
 ensure_running traefik`,
   );
@@ -211,7 +211,8 @@ docker network inspect ${shq(p.network)} >/dev/null 2>&1 || { echo ${shq(`docker
 [ -w ${ROOT} ] || $SUDO install -d -o "$(id -un)" ${ROOT}
 u=$(saved ${PROXY_FILE})
 ${writeFileCmd(PROXY_FILE, proxyFile(p))}
-record ${shq(`sites use traefik ${p.container}`)} "$u"`,
+record ${shq(`sites use traefik ${p.container}`)} "$u; f2b_web_refresh"
+f2b_web_refresh`,
   );
   ok(`sites join network ${c.bold(p.network)} with entrypoint ${c.bold(p.entrypoint)} and resolver ${c.bold(p.resolver)}`);
   info(c.dim(`redeploy existing sites to switch them over; delete ${PROXY_FILE} to let landfall run its own traefik again`));
@@ -281,7 +282,7 @@ u="$u1; $u2; $u3"
 rm -f docker-compose.yml .landfall.sha256 ${DYNAMIC_DIR}/landfall.yml
 ${o.certs ? "rmf letsencrypt" : ""}
 # Certificates removed with --certs come back from Let's Encrypt on the next start.
-record ${shq(`removed traefik${o.certs ? " and its certificates" : ""}`)} "$u; cd ${TRAEFIK_DIR} && dc up -d --remove-orphans"`,
+record ${shq(`removed traefik${o.certs ? " and its certificates" : ""}`)} "$u; traefik_up --remove-orphans"`,
   );
 }
 

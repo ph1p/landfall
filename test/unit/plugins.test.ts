@@ -267,6 +267,147 @@ describe("fail2ban", () => {
     const running = await f2b.default.panel!.load(fakeCtx(out).ctx);
     expect(running.map((b) => b.type)).toEqual(["facts", "table", "table"]);
   });
+
+  // ---- lf fail2ban web ----
+
+  /** A fail2ban filter as a JS regex: %(x)s expanded, <HOST> a named group, the first failregex line. */
+  const filterRegex = (conf: string) => {
+    const defs = new Map<string, string>();
+    for (const l of conf.split("\n")) {
+      const m = /^(\w+) = (.*)$/.exec(l);
+      if (m) defs.set(m[1], m[2]);
+    }
+    let re = defs.get("failregex")!;
+    while (/%\((\w+)\)s/.test(re)) re = re.replace(/%\((\w+)\)s/g, (_, k) => defs.get(k)!);
+    return new RegExp(re.replace("<HOST>", "(?<host>[0-9a-fA-F.:]+)"));
+  };
+  /** One request as Docker's json-file log stores Traefik's JSON line: keys sorted, escaped twice. */
+  const dockerLine = (o: { ip?: string; status: number; path?: string; host?: string }) => {
+    const ip = o.ip ?? "203.0.113.9";
+    const inner = JSON.stringify({
+      ClientAddr: `${ip.includes(":") ? `[${ip}]` : ip}:51234`,
+      ClientHost: ip,
+      ClientPort: "51234",
+      DownstreamContentSize: 19,
+      DownstreamStatus: o.status,
+      Duration: 120000,
+      RequestHost: o.host ?? "app.test",
+      RequestMethod: "GET",
+      RequestPath: o.path ?? "/",
+      StartUTC: "2026-11-28T10:00:00.1Z",
+    });
+    return JSON.stringify({ log: `${inner}\n`, stream: "stdout", time: "2026-11-28T10:00:00.123456789Z" });
+  };
+  const hostOf = (re: RegExp, line: string) => re.exec(line)?.groups?.host ?? null;
+
+  test("the web filters ban what scanners get, never /_lf/, and only the connection's address", () => {
+    const http = filterRegex(f2b.FILTER_HTTP);
+    const flood = filterRegex(f2b.FILTER_FLOOD);
+    for (const st of [400, 401, 403, 404, 405]) expect(hostOf(http, dockerLine({ status: st })), String(st)).toBe("203.0.113.9");
+    for (const st of [200, 301, 406, 429, 500]) expect(hostOf(http, dockerLine({ status: st })), String(st)).toBeNull();
+    expect(hostOf(http, dockerLine({ status: 404, path: "/_lf/a/e" }))).toBeNull();
+    expect(hostOf(flood, dockerLine({ status: 200, path: "/_lf/a/e" }))).toBeNull();
+    expect(hostOf(flood, dockerLine({ status: 200 }))).toBe("203.0.113.9");
+    expect(hostOf(http, dockerLine({ status: 404, ip: "2001:db8::7" }))).toBe("2001:db8::7");
+    // A path or Host header naming another address, or faking /_lf/: Docker escapes their quotes once more.
+    const fake = '","ClientHost":"198.51.100.66","DownstreamStatus":404,"RequestPath":"/_lf/';
+    expect(hostOf(http, dockerLine({ status: 404, path: `/x${fake}` }))).toBe("203.0.113.9");
+    expect(hostOf(http, dockerLine({ status: 404, host: `a${fake}` }))).toBe("203.0.113.9");
+    expect(hostOf(http, dockerLine({ status: 200, path: `/x${fake}` }))).toBeNull();
+    // fail2ban reads %% as %; a lone % would be an interpolation error.
+    expect(f2b.FILTER_HTTP).toContain('datepattern = "time":"%%Y-%%m-%%dT%%H:%%M:%%S');
+    expect(f2b.FILTER_HTTP.replace(/%%|%\(\w+\)s/g, "")).not.toContain("%");
+  });
+
+  const JSON_LOG = ["AL\t--accesslog=true", "AL\t--accesslog.format=json", "AF\t2", "AN\t0", "LD\tjson-file", "LP\t/var/lib/docker/containers/c1/c1-json.log"];
+  const webOut = (...extra: string[]) =>
+    [...JSON_LOG, "PROXY\tc1 landfall", "IPT", "DU4", "DU6", "KEYS\t20\t20", "version 1.0.2", "state running", "JAIL\tsshd\t0\t0\t0\t", ...extra].join("\n");
+
+  test("parseWeb: off, on, flood, mode, stale, and why web on would refuse", () => {
+    expect(f2b.parseWeb(webOut())).toMatchObject({ fail2ban: "running", on: false, flood: false, stale: false, noIpv6: false, jails: [] });
+    expect(f2b.parseWeb(webOut()).problem).toBeUndefined();
+    const on = f2b.parseWeb(
+      webOut(
+        "WEBHEAD\tc1 mode=bridge flood=1 ignore=198.51.100.0/24,2001:db8::/32",
+        "JAIL\tlandfall-http\t1\t4\t0\t192.0.2.1",
+        "CONF\tlandfall-http\t3600\t120\t30",
+      ),
+    );
+    expect(on).toMatchObject({ on: true, flood: true, mode: "bridge", stale: false, ignore: ["198.51.100.0/24", "2001:db8::/32"] });
+    expect(on.jails.map((j) => j.name)).toEqual(["landfall-http"]);
+    expect(f2b.parseWeb(webOut("WEBHEAD\told mode=bridge flood=0 ignore=")).stale).toBe(true);
+    expect(f2b.parseWeb(webOut("WEBHEAD\tc1 mode=bridge flood=0 ignore=").replace("c1 landfall", "c1 host")).stale).toBe(true);
+    expect(f2b.parseWeb(webOut().replace("DU6\n", "")).noIpv6).toBe(true);
+    const problem = (out: string) => f2b.parseWeb(out).problem ?? "";
+    expect(problem(webOut().replace("state running", "state stopped"))).toMatch(/lf fail2ban install/);
+    expect(problem(webOut().replace("PROXY\tc1 landfall", "PROXY\t"))).toMatch(/lf traefik install/);
+    expect(problem(webOut().replace("LD\tjson-file", "LD\tlocal"))).toMatch(/local driver/);
+    expect(problem(webOut().replace("AL\t--accesslog.format=json\n", ""))).toMatch(/lf traefik access-log on/);
+    expect(problem(webOut().replace("IPT\n", ""))).toMatch(/iptables is missing/);
+    expect(problem(webOut().replace("DU4\n", ""))).toMatch(/DOCKER-USER/);
+    expect(problem(webOut().replace("KEYS\t20\t20", "KEYS\t20\t3"))).toMatch(/ClientAddr, ClientHost/);
+    // Host network needs no DOCKER-USER; without root (no KEYS) it is not checked.
+    expect(problem(webOut().replace("DU4\n", "").replace("c1 landfall", "c1 host"))).toBe("");
+    expect(problem(webOut().replace("DU4\n", "").replace("KEYS\t20\t20\n", ""))).toBe("");
+  });
+
+  test("web on checks, writes the filters and jails, reloads, then journals; web off takes them away", async () => {
+    const { ctx, calls } = fakeCtx(webOut());
+    await cmd("web").run(ctx, ["on"], { flood: true, ignore: "198.51.100.0/24, 2001:db8::/32" });
+    expect(calls).toHaveLength(2);
+    const [check, on] = calls;
+    parses(check.body);
+    expect(check.body).toContain("WEBHEAD");
+    parses(on.body);
+    expect(on.o.env).toEqual({ F2B_FLOOD: "1", F2B_IGNORE: "198.51.100.0/24 2001:db8::/32" });
+    const order = [
+      "saved",
+      "/etc/fail2ban/filter.d/landfall-traefik.conf",
+      "/etc/fail2ban/filter.d/landfall-traefik-flood.conf",
+      "f2b_web_write",
+      "fail2ban-client reload",
+      "record ",
+    ];
+    // Each step after the one before it (the paths also appear earlier, in the list saved backs up).
+    let from = 0;
+    for (const x of order) {
+      const i = on.body.indexOf(x, from);
+      expect(i, x).toBeGreaterThanOrEqual(0);
+      from = i + 1;
+    }
+    // A config fail2ban refuses is put back before anything is journaled.
+    expect(on.body.indexOf('eval "$undo"')).toBeLessThan(on.body.indexOf("record "));
+    expect(on.body).not.toContain("\\${");
+
+    await expect(cmd("web").run(fakeCtx(webOut()).ctx, ["on"], { ignore: "cdn.example" })).rejects.toThrow(/--ignore/);
+    await expect(cmd("web").run(fakeCtx(webOut().replace("IPT\n", "")).ctx, ["on"], {})).rejects.toThrow(/iptables/);
+    await expect(cmd("web").run(fakeCtx(webOut()).ctx, ["maybe"], {})).rejects.toThrow(/usage/);
+
+    const off = fakeCtx("already off\n");
+    await cmd("web").run(off.ctx, ["off"], {});
+    parses(off.calls[0].body);
+    expect(off.calls[0].body).toContain("/etc/fail2ban/jail.d/40-landfall-http.local");
+    expect(off.calls[0].body.indexOf("saved")).toBeLessThan(off.calls[0].body.indexOf("rm -f"));
+    expect(off.calls[0].body).toContain('record "fail2ban web jails off"');
+  });
+
+  test("the panel offers the web jails only where they would work, and says when they watch an old log", async () => {
+    const offer = await f2b.default.panel!.load(fakeCtx(webOut()).ctx);
+    expect(offer.find((b) => b.type === "note")).toMatchObject({ actions: [{ argv: ["fail2ban", "web", "on"] }] });
+    const refused = await f2b.default.panel!.load(fakeCtx(webOut().replace("IPT\n", "")).ctx);
+    expect(refused.some((b) => b.type === "note")).toBe(false);
+    const stale = await f2b.default.panel!.load(fakeCtx(webOut("WEBHEAD\told mode=bridge flood=1 ignore=192.0.2.0/24")).ctx);
+    expect(stale.find((b) => b.type === "note")).toMatchObject({
+      kind: "warn",
+      actions: [{ argv: ["fail2ban", "web", "on", "--flood", "--ignore", "192.0.2.0/24"] }],
+    });
+  });
+
+  test("f2b_web_refresh follows a recreated Traefik, and does nothing without the web jails", () => {
+    const fn = PRELUDE.slice(PRELUDE.indexOf("f2b_web_refresh() {"));
+    expect(fn.split("\n")[1]).toContain("[ -e /etc/fail2ban/jail.d/40-landfall-http.local ]");
+    expect(fn.split("\n")[1]).toContain("return 0");
+  });
 });
 
 describe("trivy files", () => {

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { PRELUDE } from "../../src/core/ssh/templates";
 
 // The shell landfall would run on the server, captured instead of sent.
 const scripts: string[] = [];
@@ -189,7 +190,7 @@ describe("remote scripts", () => {
     expect(s).toContain('_as "$h" rm -f "$t"');
     expect(s).toContain("record 'traefik traefik-1 answers unknown hosts again (/srv/t/dyn/landfall-tls.yml)' \"$undo\"\n");
     expect(s).not.toContain("mkdir");
-    expect(s).not.toContain("up -d");
+    expect(s.slice(PRELUDE.length)).not.toContain("up -d");
     expect(s).not.toContain("ensure_running 'traefik-1'");
   });
 

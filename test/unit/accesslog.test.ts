@@ -237,6 +237,9 @@ describe("remote scripts", () => {
     expect(at.every((i) => i >= 0)).toBe(true);
     expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(s).toContain("-p 't' --project-directory '/srv/t' -f '/srv/t/docker-compose.yml'");
+    // A new container has a new log: fail2ban's web jails follow it, now and on undo.
+    expect(s.indexOf("f2b_web_refresh", s.indexOf("ensure_running"))).toBeGreaterThan(0);
+    expect(s).toMatch(/record 'turned on[^\n]*f2b_web_refresh/);
   });
 
   test("writeAccessLog off journals turning it off", async () => {
@@ -245,6 +248,7 @@ describe("remote scripts", () => {
     await writeAccessLog(server, plan);
     parses(scripts[0]);
     expect(scripts[0]).toContain("record 'turned off the access log of traefik traefik-1");
+    expect(scripts[0]).toContain("fail2ban's web jails read this access log and now ban nobody");
   });
 
   test("clearProxyLog empties only a json-file log, then journals it", async () => {

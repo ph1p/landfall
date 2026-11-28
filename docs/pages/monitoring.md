@@ -15,6 +15,7 @@ lf check example.com --resolve 198.51.100.4   # one domain, against an address b
 - History reaches as far as the container log (`lf log-limit` caps it); `--since` takes up to 30d.
 - Up to 6h counts per minute, longer per hour. Response times come from a histogram, within about 20%.
 - `lf traffic` and the web UI say when Traefik has no access log, logs plain text, or logs to a file.
+- A site's clients show their 4xx answers (400-405) beside their requests. `lf fail2ban web on` bans clients with too many ([fail2ban](plugins.md#web-scanners-and-floods)); the Traffic tab then has a Ban button per client.
 
 The access log is Traefik's container log. Manage it with `lf traefik access-log`:
 

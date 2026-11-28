@@ -371,10 +371,10 @@ if [ ! -f ${STATE_FILE} ]; then
     log "central Traefik: to the host network (a short outage)"
     cp -p ${COMPOSE} ${COMPOSE_BEFORE}
     [ ! -f ${TRAEFIK_DIR}/.landfall.sha256 ] || cp -p ${TRAEFIK_DIR}/.landfall.sha256 ${COMPOSE_BEFORE}.sha256
-    undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2"
+    undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); traefik_up --force-recreate"
     printf '%s' "$TRAEFIK_HOST" > ${COMPOSE}
     [ ! -f ${TRAEFIK_DIR}/.landfall.sha256 ] || (cd ${TRAEFIK_DIR} && sha256sum docker-compose.yml > .landfall.sha256)
-    (cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2)
+    traefik_up --force-recreate
     record "central Traefik on the host network" "$undo"
     ST_SUM=$(sha256sum ${COMPOSE} | cut -d' ' -f1)
   fi
@@ -663,10 +663,10 @@ for r in $UFW; do
 done
 if [ "$HOST_NET" = false ] && [ -f ${COMPOSE_BEFORE} ]; then
   [ "$(sha256sum ${COMPOSE} | cut -d' ' -f1)" = "$SUM" ] || log "${COMPOSE} changed since the first tenant; it goes back all the same"
-  undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); $(saved ${COMPOSE_BEFORE}); $(saved ${COMPOSE_BEFORE}.sha256); cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2"
+  undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); $(saved ${COMPOSE_BEFORE}); $(saved ${COMPOSE_BEFORE}.sha256); traefik_up --force-recreate"
   cp -p ${COMPOSE_BEFORE} ${COMPOSE}
   [ ! -f ${COMPOSE_BEFORE}.sha256 ] || cp -p ${COMPOSE_BEFORE}.sha256 ${TRAEFIK_DIR}/.landfall.sha256
-  (cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2)
+  traefik_up --force-recreate
   rm -f ${COMPOSE_BEFORE} ${COMPOSE_BEFORE}.sha256
   record "central Traefik back on its own network" "$undo"
 fi

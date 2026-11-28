@@ -33,6 +33,7 @@ lf keys add ~/.ssh/anna.pub       # to the login user; --user root for another
 lf keys rm anna@laptop            # by comment or (part of) the fingerprint
 lf bans                           # what fail2ban blocks, per jail (lf fail2ban, a built-in plugin)
 lf unban 203.0.113.9              # lf fail2ban also bans, and sets ban times; see plugins.md
+lf fail2ban web on                # also ban web scanners from Traefik's access log; see plugins.md
 lf swap 2G                        # a swap file at /swapfile, on at boot; lf swap off removes it
 lf hostname web-1
 lf timezone Europe/Berlin

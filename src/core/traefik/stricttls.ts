@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { posix } from "node:path";
 import tls from "node:tls";
 import { isSeq, parse, parseDocument } from "yaml";
-import { appendItems, commandOf, composeTarget, composeUp, rewriteCompose, setting, type ComposeTarget, type ProxyCompose } from "./accesslog";
+import { appendItems, commandOf, composeTarget, composeUp, recreateProxy, rewriteCompose, setting, type ComposeTarget, type ProxyCompose } from "./accesslog";
 import type { Server } from "../lib/config";
 import { shq } from "../lib/quote";
 import { runScript, writeFileCmd } from "../ssh/ssh";
@@ -203,7 +203,8 @@ export function planStrictTls(p: ProxyCompose, prov: FileProvider, dir: DynamicD
 
 /** Writes or removes landfall's sniStrict file, adds the file provider to the compose file if planned, reloads Traefik. */
 export async function writeStrictTls(server: Server, plan: StrictTlsPlan) {
-  const up = plan.reload === "recreate" ? composeUp(plan) : plan.reload === "restart" ? `docker restart ${shq(plan.container)} >/dev/null` : "";
+  const restart = `docker restart ${shq(plan.container)} >/dev/null`;
+  const up = plan.reload === "recreate" ? `${composeUp(plan)} && f2b_web_refresh` : plan.reload === "restart" ? restart : "";
   const what = plan.on
     ? `traefik ${plan.container} refuses unknown hosts (${plan.path})`
     : `traefik ${plan.container} answers unknown hosts again (${plan.path})`;
@@ -217,12 +218,14 @@ ${plan.on ? writeFileCmd(plan.path, STRICT_TLS_FILE) : `_as "$h" rm -f "$t"`}
 ${plan.compose === undefined ? "undo=$v" : `${rewriteCompose({ ...plan, text: plan.compose })}\nundo="$u && $v"`}
 record ${shq(what)} "$undo"${up ? shq(` && ${up}`) : ""}
 ${
-  up
-    ? `log ${shq(`${plan.reload === "recreate" ? "recreating" : "restarting"} ${plan.container}`)}
-${up}
+  plan.reload === "recreate"
+    ? recreateProxy(plan)
+    : plan.reload === "restart"
+      ? `log ${shq(`restarting ${plan.container}`)}
+${restart}
 sleep 2 # traefik exits shortly after start on a bad config
 ensure_running ${shq(plan.container)}`
-    : ""
+      : ""
 }`,
   );
 }

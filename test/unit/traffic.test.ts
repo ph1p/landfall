@@ -86,7 +86,9 @@ describe("traffic", () => {
         { status: 404, path: "/missing", count: 1 },
       ]),
     );
-    expect(app.ips[0]).toEqual({ ip: "203.0.113.7", count: 3 });
+    expect(app.ips[0]).toEqual({ ip: "203.0.113.7", count: 3, errors: 0 });
+    expect(app.ips).toContainEqual({ ip: "198.51.100.1", count: 1, errors: 1 });
+    expect(t.f2bWeb).toBe(false);
     expect(app.p95).toBeGreaterThan(1500);
     expect(app.p50).toBeLessThan(8);
     // A minute per bucket over the hour, the requests in theirs.
@@ -106,6 +108,25 @@ describe("traffic", () => {
     expect(parseTraffic("N\t0\t0\t\t\n", 3600, now).format).toBe("none");
     expect(parseTraffic("NOPROXY\n", 3600, now).proxy).toBe(false);
     expect(parseTraffic("OWN\nN\t0\t0\t\t\n", 86400, now)).toMatchObject({ own: true, bucket: "hour" });
+  });
+
+  test("per client, the 4xx answers fail2ban's landfall-http jail counts; F2BWEB says the jails are on", () => {
+    const ip = "192.0.2.9";
+    const out = runTraffic([
+      line({ host: "a.test", status: 404, ms: 1, path: "/wp-login.php", ip }),
+      line({ host: "a.test", status: 401, ms: 1, path: "/admin", ip }),
+      line({ host: "b.test", status: 403, ms: 1, path: "/.env", ip }),
+      line({ host: "a.test", status: 404, ms: 1, path: "/_lf/a/e", ip }), // landfall's own: never counts
+      line({ host: "a.test", status: 429, ms: 1, ip }),
+      line({ host: "a.test", status: 500, ms: 1, ip }),
+      line({ host: "a.test", status: 200, ms: 1, ip }),
+    ]);
+    const t = parseTraffic(`F2BWEB\n${out}`, 3600, now);
+    expect(t.f2bWeb).toBe(true);
+    expect(t.hosts.find((h) => h.host === "a.test")!.ips).toEqual([{ ip, count: 6, errors: 2 }]);
+    expect(t.total.ips).toEqual([{ ip, count: 7, errors: 3 }]);
+    // A tenant's traffic is never the central Traefik's: no ban buttons for them.
+    expect(TRAFFIC(3600)).toContain('[ -n "${LANDFALL_TENANT:-}" ] || [ ! -f /etc/fail2ban/jail.d/40-landfall-http.local ] || echo F2BWEB');
   });
 
   test("top 10 per host survive the transfer", () => {

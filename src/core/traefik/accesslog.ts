@@ -4,7 +4,7 @@ import type { Server } from "../lib/config";
 import { shq } from "../lib/quote";
 import { runScript, writeFileCmd } from "../ssh/ssh";
 import { SUDO_PROBE } from "../server/stats";
-import { PRELUDE, PROXY_FILE, PROXY_PRELUDE } from "../ssh/templates";
+import { F2B_WEB_JAIL, PRELUDE, PROXY_FILE, PROXY_PRELUDE } from "../ssh/templates";
 import { ACCESS_LOG_FLAGS, type AccessLog, type ProxyLog } from "./traffic-merge";
 
 /**
@@ -285,6 +285,13 @@ export const composeUp = (p: Omit<ComposeTarget, "sha256" | "text" | "container"
   return `if [ -r ${shq(p.file)} ]; then dc ${args}; else $SUDO docker compose ${args}; fi`;
 };
 
+/** Shell: recreate the proxy from its compose file and wait until it runs; fail2ban's web jails follow its new log. */
+export const recreateProxy = (p: Omit<ComposeTarget, "sha256" | "text">) => `log ${shq(`recreating ${p.container}`)}
+${composeUp(p)}
+sleep 2 # traefik exits shortly after start on a bad config
+ensure_running ${shq(p.container)}
+f2b_web_refresh`;
+
 /** Shell: write `text` over the compose file at `$f` (dir `$d`) only if it did not change since landfall read it; `$u` restores it. */
 export const rewriteCompose = (t: { file: string; sha256: string; text: string }) => `f=${shq(t.file)}; d=$(dirname "$f")
 [ "$(_as "$d" sha256sum "$f" | cut -d' ' -f1)" = ${shq(t.sha256)} ] || { echo "$f changed since landfall read it; run the command again" >&2; exit 1; }
@@ -295,16 +302,13 @@ _as "$d" chown "$o" "$f" 2>/dev/null || true`;
 
 /** Writes the planned compose file (only if it did not change since it was read), journals it, recreates the proxy. */
 export async function writeAccessLog(server: Server, plan: AccessLogPlan) {
-  const up = composeUp(plan);
   await runScript(
     server,
     `${PRELUDE}
 ${rewriteCompose(plan)}
-record ${shq(`turned ${plan.on ? "on the JSON" : "off the"} access log of traefik ${plan.container} (${plan.file})`)} "$u"${shq(` && ${up}`)}
-log ${shq(`recreating ${plan.container}`)}
-${up}
-sleep 2 # traefik exits shortly after start on a bad config
-ensure_running ${shq(plan.container)}`,
+record ${shq(`turned ${plan.on ? "on the JSON" : "off the"} access log of traefik ${plan.container} (${plan.file})`)} "$u"${shq(` && ${composeUp(plan)} && f2b_web_refresh`)}
+${recreateProxy(plan)}
+${plan.on ? "" : `[ ! -e ${F2B_WEB_JAIL} ] || log "warning: fail2ban's web jails read this access log and now ban nobody: lf fail2ban web off turns them off"`}`,
   );
 }
 

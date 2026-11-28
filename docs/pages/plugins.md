@@ -95,6 +95,41 @@ lf fail2ban install               # same as lf harden fail2ban
 
 The web UI section *fail2ban* (under Machine) shows the same, with buttons to ban, unban and change a jail.
 
+#### Web scanners and floods
+
+By default fail2ban watches only ssh.
+`lf fail2ban web on` adds jails that read Traefik's access log.
+
+```sh
+lf fail2ban web                                  # on or off, flood, ignored networks, banned IPs (--json)
+lf fail2ban web on                               # ban clients with 30 answers 400-405 in 2 minutes, for 1 hour
+lf fail2ban web on --flood                       # also ban clients that send 600 requests in 1 minute
+lf fail2ban web on --ignore 198.51.100.0/24      # never ban these addresses or networks (comma-separated)
+lf fail2ban config landfall-http --maxretry 50   # tune a jail; landfall-http-flood for the flood jail
+lf fail2ban web off                              # remove the web jails
+```
+
+- The jail `landfall-http` counts answers 400 to 405: scanners probing for `/.env`, `/wp-login.php` and the like.
+- `--flood` adds `landfall-http-flood`. It counts every request, so it also bans busy offices behind one NAT
+  address, uptime monitors and crawlers. Raise its `--maxretry` or `--ignore` them.
+- Requests to `/_lf/` (the analytics collector) never count.
+- Private ranges (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7) and localhost are never banned.
+- Behind Cloudflare or another CDN, Traefik sees the CDN's addresses. A ban would block everyone behind that edge.
+  `web on` warns about this. Pass the CDN's ranges with `--ignore`, or keep the web jails off.
+- With Traefik on a bridge network, a ban drops all traffic from the address in Docker's `DOCKER-USER` chain.
+  With Traefik on the host network, it drops ports 80 and 443 only, so ssh stays open.
+- fail2ban reads every log line. At thousands of requests per second this costs noticeable CPU.
+- `web on` and `web off` are journaled; `lf undo` reverts them.
+
+The jails read Traefik's Docker log file, which changes when Traefik is recreated.
+landfall rewrites the jails whenever it recreates Traefik (`lf traefik setup`, `lf update`, `lf tenant`).
+That needs root or passwordless sudo; without it the command warns.
+`lf fail2ban web` then says the jails read an old log. Run `lf fail2ban web on` to fix it.
+Do the same after you recreate Traefik by hand.
+
+`lf traffic <site>` shows each client's 4xx answers beside its requests: who is close to a ban.
+With the web jails on, the Traffic tab of the web UI has a Ban button per client.
+
 ### trivy
 
 ```sh

@@ -17,6 +17,8 @@
 | `… was edited by hand` (traefik setup) | Move your change to `dynamic/` or flags, or `lf traefik setup --force` |
 | site container keeps restarting | `lf logs`; check `--port` / `x-landfall.port` and env |
 | `… publishes 5432 on the server, past Traefik and the firewall` | `lf init` moves `ports:` to `compose.override.yaml`, or allow it: `x-landfall: { publish: true }` |
+| `lf traffic` shows scanners, fail2ban does not ban them | fail2ban watches ssh only. `lf fail2ban web on` adds jails for Traefik's access log |
+| `fail2ban's web jails still read the old log of traefik` | Traefik was recreated without root. `lf fail2ban web on` |
 | `sites need docker compose 2.24 or newer` | `lf update --compose` |
 | `required variable … is missing` / `compose.yaml needs …` | Set it on the server: `lf env KEY=…` or `lf deploy -e KEY=…` |
 | `… blocks ssh port 22 … (--force to do it anyway)` | `lf firewall allow 22/tcp` first, or force if you have another way in |

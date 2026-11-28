@@ -38,7 +38,7 @@ const classCells = (s: Summary) => [
   bytes(s.bytes),
 ];
 
-function printDetail(d: Detail, what: string) {
+function printDetail(d: Detail, what: string, f2bWeb = false) {
   table([["requests", "4xx", "5xx", "p50", "p95", "sent"].map(c.dim), classCells(d)]);
   console.log(`\n${c.dim(`requests per ${what}`)}  ${sparkline(d.series)}`);
   if (d.paths.length) {
@@ -51,7 +51,9 @@ function printDetail(d: Detail, what: string) {
   }
   if (d.ips.length) {
     console.log(`\n${c.bold("Clients")}`);
-    table(d.ips.map((i) => [num(i.count), i.ip]));
+    table(d.ips.map((i) => [num(i.count), i.errors ? c.yellow(`${num(i.errors)} 4xx`) : "", i.ip]));
+    // 4xx is what fail2ban's landfall-http jail counts: who is close to a ban.
+    if (f2bWeb) console.log(c.dim("fail2ban's web jails are on: lf fail2ban ban <ip> --jail landfall-http blocks one by hand"));
   }
   const codes = Object.entries(d.codes).sort((a, b) => b[1] - a[1]);
   if (codes.length) console.log(`\n${c.dim("status codes")}  ${codes.map(([k, v]) => `${k} ${num(v)}`).join(c.dim(" · "))}`);
@@ -91,7 +93,7 @@ export const trafficCmd = defineCommand({
     console.log(`${c.bold(name)}${c.dim(` · last ${span}${short ? ` · the log reaches back to ${new Date(t.from!).toLocaleString()}` : ""}`)}`);
     if (site) {
       if (!one) fail(`no requests for "${site}" on ${name} in the last ${span}`);
-      return printDetail(one!, t.bucket);
+      return printDetail(one!, t.bucket, t.f2bWeb);
     }
     const other = t.hosts.filter((h) => !h.site);
     table([

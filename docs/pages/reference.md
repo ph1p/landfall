@@ -177,6 +177,9 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf fail2ban unban <ip>` | In every jail. Undo bans it again. Alias: `unban`. |
 | `lf fail2ban config <jail> [--bantime t] [--findtime t] [--maxretry n]` | Writes `/etc/fail2ban/jail.d/50-landfall-<jail>.local`, reloads. Undo restores it. |
 | `lf fail2ban install` | With an sshd jail, as `lf harden fail2ban`. |
+| `lf fail2ban web [--json]` | Web jails: on, flood, ignored networks, stale log, banned IPs. |
+| `lf fail2ban web on [--flood] [--ignore list]` | Bans clients with 30 answers 400-405 in 2m (`--flood`: 600 requests in 1m) for 1h. Undo removes the jails. |
+| `lf fail2ban web off` | Removes the web jails. Undo brings them back. |
 | `lf trivy [--json]` | Trivy's image, databases, last scan summaries. |
 | `lf trivy images [site...] [--no-others] [--json]` | Scans running images, keeps a summary (`lf scan` for details). Alias: `trivy scan`. |
 | `lf trivy files [site...] [--json]` | Current releases: secrets, misconfigurations. Skips `.env`, `node_modules`, `.git`. |
