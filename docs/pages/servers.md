@@ -132,8 +132,8 @@ To change the user landfall logs in with, run `lf server add <name> -u <user>` a
 In the web UI, that is **Change login** under Settings → SSH.
 landfall tests the new login first. If it does not work, the old login stays.
 
-`lf server uninstall` refuses while the server has tenants. Run `lf tenant off --rm-tenants` first, then
-`lf tenant rm <user> --purge` for each (see [Tenants](tenants.md#turn-tenants-off)).
+`lf server uninstall` refuses while the server has tenants, or what a plain `lf tenant off` left of them.
+Run `lf tenant off --purge` first (see [Tenants](tenants.md#turn-tenants-off)).
 
 ### What `server add` changes
 

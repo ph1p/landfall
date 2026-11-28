@@ -111,6 +111,7 @@ Without a terminal landfall does not check for a newer version of itself; `LANDF
 - `lf server uninstall`
 - `lf tenant rm --purge` (the tenant's user, sites, volumes and images are deleted)
 - the packages `lf tenant add` installs on the first tenant, and `lf tenant off --remove-packages` removing them
+- `lf tenant off --purge` (every tenant with its user and data, the packages and `/opt/landfall/tenants` are deleted)
 - `lf trivy rm` (the next scan downloads Trivy again)
 - `lf analytics disable --purge` (the site's collected analytics are deleted)
 - `lf analytics storage` with fewer days or a smaller size (the hits that no longer fit are deleted; `lf undo` restores only the settings)

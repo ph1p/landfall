@@ -324,6 +324,8 @@ const scripts = {
   purge: T.purgeScript("anna", was),
   rights: T.rightsScript(anna2, was, { cron: false, ports: ["25565/tcp"] }),
   off: T.offScript(st, "{}", {}),
+  offPurge: T.offScript(st, "{}", { purge: true }),
+  purgeLeft: T.offScript(st, "", { on: false, purge: true }),
 };
 
 describe("tenant scripts", () => {
@@ -344,7 +346,8 @@ describe("tenant scripts", () => {
     for (const [name, { script }] of Object.entries(scripts)) {
       const body = script.slice(script.indexOf("flock -w 60 9"));
       const bare = body.split("\n").filter((l) => /^\s*record "[^"]*"\s*$/.test(l));
-      const allowed = name === "purge" || name === "off" ? 1 : name === "add" ? 1 : 0;
+      const allowed = name === "purge" || name === "off" || name === "add" ? 1 : 0;
+      if (name === "offPurge" || name === "purgeLeft") continue;
       expect(bare.length, name).toBeLessThanOrEqual(allowed);
     }
   });
@@ -406,6 +409,25 @@ describe("tenant scripts", () => {
     });
   });
 
+  test("off --purge deletes every tenant and the tenants folder, and journals none of it as undoable", () => {
+    const { script, env } = scripts.offPurge;
+    expect(env).toMatchObject({ PURGE: "1", RM_PACKAGES: "1", ON: "1" });
+    expect(scripts.purgeLeft.env).toMatchObject({ PURGE: "1", ON: "0" });
+    expect(scripts.off.env).toMatchObject({ PURGE: "0", ON: "1" });
+    const body = script.slice(script.indexOf("flock -w 60 9"));
+    expect(body).toContain('if [ "$PURGE" = 1 ]; then t_purge "$u"');
+    expect(body).toContain("rm -rf /opt/landfall/tenants/* /opt/landfall/tenants/.[!.]*");
+    expect(body).toMatch(/rec\(\) \{ if \[ "\$PURGE" = 1 \]/);
+    expect(body).not.toMatch(/^\s*record "(ufw delete|central Traefik|modes under|removed the AppArmor|removed the systemd)/m);
+  });
+
+  test("the view reads what a plain off left", () => {
+    const v = T.parseTenants(`\x1eanna 0\n${was}\n\x1estate.off 0\n{"enabled":"x","packages":["uidmap"],"ufw":[],"modes":{}}\n`);
+    expect(v.on).toBe(false);
+    expect(v.offState?.packages).toEqual(["uidmap"]);
+    expect(v.tenants.map((t) => t.user)).toEqual(["anna"]);
+  });
+
   test("limits: none removes one, unset ones are reset", () => {
     expect(scripts.limits.env.LIMITS).toBe("MemoryMax=infinity CPUQuota=150% TasksMax=infinity");
     expect(scripts.limits.env.BEFORE).toBe("MemoryMax=2G CPUQuota= TasksMax=infinity");
@@ -420,7 +442,7 @@ describe("tenant scripts", () => {
     expect(back).toMatchObject({ CRON: "on", OPEN: "", CLOSE: "25565/tcp", SUMMARY: "default" });
     expect(JSON.parse(back.JSON).rights).toBeUndefined();
     expect(scripts.rights.script).toContain('ufw_add allow "$p"');
-    expect(scripts.purge.script).toContain('drop_line /etc/cron.deny "$U"');
+    expect(scripts.purge.script).toContain('drop_line /etc/cron.deny "$1"');
   });
 
   test("cron off is undone by cron on, and the crontab is kept aside", () => {

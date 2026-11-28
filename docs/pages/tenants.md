@@ -283,6 +283,7 @@ type the name; `-y` skips that.
 lf tenant off -s vps                         # undo what the first tenant changed
 lf tenant off -s vps --rm-tenants            # deactivate the remaining tenants first
 lf tenant off -s vps --remove-packages       # also remove the packages it installed
+lf tenant off -s vps --purge                 # delete everything tenants left on the server
 ```
 
 `tenant off` reverses the first tenant's changes from `state.json`, newest first: the ufw rules it added, your
@@ -292,6 +293,16 @@ drop-in. It keeps the packages unless you pass `--remove-packages`.
 - It refuses while tenants are active: `lf tenant rm` them first, or pass `--rm-tenants`.
 - Removed tenants keep their users and data. Purge them to delete those.
 - `lf undo` turns tenants back on. Removed packages stay removed.
+- It names what is left on the server: removed tenants with their users and data, the packages and
+  `/opt/landfall/tenants/state.json.off`, which `lf undo` needs.
+- Packages are removed only when no other package needs them. Otherwise they stay, and it says so.
+
+`--purge` leaves nothing of tenants on the server. It cannot be undone. It asks you to type the server name; `-y` answers that.
+
+- It deletes every tenant, active or removed, as `lf tenant rm <user> --purge` does.
+- It reverses the first tenant's changes, as above, and removes the packages.
+- It deletes `/opt/landfall/tenants` with `state.json.off`.
+- It works after a plain `lf tenant off` too, and then deletes only what was left.
 
 ## Interactions with other commands
 
@@ -300,7 +311,7 @@ While tenants are on:
 - `lf traefik setup` keeps your Traefik on the host network. `--no-host-network` fails until `lf tenant off`.
 - `lf traefik use` fails: tenants need landfall's Traefik.
 - `lf firewall disable` fails, because the tenants' ports would be open to everyone. `--force` turns it off all the same.
-- `lf server uninstall` fails. Run `lf tenant off --rm-tenants`, then `lf tenant rm <user> --purge` for each tenant.
+- `lf server uninstall` fails. Run `lf tenant off --purge` first.
 - `lf users` marks tenants. `lf users rm` refuses one: `lf tenant rm <user> --purge` removes it.
 - The web UI's Users tab marks tenant users and does not offer to take them over.
 
@@ -352,6 +363,8 @@ On a server that cannot have tenants, the section is greyed out and says why, fo
 - Without tenants, the section explains what a tenant gets and what the first one changes. It says why when the server
   cannot have tenants (no systemd).
 - **Turn tenants off…** runs `lf tenant off` once no tenant is active.
+- **Delete all tenants…** runs `lf tenant off --purge` (type the server name).
+- After a plain off, a note names what is left (users, data, packages) and offers **Delete all of it…**.
 
 Elsewhere, the admin sees where tenants are:
 

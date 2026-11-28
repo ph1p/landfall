@@ -66,6 +66,8 @@ export interface TenantsView {
   tenants: TenantRow[];
   /** ufw is active. */
   ufw: boolean;
+  /** tenants/state.json.off: tenants were turned off; what is left there, lf tenant off --purge deletes. */
+  offState?: TenantsState;
   /** Raw file contents by user: a change is only written over what was read. */
   raw: Record<string, string>;
 }
@@ -143,6 +145,7 @@ for f in ${TENANTS}/*.json; do
   fi
   printf '\036%s %s %s %s %s %s\n' "$n" "$r" "$st" "$ct" "$mem" "$dk"; cat "$f"; echo
 done
+[ ! -f ${STATE_FILE}.off ] || { printf '\036state.off 0\n'; cat ${STATE_FILE}.off; echo; }
 `;
 
 export interface Job {
@@ -174,6 +177,8 @@ export function parseTenants(out: string): TenantsView {
       v.on = true;
       v.state = j;
       v.raw.state = body;
+    } else if (name === "state.off") {
+      v.offState = j;
     } else if (Number.isInteger(j.uid) && Number.isInteger(j.port)) {
       v.raw[name] = body;
       const [sites, containers, memory, disk] = use.map((x) => (/^\d+$/.test(x) ? Number(x) : undefined));
@@ -589,93 +594,125 @@ record "restored tenant $U" "$OFF"
 export const deactivateScript = (user: string, was: string) => job(OFF_ONE, { U: user, WAS: was, ON: onShell(user) });
 export const restoreScript = (user: string, was: string) => job(ON_ONE, { U: user, WAS: was, OFF: offShell(user) });
 
+// t_purge <user>: the tenant's user, its Docker, data and every file landfall wrote for it.
+const T_PURGE = String.raw`
+t_purge() {
+  if id "$1" >/dev/null 2>&1; then
+    _uid=$(id -u "$1")
+    if [ -f "$(home_of "$1")/.config/systemd/user/docker.service" ] && user_up "$1"; then
+      as_user "$1" dockerd-rootless-setuptool.sh uninstall -f >&2 || log "the rootless Docker of $1 did not uninstall cleanly"
+    fi
+    t_off "$1"
+    pkill -KILL -u "$1" 2>/dev/null || true
+    rm -rf "/etc/systemd/system.control/user-$_uid.slice.d"
+    systemctl daemon-reload
+    user_del "$1"
+    sed -i "/^$1:/d" /etc/subuid /etc/subgid
+  else
+    t_off "$1"
+  fi
+  [ ! -f /etc/cron.deny ] || drop_line /etc/cron.deny "$1"
+  rm -rf ${TENANTS}/"$1" ${TENANTS}/"$1".json ${TENANTS}/"$1".route.disabled ${TENANTS}/"$1".crontab.disabled ${TENANTS}/"$1".crontab.denied ${TRAEFIK_DIR}/dynamic/tenant-"$1".yml
+}
+`;
+
 const PURGE = String.raw`
 ${UNCHANGED}
-if id "$U" >/dev/null 2>&1; then
-  UID_=$(id -u "$U")
-  if [ -f "$(home_of "$U")/.config/systemd/user/docker.service" ] && user_up "$U"; then
-    as_user "$U" dockerd-rootless-setuptool.sh uninstall -f >&2 || log "the rootless Docker of $U did not uninstall cleanly"
-  fi
-  t_off "$U"
-  pkill -KILL -u "$U" 2>/dev/null || true
-  rm -rf "/etc/systemd/system.control/user-$UID_.slice.d"
-  systemctl daemon-reload
-  user_del "$U"
-  sed -i "/^$U:/d" /etc/subuid /etc/subgid
-else
-  t_off "$U"
-fi
-[ ! -f /etc/cron.deny ] || drop_line /etc/cron.deny "$U"
-rm -rf ${TENANTS}/"$U" ${TENANTS}/"$U".json ${TENANTS}/"$U".route.disabled ${TENANTS}/"$U".crontab.disabled ${TENANTS}/"$U".crontab.denied ${TRAEFIK_DIR}/dynamic/tenant-"$U".yml
+${T_PURGE}
+t_purge "$U"
 record "deleted tenant $U, its user and all its data"
 `;
 
 export const purgeScript = (user: string, was: string) => job(PURGE, { U: user, WAS: was });
 
+// With PURGE=1 it deletes every tenant and ${TENANTS} too, also after a plain off; nothing of that can be undone.
 const OFF_ALL = String.raw`
-[ -f ${STATE_FILE} ] || { log "tenants are off already"; exit 1; }
-same ${STATE_FILE} "$WAS" || { log "${STATE_FILE} changed meanwhile; run the command again"; exit 1; }
+if [ "$ON" = 1 ]; then
+  [ -f ${STATE_FILE} ] || { log "tenants are off already"; exit 1; }
+  same ${STATE_FILE} "$WAS" || { log "${STATE_FILE} changed meanwhile; run the command again"; exit 1; }
+else
+  [ ! -f ${STATE_FILE} ] || { log "tenants were turned on meanwhile; run the command again"; exit 1; }
+fi
+rec() { if [ "$PURGE" = 1 ] || [ $# -lt 2 ]; then record "$1"; else record "$1" "$2"; fi; }
+${T_PURGE}
 for f in ${TENANTS}/*.json; do
   [ -e "$f" ] && [ "$f" != ${STATE_FILE} ] || continue
-  grep -q '"active": true' "$f" || continue
   u=$(basename "$f" .json)
+  if [ "$PURGE" = 1 ]; then t_purge "$u"; record "deleted tenant $u, its user and all its data"; continue; fi
+  grep -q '"active": true' "$f" || continue
   [ "$RM_TENANTS" = 1 ] || { log "tenant $u is active: lf tenant rm $u first, or pass --rm-tenants"; exit 1; }
   t_off "$u"
   record "deactivated tenant $u; its data stays under ${TENANTS}/$u" "$FN_SH
 t_on $(printf %q "$u")"
 done
-for r in $UFW; do
-  ufw --force delete allow "$r" >/dev/null || log "could not delete the ufw rule allow $r"
-  record "ufw delete allow $r" "ufw allow $r >/dev/null"
-done
-if [ "$HOST_NET" = false ] && [ -f ${COMPOSE_BEFORE} ]; then
-  [ "$(sha256sum ${COMPOSE} | cut -d' ' -f1)" = "$SUM" ] || log "${COMPOSE} changed since the first tenant; it goes back all the same"
-  undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2"
-  cp -p ${COMPOSE_BEFORE} ${COMPOSE}
-  [ ! -f ${COMPOSE_BEFORE}.sha256 ] || cp -p ${COMPOSE_BEFORE}.sha256 ${TRAEFIK_DIR}/.landfall.sha256
-  (cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2)
-  rm -f ${COMPOSE_BEFORE} ${COMPOSE_BEFORE}.sha256
-  record "central Traefik back on its own network" "$undo"
-fi
-undo="chmod 0751 ${ROOT};"
-printf '%s\n' "$MODES" | while read -r m n; do [ -z "$n" ] || [ ! -e ${ROOT}/"$n" ] || chmod "$m" ${ROOT}/"$n"; done
-chmod "$ROOT_MODE" ${ROOT}
-for e in ${ROOT}/* ${ROOT}/.[!.]*; do [ -e "$e" ] && [ ! -L "$e" ] && [ "$e" != ${TENANTS} ] && undo="$undo chmod o-rwx $(printf %q "$e");" || true; done
-record "modes under ${ROOT} back as before the first tenant" "$undo"
-if [ "$AA" = true ] && [ -f ${APPARMOR} ]; then
-  undo="$(saved ${APPARMOR}) && apparmor_parser -r ${APPARMOR}"
-  apparmor_parser -R ${APPARMOR} 2>/dev/null || true
-  rm -f ${APPARMOR}
-  record "removed the AppArmor profile for rootlesskit" "$undo"
-fi
-if [ "$DD" = true ] && [ -f ${DROPIN} ]; then
-  undo="$(saved ${DROPIN}) && systemctl daemon-reload"
-  rm -f ${DROPIN}
-  rmdir "$(dirname ${DROPIN})" 2>/dev/null || true
-  systemctl daemon-reload
-  record "removed the systemd delegation for user managers" "$undo"
-fi
-if [ -n "$PKGS" ]; then
-  if [ "$RM_PACKAGES" = 1 ]; then
-    case "$(pkg_mgr)" in
-      apt-get) DEBIAN_FRONTEND=noninteractive apt-get remove -y -q $PKGS >&2 ;;
-      dnf) dnf remove -y $PKGS >&2 ;;
-    esac
-    record "removed the packages$(printf ' %s' $PKGS)"
-  else
-    log "kept the packages $PKGS (--remove-packages removes them)"
+if [ "$ON" = 1 ]; then
+  for r in $UFW; do
+    ufw --force delete allow "$r" >/dev/null || log "could not delete the ufw rule allow $r"
+    rec "ufw delete allow $r" "ufw allow $r >/dev/null"
+  done
+  if [ "$HOST_NET" = false ] && [ -f ${COMPOSE_BEFORE} ]; then
+    [ "$(sha256sum ${COMPOSE} | cut -d' ' -f1)" = "$SUM" ] || log "${COMPOSE} changed since the first tenant; it goes back all the same"
+    undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); $(saved ${COMPOSE_BEFORE}); $(saved ${COMPOSE_BEFORE}.sha256); cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2"
+    cp -p ${COMPOSE_BEFORE} ${COMPOSE}
+    [ ! -f ${COMPOSE_BEFORE}.sha256 ] || cp -p ${COMPOSE_BEFORE}.sha256 ${TRAEFIK_DIR}/.landfall.sha256
+    (cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2)
+    rm -f ${COMPOSE_BEFORE} ${COMPOSE_BEFORE}.sha256
+    rec "central Traefik back on its own network" "$undo"
+  fi
+  undo="chmod 0751 ${ROOT};"
+  printf '%s\n' "$MODES" | while read -r m n; do [ -z "$n" ] || [ ! -e ${ROOT}/"$n" ] || chmod "$m" ${ROOT}/"$n"; done
+  chmod "$ROOT_MODE" ${ROOT}
+  for e in ${ROOT}/* ${ROOT}/.[!.]*; do [ -e "$e" ] && [ ! -L "$e" ] && [ "$e" != ${TENANTS} ] && undo="$undo chmod o-rwx $(printf %q "$e");" || true; done
+  rec "modes under ${ROOT} back as before the first tenant" "$undo"
+  if [ "$AA" = true ] && [ -f ${APPARMOR} ]; then
+    undo="$(saved ${APPARMOR}) && apparmor_parser -r ${APPARMOR}"
+    apparmor_parser -R ${APPARMOR} 2>/dev/null || true
+    rm -f ${APPARMOR}
+    rec "removed the AppArmor profile for rootlesskit" "$undo"
+  fi
+  if [ "$DD" = true ] && [ -f ${DROPIN} ]; then
+    undo="$(saved ${DROPIN}) && systemctl daemon-reload"
+    rm -f ${DROPIN}
+    rmdir "$(dirname ${DROPIN})" 2>/dev/null || true
+    systemctl daemon-reload
+    rec "removed the systemd delegation for user managers" "$undo"
   fi
 fi
-mv -f ${STATE_FILE} ${STATE_FILE}.off
-record "tenants off" "mv -f ${STATE_FILE}.off ${STATE_FILE}"
+pkgs=""
+for p in $PKGS; do if dpkg -s "$p" >/dev/null 2>&1 || rpm -q "$p" >/dev/null 2>&1; then pkgs="$pkgs $p"; fi; done
+if [ -n "$pkgs" ] && [ "$RM_PACKAGES" != 1 ]; then
+  log "kept the packages$pkgs (--remove-packages removes them)"
+elif [ -n "$pkgs" ]; then
+  # Only when nothing else needs them: removing one must not take other packages along.
+  case "$(pkg_mgr)" in
+    apt-get) n=$(apt-get remove -s $pkgs 2>/dev/null | grep -c '^Remv' || true)
+      if [ "$n" = "$(echo $pkgs | wc -w)" ]; then DEBIAN_FRONTEND=noninteractive apt-get remove -y -q $pkgs >&2; record "removed the packages$pkgs"
+      else log "kept the packages$pkgs: other packages need them"; fi ;;
+    dnf) if rpm -e --test $pkgs >/dev/null 2>&1; then dnf remove -y $pkgs >&2; record "removed the packages$pkgs"
+      else log "kept the packages$pkgs: other packages need them"; fi ;;
+    *) log "kept the packages$pkgs: remove them by hand" ;;
+  esac
+fi
+if [ "$PURGE" = 1 ]; then
+  rm -f ${TRAEFIK_DIR}/dynamic/tenant-*.yml
+  rm -rf ${TENANTS}/* ${TENANTS}/.[!.]*
+  rmdir ${TENANTS} 2>/dev/null || true
+  record "deleted ${TENANTS}"
+else
+  mv -f ${STATE_FILE} ${STATE_FILE}.off
+  record "tenants off" "mv -f ${STATE_FILE}.off ${STATE_FILE}"
+fi
 `;
 
-export function offScript(st: TenantsState, was: string, o: { rmTenants?: boolean; removePackages?: boolean }) {
+/** st: state.json while tenants are on; with purge after a plain off, state.json.off (only its packages count). */
+export function offScript(st: TenantsState, was: string, o: { on?: boolean; rmTenants?: boolean; removePackages?: boolean; purge?: boolean }) {
   return job(OFF_ALL, {
     WAS: was,
     FN_SH: FN,
+    ON: o.on === false ? "0" : "1",
+    PURGE: o.purge ? "1" : "0",
     RM_TENANTS: o.rmTenants ? "1" : "0",
-    RM_PACKAGES: o.removePackages ? "1" : "0",
+    RM_PACKAGES: o.removePackages || o.purge ? "1" : "0",
     // Servers that had their first tenant before kept "allow 80/tcp".
     UFW: st.ufw.map((r) => r.replace(/^allow /, "")).join(" "),
     HOST_NET: String(st.traefikHostNetwork),
@@ -690,8 +727,8 @@ export function offScript(st: TenantsState, was: string, o: { rmTenants?: boolea
   });
 }
 
-/** Whether a first tenant changed this server: any login may see it, tenants/ is 0751. */
-export async function tenantsOn(s: Server): Promise<boolean> {
-  const { code } = await runScript(s, `test -f ${STATE_FILE}`, { capture: true, codes: [1] });
+/** Whether tenants, or what a plain lf tenant off left of them, are on this server: needs root, tenants/ is 0751. */
+export async function tenantsLeft(s: Server): Promise<boolean> {
+  const { code } = await runScript(s, `for f in ${TENANTS}/*.json ${STATE_FILE}.off; do [ ! -e "$f" ] || exit 0; done; exit 1`, { capture: true, codes: [1] });
   return code === 0;
 }

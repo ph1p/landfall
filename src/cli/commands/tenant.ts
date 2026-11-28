@@ -33,6 +33,7 @@ import {
 import { serverTarget } from "../target";
 import { LIMIT_RULES, publicPortError, tenantInvite } from "../../core/server/tenant-policy";
 import { effectiveSsh } from "../../core/ssh/sshconfig";
+import { TENANTS } from "../../core/ssh/templates";
 import { checkInt } from "../../core/lib/config";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
@@ -253,23 +254,44 @@ export const tenantOff = defineCommand({
   summary: `Undo what the first tenant changed on the server: Traefik's network, modes, ufw rules,
 the systemd and AppArmor files. Removed tenants keep their data.
 
-  lf tenant off --rm-tenants     remove the active tenants first`,
+  lf tenant off --rm-tenants     remove the active tenants first
+  lf tenant off --purge          also delete every tenant with its user and data, the packages and
+                                 ${TENANTS}; works after a plain off too. Cannot be undone.`,
   options: {
     server: serverOpt,
     "rm-tenants": { type: "boolean", desc: "remove the active tenants first (their data stays)" },
     "remove-packages": { type: "boolean", desc: "also remove the packages the first tenant installed" },
+    purge: { type: "boolean", desc: "delete every tenant, its user and data, the packages and the tenants folder" },
   },
   async run(_, o) {
     const { name, admin, view } = await load(o);
-    const state = view.state ?? fail(`tenants are off on ${name}`);
+    const users = view.tenants.map((t) => t.user);
+    const state = view.state ?? (o.purge ? view.offState : undefined);
+    if (o.purge && !view.on && !users.length && !view.offState) fail(`nothing of tenants is left on ${name}`);
+    if (!state && !o.purge) fail(`tenants are off on ${name}${users.length || view.offState ? "; lf tenant off --purge deletes what is left" : ""}`);
     const active = view.tenants.filter((t) => t.active).map((t) => t.user);
-    if (active.length && !o["rm-tenants"]) fail(`tenants are active: ${active.join(", ")}; lf tenant rm them first, or pass --rm-tenants`);
-    await confirmRemoval(
-      `Turn tenants off on ${name}${active.length ? `, stopping ${active.join(", ")}` : ""}? The central Traefik restarts (a short outage).`,
-    );
-    if (view.tenants.length > active.length) warn(`removed tenants keep their users and data; lf tenant rm <user> --purge deletes them`);
-    await asRoot(admin, offScript(state, view.raw.state, { rmTenants: o["rm-tenants"], removePackages: o["remove-packages"] }));
+    if (o.purge) {
+      await confirmRemoval(
+        `Delete ${users.length ? `the tenants ${users.join(", ")} with their users and data` : "what is left of tenants"} on ${name}, ` +
+          `${view.on ? "undo the first tenant's changes (a short outage), " : ""}remove its packages and ${TENANTS}? This cannot be undone.`,
+        name,
+      );
+    } else {
+      if (active.length && !o["rm-tenants"]) fail(`tenants are active: ${active.join(", ")}; lf tenant rm them first, or pass --rm-tenants`);
+      await confirmRemoval(
+        `Turn tenants off on ${name}${active.length ? `, stopping ${active.join(", ")}` : ""}? The central Traefik restarts (a short outage).`,
+      );
+    }
+    const s = state ?? { ufw: [], modes: {}, packages: [], traefikHostNetwork: true, delegateDropIn: false, apparmorProfile: false, rootMode: "", enabled: "" };
+    await asRoot(admin, offScript(s, view.raw.state ?? "", { on: view.on, rmTenants: o["rm-tenants"], removePackages: o["remove-packages"], purge: o.purge }));
+    if (o.purge) return void ok(`deleted everything of tenants on ${name}`);
     ok(`tenants off on ${name}`);
+    const left = [
+      users.length && `the tenants ${users.join(", ")} with their users and data`,
+      !o["remove-packages"] && s.packages.length && `the packages ${s.packages.join(" ")}`,
+      `${TENANTS}/state.json.off, for lf undo`,
+    ].filter(Boolean);
+    info(`left on ${name}: ${left.join("; ")}. lf tenant off --purge deletes all of it`);
   },
 });
 

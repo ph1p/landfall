@@ -72,7 +72,7 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | `lf tenant stop <user>` / `start <user>` | Stops (asks first) or starts the tenant's Docker. Undoable. |
 | `lf tenant rm <user> [--purge]` | Deactivates: logins, Docker, routes and cron stop, its open ports close; user, data, port and domains stay. Undoable, or `lf tenant restore`. `--purge`: deletes the user and all its data (type the name); cannot be undone. |
 | `lf tenant restore <user>` | Brings a removed tenant back. |
-| `lf tenant off [--rm-tenants] [--remove-packages]` | Reverses what the first tenant changed (a short outage). Refuses while tenants are active, unless `--rm-tenants`. Packages stay unless `--remove-packages`. Undoable, except removed packages. |
+| `lf tenant off [--rm-tenants] [--remove-packages] [--purge]` | Reverses what the first tenant changed (a short outage). Refuses while tenants are active, unless `--rm-tenants`. Packages stay unless `--remove-packages`. Undoable, except removed packages. `--purge` also deletes every tenant with its user and data, the packages and `/opt/landfall/tenants`, also after a plain off; it cannot be undone. |
 
 **Sites** (see [Deploy a site](deploy.md), [Day-to-day](sites.md), [Volumes and backups](volumes.md))
 

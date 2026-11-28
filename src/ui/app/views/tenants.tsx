@@ -39,6 +39,7 @@ export function TenantsView({ n }: { n: string }) {
   const v = st!.data!;
   const sized = v.tenants.some((t) => t.disk !== undefined);
   const active = v.tenants.filter((t) => t.active);
+  const left = !v.on && (v.tenants.length > 0 || !!v.offState);
   const dash = <span className="faint">–</span>;
 
   const row = (t: TenantRow) => {
@@ -125,17 +126,18 @@ export function TenantsView({ n }: { n: string }) {
                 Add tenant
               </Btn>
             )}
-            {v.on && (
+            {(v.on || left) && (
               <MenuBtn
                 title="Tenant mode"
                 items={[
-                  {
+                  v.on && {
                     label: "Turn tenants off…",
                     cls: "danger",
                     hint: "lf tenant off",
                     title: active.length ? `Remove ${active.map((t) => t.user).join(", ")} first` : undefined,
                     run: () => (active.length ? toast(`Remove ${active.map((t) => t.user).join(", ")} first`) : offDlg(n)),
                   },
+                  { label: "Delete all tenants…", cls: "danger", hint: "lf tenant off --purge", run: () => purgeAllDlg(n, v) },
                 ]}
               />
             )}
@@ -165,6 +167,16 @@ export function TenantsView({ n }: { n: string }) {
           <NoTenants n={n} v={v} />
         )}
       </Card>
+      {left && (
+        <Note>
+          Tenants are off on {n}, but{" "}
+          {v.tenants.length ? `${v.tenants.map((t) => t.user).join(", ")} still have their users and data` : "their files are still there"}
+          {v.offState?.packages.length ? `, and the packages ${v.offState.packages.join(" ")} are installed` : ""}.{" "}
+          <Btn cls="sm danger" on={() => purgeAllDlg(n, v)}>
+            Delete all of it…
+          </Btn>
+        </Note>
+      )}
       {v.on && (
         <Note>
           The central Traefik on {n} runs on the host network and passes each tenant's domains, still encrypted, to that tenant's own Traefik.{" "}
@@ -400,9 +412,27 @@ function rightsDlg(n: string, v: Tenants, t: TenantRow) {
 function offDlg(n: string) {
   confirmDlg({
     title: `Turn tenants off on ${n}?`,
-    text: "Undoes what the first tenant changed: the central Traefik leaves the host network (a short outage), the ufw rules, systemd and AppArmor files go. Removed tenants keep their users and data.",
+    text: "Undoes what the first tenant changed: the central Traefik leaves the host network (a short outage), the ufw rules, systemd and AppArmor files go. Removed tenants keep their users and data: Delete all tenants removes them too.",
     ok: "Turn off",
     danger: true,
     onOk: () => lf(n, ["tenant", "off", "-y"]),
+  });
+}
+
+function purgeAllDlg(n: string, v: Tenants) {
+  const users = v.tenants.map((t) => t.user);
+  confirmDlg({
+    title: `Delete all tenants on ${n}?`,
+    text: [
+      users.length ? `Deletes ${users.join(", ")} with their users, sites, volumes and images.` : "Deletes what is left of the tenants.",
+      v.on ? "Undoes what the first tenant changed: the central Traefik leaves the host network (a short outage)." : "",
+      "Removes the packages the first tenant installed, unless other packages need them, and /opt/landfall/tenants. This cannot be undone.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    ok: "Delete everything",
+    danger: true,
+    typeToConfirm: n,
+    onOk: () => lf(n, ["tenant", "off", "--purge", "-y"]),
   });
 }

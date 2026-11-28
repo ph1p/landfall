@@ -1361,6 +1361,17 @@ diff "$WORK/tn-before.txt" "$WORK/tn-after.txt" || die "tenant off leaves the se
 lf undo -s tbox -y >/dev/null 2>&1 || die "undo tenant off"
 tn test -f /opt/landfall/tenants/state.json || die "undo tenant off brings the state back"
 pass "tenant off waits for the tenants, puts the server back as before, and can be undone"
+out=$(lf tenant off -s tbox -y 2>&1) || { echo "$out"; die "tenant off again"; }
+has "lf tenant off --purge deletes all of it" <<<"$out" || die "tenant off names what is left: $out"
+lf tenant off -s tbox --purge -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "tenant off --purge"; }
+tn id anna >/dev/null 2>&1 && die "off --purge leaves the user anna"
+[ -z "$(tn ls -A /opt/landfall/tenants 2>/dev/null)" ] || die "off --purge leaves files: $(tn ls -A /opt/landfall/tenants)"
+tn grep -q '^anna:' /etc/subuid && die "off --purge leaves anna in /etc/subuid"
+state >"$WORK/tn-after.txt"
+diff "$WORK/tn-before.txt" "$WORK/tn-after.txt" || die "off --purge leaves the server as before"
+out=$(lf tenant off -s tbox --purge -y 2>&1) && die "off --purge with nothing left"
+has "nothing of tenants is left" <<<"$out" || die "off --purge twice: $out"
+pass "tenant off names what it leaves, --purge deletes it all"
 docker rm -fv "$NAME-tn" >/dev/null
 fi
 
