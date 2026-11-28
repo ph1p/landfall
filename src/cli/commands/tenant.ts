@@ -17,6 +17,7 @@ import {
   limitsScript,
   nextPort,
   offScript,
+  purgeAllScript,
   overlaps,
   PORTS,
   purgeScript,
@@ -266,9 +267,8 @@ the systemd and AppArmor files. Removed tenants keep their data.
   async run(_, o) {
     const { name, admin, view } = await load(o);
     const users = view.tenants.map((t) => t.user);
-    const state = view.state ?? (o.purge ? view.offState : undefined);
-    if (o.purge && !view.on && !users.length && !view.offState) fail(`nothing of tenants is left on ${name}`);
-    if (!state && !o.purge) fail(`tenants are off on ${name}${users.length || view.offState ? "; lf tenant off --purge deletes what is left" : ""}`);
+    if (!view.left) fail(`${o.purge ? "nothing of tenants is left" : "tenants are off"} on ${name}`);
+    if (!view.on && !o.purge) fail(`tenants are off on ${name}; lf tenant off --purge deletes what is left`);
     const active = view.tenants.filter((t) => t.active).map((t) => t.user);
     if (o.purge) {
       await confirmRemoval(
@@ -282,13 +282,17 @@ the systemd and AppArmor files. Removed tenants keep their data.
         `Turn tenants off on ${name}${active.length ? `, stopping ${active.join(", ")}` : ""}? The central Traefik restarts (a short outage).`,
       );
     }
-    const s = state ?? { ufw: [], modes: {}, packages: [], traefikHostNetwork: true, delegateDropIn: false, apparmorProfile: false, rootMode: "", enabled: "" };
-    await asRoot(admin, offScript(s, view.raw.state ?? "", { on: view.on, rmTenants: o["rm-tenants"], removePackages: o["remove-packages"], purge: o.purge }));
-    if (o.purge) return void ok(`deleted everything of tenants on ${name}`);
+    // --purge with tenants on: first the plain off (journaled, undoable), then the purge of what it left.
+    const packages = (view.state ?? view.offState)?.packages ?? [];
+    if (view.state) await asRoot(admin, offScript(view.state, view.raw.state, { rmTenants: o["rm-tenants"] || o.purge, removePackages: o["remove-packages"] }));
+    if (o.purge) {
+      await asRoot(admin, purgeAllScript(packages));
+      return void ok(`deleted everything of tenants on ${name}`);
+    }
     ok(`tenants off on ${name}`);
     const left = [
       users.length && `the tenants ${users.join(", ")} with their users and data`,
-      !o["remove-packages"] && s.packages.length && `the packages ${s.packages.join(" ")}`,
+      !o["remove-packages"] && packages.length && `the packages ${packages.join(" ")}`,
       `${TENANTS}/state.json.off, for lf undo`,
     ].filter(Boolean);
     info(`left on ${name}: ${left.join("; ")}. lf tenant off --purge deletes all of it`);

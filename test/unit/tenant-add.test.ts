@@ -19,7 +19,7 @@ vi.mock("../../src/core/server/users", async (orig) => ({
 }));
 vi.mock("../../src/core/server/tenants", async (orig) => ({
   ...(await orig<typeof import("../../src/core/server/tenants")>()),
-  readTenants: async () => ({ tenants: [], on: false, ufw: true }),
+  readTenants: async () => ({ tenants: [], on: false, left: false, ufw: true }),
   asRoot,
 }));
 

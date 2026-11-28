@@ -39,7 +39,7 @@ export function TenantsView({ n }: { n: string }) {
   const v = st!.data!;
   const sized = v.tenants.some((t) => t.disk !== undefined);
   const active = v.tenants.filter((t) => t.active);
-  const left = !v.on && (v.tenants.length > 0 || !!v.offState);
+  const left = v.left && !v.on;
   const dash = <span className="faint">–</span>;
 
   const row = (t: TenantRow) => {

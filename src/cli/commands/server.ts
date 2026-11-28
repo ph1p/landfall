@@ -20,7 +20,7 @@ import {
 } from "../../core/lib/config";
 import { securityNotes } from "../../core/server/security";
 import { detectTenant, tenantLogin } from "../../core/server/tenant";
-import { tenantsLeft } from "../../core/server/tenants";
+import { readTenants } from "../../core/server/tenants";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/ssh/sshconfig";
 import { plural, pct } from "../../core/lib/format";
@@ -200,7 +200,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
     if (server !== saved && !(await canLogin(server))) fail(`cannot log in to ${name}, neither as ${effectiveSsh(saved).user} nor as root`);
     // Deleting ROOT needs root: found now, while the deploy user still exists.
     const root = await loginFor(server, "root");
-    if (await tenantsLeft(root.login)) fail(`${name} has tenants, or what is left of them: lf tenant off --purge first`);
+    if ((await readTenants(root.login, { light: true })).left) fail(`${name} has tenants, or what is left of them: lf tenant off --purge first`);
     const [ov, runs] = await Promise.all([overview(server), readJournal(server)]);
     const st = ov.owner;
     if (st.compose === "foreign") fail(`${TRAEFIK_DIR}/docker-compose.yml was not written by landfall: move it out of ${ROOT} first`);
