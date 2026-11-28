@@ -289,8 +289,11 @@ const STALE_CODE = 213;
 const staleCheck = (say: boolean) =>
   `if [ "$(id -u)" -ne 0 ]; then _have=" $(id -G) "; for _g in $(id -G "$(id -un)" 2>/dev/null || true); do case "$_have" in *" $_g "*) ;; *) ${say ? `echo ${STALE} >&2; ` : ""}exit ${STALE_CODE} ;; esac; done; unset _have _g; fi`;
 
+/** A tenant has no root: asking for a sudo password or another login would only hang or mislead. */
+export const noRoot = (s: Server, what: string) => s.tenant && fail(`${what} needs root; ${s.host} is a tenant login, ask its admin`);
+
 export async function runScript(s: Server, script: string, o: ScriptOpts = {}): Promise<RunResult> {
-  if (s.tenant && o.sudo) fail(`this needs root on ${s.host}; ask its admin`);
+  if (o.sudo) noRoot(s, "this");
   const env = {
     LANDFALL_RUN: journal.run,
     LANDFALL_ACTOR: journal.actor,

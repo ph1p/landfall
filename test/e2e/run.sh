@@ -1278,6 +1278,9 @@ mkdir -p "$WORK/tsite/dist" && echo '<h1>anna blog</h1>' > "$WORK/tsite/dist/ind
 texpect blog.anna.test "anna blog"
 pass "a tenant sets up its Traefik and deploys; the central Traefik passes its domain through"
 
+lf prune -s anna --logs -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "prune --logs as a tenant"; }
+pass "a tenant empties its own container logs"
+
 out=$(cd "$WORK/tsite" && lf deploy -s ben -d shop.anna.test -y 2>&1) && die "ben deploys on anna's domain"
 has "not among your domains" <<<"$out" || die "ben on anna's domain: $out"
 tdocker ben run -d --name hijack --network web -l traefik.enable=true -l "'traefik.http.routers.hj.rule=Host(\`blog.anna.test\`)'" \

@@ -148,6 +148,8 @@ export async function prune(s: Server, plan: PrunePlan): Promise<{ failed: { wha
     ...(plan.leftovers ?? []).map((l) => tryRm(`rm -rf -- ${shq(`${SITES}/${l.site}`)}`, "backups", l.site)),
     ...(plan.logs
       ? [
+          // A tenant's rootless Docker keeps its logs in its own home.
+          ...(s.tenant ? ["SUDO="] : []),
           String.raw`ids=$($SUDO docker ps -aq 2>/dev/null)`,
           String.raw`[ -z "$ids" ] || $SUDO docker inspect -f '{{.LogPath}}' $ids 2>/dev/null | $SUDO sh -c 'while IFS= read -r p; do [ -n "$p" ] && : > "$p" && rm -f "$p".*; done'`,
           ...(s.tenant

@@ -56,14 +56,16 @@ export const pruneCmd = defineCommand({
   options: {
     server: serverOpt,
     all: { type: "boolean", desc: "also remove unused tagged images (pulled again when needed) and all build cache" },
-    logs: { type: "boolean", desc: `also empty every container's logs and shrink the systemd journal to ${JOURNAL_KEEP} (needs root)` },
+    logs: {
+      type: "boolean",
+      desc: `also empty every container's logs and shrink the systemd journal to ${JOURNAL_KEEP} (needs root; a tenant empties its own logs)`,
+    },
     volumes: { type: "boolean", desc: "also delete volumes no container mounts and no existing site owns, and the backups lf sites rm kept (gone for good)" },
     "dry-run": { type: "boolean", desc: "only show what would go" },
     json: { type: "boolean", desc: "machine-readable output" },
   },
   async run(_, o) {
     const { name, server } = serverTarget(o);
-    if (o.logs && server.tenant) fail(`--logs needs root on ${name}; ask its admin`);
     if (!o.json) step(`measuring what can go on ${name}`);
     const plan = await prunePlan(server, { all: o.all, logs: o.logs, volumes: o.volumes });
     if (!plan.docker) fail(`no access to docker on ${name} (run lf setup)`);
