@@ -1234,7 +1234,7 @@ fi
 if want tenants; then echo "== tenants: rootless Docker per user"
 # Ubuntu with systemd and docker-ce: what rootless Docker needs. Its own box, so tenant off can be compared with before.
 TN_SSH=${TN_SSH:-2228}; TN_HTTPS=${TN_HTTPS:-18446}
-docker build -q -t landfall-e2e-tenants "$ROOT/test/e2e/tenants" >/dev/null
+docker build -q -t landfall-e2e-tenants "$ROOT/test/e2e/ubuntu" >/dev/null
 docker rm -fv "$NAME-tn" >/dev/null 2>&1 || true
 # Its own cgroup namespace: rootless dockerd finds user.slice at the root, as on a real server.
 # Volumes for Docker's images: no overlay on overlay.

@@ -1,4 +1,4 @@
-# An Ubuntu "server" with systemd and Docker from download.docker.com: what tenants (rootless Docker per user) need.
+# An Ubuntu "server" with systemd, sshd, ufw and Docker from download.docker.com: the tenants e2e and "Try it locally" use it.
 FROM ubuntu:24.04
 RUN apt-get update -qq \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends systemd systemd-sysv dbus dbus-user-session \
