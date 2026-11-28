@@ -128,6 +128,8 @@ That needs root or passwordless sudo; without it the command warns.
 Do the same after you recreate Traefik by hand.
 
 `lf traffic <site>` shows each client's 4xx answers beside its requests: who is close to a ban.
+In the web UI, the fail2ban panel turns the web jails on, changes their settings, and removes them (`lf fail2ban web off`).
+Its jails table removes one web jail: the flood jail alone (`lf fail2ban web on` without `--flood`), or both.
 With the web jails on, the Traffic tab of the web UI has a Ban button per client.
 Tenants get no Ban button: the jails watch the central Traefik, and banning needs root.
 

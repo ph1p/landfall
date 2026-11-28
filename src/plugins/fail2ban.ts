@@ -1,5 +1,5 @@
 // fail2ban: what it bans, and banning, unbanning and tuning its jails. A built-in plugin.
-import { definePlugin, type PluginContext, type UiBlock, type UiField } from "../core/plugins/plugin-api";
+import { definePlugin, type PluginContext, type UiAction, type UiBlock, type UiField } from "../core/plugins/plugin-api";
 import { IP } from "../core/server/system";
 import { isCidr } from "../core/site/x-landfall";
 import { writeFileCmd } from "../core/ssh/ssh";
@@ -344,7 +344,44 @@ function printWeb(ctx: PluginContext, w: F2bWeb) {
   if (w.noIpv6) ctx.log.warn(NO_IPV6);
 }
 
-/** The panel's word on the web jails: off with a quiet way on (only where it would work), stale, or IPv6 left out. */
+/** lf fail2ban web on, asking for floods and ignored networks; filled in with the current ones when the jails are on. */
+const webOnAction = (label: string, w?: F2bWeb, primary = false): UiAction => ({
+  label,
+  argv: ["fail2ban", "web", "on"],
+  title: "Ban web scanners",
+  primary,
+  fields: [
+    { name: "flood", label: "Also ban floods (600 requests in a minute)", type: "check", flag: "--flood", value: w?.flood ?? false },
+    {
+      name: "ignore",
+      label: "Never ban",
+      flag: "--ignore",
+      value: w?.ignore.join(",") ?? "",
+      placeholder: "198.51.100.0/24,2001:db8::/32",
+      hint: "Behind a CDN, its ranges: else a ban blocks everyone coming through it.",
+    },
+  ],
+});
+
+/** A web jail's Remove in the jails table: the flood jail alone goes with web on without --flood, landfall-http takes both. */
+function webJailRemove(jail: string, w: F2bWeb): UiAction[] {
+  if (!w.on) return [];
+  if (jail === "landfall-http-flood")
+    return [
+      {
+        label: "Remove",
+        argv: ["fail2ban", "web", "on", ...(w.ignore.length ? ["--ignore", w.ignore.join(",")] : [])],
+        danger: true,
+        confirm: "Stop banning floods? Scanners are still banned; bans for floods are lifted.",
+      },
+    ];
+  if (jail === "landfall-http") return [{ label: "Remove", argv: ["fail2ban", "web", "off"], danger: true, confirm: WEB_OFF_CONFIRM }];
+  return [];
+}
+
+const WEB_OFF_CONFIRM = "Remove the web jails (landfall-http and landfall-http-flood)? Bans they set are lifted.";
+
+/** The panel's word on the web jails: off with a quiet way on (only where it would work), or on with a way to change or remove them. */
 function webBlocks(w: F2bWeb): UiBlock[] {
   if (!w.on)
     return w.problem
@@ -354,25 +391,10 @@ function webBlocks(w: F2bWeb): UiBlock[] {
             type: "note",
             kind: "info",
             text: "fail2ban reads only login logs. It can also ban web scanners from Traefik's access log: clients with many 4xx answers, and with floods, many requests.",
-            actions: [
-              {
-                label: "Ban web scanners",
-                argv: ["fail2ban", "web", "on"],
-                title: "Ban web scanners",
-                fields: [
-                  { name: "flood", label: "Also ban floods (600 requests in a minute)", type: "check", flag: "--flood" },
-                  {
-                    name: "ignore",
-                    label: "Never ban",
-                    flag: "--ignore",
-                    placeholder: "198.51.100.0/24,2001:db8::/32",
-                    hint: "Behind a CDN, its ranges: else a ban blocks everyone coming through it.",
-                  },
-                ],
-              },
-            ],
+            actions: [webOnAction("Ban web scanners")],
           },
         ];
+  const ignored = w.ignore.length ? `, never ${w.ignore.join(", ")}` : "";
   const out: UiBlock[] = [];
   if (w.stale)
     out.push({
@@ -387,6 +409,20 @@ function webBlocks(w: F2bWeb): UiBlock[] {
         },
       ],
     });
+  out.push({
+    type: "note",
+    kind: "info",
+    text: `fail2ban bans web scanners${w.flood ? " and floods" : ""} from Traefik's access log${ignored}.`,
+    actions: [
+      webOnAction("Change", w),
+      {
+        label: "Stop banning",
+        argv: ["fail2ban", "web", "off"],
+        danger: true,
+        confirm: WEB_OFF_CONFIRM,
+      },
+    ],
+  });
   if (w.noIpv6) out.push({ type: "note", kind: "warn", text: `${NO_IPV6}.` });
   return out;
 }
@@ -604,6 +640,7 @@ export default definePlugin({
                   value: f.name === "maxretry" ? String(j.maxretry ?? "") : duration(j[f.name as "bantime" | "findtime"]).replace("forever", "-1"),
                 })),
               },
+              ...webJailRemove(j.name, web),
             ],
           })),
           empty: "fail2ban runs no jails.",

@@ -400,7 +400,20 @@ describe("fail2ban", () => {
     expect(stale.find((b) => b.type === "note")).toMatchObject({
       kind: "warn",
       actions: [{ argv: ["fail2ban", "web", "on", "--flood", "--ignore", "192.0.2.0/24"] }],
-    });
+    }); // On: change the settings (filled in with the current ones) or remove the jails.
+    const on = await f2b.default.panel!.load(
+      fakeCtx(webOut("WEBHEAD\tc1 mode=bridge flood=1 ignore=192.0.2.0/24", "JAIL\tlandfall-http\t0\t0\t0\t", "JAIL\tlandfall-http-flood\t0\t0\t0\t")).ctx,
+    );
+    const note = on.find((b) => b.type === "note") as any;
+    expect(note.kind).toBe("info");
+    expect(note.actions[0].fields.map((f: any) => f.value)).toEqual([true, "192.0.2.0/24"]);
+    expect(note.actions[1]).toMatchObject({ argv: ["fail2ban", "web", "off"], danger: true });
+    // The jails table removes one web jail: the flood jail alone keeps the scanners' jail and its ignore list.
+    const jails = on.find((b) => b.type === "table" && b.title === "Jails") as any;
+    const remove = (name: string) => jails.rows.find((r: any) => r.cells[0].text === name)?.actions.find((a: any) => a.label === "Remove");
+    expect(remove("landfall-http-flood")?.argv).toEqual(["fail2ban", "web", "on", "--ignore", "192.0.2.0/24"]);
+    expect(remove("landfall-http")?.argv).toEqual(["fail2ban", "web", "off"]);
+    expect(remove("sshd")).toBeUndefined();
   });
 
   test("f2b_web_refresh follows a recreated Traefik, and does nothing without the web jails", () => {
