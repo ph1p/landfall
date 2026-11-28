@@ -94,6 +94,12 @@ the server. lf tenant off undoes all of it.`,
     const domains = [...new Set((o.domain as string[]).map(checkDomain))];
     const limits = cleanLimits(limitsFrom(o));
     const { name, server, admin, view } = await load(o);
+    const f = await facts(server);
+    // Before anything changes: the remote check stops with only "tenants need systemd".
+    if (f.init !== "systemd")
+      fail(
+        `${name} cannot have tenants: it runs ${f.init === "openrc" ? "OpenRC" : "no systemd"}, and tenants need systemd. Each tenant's rootless Docker runs as a systemd user service, kept alive by loginctl enable-linger. See https://ph1p.github.io/landfall/tenants#requirements`,
+      );
     if (view.tenants.some((t) => t.user === user)) fail(`${user} is a tenant already`);
     checkFree(view, user, domains);
     const used = view.tenants.map((t) => t.port);
@@ -101,7 +107,7 @@ the server. lf tenant off undoes all of it.`,
     if (used.includes(port)) fail(`port ${port} belongs to another tenant`);
     let firewall = "ufw";
     if (!view.ufw) {
-      const cloud = cloudFirewall((await facts(server)).cloud?.id);
+      const cloud = cloudFirewall(f.cloud?.id);
       if (!o["provider-firewall"])
         fail(
           `tenants can open their own ports; enable the firewall first (lf firewall enable)${cloud ? `, or check the ${cloud} and pass --provider-firewall` : ""}`,

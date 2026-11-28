@@ -58,6 +58,19 @@ The firewall matters because a tenant can open ports of its own. Without one, th
 lf firewall enable -s vps    # turn ufw on first
 ```
 
+systemd does three jobs here:
+
+- It runs each tenant's own Docker as a user service (`systemctl --user`), kept running by `loginctl enable-linger`.
+- It holds the tenant's limits: memory, CPU and processes are set on its slice, `user-<uid>.slice`.
+- It starts the tenant's Docker at boot, and `lf tenant stop` / `lf tenant start` go through it.
+
+A container without systemd cannot have tenants. The Alpine image of landfall's own tests runs only sshd and dockerd,
+so `lf tenant add` refuses it before it changes anything:
+
+```
+error: try cannot have tenants: it runs OpenRC, and tenants need systemd. …
+```
+
 ## Add a tenant (admin)
 
 ```sh
@@ -325,7 +338,9 @@ certificates, one per name. Tenants that use names under the same registered dom
 
 ## In the web UI
 
-As the admin, the server's **Tenants** section shows `lf tenant ls`:
+As the admin, the server's **Tenants** section shows `lf tenant ls`.
+On a server that cannot have tenants, the section is greyed out and says why, for example `tenants need systemd`.
+
 
 - **Add tenant** asks for user, public key, domains and limits. Without ufw, it asks you to confirm the provider's
   firewall (`--provider-firewall`). On the first tenant it warns about the short outage.

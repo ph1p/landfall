@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { S } from "../../lib/store";
+import { S, isTenant } from "../../lib/store";
 import { go, pluginNameOf, type CoreTab, type Tab } from "../../lib/api";
 import { openTunnels } from "../../lib/jobs";
 import { Badge, Bone, cx } from "../../ui/kit";
@@ -89,6 +89,22 @@ export function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
           </a>,
         ]
       : [];
+  // A server that cannot have tenants (no systemd, no user tools…) still lists the section, greyed out, with the reason.
+  const noTenants = nav && !isTenant(n) && S.facts[n]?.data?.can?.tenants === false ? S.facts[n]!.data!.why.tenants : undefined;
+  const offTenants = noTenants && (
+    <div
+      key="tenants"
+      role="presentation"
+      className={cx(look(false), "items-start cursor-default text-faint hover:bg-transparent hover:text-faint")}
+      title={`Tenants: not on ${n}: ${noTenants}`}
+    >
+      <Building2 className="size-3.5 flex-none opacity-50 mt-[3px]" aria-hidden="true" />
+      <span className="mr-auto min-w-0">
+        Tenants
+        <span className="block text-[11px] leading-tight truncate">{noTenants}</span>
+      </span>
+    </div>
+  );
   const list = sections(n).map(([t, label, grp], i, all) => {
     const Icon = iconOf(t);
     const btn = (
@@ -106,8 +122,9 @@ export function SectionButtons({ n, nav }: { n: string; nav?: boolean }) {
       </button>
     );
     // The list heads each group; tabs on phones run on in one row.
-    if (!nav || all[i - 1]?.[2] === grp) return btn;
-    return [groupHead(`${t}/group`, grp, !i), btn];
+    const shown = t === "system" && offTenants ? [offTenants, btn] : btn;
+    if (!nav || all[i - 1]?.[2] === grp) return shown;
+    return [groupHead(`${t}/group`, grp, !i), shown];
   });
   return [...list, ...provider];
 }
