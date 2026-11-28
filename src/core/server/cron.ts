@@ -25,6 +25,7 @@ export function cronChange(mark: string, line: string, purpose: string) {
       ...(line
         ? [
             `command -v crontab >/dev/null || { echo "the server has no cron: install it (cron, cronie or busybox crond) to ${purpose}" >&2; exit 1; }`,
+            `! grep -qsxF "$(id -un)" /etc/cron.deny || { echo "the admin of this server turned cron off for $(id -un): you cannot ${purpose}" >&2; exit 1; }`,
             // busybox crontab (Alpine) gives a user other than root a crontab only when setuid.
             `[ "$(id -u)" = 0 ] || [ "$(pkg_mgr)" != apk ] || pkg_has busybox-suid || ! can_root || pkg_install busybox-suid || true`,
           ]

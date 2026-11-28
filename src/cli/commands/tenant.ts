@@ -9,6 +9,8 @@ import {
   asRoot,
   checkDomain,
   checkTenantName,
+  cleanLimits,
+  cleanRights,
   deactivateScript,
   domainsScript,
   limitsScript,
@@ -19,14 +21,18 @@ import {
   purgeScript,
   readTenants,
   restoreScript,
+  rightsScript,
+  rightsText,
+  startScript,
   stopScript,
   tenantsView,
   type Limits,
   type TenantsView,
 } from "../../core/server/tenants";
 import { serverTarget } from "../target";
-import { LIMIT_RULES, tenantLogin } from "../../core/server/tenant-policy";
+import { LIMIT_RULES, publicPortError, tenantInvite } from "../../core/server/tenant-policy";
 import { effectiveSsh } from "../../core/ssh/sshconfig";
+import { checkInt } from "../../core/lib/config";
 
 const json = { type: "boolean", desc: "machine-readable output" } as const;
 const limitOpts = {
@@ -38,11 +44,13 @@ const limitOpts = {
 async function load(o: Record<string, any>) {
   const { name, server } = serverTarget(o);
   const admin = await usersLogin(server);
-  return { name, server, admin, view: await readTenants(admin) };
+  return { name, server, admin, view: await readTenants(admin, { light: true }) };
 }
 
-function tenantOf(v: TenantsView, user: string) {
-  return v.tenants.find((t) => t.user === user) ?? fail(`${user} is not a tenant${v.on ? "" : " (no tenants on this server)"}`);
+function tenantOf(v: TenantsView, user: string, active?: boolean) {
+  const t = v.tenants.find((t) => t.user === user) ?? fail(`${user} is not a tenant${v.on ? "" : " (no tenants on this server)"}`);
+  if (active && !t.active) fail(`${user} is removed; lf tenant restore ${user} brings it back`);
+  return t;
 }
 
 function limitsFrom(o: Record<string, any>): Limits {
@@ -83,14 +91,12 @@ the server. lf tenant off undoes all of it.`,
     checkTenantName(user);
     const key = readKey(o.key);
     const domains = [...new Set((o.domain as string[]).map(checkDomain))];
-    const limits = limitsFrom(o);
-    for (const [k, v] of Object.entries(limits)) if (v === "none") delete limits[k as keyof Limits];
+    const limits = cleanLimits(limitsFrom(o));
     const { name, server, admin, view } = await load(o);
     if (view.tenants.some((t) => t.user === user)) fail(`${user} is a tenant already`);
     checkFree(view, user, domains);
     const used = view.tenants.map((t) => t.port);
-    const port = o.port ? Number(o.port) : nextPort(used);
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) fail("--port takes a number from 1024 to 65535");
+    const port = o.port ? checkInt(o.port, "--port", 1024, 65535) : nextPort(used);
     if (used.includes(port)) fail(`port ${port} belongs to another tenant`);
     let firewall = "ufw";
     if (!view.ufw) {
@@ -103,11 +109,9 @@ the server. lf tenant off undoes all of it.`,
     }
     const outage = `the first tenant moves the central Traefik of ${name} to the host network: sites are offline for a few seconds`;
     if (!view.on && !(o.force || (await confirmRisky(`${outage[0].toUpperCase()}${outage.slice(1)}. Go on?`)))) fail(`${outage}; pass --force to go on`);
-    const { script, env } = addScript({ user, key, domains, port, limits, firewall });
-    await asRoot(admin, script, env);
+    await asRoot(admin, addScript({ user, key, domains, port, limits, firewall }));
     ok(`added tenant ${user} to ${name} (port ${port})`);
-    const ssh = effectiveSsh(server);
-    info(`next, as ${user}: ${tenantLogin(user, ssh.hostname, ssh.port)} && lf traefik setup -s ${user}`);
+    info(`lf tenant invite ${user} prints what to send ${user}`);
   },
 });
 
@@ -121,7 +125,7 @@ export const tenantList = defineCommand({
     if (!view.on) return void info("no tenants on this server (lf tenant add)");
     const num = (x?: number) => (x === undefined ? c.dim("-") : String(x));
     table([
-      ["user", "uid", "port", "state", "docker", "sites", "containers", "memory", ...(o.sizes ? ["disk"] : []), "limits", "domains"].map(c.dim),
+      ["user", "uid", "port", "state", "docker", "sites", "containers", "memory", ...(o.sizes ? ["disk"] : []), "limits", "rights", "domains"].map(c.dim),
       ...view.tenants.map((t) => [
         t.user,
         String(t.uid),
@@ -135,6 +139,7 @@ export const tenantList = defineCommand({
         Object.entries(t.limits ?? {})
           .map(([k, v]) => `${k} ${v}`)
           .join(", ") || c.dim("none"),
+        t.rights ? rightsText(t.rights) : c.dim("default"),
         t.domains.join(" "),
       ]),
     ]);
@@ -160,8 +165,7 @@ export const tenantDomains = defineCommand({
     const domains = [...new Set([...t.domains.filter((d) => !rm.has(d)), ...add])];
     if (!domains.length) fail(`${user} needs at least one domain; lf tenant rm ${user} removes the tenant`);
     checkFree(view, user, add);
-    const { script, env } = domainsScript(t, view.raw[user], domains);
-    await asRoot(admin, script, env);
+    await asRoot(admin, domainsScript(t, view.raw[user], domains));
     ok(`${user} on ${name}: ${domains.join(" ")}`);
   },
 });
@@ -176,8 +180,7 @@ export const tenantLimits = defineCommand({
     if (!user || !Object.keys(limits).length) fail("usage: lf tenant limits <user> [--memory 2G] [--cpu 200%] [--tasks 2000]");
     const { name, admin, view } = await load(o);
     const t = tenantOf(view, user);
-    const { script, env } = limitsScript(t, view.raw[user], limits);
-    await asRoot(admin, script, env);
+    await asRoot(admin, limitsScript(t, view.raw[user], limits));
     ok(`limits of ${user} on ${name} set`);
   },
 });
@@ -191,11 +194,9 @@ const startStop = (stop: boolean) =>
     async run([user], o) {
       if (!user) fail(`usage: lf tenant ${stop ? "stop" : "start"} <user>`);
       const { name, admin, view } = await load(o);
-      const t = tenantOf(view, user);
-      if (!t.active) fail(`${user} is removed; lf tenant restore ${user} brings it back`);
+      tenantOf(view, user, true);
       if (stop) await confirmRemoval(`Stop all sites of ${user} on ${name}?`);
-      const { script, env } = stopScript(user, stop);
-      await asRoot(admin, script, env);
+      await asRoot(admin, (stop ? stopScript : startScript)(user));
       ok(`${stop ? "stopped" : "started"} the Docker of ${user}`);
     },
   });
@@ -215,14 +216,12 @@ export const tenantRemove = defineCommand({
     const t = tenantOf(view, user);
     if (o.purge) {
       await confirmRemoval(`Delete tenant ${user} on ${name} with its user, sites, volumes and images? This cannot be undone.`, user);
-      const { script, env } = purgeScript(user, view.raw[user]);
-      await asRoot(admin, script, env);
+      await asRoot(admin, purgeScript(t, view.raw[user]));
       return void ok(`deleted tenant ${user}`);
     }
     if (!t.active) fail(`${user} is removed already; --purge deletes it`);
     await confirmRemoval(`Stop all sites of ${user} on ${name} and lock its logins?`);
-    const { script, env } = deactivateScript(user, view.raw[user]);
-    await asRoot(admin, script, env);
+    await asRoot(admin, deactivateScript(user, view.raw[user]));
     ok(`removed tenant ${user}; lf tenant restore ${user} brings it back`);
   },
 });
@@ -237,8 +236,7 @@ export const tenantRestore = defineCommand({
     const { admin, view } = await load(o);
     const t = tenantOf(view, user);
     if (t.active) fail(`${user} is active`);
-    const { script, env } = restoreScript(user, view.raw[user]);
-    await asRoot(admin, script, env);
+    await asRoot(admin, restoreScript(user, view.raw[user]));
     ok(`restored tenant ${user}`);
   },
 });
@@ -263,8 +261,73 @@ the systemd and AppArmor files. Removed tenants keep their data.
       `Turn tenants off on ${name}${active.length ? `, stopping ${active.join(", ")}` : ""}? The central Traefik restarts (a short outage).`,
     );
     if (view.tenants.length > active.length) warn(`removed tenants keep their users and data; lf tenant rm <user> --purge deletes them`);
-    const { script, env } = offScript(state, view.raw.state, { rmTenants: o["rm-tenants"], removePackages: o["remove-packages"] });
-    await asRoot(admin, script, env);
+    await asRoot(admin, offScript(state, view.raw.state, { rmTenants: o["rm-tenants"], removePackages: o["remove-packages"] }));
     ok(`tenants off on ${name}`);
+  },
+});
+
+export const tenantRights = defineCommand({
+  name: "tenant rights",
+  args: "<user>",
+  summary: `Show or change what a tenant may do beyond its domains and limits.
+
+  lf tenant rights anna                      print them
+  lf tenant rights anna --open 25565/tcp     open a port for anna's containers
+  lf tenant rights anna --no-cron            take away anna's crontab
+
+A port opens in ufw; without ufw, open it in the provider's firewall too.
+--no-cron keeps the crontab aside (cron.deny) and brings it back with --cron.`,
+  options: {
+    server: serverOpt,
+    json,
+    cron: { type: "boolean", desc: "allow a crontab (the default); --no-cron forbids it" },
+    open: { type: "string", multiple: true, desc: "a port to open for the tenant, like 25565/tcp (repeat)" },
+    close: { type: "string", multiple: true, desc: "an open port to close again (repeat)" },
+  },
+  async run([user], o) {
+    if (!user) fail("usage: lf tenant rights <user> [--cron | --no-cron] [--open <port/proto>] [--close <port/proto>]");
+    const open = (o.open ?? []) as string[];
+    const close = (o.close ?? []) as string[];
+    for (const p of open) {
+      const e = publicPortError(p);
+      if (e) fail(e);
+    }
+    const { name, admin, view } = await load(o);
+    const t = tenantOf(view, user);
+    if (o.cron === undefined && !open.length && !close.length) {
+      if (o.json) return void printJson({ cron: t.rights?.cron !== false, ports: t.rights?.ports ?? [] });
+      return void table([
+        ["cron", t.rights?.cron === false ? c.yellow("off") : "allowed"],
+        ["ports", t.rights?.ports?.join(" ") || c.dim("none")],
+      ]);
+    }
+    tenantOf(view, user, true);
+    const ports = new Set(t.rights?.ports);
+    for (const p of close) if (!ports.has(p)) fail(`${p} is not open for ${user}`);
+    for (const p of open) {
+      const other = view.tenants.find((x) => x.user !== user && x.rights?.ports?.includes(p));
+      if (other) fail(`${p} is open for tenant ${other.user} already`);
+    }
+    const next = cleanRights({ cron: o.cron ?? t.rights?.cron, ports: [...[...ports].filter((p) => !close.includes(p)), ...open] });
+    if (rightsText(next) === rightsText(t.rights)) return void info(`${user} has these rights already`);
+    if (open.length && !view.ufw) warn(`ufw is not active: open ${open.join(", ")} in the provider's firewall too`);
+    await asRoot(admin, rightsScript(t, view.raw[user], next ?? {}));
+    ok(`rights of ${user} on ${name}: ${rightsText(next)}`);
+  },
+});
+
+export const tenantInviteCmd = defineCommand({
+  name: "tenant invite",
+  args: "<user>",
+  summary: `Print what to send a tenant: install lf, log in, start Traefik, point DNS, deploy.
+
+  lf tenant invite anna | pbcopy`,
+  options: { server: serverOpt, host: { type: "string", desc: "the address the tenant reaches the server at (default: the one lf uses)" } },
+  async run([user], o) {
+    if (!user) fail("usage: lf tenant invite <user> [--host <address>]");
+    const { server, view } = await load(o);
+    const t = tenantOf(view, user, true);
+    const ssh = effectiveSsh(server);
+    console.log(tenantInvite({ user, host: o.host ?? ssh.hostname, port: ssh.port, domains: t.domains, rights: t.rights }));
   },
 });

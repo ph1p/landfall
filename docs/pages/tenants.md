@@ -73,13 +73,27 @@ lf tenant add carl -s box --key ~/carl.pub --domain carl.dev --provider-firewall
 - An existing user, or one in the `docker` group, is refused.
 
 Then point the tenant's domains at the server (an `A`/`AAAA` record, or a wildcard record for `*.anna.dev`), and send
-the tenant two lines: its user name and the server's address. `tenant add` prints them:
+the tenant its invite.
 
-```
-next, as anna: lf server add anna --host 203.0.113.7 --user anna -i <key> && lf traefik setup -s anna
+### Invite the tenant
+
+```sh
+lf tenant invite anna -s vps                         # what to send anna
+lf tenant invite anna -s vps | pbcopy                # straight to the clipboard (macOS)
+lf tenant invite anna -s vps --host vps.example.com  # a name instead of the address in your ssh config
 ```
 
-`<key>` is the private half of the key given with `--key`.
+The invite is plain text, in five steps:
+
+1. Install lf.
+2. Add the server: an `lf server add` line, or a `~/.ssh/config` block with `Host`, `HostName`, `Port`, `User` and
+   `IdentityFile`.
+3. Start its own Traefik with `lf traefik setup`.
+4. The DNS records for each of its domains.
+5. A first `lf deploy`, under its wildcard domain if it has one.
+
+It also names the tenant's open ports and whether cron is off. The key path in it is a guess
+(`~/.ssh/id_ed25519`): the tenant uses the private half of the key given with `--key`.
 
 ### What the first tenant changes
 
@@ -167,6 +181,9 @@ lf tenant ls -s vps --json                            # the same as JSON
 lf tenant domains anna -s vps --add shop.anna.dev     # give a domain
 lf tenant domains anna -s vps --rm old.anna.dev       # take one back
 lf tenant limits anna -s vps --memory 4G --cpu none   # change limits; none removes one
+lf tenant rights anna -s vps --open 25565/tcp         # open a public port for anna's containers
+lf tenant rights anna -s vps --no-cron                # no crontab for anna
+lf tenant rights anna -s vps                          # what anna may do
 lf tenant stop anna -s vps                            # stop its Docker: its sites go offline (asks first)
 lf tenant start anna -s vps                           # start it again
 ```
@@ -189,6 +206,37 @@ Limits apply to everything the tenant runs, through its systemd slice (`user-<ui
 | `--tasks` | `TasksMax`: processes and threads | `2000` |
 
 They take effect at once. `none` removes a limit. There are no disk quotas.
+
+### Rights
+
+Rights are what a tenant may do beyond its domains and limits. By default it may use cron and has no public port.
+
+| option | does | enforced by |
+|---|---|---|
+| `--no-cron` / `--cron` | takes away or gives back the tenant's crontab | `/etc/cron.deny` |
+| `--open 25565/tcp` | opens a public port for the tenant's containers (repeats) | ufw |
+| `--close 25565/tcp` | closes it again (repeats) | ufw |
+
+```sh
+lf tenant rights anna -s vps --open 25565/tcp --open 25565/udp   # a game server
+lf tenant rights anna -s vps --close 25565/udp                   # take one back
+lf tenant rights anna -s vps --json                              # {"cron": true, "ports": ["25565/tcp"]}
+```
+
+- A port is a number from 1024 to 65535 with `/tcp` or `/udp`. Rootless Docker cannot publish ports below 1024.
+  20000–20999 are the local ports of the tenants' Traefiks and are refused.
+- A port belongs to one tenant at a time. A port ufw already allows for something else is refused.
+- The tenant publishes it on all addresses: `0.0.0.0:25565:25565` in its compose file. Without an address, landfall
+  publishes on `127.0.0.1`.
+- Without ufw, `--open` only records the right. Open the port in the provider's firewall too; the command warns.
+- `--no-cron` keeps the tenant's crontab aside and adds the user to `/etc/cron.deny`. `--cron` brings both back.
+  Without cron, the tenant cannot turn on `lf autodeploy` or scheduled volume backups.
+- Cron off is a policy, not a sandbox. A tenant with a shell can still start systemd user timers.
+- `lf tenant rm` keeps the ports open, so `restore` brings the tenant back as it was. `--purge` closes them.
+- Every change is undoable.
+
+There is no right for mail or for a shell. The server cannot take a shell away from a user who deploys with ssh, and
+outgoing mail is a network question: block port 25 at the provider if you need to.
 
 ## Remove a tenant
 
@@ -248,7 +296,7 @@ What keeps tenants apart:
   can read only their own `<user>.json`.
 - `state.json` is root's (0600).
 - Containers publish ports on `127.0.0.1` unless the compose file names another address.
-- The firewall keeps every other port closed from outside.
+- The firewall keeps every other port closed from outside, except the ports you open with `lf tenant rights`.
 - A tenant has no sudo. Root work fails with `error: this needs root; ask the admin of vps`.
 - Each tenant's routes cover only its own domains. Its Traefik never sees another tenant's TLS keys.
 - Every tenant change on the server holds one lock, and writes only over the state it read. A concurrent change fails
@@ -278,8 +326,12 @@ As the admin, the server's **Tenants** section shows `lf tenant ls`:
 - **Add tenant** asks for user, public key, domains and limits. Without ufw, it asks you to confirm the provider's
   firewall (`--provider-firewall`). On the first tenant it warns about the short outage.
 - **Measure disk** runs `lf tenant ls --sizes`.
-- Each tenant's menu changes domains and limits, stops or starts its Docker, removes or restores it, and deletes it with
-  its data (type the name). It also copies the `lf server add` line to send the tenant.
+- After **Add tenant**, the invite opens. **Invite…** in a tenant's menu shows it again, with a **Copy** button.
+- Each tenant's menu changes domains, limits and rights, stops or starts its Docker, removes or restores it, and deletes
+  it with its data (type the name).
+- The **Rights** column shows what differs from the default: `no cron`, open ports.
+- Without tenants, the section explains what a tenant gets and what the first one changes. It says why when the server
+  cannot have tenants (no systemd).
 - **Turn tenants off…** runs `lf tenant off` once no tenant is active.
 
 Elsewhere, the admin sees where tenants are:

@@ -58,7 +58,22 @@ function help(print: (text: string) => void = console.log) {
       ],
     ],
     ["Users", ["users", "users add", "users rm", "users passwd", "users sudo"]],
-    ["Tenants", ["tenant add", "tenant ls", "tenant domains", "tenant limits", "tenant stop", "tenant start", "tenant rm", "tenant restore", "tenant off"]],
+    [
+      "Tenants",
+      [
+        "tenant add",
+        "tenant ls",
+        "tenant domains",
+        "tenant limits",
+        "tenant rights",
+        "tenant invite",
+        "tenant stop",
+        "tenant start",
+        "tenant rm",
+        "tenant restore",
+        "tenant off",
+      ],
+    ],
     [
       "Traefik",
       [

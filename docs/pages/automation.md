@@ -26,7 +26,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 | area | commands |
 |---|---|
 | sites | `ls`, `sites info`, `domains`, `env`, `secret`, `volumes`, `tunnels`, `check`, `scale`, `weight`, `refs`, `git track`, `git key`, `ci init`, `ci rm`, `autodeploy` |
-| servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config`, `tenant ls` |
+| servers | `server list`, `server info`, `server upgrade`, `server config`, `server domain`, `config`, `tenant ls`, `tenant rights` |
 | monitoring | `stats`, `disk`, `traffic`, `certs` |
 | system | `system`, `services`, `keys`, `users`, `swap`, `log-limit`, `security`, `firewall` |
 | maintenance | `updates`, `scan`, `prune`, `traefik status`, `traefik access-log`, `traefik strict-tls`, `redirects`, `history` |
@@ -49,7 +49,7 @@ This page is the contract for running `lf` unattended. For CI, see also [Deploy 
 - `autodeploy` prints `{site, server, enabled, every, env, rule, url, dir, last, log, cron}`. `last` is the last commit it looked at: `{sha, result, at, ref}`, `result` one of `deployed`, `deploying`, `failed`, `running`, `older`, `skipped-config`. `cron` is missing when the crontab has no line for it.
 - `refs` prints `{repo, url, envs}`. Each environment has `env`, `site`, `server`, `rule`, `ruleText`, `matching` (tags newest first, then branches), `running` (`null`: no release; missing: never deployed), `newest`, `behind` (commits), `auto` (the interval, when it [deploys itself](git.md#auto-deploy-the-server-deploys-new-commits)) and `error` when its server cannot be read.
 - `git track` prints `{url, rules}`, keyed by environment; `""` is the project itself.
-- `tenant ls` prints `{on, state, tenants, ufw}`. `state` is what the first tenant changed, missing while tenants are off. Each tenant has `user`, `uid`, `port`, `domains`, `portDriver`, `active`, `running`, `trustedIP`, `created`, `limits`, and `sites`, `containers`, `memory` and (with `--sizes`) `disk` when they could be read. `memory` and `disk` are bytes.
+- `tenant ls` prints `{on, state, tenants, ufw}`. `state` is what the first tenant changed, missing while tenants are off. Each tenant has `user`, `uid`, `port`, `domains`, `active`, `running`, `trustedIP`, `created`, `limits`, `rights` (`{cron: false, ports: ["25565/tcp"]}`, missing when default), and `sites`, `containers`, `memory` and (with `--sizes`) `disk` when they could be read. `memory` and `disk` are bytes.
 - `env` hides values unless you add `--reveal`. `secret` never contains secret values.
 
 The web UI reads the same JSON, so its shape is stable within a release.

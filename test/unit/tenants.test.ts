@@ -128,6 +128,44 @@ describe("the allowlist", () => {
   });
 });
 
+describe("what the admin gives a tenant", () => {
+  test("a public port is above 1024 and not one of the tenants' Traefik", async () => {
+    const { publicPortError } = await import("../../src/core/server/tenant-policy");
+    expect(publicPortError("25565/tcp")).toBeUndefined();
+    expect(publicPortError("53/udp")).toContain("1024 to 65535");
+    expect(publicPortError("20005/tcp")).toContain("local ports");
+    expect(publicPortError("8080")).toContain("not a port like");
+  });
+
+  test("the invite logs in, starts Traefik, points DNS and deploys", async () => {
+    const { tenantInvite } = await import("../../src/core/server/tenant-policy");
+    const t = tenantInvite({
+      user: "anna",
+      host: "203.0.113.7",
+      port: 2222,
+      domains: ["anna.dev", "*.anna.dev"],
+      rights: { cron: false, ports: ["25565/tcp"] },
+    });
+    expect(t).toContain("lf server add anna --host 203.0.113.7 --port 2222 --user anna -i ~/.ssh/id_ed25519");
+    expect(t).toMatch(/Host anna\n\s+HostName 203\.0\.113\.7\n\s+Port 2222\n\s+User anna/);
+    expect(t).toContain("lf traefik setup -s anna");
+    expect(t).toMatch(/\*\.anna\.dev\s+A\s+203\.0\.113\.7/);
+    expect(t).toContain("lf deploy -s anna -d www.anna.dev");
+    expect(t).toContain("0.0.0.0:PORT:PORT");
+    expect(t).toContain("Cron is off");
+    const plain = tenantInvite({ user: "bob", host: "vps.example.com", port: 22, domains: ["bob.dev"] });
+    expect(plain).not.toContain("--port");
+    expect(plain).toContain("the same address as vps.example.com");
+    expect(plain).not.toContain("Cron");
+  });
+
+  test("a scheduled job says when the admin turned cron off", async () => {
+    const { cronChange } = await import("../../src/core/server/cron");
+    expect(cronChange("#lf", "* * * * * true", "run it").check.join("\n")).toContain("/etc/cron.deny");
+    expect(cronChange("#lf", "", "run it").check.join("\n")).not.toContain("/etc/cron.deny");
+  });
+});
+
 const { detectTenant } = await import("../../src/core/server/tenant");
 
 describe("server add finds the tenant", () => {
@@ -167,7 +205,6 @@ const anna2: import("../../src/core/server/tenants").TenantFile = {
   uid: 1001,
   port: 20000,
   domains: ["anna.dev"],
-  portDriver: "builtin",
   active: true,
   limits: { memory: "2G" },
 };
@@ -180,17 +217,18 @@ const st: import("../../src/core/server/tenants").TenantsState = {
   delegateDropIn: true,
   apparmorProfile: true,
   packages: ["uidmap"],
-  ufw: ["allow 80/tcp"],
+  ufw: ["80/tcp"],
 };
 const scripts = {
   add: T.addScript({ user: "anna", key: "ssh-ed25519 AAAA a", domains: ["anna.dev"], port: 20000, limits: { memory: "2G" }, firewall: "ufw" }),
   domains: T.domainsScript(anna2, was, ["anna.dev", "*.anna.dev"]),
   limits: T.limitsScript(anna2, was, { cpu: "150%", memory: "none" }),
-  stop: T.stopScript("anna", true),
-  start: T.stopScript("anna", false),
+  stop: T.stopScript("anna"),
+  start: T.startScript("anna"),
   rm: T.deactivateScript("anna", was),
   restore: T.restoreScript("anna", was),
-  purge: T.purgeScript("anna", was),
+  purge: T.purgeScript({ ...anna2, rights: { ports: ["25565/tcp"] } }, was),
+  rights: T.rightsScript(anna2, was, { cron: false, ports: ["25565/tcp"] }),
   off: T.offScript(st, "{}", {}),
 };
 
@@ -239,7 +277,7 @@ describe("tenant scripts", () => {
   });
 
   test("changes refuse what someone else changed meanwhile", () => {
-    for (const n of ["domains", "limits", "rm", "restore", "purge"] as const)
+    for (const n of ["domains", "limits", "rights", "rm", "restore", "purge"] as const)
       expect(scripts[n].script).toContain("same ${TENANTS_DIR}".replace("${TENANTS_DIR}", "/opt/landfall/tenants"));
     expect(scripts.off.script).toContain("changed meanwhile");
   });
@@ -278,6 +316,25 @@ describe("tenant scripts", () => {
     expect(scripts.limits.env.LIMITS).toBe("MemoryMax=infinity CPUQuota=150% TasksMax=infinity");
     expect(scripts.limits.env.BEFORE).toBe("MemoryMax=2G CPUQuota= TasksMax=infinity");
     expect(JSON.parse(scripts.limits.env.JSON).limits).toEqual({ cpu: "150%" });
+  });
+
+  test("rights: only the difference runs, the file keeps what is not the default", () => {
+    const { env } = scripts.rights;
+    expect(env).toMatchObject({ CRON: "off", OPEN: "25565/tcp", CLOSE: "", SUMMARY: "no cron, 25565/tcp" });
+    expect(JSON.parse(env.JSON).rights).toEqual({ cron: false, ports: ["25565/tcp"] });
+    const back = T.rightsScript({ ...anna2, rights: { cron: false, ports: ["25565/tcp"] } }, was, { cron: true }).env;
+    expect(back).toMatchObject({ CRON: "on", OPEN: "", CLOSE: "25565/tcp", SUMMARY: "default" });
+    expect(JSON.parse(back.JSON).rights).toBeUndefined();
+    expect(scripts.rights.script).toContain('ufw_add allow "$p"');
+    expect(scripts.purge.env.PORTS).toBe("25565/tcp");
+    expect(scripts.purge.script).toContain('drop_line /etc/cron.deny "$U"');
+  });
+
+  test("cron off is undone by cron on, and the crontab is kept aside", () => {
+    const fn = scripts.rights.env.FN_SH;
+    expect(fn).toContain("cron_off()");
+    expect(fn).toContain('crontab -u "$1" "/opt/landfall/tenants/$1.crontab.denied"');
+    expect(scripts.rights.script).toMatch(/cron_off "\$U"; record "tenant \$U: no cron jobs" "\$FN_SH\ncron_on/);
   });
 
   test("the add template keeps placeholders the shell fills in", () => {

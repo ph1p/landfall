@@ -5,16 +5,16 @@ import { shq } from "../lib/quote";
 import { runScript } from "../ssh/ssh";
 import { effectiveSsh } from "../ssh/sshconfig";
 import { USER_NAME, usersLogin } from "./users";
-import { PRELUDE, ROOT, SITES, TENANTS, TRAEFIK_DIR } from "../ssh/templates";
+import { NETWORK, PRELUDE, ROOT, SITES, TENANTS, TRAEFIK_DIR } from "../ssh/templates";
+import { cleanRights, PORTS, rightsText, type Rights } from "./tenant-policy";
 
-export const PORTS = { min: 20000, max: 20999 } as const;
+export { cleanRights, PORTS, rightsText };
 const STATE_FILE = `${TENANTS}/state.json`;
 const LOCK = `${TENANTS}/.lock`;
 const DROPIN = "/etc/systemd/system/user@.service.d/landfall-delegate.conf";
 const APPARMOR = "/etc/apparmor.d/landfall-rootlesskit";
 const COMPOSE = `${TRAEFIK_DIR}/docker-compose.yml`;
 const COMPOSE_BEFORE = `${TENANTS}/traefik-compose.before.yml`;
-const PORT_DRIVER = "builtin";
 
 export interface Limits {
   memory?: string;
@@ -28,11 +28,11 @@ export interface TenantFile {
   uid: number;
   port: number;
   domains: string[];
-  portDriver: string;
   active: boolean;
   trustedIP?: string;
   created?: string;
   limits?: Limits;
+  rights?: Rights;
 }
 
 export interface TenantRow extends TenantFile {
@@ -134,20 +134,26 @@ for f in ${TENANTS}/*.json; do
   n=$(basename "$f" .json); r=0; st=- ct=- mem=- dk=-
   if [ "$n" != state ]; then
     u=$(id -u "$n" 2>/dev/null || true)
-    if [ -n "$u" ] && [ -S /run/user/$u/docker.sock ]; then
-      r=1; ct=$(timeout 10 sudo -u "$n" DOCKER_HOST=unix:///run/user/$u/docker.sock docker ps -q 2>/dev/null | wc -l || echo -)
+    [ -z "$u" ] || [ ! -S /run/user/$u/docker.sock ] || r=1
+    if [ "$LF_LIGHT" != 1 ]; then
+      [ "$r" = 0 ] || ct=$(timeout 10 sudo -u "$n" DOCKER_HOST=unix:///run/user/$u/docker.sock docker ps -q 2>/dev/null | wc -l || echo -)
+      st=$(find ${TENANTS}/"$n"/sites -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+      [ -z "$u" ] || mem=$(cat /sys/fs/cgroup/user.slice/user-$u.slice/memory.current 2>/dev/null || echo -)
+      [ "$LF_SIZES" != 1 ] || dk=$(timeout 30 du -sxk ${TENANTS}/"$n" 2>/dev/null | cut -f1 || echo -)
     fi
-    st=$(find ${TENANTS}/"$n"/sites -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-    [ -z "$u" ] || mem=$(cat /sys/fs/cgroup/user.slice/user-$u.slice/memory.current 2>/dev/null || echo -)
-    [ "$LF_SIZES" != 1 ] || dk=$(timeout 30 du -sxk ${TENANTS}/"$n" 2>/dev/null | cut -f1 || echo -)
   fi
   printf '\036%s %s %s %s %s %s\n' "$n" "$r" "$st" "$ct" "$mem" "$dk"; cat "$f"; echo
 done
 `;
 
+export interface Job {
+  script: string;
+  env: Record<string, string>;
+}
+
 /** Runs as root: tenant work touches users, systemd and other users' files. */
-export const asRoot = (admin: Server, script: string, env?: Record<string, string>) =>
-  runScript(admin, script, { sudo: effectiveSsh(admin).user !== "root", env, capture: false });
+export const asRoot = (admin: Server, { script, env }: Job, capture = false) =>
+  runScript(admin, script, { sudo: effectiveSsh(admin).user !== "root", env, capture });
 
 export function parseTenants(out: string): TenantsView {
   const v: TenantsView = { on: false, tenants: [], ufw: false, raw: {} };
@@ -171,18 +177,16 @@ export function parseTenants(out: string): TenantsView {
       v.raw.state = body;
     } else if (Number.isInteger(j.uid) && Number.isInteger(j.port)) {
       v.raw[name] = body;
-      const n = (x?: string) => (x && /^\d+$/.test(x) ? Number(x) : undefined);
-      const [sites, containers, memory, disk] = use.map(n);
+      const [sites, containers, memory, disk] = use.map((x) => (/^\d+$/.test(x) ? Number(x) : undefined));
+      const used = Object.entries({ sites, containers, memory, disk: disk && disk * 1024 }).filter(([, x]) => x !== undefined);
+      const { portDriver: _, ...file } = j;
       v.tenants.push({
-        ...j,
+        ...file,
         user: name,
         domains: Array.isArray(j.domains) ? j.domains : [],
         active: j.active !== false,
         running: flag === "1",
-        ...(sites !== undefined && { sites }),
-        ...(containers !== undefined && { containers }),
-        ...(memory !== undefined && { memory }),
-        ...(disk !== undefined && { disk: disk * 1024 }),
+        ...Object.fromEntries(used),
       });
     }
   }
@@ -190,14 +194,15 @@ export function parseTenants(out: string): TenantsView {
   return v;
 }
 
-export async function readTenants(admin: Server, sizes = false): Promise<TenantsView> {
-  const { stdout } = await runScript(admin, READ, { sudo: effectiveSsh(admin).user !== "root", capture: true, env: { LF_SIZES: sizes ? "1" : "0" } });
+/** light: only the files, for a command that changes them; sizes: also du over each tenant. */
+export async function readTenants(admin: Server, o: { sizes?: boolean; light?: boolean } = {}): Promise<TenantsView> {
+  const { stdout } = await asRoot(admin, { script: READ, env: { LF_SIZES: o.sizes ? "1" : "0", LF_LIGHT: o.light ? "1" : "0" } }, true);
   return parseTenants(stdout);
 }
 
 /** lf tenant ls --json: what the web UI's Tenants section reads. */
 export async function tenantsView(s: Server, sizes = false): Promise<Omit<TenantsView, "raw">> {
-  const { raw: _raw, ...v } = await readTenants(await usersLogin(s), sizes);
+  const { raw: _raw, ...v } = await readTenants(await usersLogin(s), { sizes });
   return v;
 }
 
@@ -232,6 +237,16 @@ t_on() {
   [ ! -f "${TENANTS}/$1.route.disabled" ] || mv -f "${TENANTS}/$1.route.disabled" "${TRAEFIK_DIR}/dynamic/tenant-$1.yml"
   sed -i 's/"active": false/"active": true/' "${TENANTS}/$1.json"
 }
+ufw_on() { LC_ALL=C ufw status 2>/dev/null | grep -q '^Status: active'; }
+cron_off() {
+  grep -qxF "$1" /etc/cron.deny 2>/dev/null || printf '%s\n' "$1" >> /etc/cron.deny
+  if crontab -l -u "$1" >"${TENANTS}/$1.crontab.denied" 2>/dev/null; then crontab -r -u "$1"; else rm -f "${TENANTS}/$1.crontab.denied"; fi
+}
+cron_on() {
+  drop_line /etc/cron.deny "$1"
+  [ ! -s "${TENANTS}/$1.crontab.denied" ] || crontab -u "$1" "${TENANTS}/$1.crontab.denied"
+  rm -f "${TENANTS}/$1.crontab.denied"
+}
 `;
 
 const offShell = (user: string) => `${FN}\nt_off ${shq(user)}`;
@@ -242,12 +257,13 @@ install -d -o root -g root -m 0751 ${TENANTS}
 exec 9>>${LOCK}
 command -v flock >/dev/null 2>&1 || { log "flock is missing (util-linux)"; exit 1; }
 flock -w 60 9 || { log "another lf tenant command is running"; exit 1; }
+same() { if [ -f "$1" ]; then [ "$(cat "$1")" = "$2" ]; else [ -z "$2" ]; fi; }
 `;
 const locked = (body: string) => [PRELUDE, FN, LOCKED, body].join("\n");
+const job = (body: string, env: Record<string, string>): Job => ({ script: locked(body), env });
 
 // What was read must still be there: two admins must not write over each other.
 const UNCHANGED = String.raw`
-same() { if [ -f "$1" ]; then [ "$(cat "$1")" = "$2" ]; else [ -z "$2" ]; fi; }
 same ${TENANTS}/"$U".json "$WAS" || { log "tenant $U changed meanwhile; run the command again"; exit 1; }
 `;
 
@@ -276,7 +292,7 @@ PM=$(pkg_mgr)
 case "$PM" in apt-get|dnf) ;; *) log "tenants need apt or dnf: Docker's rootless extras come from download.docker.com"; exit 1 ;; esac
 for p in docker.io moby-engine; do pkg_has "$p" && { log "Docker from distro packages ($p) has no rootless extras; install docker-ce from download.docker.com"; exit 1; }; done
 pkg_has docker-ce || { log "tenants need docker-ce from download.docker.com"; exit 1; }
-[ "$FIREWALL" != ufw ] || LC_ALL=C ufw status 2>/dev/null | grep -q '^Status: active' || { log "tenants can open their own ports; enable the firewall first (lf firewall enable)"; exit 1; }
+[ "$FIREWALL" != ufw ] || ufw_on || { log "tenants can open their own ports; enable the firewall first (lf firewall enable)"; exit 1; }
 APPARMOR=0
 [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" != 1 ] || APPARMOR=1
 host_net() { docker inspect -f '{{.HostConfig.NetworkMode}}' traefik 2>/dev/null | grep -qx host; }
@@ -329,12 +345,12 @@ if [ ! -f ${STATE_FILE} ]; then
   for e in ${ROOT}/* ${ROOT}/.[!.]*; do [ -e "$e" ] && [ ! -L "$e" ] && [ "$e" != ${TENANTS} ] && chmod o-rwx "$e" || true; done
   record "other users may enter ${ROOT} but see only tenants/" "$UNDO_MODES"
 
-  if LC_ALL=C ufw status 2>/dev/null | grep -q '^Status: active'; then
+  if ufw_on; then
     for r in 80/tcp 443/tcp 443/udp; do
       out=$(ufw allow "$r")
       case "$out" in
         *Skipping*|*"Rule updated"*) ;;
-        *) record "ufw allow $r" "ufw --force delete allow $r >/dev/null"; ST_UFW="$ST_UFW$([ -z "$ST_UFW" ] || echo ,)\"allow $r\""; write_state ;;
+        *) record "ufw allow $r" "ufw --force delete allow $r >/dev/null"; ST_UFW="$ST_UFW$([ -z "$ST_UFW" ] || echo ,)\"$r\""; write_state ;;
       esac
     done
   fi
@@ -400,7 +416,7 @@ loginctl enable-linger "$U"
 user_up "$U"
 runuser -u "$U" -- sh -c 'umask 077; c=$1/.config; mkdir -p "$c/docker" "$c/systemd/user/docker.service.d"
 printf "{\n  \"data-root\": \"%s/docker\",\n  \"ip\": \"127.0.0.1\"\n}\n" "$2" > "$c/docker/daemon.json"
-printf "[Service]\nEnvironment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=%s\n" "$3" > "$c/systemd/user/docker.service.d/landfall.conf"' sh "$H" "$TROOT" "$PORT_DRIVER"
+printf "[Service]\nEnvironment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin\n" > "$c/systemd/user/docker.service.d/landfall.conf"' sh "$H" "$TROOT"
 [ -f "$H/.config/systemd/user/docker.service" ] || as_user "$U" dockerd-rootless-setuptool.sh install >&2
 as_user "$U" docker context use rootless >/dev/null
 as_user "$U" systemctl --user daemon-reload
@@ -417,7 +433,7 @@ for _ in $(seq 30); do addr=$(curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null | 
 as_user "$U" docker rm -f lf-probe >/dev/null
 TRUSTED=$(printf %s "$addr" | sed 's/:[0-9]*$//; s/^\[//; s/\]$//')
 [ -n "$TRUSTED" ] || { log "could not measure the address the tenant's containers see"; exit 1; }
-as_user "$U" docker network inspect web >/dev/null 2>&1 || as_user "$U" docker network create web >/dev/null
+as_user "$U" docker network inspect ${NETWORK} >/dev/null 2>&1 || as_user "$U" docker network create ${NETWORK} >/dev/null
 
 printf %s "$JSON" | sed "s/@UID@/$UID_/; s/@TRUSTED@/$TRUSTED/" | _put "$TJSON" 640
 chgrp "$U" "$TJSON"
@@ -445,28 +461,22 @@ export function addScript(t: AddTenant) {
     uid: 0,
     port: t.port,
     domains: t.domains,
-    portDriver: PORT_DRIVER,
     active: true,
     trustedIP: "@TRUSTED@",
     created: new Date().toISOString(),
     ...(Object.keys(t.limits).length ? { limits: t.limits } : {}),
   };
-  const json = tenantJson(file).replace('"uid": 0', '"uid": @UID@');
-  return {
-    script: locked(ADD),
-    env: {
-      U: t.user,
-      KEY: t.key,
-      PORT: String(t.port),
-      DOMAINS: t.domains.join(" "),
-      JSON: json,
-      ROUTE: routeYaml(t.user, t.port, t.domains),
-      LIMITS: limitProps(t.limits),
-      FIREWALL: t.firewall,
-      PORT_DRIVER,
-      OFF: offShell(t.user),
-    },
-  };
+  return job(ADD, {
+    U: t.user,
+    KEY: t.key,
+    PORT: String(t.port),
+    DOMAINS: t.domains.join(" "),
+    JSON: tenantJson(file).replace('"uid": 0', '"uid": @UID@'),
+    ROUTE: routeYaml(t.user, t.port, t.domains),
+    LIMITS: limitProps(t.limits),
+    FIREWALL: t.firewall,
+    OFF: offShell(t.user),
+  });
 }
 
 const DOMAINS_SET = String.raw`
@@ -481,12 +491,8 @@ printf %s "$ROUTE" | _put "$R" 644
 record "tenant $U: domains $DOMAINS" "$undo"
 `;
 
-export function domainsScript(t: TenantFile, was: string, domains: string[]) {
-  return {
-    script: locked(DOMAINS_SET),
-    env: { U: t.user, WAS: was, DOMAINS: domains.join(" "), JSON: tenantJson({ ...t, domains }), ROUTE: routeYaml(t.user, t.port, domains) },
-  };
-}
+export const domainsScript = (t: TenantFile, was: string, domains: string[]) =>
+  job(DOMAINS_SET, { U: t.user, WAS: was, DOMAINS: domains.join(" "), JSON: tenantJson({ ...t, domains }), ROUTE: routeYaml(t.user, t.port, domains) });
 
 const LIMITS_SET = String.raw`
 ${UNCHANGED}
@@ -497,15 +503,61 @@ chgrp "$U" ${TENANTS}/"$U".json
 record "tenant $U: limits $LIMITS" "$undo"
 `;
 
+/** Limits without the ones set to none. */
+export const cleanLimits = (l: Limits): Limits => Object.fromEntries(Object.entries(l).filter(([, v]) => v && v !== "none"));
+
 /** Unset limits go back to none: systemd's own values for no limit. */
 export function limitsScript(t: TenantFile, was: string, limits: Limits) {
   const full = (l: Limits = {}) => `MemoryMax=${l.memory ?? "infinity"} CPUQuota=${l.cpu ?? ""} TasksMax=${l.tasks ?? "infinity"}`;
-  const next = { ...t.limits, ...limits };
-  for (const k of Object.keys(next) as (keyof Limits)[]) if (next[k] === "none") delete next[k];
-  return {
-    script: locked(LIMITS_SET),
-    env: { U: t.user, WAS: was, LIMITS: full(next), BEFORE: full(t.limits), JSON: tenantJson({ ...t, limits: Object.keys(next).length ? next : undefined }) },
-  };
+  const next = cleanLimits({ ...t.limits, ...limits });
+  return job(LIMITS_SET, {
+    U: t.user,
+    WAS: was,
+    LIMITS: full(next),
+    BEFORE: full(t.limits),
+    JSON: tenantJson({ ...t, limits: Object.keys(next).length ? next : undefined }),
+  });
+}
+
+const RIGHTS_SET = String.raw`
+${UNCHANGED}
+case "$CRON" in
+  off) cron_off "$U"; record "tenant $U: no cron jobs" "$FN_SH
+cron_on $(printf %q "$U")" ;;
+  on) cron_on "$U"; record "tenant $U: cron jobs allowed" "$FN_SH
+cron_off $(printf %q "$U")" ;;
+esac
+for p in $OPEN; do
+  ufw_on || continue
+  ! ufw show added 2>/dev/null | grep -qx "ufw allow $p" || { log "ufw allows $p already; lf firewall shows the rule"; exit 1; }
+  ufw_add allow "$p"
+done
+for p in $CLOSE; do
+  ufw_on || continue
+  ufw --force delete allow "$p" >/dev/null || log "ufw had no rule allow $p"
+  record "ufw delete allow $p" "ufw allow $p >/dev/null"
+done
+undo=$(saved ${TENANTS}/"$U".json)
+printf %s "$JSON" | _put ${TENANTS}/"$U".json 640
+chgrp "$U" ${TENANTS}/"$U".json
+record "tenant $U: rights $SUMMARY" "$undo"
+`;
+
+export function rightsScript(t: TenantFile, was: string, next: Rights) {
+  const before = new Set(t.rights?.ports ?? []);
+  const after = new Set(next.ports ?? []);
+  const cron = (t.rights?.cron !== false) === (next.cron !== false) ? "" : next.cron === false ? "off" : "on";
+  const rights = cleanRights(next);
+  return job(RIGHTS_SET, {
+    U: t.user,
+    WAS: was,
+    FN_SH: FN,
+    CRON: cron,
+    OPEN: [...after].filter((p) => !before.has(p)).join(" "),
+    CLOSE: [...before].filter((p) => !after.has(p)).join(" "),
+    SUMMARY: rightsText(rights),
+    JSON: tenantJson({ ...t, rights }),
+  });
 }
 
 const STOP = String.raw`
@@ -520,10 +572,8 @@ record "started the Docker of tenant $U" "$FN_SH
 as_user $(printf %q "$U") systemctl --user stop docker"
 `;
 
-export const stopScript = (user: string, stop: boolean) => ({
-  script: locked(stop ? STOP : START),
-  env: { U: user, FN_SH: FN },
-});
+export const stopScript = (user: string) => job(STOP, { U: user, FN_SH: FN });
+export const startScript = (user: string) => job(START, { U: user, FN_SH: FN });
 
 const OFF_ONE = String.raw`
 ${UNCHANGED}
@@ -537,14 +587,8 @@ t_on "$U"
 record "restored tenant $U" "$OFF"
 `;
 
-export const deactivateScript = (user: string, was: string) => ({
-  script: locked(OFF_ONE),
-  env: { U: user, WAS: was, ON: onShell(user) },
-});
-export const restoreScript = (user: string, was: string) => ({
-  script: locked(ON_ONE),
-  env: { U: user, WAS: was, OFF: offShell(user) },
-});
+export const deactivateScript = (user: string, was: string) => job(OFF_ONE, { U: user, WAS: was, ON: onShell(user) });
+export const restoreScript = (user: string, was: string) => job(ON_ONE, { U: user, WAS: was, OFF: offShell(user) });
 
 const PURGE = String.raw`
 ${UNCHANGED}
@@ -560,15 +604,17 @@ if id "$U" >/dev/null 2>&1; then
   user_del "$U"
   sed -i "/^$U:/d" /etc/subuid /etc/subgid
 fi
-rm -rf ${TENANTS}/"$U" ${TENANTS}/"$U".json ${TENANTS}/"$U".route.disabled ${TENANTS}/"$U".crontab.disabled ${TRAEFIK_DIR}/dynamic/tenant-"$U".yml
+[ ! -f /etc/cron.deny ] || drop_line /etc/cron.deny "$U"
+for p in $PORTS; do ! ufw_on || ufw --force delete allow "$p" >/dev/null 2>&1 || true; done
+rm -rf ${TENANTS}/"$U" ${TENANTS}/"$U".json ${TENANTS}/"$U".route.disabled ${TENANTS}/"$U".crontab.disabled ${TENANTS}/"$U".crontab.denied ${TRAEFIK_DIR}/dynamic/tenant-"$U".yml
 record "deleted tenant $U, its user and all its data"
 `;
 
-export const purgeScript = (user: string, was: string) => ({ script: locked(PURGE), env: { U: user, WAS: was } });
+export const purgeScript = (t: TenantFile, was: string) => job(PURGE, { U: t.user, WAS: was, PORTS: (t.rights?.ports ?? []).join(" ") });
 
 const OFF_ALL = String.raw`
 [ -f ${STATE_FILE} ] || { log "tenants are off already"; exit 1; }
-[ "$(cat ${STATE_FILE})" = "$WAS" ] || { log "${STATE_FILE} changed meanwhile; run the command again"; exit 1; }
+same ${STATE_FILE} "$WAS" || { log "${STATE_FILE} changed meanwhile; run the command again"; exit 1; }
 for f in ${TENANTS}/*.json; do
   [ -e "$f" ] && [ "$f" != ${STATE_FILE} ] || continue
   grep -q '"active": true' "$f" || continue
@@ -625,25 +671,23 @@ record "tenants off" "mv -f ${STATE_FILE}.off ${STATE_FILE}"
 `;
 
 export function offScript(st: TenantsState, was: string, o: { rmTenants?: boolean; removePackages?: boolean }) {
-  return {
-    script: locked(OFF_ALL),
-    env: {
-      WAS: was,
-      FN_SH: FN,
-      RM_TENANTS: o.rmTenants ? "1" : "0",
-      RM_PACKAGES: o.removePackages ? "1" : "0",
-      UFW: st.ufw.map((r) => r.replace(/^allow /, "")).join(" "),
-      HOST_NET: String(st.traefikHostNetwork),
-      SUM: st.composeWritten ?? "",
-      MODES: Object.entries(st.modes ?? {})
-        .map(([n, m]) => `${m} ${n}`)
-        .join("\n"),
-      ROOT_MODE: st.rootMode,
-      AA: String(st.apparmorProfile),
-      DD: String(st.delegateDropIn),
-      PKGS: st.packages.join(" "),
-    },
-  };
+  return job(OFF_ALL, {
+    WAS: was,
+    FN_SH: FN,
+    RM_TENANTS: o.rmTenants ? "1" : "0",
+    RM_PACKAGES: o.removePackages ? "1" : "0",
+    // Servers that had their first tenant before kept "allow 80/tcp".
+    UFW: st.ufw.map((r) => r.replace(/^allow /, "")).join(" "),
+    HOST_NET: String(st.traefikHostNetwork),
+    SUM: st.composeWritten ?? "",
+    MODES: Object.entries(st.modes ?? {})
+      .map(([n, m]) => `${m} ${n}`)
+      .join("\n"),
+    ROOT_MODE: st.rootMode,
+    AA: String(st.apparmorProfile),
+    DD: String(st.delegateDropIn),
+    PKGS: st.packages.join(" "),
+  });
 }
 
 /** Whether a first tenant changed this server: any login may see it, tenants/ is 0751. */

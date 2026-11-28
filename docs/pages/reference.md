@@ -64,9 +64,11 @@ Every command, file and environment variable. `lf <command> --help` prints one c
 | command | what it does |
 |---|---|
 | `lf tenant add <user> --key <key\|file.pub> --domain d [--domain d…] [--port p] [--memory 2G] [--cpu 200%] [--tasks 2000] [--provider-firewall] [--force]` | Adds a user with its own rootless Docker, sites and Traefik, serving only its domains (`*.example.com`: one level of subdomains). The first tenant moves Traefik to the host network (a short outage): it asks first, and `-y` does not answer; `--force` does. Needs ufw, or `--provider-firewall`. Undoable. |
-| `lf tenant ls [--sizes] [--json]` | Every tenant: port, state, Docker, sites, containers, memory, limits, domains. `--sizes` adds disk use. |
+| `lf tenant ls [--sizes] [--json]` | Every tenant: port, state, Docker, sites, containers, memory, limits, rights, domains. `--sizes` adds disk use. |
 | `lf tenant domains <user> [--add d] [--rm d]` | Gives or takes back domains (both repeat). At least one stays; no overlap with other tenants. Undoable. |
 | `lf tenant limits <user> [--memory 2G] [--cpu 200%] [--tasks 2000]` | Memory, CPU and task limits on the tenant's systemd slice; `none` removes one. Undoable. |
+| `lf tenant rights <user> [--cron\|--no-cron] [--open 25565/tcp] [--close 25565/tcp] [--json]` | What the tenant may do: cron (`/etc/cron.deny`) and public ports for its containers (ufw; both repeat). No option prints the rights. Undoable. |
+| `lf tenant invite <user> [--host <address>]` | Prints what to send the tenant: install, `lf server add` or a `~/.ssh/config` block, Traefik, DNS records, first deploy. |
 | `lf tenant stop <user>` / `start <user>` | Stops (asks first) or starts the tenant's Docker. Undoable. |
 | `lf tenant rm <user> [--purge]` | Deactivates: logins, Docker, routes and cron stop; user, data, port and domains stay. Undoable, or `lf tenant restore`. `--purge`: deletes the user and all its data (type the name); cannot be undone. |
 | `lf tenant restore <user>` | Brings a removed tenant back. |

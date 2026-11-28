@@ -59,7 +59,19 @@ import {
 } from "./commands/system";
 import { hardenCmd, securityCmd } from "./commands/security";
 import { usersAdd, usersList, usersPasswd, usersRemove, usersSudo } from "./commands/users";
-import { tenantAdd, tenantDomains, tenantLimits, tenantList, tenantOff, tenantRemove, tenantRestore, tenantStart, tenantStop } from "./commands/tenant";
+import {
+  tenantAdd,
+  tenantDomains,
+  tenantInviteCmd,
+  tenantLimits,
+  tenantList,
+  tenantOff,
+  tenantRemove,
+  tenantRestore,
+  tenantRights,
+  tenantStart,
+  tenantStop,
+} from "./commands/tenant";
 import { ui } from "./commands/ui";
 import { pluginAdd, pluginNew, pluginRemove, pluginsList } from "./commands/plugins";
 import { volumeAdd, volumeBackup, volumeBackupRemove, volumeList, volumePull, volumePush, volumeRemove, volumeRestore } from "./commands/volume";
@@ -160,6 +172,8 @@ export const commands: Command[] = [
   tenantList,
   tenantDomains,
   tenantLimits,
+  tenantRights,
+  tenantInviteCmd,
   tenantStop,
   tenantStart,
   tenantRemove,

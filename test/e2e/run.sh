@@ -1259,7 +1259,7 @@ for u in anna ben; do ssh-keygen -q -t ed25519 -N "" -f "$WORK/$u"; done
 out=$(lf tenant add anna -s tbox --key "$WORK/anna.pub" -d anna.test -y 2>&1) && die "-y alone accepts the first tenant's outage"
 has "pass --force" <<<"$out" || die "the first tenant asks for --force: $out"
 lf tenant add anna -s tbox --key "$WORK/anna.pub" -d anna.test -d '*.anna.test' --memory 256M --force >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "tenant add anna"; }
-{ has "lf traefik setup" "$WORK/tn.log"; } || die "tenant add says what comes next"
+{ has "lf tenant invite anna" "$WORK/tn.log"; } || die "tenant add says what comes next"
 [ "$(tn docker inspect -f '{{.HostConfig.NetworkMode}}' traefik)" = host ] || die "central Traefik on the host network"
 lf tenant add ben -s tbox --key "$WORK/ben.pub" -d ben.test -y >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "tenant add ben"; }
 out=$(lf tenant add carl -s tbox --key "$WORK/ben.pub" -d blog.anna.test -y 2>&1) && die "a domain of another tenant"
@@ -1306,6 +1306,27 @@ tn curl -sf -o /dev/null http://127.0.0.1:9876 || die "ben's port answers on the
 ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$NAME-tn")
 docker run --rm alpine wget -q -O /dev/null -T 3 "http://$ip:9876" 2>/dev/null && die "ben's port 9876 open from outside"
 pass "limits on the tenant's slice; ufw keeps a tenant's published port closed"
+
+out=$(lf tenant rights ben -s tbox --open 20001/tcp 2>&1) && die "a tenant port in the Traefik range"
+has "local ports" <<<"$out" || die "rights --open 20001: $out"
+lf tenant rights ben -s tbox --open 9877/tcp >"$WORK/tn.log" 2>&1 || { cat "$WORK/tn.log"; die "rights --open 9877/tcp"; }
+out=$(lf tenant rights anna -s tbox --open 9877/tcp 2>&1) && die "one port for two tenants"
+has "open for tenant ben" <<<"$out" || die "rights --open twice: $out"
+tdocker ben run -d --name pub -p 0.0.0.0:9877:80 traefik/whoami >/dev/null || die "ben publishes 9877"
+for _ in $(seq 1 10); do docker run --rm alpine wget -q -O /dev/null -T 3 "http://$ip:9877" 2>/dev/null && break; sleep 1; done
+docker run --rm alpine wget -q -O /dev/null -T 3 "http://$ip:9877" 2>/dev/null || die "ben's opened port 9877 is closed from outside"
+lf tenant rights ben -s tbox --json | has '"9877/tcp"' || die "rights --json lists 9877/tcp"
+lf tenant rights ben -s tbox --close 9877/tcp >/dev/null 2>&1 || die "rights --close 9877/tcp"
+tn ufw show added | has 9877 && die "ufw still allows 9877 after --close"
+lf tenant rights anna -s tbox --no-cron >/dev/null 2>&1 || die "rights --no-cron"
+tn grep -qx anna /etc/cron.deny || die "anna in cron.deny"
+lf tenant rights anna -s tbox --json | has '"cron": false' || die "rights --json says cron off"
+lf undo -s tbox -y >/dev/null 2>&1 || die "undo rights --no-cron"
+tn grep -qsx anna /etc/cron.deny && die "undo takes anna out of cron.deny"
+out=$(lf tenant invite anna -s tbox)
+has "lf server add anna --host 127.0.0.1 --port $TN_SSH --user anna" <<<"$out" || die "invite: $out"
+has "HostName 127.0.0.1" <<<"$out" && has "lf deploy -s anna -d www.anna.test" <<<"$out" || die "invite ssh config and deploy: $out"
+pass "tenant rights open and close a public port, turn cron off and back; tenant invite"
 
 out=$(lf traefik setup -s tbox --no-host-network -y 2>&1) && die "traefik off the host network with tenants"
 has "tenant" <<<"$out" || die "traefik --no-host-network: $out"
