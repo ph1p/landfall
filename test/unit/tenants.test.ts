@@ -346,7 +346,7 @@ describe("tenant scripts", () => {
     const lock = s.indexOf("flock -w 60 9");
     const state = s.indexOf("write_state\n  record");
     expect(state).toBeGreaterThan(lock);
-    for (const change of ["pkg_install $missing", "apparmor_parser -r", "chmod 0751", 'ufw allow "$r"', "dc up -d", "useradd -m"]) {
+    for (const change of ["pkg_install $missing", "apparmor_parser -r", "chmod 0751", 'ufw_add allow "$r"', "dc up -d", "useradd -m"]) {
       const at = s.indexOf(change, lock);
       expect(at, change).toBeGreaterThan(state);
     }

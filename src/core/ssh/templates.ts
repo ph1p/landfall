@@ -404,7 +404,8 @@ drop_line() { # drop_line <file> <line>: remove an exact line, keeping the file'
   t=$($SUDO grep -vxF -- "$2" "$1" || true)
   { [ -z "$t" ] || printf '%s\n' "$t"; } | $SUDO tee "$1" >/dev/null
 }
-ufw_add() { # ufw_add [prepend | insert N] <rule...>: add a ufw rule, journaled with its delete
+ufw_add() { # ufw_add [prepend | insert N] <rule...>: add a ufw rule, journaled with its delete; UFW_NEW=1 if it is new
+  UFW_NEW=0
   out=$($SUDO ufw "$@") || return 1
   case "$1" in prepend) shift ;; insert) shift 2 ;; esac
   case "$out" in
@@ -412,7 +413,7 @@ ufw_add() { # ufw_add [prepend | insert N] <rule...>: add a ufw rule, journaled 
     # ufw rewrote a rule that differed only in action/comment (limit 22 -> allow 22): deleting it
     # would drop a rule that existed before, so this is not reversible.
     *"Rule updated"*) record "ufw $* (replaced an existing rule)" ;;
-    *) record "ufw $*" "\$SUDO ufw --force delete $(printf '%q ' "$@") >/dev/null" ;;
+    *) UFW_NEW=1; record "ufw $*" "\$SUDO ufw --force delete $(printf '%q ' "$@") >/dev/null" ;;
   esac
 }
 ufw_enable() {

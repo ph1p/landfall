@@ -347,11 +347,8 @@ if [ ! -f ${STATE_FILE} ]; then
 
   if ufw_on; then
     for r in 80/tcp 443/tcp 443/udp; do
-      out=$(ufw allow "$r")
-      case "$out" in
-        *Skipping*|*"Rule updated"*) ;;
-        *) record "ufw allow $r" "ufw --force delete allow $r >/dev/null"; ST_UFW="$ST_UFW$([ -z "$ST_UFW" ] || echo ,)\"$r\""; write_state ;;
-      esac
+      ufw_add allow "$r"
+      [ "$UFW_NEW" = 0 ] || { ST_UFW="$ST_UFW$([ -z "$ST_UFW" ] || echo ,)\"$r\""; write_state; }
     done
   fi
 
