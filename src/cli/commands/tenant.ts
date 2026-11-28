@@ -110,7 +110,7 @@ the server. lf tenant off undoes all of it.`,
     }
     const outage = `the first tenant moves the central Traefik of ${name} to the host network: sites are offline for a few seconds`;
     if (!view.on && !(o.force || (await confirmRisky(`${outage[0].toUpperCase()}${outage.slice(1)}. Go on?`)))) fail(`${outage}; pass --force to go on`);
-    await asRoot(admin, addScript({ user, key, domains, port, limits, firewall, traefik: centralCompose(server) }));
+    await asRoot(admin, addScript({ user, key, domains, port, limits, firewall, traefik: view.on ? undefined : centralCompose(server) }));
     ok(`added tenant ${user} to ${name} (port ${port})`);
     info(`lf tenant invite ${user} prints what to send ${user}`);
   },

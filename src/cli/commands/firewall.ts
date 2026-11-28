@@ -164,8 +164,7 @@ export const firewallDisable = defineCommand({
     const { name, server } = serverTarget(o);
     const fw = await firewallState(server);
     if (fw.ufw !== "active") return ok(`firewall on ${name} is already off`);
-    if (!o.force && fw.probe.values.tenants === "1")
-      fail(`${name} has tenants: without the firewall their ports are open to everyone; --force turns it off all the same`);
+    if (!o.force && fw.probe.tenants) fail(`${name} has tenants: without the firewall their ports are open to everyone; --force turns it off all the same`);
     if (!(await confirm(`Turn the firewall on ${name} off? Every listening port becomes reachable.`, false))) fail("cancelled");
     await runScript(fw.login, `${PRELUDE}\n$SUDO ufw disable\nrecord "disabled ufw" '$SUDO ufw --force enable >/dev/null'`);
     ok(`firewall on ${name} is off (${fw.rules.length} rules kept)`);

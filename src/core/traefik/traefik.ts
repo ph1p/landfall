@@ -87,9 +87,13 @@ function tenantTraefik(t: Tenant) {
 
 /** The central Traefik's compose file as this machine writes it: on its own network now, and on the host's for tenants. */
 export function centralCompose(server: Server) {
-  const t = { ...traefikSettings(server, {}), dashboard: server.dashboard };
-  return { bridge: traefikCompose({ ...t, hostNetwork: false }), host: traefikCompose({ ...t, hostNetwork: true }) };
+  const t = traefikSettings(server, {});
+  return { bridge: composeOf({ ...t, hostNetwork: false }, server.dashboard), host: composeOf({ ...t, hostNetwork: true }, server.dashboard) };
 }
+
+/** The one place that turns settings into the compose file: lf traefik setup and the first tenant write the same. */
+const composeOf = (t: ReturnType<typeof traefikSettings>, dashboard: Server["dashboard"], tenant?: ReturnType<typeof tenantTraefik>) =>
+  traefikCompose({ ...t, dashboard, tenant });
 
 export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
   [
@@ -126,7 +130,7 @@ export async function installTraefik(name: string, server: Server, o: TraefikIns
     if (dashboard) fail("a tenant's Traefik has no dashboard domain; lf traefik dashboard opens it through a tunnel");
     Object.assign(t, { hostNetwork: false, http3: false });
   }
-  const compose = traefikCompose({ ...t, dashboard, tenant });
+  const compose = composeOf(t, dashboard, tenant || undefined);
   if (t.hostNetwork) await openHostPorts(server, t.http3);
   await runScript(
     server,

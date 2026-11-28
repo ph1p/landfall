@@ -445,7 +445,8 @@ export interface AddTenant {
   /** "ufw", or the provider firewall in front of the server. */
   firewall: string;
   /** The central Traefik's compose file as it is now and on the host network (centralCompose). */
-  traefik: { bridge: string; host: string };
+  /** The central compose file now and for the host network; only the first tenant needs it. */
+  traefik?: { bridge: string; host: string };
 }
 
 const limitProps = (l: Limits) =>
@@ -472,8 +473,8 @@ export function addScript(t: AddTenant) {
     LIMITS: limitProps(t.limits),
     FIREWALL: t.firewall,
     OFF: offShell(t.user),
-    TRAEFIK_BRIDGE: t.traefik.bridge,
-    TRAEFIK_HOST: t.traefik.host,
+    TRAEFIK_BRIDGE: t.traefik?.bridge ?? "",
+    TRAEFIK_HOST: t.traefik?.host ?? "",
   });
 }
 

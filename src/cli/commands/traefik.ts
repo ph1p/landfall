@@ -40,7 +40,7 @@ async function setupTraefik(name: string, server: Server, opts: Parameters<typeo
   const t = assessTraefik(probe);
   if (t.status === "conflict") fail(`not touching ${name}: ${t.detail}`);
   if (t.proxy) fail(`${name} already has its own traefik: ${t.detail}. landfall does not reconfigure it (lf traefik use)`);
-  if (probe.values.tenants === "1") {
+  if (probe.tenants) {
     if (opts.hostNetwork === false) fail(`${name} has tenants: its Traefik stays on the host network (lf tenant off first)`);
     opts = { ...opts, hostNetwork: true };
   }
@@ -106,7 +106,7 @@ except for lf traefik access-log when you run it.`,
   async run([ctr], o) {
     const { name, server } = serverTarget(o);
     const probe = await probeServer(server);
-    if (probe.values.tenants === "1") fail(`${name} has tenants: they need landfall's Traefik (lf tenant off first)`);
+    if (probe.tenants) fail(`${name} has tenants: they need landfall's Traefik (lf tenant off first)`);
     const found = foreignProxy(probe.values.foreign_proxy);
     const container = ctr ?? found?.name;
     if (!container) fail(`no traefik container publishes port 443 on ${name}; name it: lf traefik use <container>`);

@@ -21,6 +21,8 @@ export interface Probe {
   published: Listener[];
   /** ufw rules as `ufw show added` prints them, without the leading `ufw`. */
   rules: string[];
+  /** Tenants are on: lf tenant add ran and lf tenant off did not. */
+  tenants: boolean;
 }
 
 /** `tcp 0.0.0.0:22 users:(("sshd",pid=1,fd=3))` (ss) or `udp :::53 1/dnsmasq` (netstat); older probes omit the protocol. */
@@ -39,13 +41,14 @@ function parseListener(value: string): Listener {
 }
 
 export function parseProbe(out: string): Probe {
-  const p: Probe = { values: {}, listen: [], published: [], rules: [] };
+  const p: Probe = { values: {}, listen: [], published: [], rules: [], tenants: false };
   for (const line of out.split("\n")) {
     const kv = kvLine(line);
     if (!kv) continue;
     const [key, value] = kv;
     if (key === "listen" || key === "published") p[key].push(parseListener(value));
     else if (key === "ufw_rule") p.rules.push(value);
+    else if (key === "tenants") p.tenants = value === "1";
     else p.values[key] = value;
   }
   return p;
