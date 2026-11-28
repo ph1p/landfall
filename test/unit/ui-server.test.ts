@@ -73,6 +73,28 @@ describe("ui server http", () => {
     expect(r.headers["x-content-type-options"]).toBe("nosniff");
   });
 
+  test("a client that leaves before the answer does not crash the server", async () => {
+    let answered!: () => void;
+    const late = new Promise<void>((ok) => (answered = ok));
+    const s = createServer(
+      listener(async (r) => {
+        if (new URL(r.url).pathname !== "/slow") return new Response("ok");
+        await new Promise((ok) => r.signal.addEventListener("abort", ok));
+        setTimeout(answered, 50);
+        return new Response("late");
+      }),
+    );
+    await new Promise<void>((ok) => s.listen(0, "127.0.0.1", ok));
+    const port = (s.address() as AddressInfo).port;
+    const c = request({ host: "127.0.0.1", port, path: "/slow" });
+    c.on("error", () => {});
+    c.end();
+    setTimeout(() => c.destroy(), 50);
+    await late;
+    expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("ok");
+    s.close();
+  });
+
   test("a body past the limit is refused up front", async () => {
     const r = await send("/api/upload/../jobs", "x", { "content-length": 2 * 1024 ** 2 });
     expect(r.status).toBe(413);

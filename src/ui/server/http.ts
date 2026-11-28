@@ -44,6 +44,13 @@ function capped(req: IncomingMessage, limit: number): Readable {
   );
 }
 
+/** A node request's headers as fetch Headers. */
+export function headersOf(req: IncomingMessage): Headers {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) for (const x of [v ?? []].flat()) headers.append(k, x);
+  return headers;
+}
+
 /** Serve a fetch-style handler with node:http; the request's signal aborts when the client goes away. */
 export function listener(handler: (req: Request) => Promise<Response>) {
   return async (req: IncomingMessage, res: ServerResponse) => {
@@ -52,8 +59,7 @@ export function listener(handler: (req: Request) => Promise<Response>) {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
     let r: Response;
     try {
-      const headers = new Headers();
-      for (const [k, v] of Object.entries(req.headers)) for (const x of [v ?? []].flat()) headers.append(k, x);
+      const headers = headersOf(req);
       const limit = bodyLimit(req.url);
       if (Number(req.headers["content-length"]) > limit) {
         res.writeHead(413).end("request too large");
@@ -75,6 +81,11 @@ export function listener(handler: (req: Request) => Promise<Response>) {
     for (const [k, v] of r.headers) if (k !== "set-cookie") res.setHeader(k, v);
     const cookies = r.headers.getSetCookie();
     if (cookies.length) res.setHeader("set-cookie", cookies);
+    // The client left while the handler ran: nothing to write to, and pipeline would throw.
+    if (res.destroyed) {
+      r.body?.cancel().catch(() => {});
+      return;
+    }
     res.writeHead(r.status);
     if (!r.body) return res.end();
     pipeline(Readable.fromWeb(r.body as any), res, () => {});
