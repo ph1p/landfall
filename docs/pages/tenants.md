@@ -255,6 +255,7 @@ lf tenant rm anna -s vps --purge     # delete the user and all its data (type th
 - stops and disables its Docker and turns off lingering;
 - locks the user, moves `authorized_keys` aside and ends its sessions;
 - saves and clears its crontab (`/opt/landfall/tenants/<user>.crontab.disabled`);
+- closes the ports it may open (`lf tenant rights --open`) in ufw;
 - keeps its user, files, port and domains, so no one else can take them.
 
 `lf tenant restore` reverses each step. `lf undo` does the same.

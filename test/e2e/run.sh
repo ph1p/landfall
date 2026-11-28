@@ -1335,18 +1335,22 @@ out=$(lf traefik setup -s tbox --no-host-network -y 2>&1) && die "traefik off th
 has "tenant" <<<"$out" || die "traefik --no-host-network: $out"
 pass "the central Traefik stays on the host network while there are tenants"
 
+lf tenant rights ben -s tbox --open 9877/tcp >/dev/null 2>&1 || die "rights --open 9877/tcp again"
 lf tenant rm ben -s tbox -y >/dev/null 2>&1 || die "tenant rm ben"
 as ben true 2>/dev/null && die "ben logs in after tenant rm"
+tn ufw show added | has 9877 && die "tenant rm leaves ben's port 9877 open"
 lf tenant ls -s tbox --json | has '"active": false' || die "ben listed as removed"
 lf undo -s tbox -y >/dev/null 2>&1 || die "undo tenant rm"
 for _ in $(seq 1 30); do tdocker ben ps -q >/dev/null 2>&1 && break; sleep 1; done
 for _ in $(seq 1 30); do tdocker ben ps --format '{{.Names}}' | has traefik && break; sleep 1; done
 tdocker ben ps --format '{{.Names}}' | has traefik || die "undo brings ben's Docker back"
 tdocker ben ps -a --format '{{.Names}}' | has open || die "undo keeps ben's containers"
+tn ufw show added | has 9877 || die "undo opens ben's port 9877 again"
 lf tenant rm ben -s tbox --purge -y >/dev/null 2>&1 || die "tenant rm --purge"
 tn id ben >/dev/null 2>&1 && die "purge leaves the user"
 tn test -e /opt/landfall/tenants/ben && die "purge leaves ben's files"
-pass "tenant rm locks the tenant out, undo brings it back, --purge deletes it"
+tn ufw show added | has 9877 && die "purge leaves ben's port 9877 open"
+pass "tenant rm locks the tenant out and closes its ports, undo brings both back, --purge deletes it"
 
 out=$(lf tenant off -s tbox -y 2>&1) && die "tenant off with an active tenant"
 has "active: anna" <<<"$out" || die "tenant off with anna: $out"

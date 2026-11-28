@@ -321,7 +321,7 @@ const scripts = {
   start: T.startScript("anna"),
   rm: T.deactivateScript("anna", was),
   restore: T.restoreScript("anna", was),
-  purge: T.purgeScript({ ...anna2, rights: { ports: ["25565/tcp"] } }, was),
+  purge: T.purgeScript(anna2, was),
   rights: T.rightsScript(anna2, was, { cron: false, ports: ["25565/tcp"] }),
   off: T.offScript(st, "{}", {}),
 };
@@ -420,7 +420,6 @@ describe("tenant scripts", () => {
     expect(back).toMatchObject({ CRON: "on", OPEN: "", CLOSE: "25565/tcp", SUMMARY: "default" });
     expect(JSON.parse(back.JSON).rights).toBeUndefined();
     expect(scripts.rights.script).toContain('ufw_add allow "$p"');
-    expect(scripts.purge.env.PORTS).toBe("25565/tcp");
     expect(scripts.purge.script).toContain('drop_line /etc/cron.deny "$U"');
   });
 
@@ -500,4 +499,22 @@ test("the first tenant checks the central compose file before any change, then w
   expect(check).toBeLessThan(s.indexOf("write_state\n"));
   expect(s).toContain(`printf '%s' "$TRAEFIK_HOST" > /opt/landfall/traefik/docker-compose.yml`);
   expect(scripts.add.env).toMatchObject({ TRAEFIK_NOW: "bridge\n", TRAEFIK_HOST: "host\n" });
+});
+
+test("a tenant's open ports close when it is removed and open again when it is restored", () => {
+  const s = scripts.add.script;
+  const fn = s.split("\n").find((l) => l.startsWith("t_ports()"))!;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lf-ports-"));
+  fs.writeFileSync(
+    path.join(dir, "ben.json"),
+    T.tenantJson({ user: "ben", uid: 1, port: 20000, domains: [], active: true, rights: { ports: ["5000", "9877/tcp"] } }),
+  );
+  const ports = (u: string) =>
+    spawnSync("bash", ["-c", `set -euo pipefail\n${fn.replaceAll("/opt/landfall/tenants", dir)}\nt_ports ${u}`], { encoding: "utf8" }).stdout;
+  expect(ports("ben").split("\n").filter(Boolean)).toEqual(["5000", "9877/tcp"]);
+  expect(ports("nobody")).toBe("");
+  const off = s.slice(s.indexOf("t_off() {"), s.indexOf("\n}", s.indexOf("t_off() {")));
+  const on = s.slice(s.indexOf("t_on() {"), s.indexOf("\n}", s.indexOf("t_on() {")));
+  expect(off).toContain('ufw --force delete allow "$_p"');
+  expect(on).toContain('ufw allow "$_p"');
 });

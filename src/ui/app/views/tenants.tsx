@@ -45,7 +45,7 @@ export function TenantsView({ n }: { n: string }) {
     const rm = () =>
       confirmDlg({
         title: `Remove tenant ${t.user} from ${n}?`,
-        text: "Its logins, Docker and routes stop. Its user, sites and volumes stay: Restore brings it back.",
+        text: "Its logins, Docker and routes stop, its open ports close. Its user, sites and volumes stay: Restore brings it back.",
         ok: "Remove tenant",
         danger: true,
         onOk: () => lf(n, ["tenant", "rm", t.user, "-y"]),

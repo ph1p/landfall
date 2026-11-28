@@ -207,7 +207,7 @@ export const tenantStart = startStop(false);
 export const tenantRemove = defineCommand({
   name: "tenant rm",
   args: "<user>",
-  summary: `Remove a tenant: its logins, Docker and routes stop; its data stays (lf tenant restore).
+  summary: `Remove a tenant: its logins, Docker and routes stop, its open ports close; its data stays (lf tenant restore).
 
 --purge also deletes the user and all its data. That cannot be undone.`,
   options: { server: serverOpt, purge: { type: "boolean", desc: "delete the user, its sites, volumes and images" } },

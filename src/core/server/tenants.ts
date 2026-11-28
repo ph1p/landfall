@@ -210,9 +210,11 @@ export async function tenantsView(s: Server, sizes = false): Promise<Omit<Tenant
 const FN = String.raw`
 as_user() { _u=$1; shift; _i=$(id -u "$_u"); runuser -u "$_u" -- env HOME="$(home_of "$_u")" XDG_RUNTIME_DIR=/run/user/$_i DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$_i/bus DOCKER_HOST=unix:///run/user/$_i/docker.sock "$@"; }
 user_up() { systemctl start "user@$(id -u "$1").service"; for _ in $(seq 30); do [ -S "/run/user/$(id -u "$1")/bus" ] && return 0; sleep 1; done; return 1; }
+t_ports() { [ ! -f "${TENANTS}/$1.json" ] || sed -n '/"ports": \[/,/\]/p' "${TENANTS}/$1.json" | grep -o '"[0-9][^"]*"' | tr -d '"' || true; }
 t_off() {
   _r=${TRAEFIK_DIR}/dynamic/tenant-$1.yml
   [ ! -f "$_r" ] || mv -f "$_r" "${TENANTS}/$1.route.disabled"
+  for _p in $(t_ports "$1"); do ! ufw_on || ufw --force delete allow "$_p" >/dev/null 2>&1 || true; done
   if id "$1" >/dev/null 2>&1; then
     _h=$(home_of "$1")
     as_user "$1" systemctl --user disable --now docker >/dev/null 2>&1 || true
@@ -235,6 +237,7 @@ t_on() {
   user_up "$1"
   as_user "$1" systemctl --user enable --now docker
   [ ! -f "${TENANTS}/$1.route.disabled" ] || mv -f "${TENANTS}/$1.route.disabled" "${TRAEFIK_DIR}/dynamic/tenant-$1.yml"
+  for _p in $(t_ports "$1"); do ! ufw_on || ufw allow "$_p" >/dev/null; done
   sed -i 's/"active": false/"active": true/' "${TENANTS}/$1.json"
 }
 ufw_on() { LC_ALL=C ufw status 2>/dev/null | grep -q '^Status: active'; }
@@ -601,12 +604,11 @@ if id "$U" >/dev/null 2>&1; then
   sed -i "/^$U:/d" /etc/subuid /etc/subgid
 fi
 [ ! -f /etc/cron.deny ] || drop_line /etc/cron.deny "$U"
-for p in $PORTS; do ! ufw_on || ufw --force delete allow "$p" >/dev/null 2>&1 || true; done
 rm -rf ${TENANTS}/"$U" ${TENANTS}/"$U".json ${TENANTS}/"$U".route.disabled ${TENANTS}/"$U".crontab.disabled ${TENANTS}/"$U".crontab.denied ${TRAEFIK_DIR}/dynamic/tenant-"$U".yml
 record "deleted tenant $U, its user and all its data"
 `;
 
-export const purgeScript = (t: TenantFile, was: string) => job(PURGE, { U: t.user, WAS: was, PORTS: (t.rights?.ports ?? []).join(" ") });
+export const purgeScript = (t: TenantFile, was: string) => job(PURGE, { U: t.user, WAS: was });
 
 const OFF_ALL = String.raw`
 [ -f ${STATE_FILE} ] || { log "tenants are off already"; exit 1; }
