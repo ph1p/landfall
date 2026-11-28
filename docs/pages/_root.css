@@ -1,0 +1,18 @@
+/* Images marked #gh-light-mode-only / #gh-dark-mode-only show in one theme, as on GitHub. */
+img[src$="#gh-dark-mode-only"] {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-vocs-theme="light"]) img[src$="#gh-light-mode-only"] {
+    display: none;
+  }
+  :root:not([data-vocs-theme="light"]) img[src$="#gh-dark-mode-only"] {
+    display: block;
+  }
+}
+:root[data-vocs-theme="dark"] img[src$="#gh-light-mode-only"] {
+  display: none;
+}
+:root[data-vocs-theme="dark"] img[src$="#gh-dark-mode-only"] {
+  display: block;
+}

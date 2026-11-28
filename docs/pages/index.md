@@ -2,7 +2,8 @@
 
 Set up Linux servers and deploy sites to them behind [Traefik](https://traefik.io) with automatic HTTPS, from one CLI.
 
-![landfall: a laptop terminal runs lf setup, lf deploy, lf domains and lf env over ssh; the server runs a firewall, Traefik with four sites and a journal of every change; browsers reach the sites over HTTPS](https://raw.githubusercontent.com/ph1p/landfall/main/docs/public/landfall.png)
+![landfall: a laptop terminal runs lf setup, lf deploy, lf domains and lf env over ssh; the server runs a firewall, Traefik with four sites and a journal of every change; browsers reach the sites over HTTPS](https://raw.githubusercontent.com/ph1p/landfall/main/docs/public/landfall.png#gh-light-mode-only)
+![landfall: a laptop terminal runs lf setup, lf deploy, lf domains and lf env over ssh; the server runs a firewall, Traefik with four sites and a journal of every change; browsers reach the sites over HTTPS](https://raw.githubusercontent.com/ph1p/landfall/main/docs/public/landfall-dark.png#gh-dark-mode-only)
 
 ```sh
 npm i -g landfall                   # installs both lf and landfall (lf is short for landfall)
