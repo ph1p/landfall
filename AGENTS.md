@@ -12,6 +12,7 @@ everything landfall owns lives under `/opt/landfall` as plain files.
 ```sh
 pnpm install
 pnpm dev <command> [args]   # run the CLI from source (tsx), e.g. pnpm dev deploy --help
+pnpm dev ui                 # the web UI from source: vite serves the page with hot reload (LANDFALL_UI_BUILT=1: dist/ui)
 pnpm test                   # unit tests (vitest, test/unit); no network, no Docker
 pnpm typecheck              # tsc for the CLI and, separately, for the web page (src/ui/app)
 pnpm lint                   # oxlint (.oxlintrc.json)

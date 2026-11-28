@@ -1,13 +1,13 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { VERSION } from "../../core/lib/version";
 import { pruneUploads } from "./local";
 import { setQuiet } from "../../core/ssh/ssh";
 import { c, openUrl } from "../../core/lib/term";
 import { api } from "./api";
-import { asset } from "./assets";
+import { asset, devPages } from "./assets";
 import { fingerprint, guard, token } from "./auth";
-import { failure, listener } from "./http";
+import { failure, headersOf, listener } from "./http";
 import { stopJobs, type JobArgsPolicy } from "./jobs";
 
 /** Server reads still running, by path and query. */
@@ -44,7 +44,17 @@ export async function webUi(o: { port?: number; open: boolean; args: JobArgsPoli
     return new Response("not found", { status: 404 });
   };
 
-  const server = createServer(listener(handler));
+  const handle = listener(handler);
+  const server = createServer();
+  const dev = await devPages(server);
+  server.on("request", (req: IncomingMessage, res: ServerResponse) => {
+    const path = req.url ?? "/";
+    if (!dev || path.startsWith("/api/") || path === "/ping" || path.startsWith("/login")) return handle(req, res);
+    // The page's source passes the same login check; a refusal goes to the handler, which answers it.
+    const asked = new Request(`http://${req.headers.host ?? "127.0.0.1"}${path}`, { headers: headersOf(req) });
+    if (guard(asked, secret)) return handle(req, res);
+    dev.middlewares(req, res, () => handle(req, res));
+  });
   // No timeouts: job output streams stay open as long as the job runs, uploads can be large.
   server.requestTimeout = 0;
   const listen = (port: number) =>
@@ -81,12 +91,14 @@ export async function webUi(o: { port?: number; open: boolean; args: JobArgsPoli
 
   const link = `http://127.0.0.1:${port}/login?t=${secret}`;
   console.log(`${c.bold("lf ui")} ${c.dim(VERSION)} on ${c.cyan(link)}`);
+  if (dev) console.log(c.dim("The page comes from source (vite) and reloads on every change."));
   console.log(c.dim("Only this machine can reach it, and only with that link. Ctrl-C stops it (and any running commands)."));
   if (o.open) openUrl(link);
 
   return new Promise((resolve) => {
     const stop = () => {
       stopJobs();
+      void dev?.close();
       server.closeAllConnections();
       server.close();
       resolve(0);

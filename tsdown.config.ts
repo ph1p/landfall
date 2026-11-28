@@ -16,6 +16,8 @@ export default defineConfig([
     ...base,
     entry: ["src/cli/cli.ts"],
     minify: true,
+    // vite serves the web page only when run from source (src/ui/server/assets.ts): never part of the bundle.
+    deps: { neverBundle: ["vite"] },
     // Types are for the plugin entry only (package.json exports would switch them on here too).
     dts: false,
     copy: [...pluginFiles, ...(existsSync(vitals) ? [{ from: vitals, to: "dist/plugins/analytics" }] : [])],
