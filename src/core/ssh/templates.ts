@@ -637,6 +637,7 @@ kv sites "$(ls ${SITES} 2>/dev/null | wc -l | tr -d ' ')"
 kv network "$(yn S docker network inspect ${NETWORK})"
 kv proxy "$(grep -v '^#' ${PROXY_FILE} 2>/dev/null | tr '\n' ' ')"
 kv ufw "$(ufw_state)"
+kv tenants "$(yn test -f ${TENANTS}/state.json)"
 # Without root sshd -T prints nothing: then our file is all there is to go by.
 pw=$(sshd_passwords)
 if [ -f ${SSHD_CONF} ] && { [ -z "$pw" ] || [ "$pw" = no ]; }; then kv hardened 1; else kv hardened 0; fi

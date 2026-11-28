@@ -30,7 +30,6 @@ import { ctrAddress, findContainer, openTunnel, routerPort } from "../../core/ss
 import { runScript, shq, sshExec } from "../../core/ssh/ssh";
 import { DEFAULT_TRAEFIK_IMAGE, NETWORK, PRELUDE, PROXY_CTR, PROXY_FILE, ROOT, TRAEFIK_DIR, TUNNEL_PORT, type Proxy } from "../../core/ssh/templates";
 import { c, confirm, confirmRemoval, fail, info, ok, printJson, showDiff, step, table, warn } from "../../core/lib/term";
-import { tenantsOn } from "../../core/server/tenants";
 import { freshTenant } from "../../core/server/tenant";
 
 /** lf traefik setup: install or reconfigure landfall's Traefik, after the checks that keep it from breaking the server. */
@@ -41,6 +40,10 @@ async function setupTraefik(name: string, server: Server, opts: Parameters<typeo
   const t = assessTraefik(probe);
   if (t.status === "conflict") fail(`not touching ${name}: ${t.detail}`);
   if (t.proxy) fail(`${name} already has its own traefik: ${t.detail}. landfall does not reconfigure it (lf traefik use)`);
+  if (probe.values.tenants === "1") {
+    if (opts.hostNetwork === false) fail(`${name} has tenants: its Traefik stays on the host network (lf tenant off first)`);
+    opts = { ...opts, hostNetwork: true };
+  }
   // On the host network traefik's tunnel entrypoint binds 127.0.0.1:${TUNNEL_PORT} itself: taken, it would not start.
   if (traefikSettings(server, { hostNetwork: opts.hostNetwork }).hostNetwork) {
     const taken = probe.listen.find((l) => l.port === TUNNEL_PORT && l.proc !== "traefik");
@@ -71,10 +74,6 @@ export const traefikSetup = defineCommand({
   },
   async run(_, o) {
     const { name, server } = serverTarget(o);
-    if (!server.tenant && (await tenantsOn(server))) {
-      if (o["host-network"] === false) fail(`${name} has tenants: its Traefik stays on the host network (lf tenant off first)`);
-      o["host-network"] = true;
-    }
     await setupTraefik(name, server, {
       email: o.email && checkEmail(o.email),
       staging: o.staging,
@@ -106,8 +105,8 @@ except for lf traefik access-log when you run it.`,
   },
   async run([ctr], o) {
     const { name, server } = serverTarget(o);
-    if (await tenantsOn(server)) fail(`${name} has tenants: they need landfall's Traefik (lf tenant off first)`);
     const probe = await probeServer(server);
+    if (probe.values.tenants === "1") fail(`${name} has tenants: they need landfall's Traefik (lf tenant off first)`);
     const found = foreignProxy(probe.values.foreign_proxy);
     const container = ctr ?? found?.name;
     if (!container) fail(`no traefik container publishes port 443 on ${name}; name it: lf traefik use <container>`);
