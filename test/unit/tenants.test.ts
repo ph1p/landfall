@@ -306,7 +306,15 @@ const st: import("../../src/core/server/tenants").TenantsState = {
   ufw: ["80/tcp"],
 };
 const scripts = {
-  add: T.addScript({ user: "anna", key: "ssh-ed25519 AAAA a", domains: ["anna.dev"], port: 20000, limits: { memory: "2G" }, firewall: "ufw" }),
+  add: T.addScript({
+    user: "anna",
+    key: "ssh-ed25519 AAAA a",
+    domains: ["anna.dev"],
+    port: 20000,
+    limits: { memory: "2G" },
+    firewall: "ufw",
+    traefik: { bridge: "bridge\n", host: "host\n" },
+  }),
   domains: T.domainsScript(anna2, was, ["anna.dev", "*.anna.dev"]),
   limits: T.limitsScript(anna2, was, { cpu: "150%", memory: "none" }),
   stop: T.stopScript("anna"),
@@ -480,17 +488,16 @@ describe("tenant routes and names", () => {
   });
 });
 
-test("the first tenant's rewrite gives the compose file landfall writes for the host network", async () => {
-  const { traefikCompose } = await import("../../src/core/ssh/templates");
+test("the first tenant checks the central compose file before any change, then writes it for the host network", async () => {
+  const { centralCompose } = await import("../../src/core/traefik/traefik");
+  const c = centralCompose({ host: "vps", dashboard: { host: "t.example.com", user: "admin", htpasswd: "admin:$2y$x" } });
+  expect(c.bridge).toContain('"443:443"');
+  expect(c.host).toContain("network_mode: host");
+  expect(c.host).toContain("t.example.com");
   const s = scripts.add.script;
-  const prog = s.slice(s.indexOf("awk '\n      /^    ports:$/") + 5, s.indexOf("' /opt/landfall/traefik/docker-compose.yml >"));
-  const opts = { image: "traefik:v3.5", staging: false, http3: true, accessLog: true };
-  const r = spawnSync("awk", [prog], { input: traefikCompose({ ...opts, hostNetwork: false }), encoding: "utf8" });
-  expect(r.stderr).toBe("");
-  const norm = (x: string) =>
-    x
-      .split("\n")
-      .filter((l) => l.trim())
-      .sort();
-  expect(norm(r.stdout)).toEqual(norm(traefikCompose({ ...opts, hostNetwork: true })));
+  const check = s.indexOf(`printf '%s' "$TRAEFIK_NOW" | cmp -s -`);
+  expect(check).toBeGreaterThan(-1);
+  expect(check).toBeLessThan(s.indexOf("write_state\n"));
+  expect(s).toContain(`printf '%s' "$TRAEFIK_HOST" > /opt/landfall/traefik/docker-compose.yml`);
+  expect(scripts.add.env).toMatchObject({ TRAEFIK_NOW: "bridge\n", TRAEFIK_HOST: "host\n" });
 });

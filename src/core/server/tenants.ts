@@ -307,6 +307,11 @@ if [ ! -f ${STATE_FILE} ]; then
     UNDO_MODES="$UNDO_MODES chmod $m $(printf %q "$e");"
   done
   host_net && ST_HN=true || ST_HN=false
+  if [ "$ST_HN" = false ] && ! printf '%s' "$TRAEFIK_NOW" | cmp -s - ${COMPOSE}; then
+    printf '%s' "$TRAEFIK_NOW" | diff -u ${COMPOSE} - >&2 || true
+    log "${COMPOSE} is not what lf traefik setup writes from this machine's settings (diff above): run lf traefik setup first"
+    exit 1
+  fi
   [ -e ${DROPIN} ] && ST_DD=false || ST_DD=true
   [ "$APPARMOR" = 1 ] && [ ! -e ${APPARMOR} ] && ST_AA=true || ST_AA=false
   ST_PKGS=""; ST_UFW=""; ST_SUM=""; ST_DONE=false
@@ -357,17 +362,7 @@ if [ ! -f ${STATE_FILE} ]; then
     cp -p ${COMPOSE} ${COMPOSE_BEFORE}
     [ ! -f ${TRAEFIK_DIR}/.landfall.sha256 ] || cp -p ${TRAEFIK_DIR}/.landfall.sha256 ${COMPOSE_BEFORE}.sha256
     undo="$(saved ${COMPOSE}); $(saved ${TRAEFIK_DIR}/.landfall.sha256); cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2"
-    awk '
-      /^    ports:$/ { skip = 1; next }
-      /^    networks:$/ { skip = 1; next }
-      /^networks:$/ { exit }
-      skip && /^      - / { next }
-      { skip = 0 }
-      /^    volumes:$/ && !done { print "    network_mode: host"; done = 1 }
-      { sub(/--entrypoints\.tunnel\.address=:/, "--entrypoints.tunnel.address=127.0.0.1:"); print }
-    ' ${COMPOSE} > ${COMPOSE}.tenants
-    (cd ${TRAEFIK_DIR} && dc -f docker-compose.yml.tenants config -q) || { rm -f ${COMPOSE}.tenants; log "the rewritten Traefik compose file is invalid"; exit 1; }
-    mv -f ${COMPOSE}.tenants ${COMPOSE}
+    printf '%s' "$TRAEFIK_HOST" > ${COMPOSE}
     [ ! -f ${TRAEFIK_DIR}/.landfall.sha256 ] || (cd ${TRAEFIK_DIR} && sha256sum docker-compose.yml > .landfall.sha256)
     (cd ${TRAEFIK_DIR} && dc up -d --force-recreate >&2)
     record "central Traefik on the host network" "$undo"
@@ -447,6 +442,8 @@ export interface AddTenant {
   limits: Limits;
   /** "ufw", or the provider firewall in front of the server. */
   firewall: string;
+  /** The central Traefik's compose file as it is now and on the host network (centralCompose). */
+  traefik: { bridge: string; host: string };
 }
 
 const limitProps = (l: Limits) =>
@@ -473,6 +470,8 @@ export function addScript(t: AddTenant) {
     LIMITS: limitProps(t.limits),
     FIREWALL: t.firewall,
     OFF: offShell(t.user),
+    TRAEFIK_NOW: t.traefik.bridge,
+    TRAEFIK_HOST: t.traefik.host,
   });
 }
 

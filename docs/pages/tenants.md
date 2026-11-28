@@ -48,6 +48,8 @@ some things about the server and its neighbours (see [Security model](#security-
 - Docker from `download.docker.com` (`docker-ce`). Docker from the distribution (`docker.io`, `moby-engine`) has no
   rootless extras and is refused.
 - landfall's own Traefik, running. A server that uses `lf traefik use` cannot have tenants.
+- Its compose file as `lf traefik setup` writes it from your machine's settings. Run `lf traefik setup` first
+  if it was edited by hand or set up from another machine; the first `lf tenant add` shows the difference.
 - A firewall: ufw active, or a provider firewall you vouch for with `--provider-firewall`.
 
 The firewall matters because a tenant can open ports of its own. Without one, they would be reachable from anywhere.
@@ -106,7 +108,7 @@ The first `lf tenant add` on a server prepares it. It shows this and asks first.
 4. Writes `/etc/systemd/system/user@.service.d/landfall-delegate.conf`, so limits per user work.
 5. Closes `/opt/landfall` to other users: they may enter it, but only `tenants/` is open to them.
 6. With ufw, allows 80/tcp, 443/tcp and 443/udp explicitly.
-7. Moves your Traefik to the host network and recreates it. **Your sites are offline for a few seconds.**
+7. Writes your Traefik's compose file for the host network and recreates it. **Your sites are offline for a few seconds.**
    The old compose file is kept as `/opt/landfall/tenants/traefik-compose.before.yml`.
 
 Every tenant after that only creates its own user, Docker and route. Your sites are not touched.

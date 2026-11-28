@@ -4,6 +4,7 @@ import { bytes } from "../../core/lib/format";
 import { readKey } from "../../core/server/keys";
 import { cloudFirewall, facts } from "../../core/server/facts";
 import { usersLogin } from "../../core/server/users";
+import { centralCompose } from "../../core/traefik/traefik";
 import {
   addScript,
   asRoot,
@@ -109,7 +110,7 @@ the server. lf tenant off undoes all of it.`,
     }
     const outage = `the first tenant moves the central Traefik of ${name} to the host network: sites are offline for a few seconds`;
     if (!view.on && !(o.force || (await confirmRisky(`${outage[0].toUpperCase()}${outage.slice(1)}. Go on?`)))) fail(`${outage}; pass --force to go on`);
-    await asRoot(admin, addScript({ user, key, domains, port, limits, firewall }));
+    await asRoot(admin, addScript({ user, key, domains, port, limits, firewall, traefik: centralCompose(server) }));
     ok(`added tenant ${user} to ${name} (port ${port})`);
     info(`lf tenant invite ${user} prints what to send ${user}`);
   },

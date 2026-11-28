@@ -85,6 +85,12 @@ function tenantTraefik(t: Tenant) {
   return { uid: t.uid, port: t.port, trustedIP };
 }
 
+/** The central Traefik's compose file as this machine writes it: on its own network now, and on the host's for tenants. */
+export function centralCompose(server: Server) {
+  const t = { ...traefikSettings(server, {}), dashboard: server.dashboard };
+  return { bridge: traefikCompose({ ...t, hostNetwork: false }), host: traefikCompose({ ...t, hostNetwork: true }) };
+}
+
 export const describeTraefik = (t: ReturnType<typeof traefikSettings>) =>
   [
     t.image,
