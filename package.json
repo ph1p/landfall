@@ -1,6 +1,6 @@
 {
   "name": "landfall",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Set up servers and deploy sites behind Traefik with automatic HTTPS",
   "keywords": [
     "cli",
