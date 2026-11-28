@@ -76,6 +76,8 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     const password = await loginPassword(o["password-stdin"]);
     // Without a password or a terminal to type one, only report whether the key works.
     const keyPath = await ensureKeyLogin(name, login, { check: !password && !interactive(), password });
+    // Changing the login of a known server (the web UI's "Change login"): keep the one that works.
+    if (!keyPath && existing && !o.host) fail(`cannot log in to ${name} as ${login.user ?? "that user"} with that key; the login stays as it was`);
     const entry: Server = keyPath
       ? serverEntry(name, login, keyPath, { existing, sshConfig: o["ssh-config"], ownAlias, port: o.port, keyGiven: !!o.key })
       : { ...existing, ...login };

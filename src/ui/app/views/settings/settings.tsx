@@ -6,7 +6,7 @@ import { ifOk, run } from "../../lib/jobs";
 import { toast } from "../../ui/toast";
 import { Actions, Badge, Body, Btn, Card, CardHead, Kv, MONO, Note, Sub, cx, pending } from "../../ui/kit";
 import { MenuBtn } from "../../ui/menu";
-import { providerDialog, rootLoginDialog } from "../flows/server-dialogs";
+import { loginDialog, providerDialog, rootLoginDialog } from "../flows/server-dialogs";
 import { confirmDlg, dialog, promptDlg } from "../../ui/dialog";
 import { RegistriesCard } from "./registries";
 
@@ -269,6 +269,14 @@ export function SettingsView({ n }: { n: string }) {
       <Card>
         <CardHead>
           SSH <Sub className={MONO}>ssh -G {x.saved?.host ?? n}</Sub>
+          {/* Only an entry landfall wrote: a Host block of your own keeps its User, so change that in ~/.ssh/config. */}
+          {x.saved && x.ssh.block?.managed !== false && (
+            <Actions>
+              <Btn cls="sm" title="lf server add -u" on={() => loginDialog(n, { user: x.ssh.user, port: x.ssh.port, key: x.saved?.key })}>
+                Change login
+              </Btn>
+            </Actions>
+          )}
         </CardHead>
         <Body>
           <Kv

@@ -2,7 +2,7 @@ import { S, serverNamed } from "../../lib/store";
 import { CLOUDS } from "../../../../core/server/clouds";
 import { load, refreshState } from "../../lib/api";
 import { run, ifOk } from "../../lib/jobs";
-import { dialog, type Values } from "../../ui/dialog";
+import { dialog, portError, type Values } from "../../ui/dialog";
 
 export const defaultServer = (): string | undefined => S.sel ?? S.state.servers.find((s) => s.isDefault)?.name;
 
@@ -152,4 +152,27 @@ export function WhereList({ loc }: { loc: { local: Where[]; server: Where[] } })
       {kv(loc.server)}
     </details>
   );
+}
+
+/** Change the user (and key or port) landfall logs in to n with: lf server add <n> -u <user>, which checks the login first. */
+export function loginDialog(n: string, cur: { user: string; port: number; key?: string }) {
+  dialog({
+    title: `Login for ${n}`,
+    text: "landfall logs in with this user from now on: deploys, the web UI and lf ssh. It checks the login before it saves it. The address stays.",
+    fields: [
+      {
+        row: [
+          { name: "user", label: "User", value: cur.user, required: "Which user logs in?", mono: true },
+          { name: "port", label: "SSH port", type: "number", value: String(cur.port), check: portError },
+        ],
+      },
+      { name: "key", label: "Private key file", value: cur.key ?? "", placeholder: "~/.ssh/id_ed25519", mono: true, hint: "Empty: keep the current key." },
+    ],
+    ok: "Save",
+    onOk: (v) => {
+      const [user, port, key] = [v.user, v.port, v.key].map((x: string) => String(x ?? "").trim());
+      const args = ["-u", user, ...(port && port !== String(cur.port) ? ["-p", port] : []), ...(key && key !== cur.key ? ["-i", key] : [])];
+      run(["server", "add", n, ...args], { server: n, after: ifOk(() => refreshState().then(() => (load(n, "settings", true), load(n, "facts", true)))) });
+    },
+  });
 }

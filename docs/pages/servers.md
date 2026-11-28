@@ -117,6 +117,7 @@ The e-mail is optional: Let's Encrypt no longer sends expiry mails.
 lf server add vps                                       # register an existing ssh alias
 lf server add box --host 198.51.100.4 -u ubuntu -i ~/.ssh/box --default
 lf server add web --host 198.51.100.5 -u admin          # asks the password once, installs ~/.ssh/landfall_web
+lf server add vps -u root                               # log in to vps as root from now on (address and key stay)
 lf server config vps                                    # show entry, Traefik settings, ssh login, keys, Host block
 lf server list --all --check                            # which servers accept a login now
 lf server use vps
@@ -126,6 +127,10 @@ lf server uninstall vps                                 # remove landfall from t
 lf ssh vps -- docker ps
 lf reboot                                               # reboot, wait, check containers run again
 ```
+
+To change the user landfall logs in with, run `lf server add <name> -u <user>` again.
+In the web UI, that is **Change login** under Settings → SSH.
+landfall tests the new login first. If it does not work, the old login stays.
 
 `lf server uninstall` refuses while the server has tenants. Run `lf tenant off --rm-tenants` first, then
 `lf tenant rm <user> --purge` for each (see [Tenants](tenants.md#turn-tenants-off)).
