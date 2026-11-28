@@ -1,10 +1,23 @@
-// The infrastructure map: every server, its Traefik, sites, containers, volumes and domains, as nodes and edges
+// The infrastructure map: every server, its Traefik, sites, tenants, containers, volumes and domains, as nodes and edges
 // laid out in columns. No node imports: the web page builds it from the overviews it already reads.
 import type { Overview, Unrouted } from "../server/overview";
 import type { Remembered } from "../deploy/remembered";
 import { statusKind, worse, type StatusKind } from "../site/status";
 
-export type NodeKind = "machine" | "project" | "server" | "proxy" | "site" | "external" | "container" | "service" | "volume" | "domain" | "redirect" | "add";
+export type NodeKind =
+  | "machine"
+  | "project"
+  | "server"
+  | "proxy"
+  | "site"
+  | "external"
+  | "container"
+  | "service"
+  | "volume"
+  | "domain"
+  | "redirect"
+  | "tenant"
+  | "add";
 /** What a node shows as its dot: grey when nothing is known. */
 export type Health = "up" | "warn" | "down" | "";
 /** What a ghost node offers to add. */
@@ -18,13 +31,13 @@ export interface GraphNode {
   health: Health;
   x: number;
   y: number;
-  /** The server it belongs to, and the site, service or domain it names. */
+  /** The server it belongs to, and the site, service, tenant or domain it names. */
   server?: string;
   site?: string;
   ref?: string;
   add?: AddAction;
 }
-export type EdgeKind = "ssh" | "proxy" | "route" | "runs" | "mount" | "serves" | "redirect" | "deploys" | "tunnel";
+export type EdgeKind = "ssh" | "proxy" | "route" | "runs" | "mount" | "serves" | "redirect" | "deploys" | "tunnel" | "passthrough";
 export interface GraphEdge {
   id: string;
   from: string;
@@ -51,6 +64,10 @@ export interface ServerInput {
   error?: string;
   /** Shown under its name in place of the address: "checking…", "reading…". */
   note?: string;
+  /** The login is a tenant's: its own Traefik and sites, set up by the server's admin. */
+  tenant?: boolean;
+  /** `lf tenant ls` once read: whether each tenant's Docker runs, and what it holds. */
+  tenantRows?: { user: string; active: boolean; running: boolean; sites?: number; containers?: number }[];
 }
 export interface GraphOptions {
   containers?: boolean;
@@ -58,6 +75,8 @@ export interface GraphOptions {
   domains?: boolean;
   /** Containers Traefik does not route, and Compose projects landfall did not deploy. */
   others?: boolean;
+  /** The tenants the central Traefik passes domains to, with those domains. */
+  tenants?: boolean;
   /** Ghost nodes that add a server, a site or a domain. */
   add?: boolean;
   /** Servers drawn folded: the server and its proxy only, with a count of what runs there. */
@@ -93,14 +112,26 @@ function foldedSummary(ov: Overview): string {
   const down = ov.sites.filter((x) => !x.status || healthOf(x.status) === "down").length;
   const domains = ov.sites.reduce((n, x) => n + x.domains.length, 0) + ov.others.reduce((n, x) => n + x.domains.length, 0);
   const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
-  return [n(ov.sites.length, "site"), down ? `${down} down` : "", ov.others.length ? `${ov.others.length} other` : "", n(domains, "domain")]
+  const tenants = ov.tenants?.length ?? 0;
+  return [
+    n(ov.sites.length, "site"),
+    down ? `${down} down` : "",
+    ov.others.length ? `${ov.others.length} other` : "",
+    tenants ? n(tenants, "tenant") : "",
+    n(domains, "domain"),
+  ]
     .filter(Boolean)
     .join(" · ");
 }
 const REACH: Record<string, Health> = { ok: "up", login: "warn", down: "down" };
+/** What a site's line says besides its status: how it gets there and who may see it. */
+const siteSub = (site: Overview["sites"][number]) =>
+  [site.kind, site.meta.adopted ? "adopted" : "", site.meta.autodeploy ? "autodeploy" : "", site.meta.auth?.length ? "login" : "", site.status || "not running"]
+    .filter(Boolean)
+    .join(" · ");
 
 export function infraGraph(servers: ServerInput[], projects: Remembered[], o: GraphOptions = {}): Graph {
-  const opt = { containers: true, volumes: true, domains: true, others: true, add: true, folded: [] as string[], ...o };
+  const opt = { containers: true, volumes: true, domains: true, others: true, tenants: true, add: true, folded: [] as string[], ...o };
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const bands: Graph["bands"] = [];
@@ -143,7 +174,7 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
           id: `site:${s.name}:${m.name}`,
           kind: "site",
           label: m.name,
-          sub: [site.kind, m.adopted ? "adopted" : "", site.status || "not running"].filter(Boolean).join(" · "),
+          sub: siteSub(site),
           health: site.status ? worst(site.services.map((x) => x.status)) || healthOf(site.status) : "down",
           server: s.name,
           site: m.name,
@@ -253,6 +284,28 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
           );
         }
       }
+      // A tenant's domains reach its own Traefik through the central one, still encrypted: what runs there is the tenant's.
+      if (opt.tenants)
+        for (const t of ov.tenants ?? []) {
+          const r = block(opt.domains ? t.domains.length : 1);
+          const row = s.tenantRows?.find((x) => x.user === t.user);
+          const health: Health = row ? (row.running ? "up" : "down") : "";
+          const id = node({
+            id: `tenant:${s.name}:${t.user}`,
+            kind: "tenant",
+            label: t.user,
+            sub: ["tenant", row?.sites !== undefined ? `${row.sites} site${row.sites === 1 ? "" : "s"}` : "", row ? (row.running ? "running" : "stopped") : ""]
+              .filter(Boolean)
+              .join(" · "),
+            health,
+            server: s.name,
+            ref: t.user,
+            x: COL.site,
+            y: at(r),
+          });
+          edge(front, id, "passthrough", health);
+          domains(id, t.domains, [], r, health);
+        }
       for (const red of ov.redirects.list) {
         const r = block(1);
         edge(
@@ -281,7 +334,7 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
       id: sid,
       kind: "server",
       label: s.name,
-      sub: s.error ? "cannot read it" : folded && ov ? foldedSummary(ov) : (s.note ?? s.target),
+      sub: s.error ? "cannot read it" : folded && ov ? foldedSummary(ov) : (s.note ?? (s.tenant ? `tenant · ${s.target}` : s.target)),
       health: s.error
         ? "down"
         : folded && ov
@@ -298,15 +351,15 @@ export function infraGraph(servers: ServerInput[], projects: Remembered[], o: Gr
         id: front,
         kind: "proxy",
         label: ov.proxy,
-        sub: `Traefik${ov.adopted ? " (yours)" : ""} · ${ov.traefik}`,
+        sub: `Traefik${s.tenant ? " (the tenant's)" : ov.adopted ? " (yours)" : ""} · ${ov.traefik}`,
         health: h,
         server: s.name,
         x: COL.proxy,
         y: at(0),
       });
       edge(sid, front, "proxy", h);
-    } else if (ov && opt.add) {
-      // Not set up, or set up without Traefik: the next step is setup.
+    } else if (ov && opt.add && !s.tenant) {
+      // Not set up, or set up without Traefik: the next step is setup. A tenant cannot: its admin sets it up.
       const id = node({
         id: `add:setup:${s.name}`,
         kind: "add",

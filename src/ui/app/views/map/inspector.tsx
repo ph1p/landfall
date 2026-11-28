@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
 import type { Graph, GraphNode } from "../../../../core/views/infra-graph";
-import { S, sv } from "../../lib/store";
+import { S, isTenant, sv } from "../../lib/store";
 import type { Overview } from "../../lib/types";
 import { go } from "../../lib/api";
 import { run } from "../../lib/jobs";
 import { Btn, Dot, cx, MONO } from "../../ui/kit";
+import { bytes } from "../../../../core/lib/format";
+import { definedHooks } from "../hooks";
 import { runCommand, siteSettings } from "../domains";
 import { setupFlow, addServer } from "../flows/setup";
 import { redeploy, deployFrom } from "../flows/deploy";
@@ -29,6 +31,7 @@ export function openNode(x: GraphNode) {
   if (x.kind === "add") return addAction(x);
   if (!x.server) return;
   if (x.kind === "proxy" || x.kind === "redirect") return go(x.server, "traefik");
+  if (x.kind === "tenant") return go(x.server, "tenants");
   if (x.site) S.open.add(`${x.server}/${x.site}`);
   go(x.server, "sites");
 }
@@ -52,17 +55,25 @@ export function Inspector({ x, g, close, folded, fold }: { x: GraphNode; g: Grap
       break;
     case "server": {
       const s = registered().find((y) => y.name === n);
+      const tenant = isTenant(n);
       rows.push(["Address", s?.target], ["ssh login", S.reach[n!]?.state ?? "not checked"], ["Sites", ov?.sites.length ?? "…"]);
+      if (tenant) rows.push(["Login", "a tenant's: its own Docker and Traefik, set up by the server's admin"]);
+      if (tenant && ov?.mine) rows.push(["Its domains", ov.mine.join(", ") || "none yet"]);
+      if (ov?.tenants?.length) rows.push(["Tenants", ov.tenants.map((t) => t.user).join(", ")]);
       if (ov) rows.push(["Traefik", ov.traefik || "not installed"]);
       if (S.overview[n!]?.error) rows.push(["Error", <span className="text-bad">{S.overview[n!]!.error}</span>]);
       acts.push(["Open", open()]);
       if (ov?.ready) acts.push(["Deploy here…", () => void folderDialog(S.state.cwd, undefined, n), "lf deploy -s " + n]);
-      acts.push(["Set up / check", () => setupFlow([n!]), "lf setup --check"], ["Run a command…", () => runCommand(n!)]);
+      if (!tenant) acts.push(["Set up / check", () => setupFlow([n!]), "lf setup --check"]);
+      if (ov?.tenants?.length) acts.push(["Open Tenants", open("tenants")]);
+      acts.push(["Run a command…", () => runCommand(n!)]);
       if (ov) acts.push([folded ? "Unfold on the map" : "Fold on the map", () => fold(n!), "show only the server and its proxy"]);
       break;
     }
     case "proxy":
-      rows.push(["Status", ov?.traefik], ["Container", ov?.proxy], ["Owner", ov?.adopted ? "yours (adopted)" : "landfall"]);
+      rows.push(["Status", ov?.traefik], ["Container", ov?.proxy], ["Owner", isTenant(n) ? "the tenant" : ov?.adopted ? "yours (adopted)" : "landfall"]);
+      if (ov?.tenants?.length)
+        rows.push(["Passes through", `${ov.tenants.flatMap((t) => t.domains).length} domains to ${ov.tenants.length} tenants, still encrypted`]);
       if (ov?.dashboard.hosts.length) rows.push(["Dashboard", ov.dashboard.hosts.join(", ")]);
       acts.push(["Open Traefik", open("traefik")], ["Status", () => run(["traefik", "status", ...sv(n!)]), "lf traefik status"]);
       break;
@@ -75,6 +86,32 @@ export function Inspector({ x, g, close, folded, fold }: { x: GraphNode; g: Grap
           ["Domains", site.domains.join(", ") || "none: tunnel only"],
         );
         if (site.redirects.length) rows.push(["Redirects", site.redirects.join(", ")]);
+        const m = site.meta;
+        const live = m.releases.find((r) => r.id === m.current);
+        rows.push(["Login", m.auth?.length ? `${m.auth.map((a) => a.split(":")[0]).join(", ")} (basic auth)` : "public"]);
+        const scaled = Object.entries(site.scale ?? {}).filter(([, v]) => v.replicas > 1 || v.weight !== undefined);
+        if (scaled.length)
+          rows.push([
+            "Replicas",
+            scaled
+              .map(([svc, v]) => `${svc} ${v.running}/${v.replicas}${v.weight !== undefined ? ` · ${v.weight}% of ${v.split ?? "traffic"}` : ""}`)
+              .join(", "),
+          ]);
+        if (live) rows.push(["Release", `${live.id}${live.by ? ` by ${live.by}` : ""}`]);
+        if (live?.git)
+          rows.push([
+            "Commit",
+            <span className={MONO}>
+              {[live.git.tag ?? live.git.branch, live.git.commit.slice(0, 7) + (live.git.dirty ? " (dirty)" : "")].filter(Boolean).join(" @ ")}
+              {live.git.source && live.git.source !== "local" ? ` · ${live.git.source}` : ""}
+            </span>,
+          ]);
+        if (m.autodeploy) {
+          const rule = m.autodeploy.rule.branch?.length ? `branch ${m.autodeploy.rule.branch.join(", ")}` : `tags ${m.autodeploy.rule.tag?.join(", ") ?? ""}`;
+          rows.push(["Autodeploy", `${rule}, every ${m.autodeploy.every}`]);
+        }
+        if (live?.hooks && definedHooks(live.hooks.run).length) rows.push(["Hooks", definedHooks(live.hooks.run).join(", ")]);
+        if (m.secrets?.length) rows.push(["Secrets", m.secrets.length]);
         if (site.meta.adopted) rows.push(["Adopted from", <span className={MONO}>{site.meta.adopted}</span>]);
         if (proj) rows.push(["Project", <span className={MONO}>{proj.path}</span>]);
         acts.push(["Open", open()]);
@@ -134,6 +171,19 @@ export function Inspector({ x, g, close, folded, fold }: { x: GraphNode; g: Grap
             </span>,
           ]);
       acts.push(["Open tunnels", open("tunnels")]);
+      break;
+    }
+    case "tenant": {
+      const t = S.tenants[n!]?.data?.tenants.find((y) => y.user === x.ref);
+      const domains = ov?.tenants?.find((y) => y.user === x.ref)?.domains ?? [];
+      rows.push(["Domains", domains.join(", ") || "none"], ["Docker", t ? (t.running ? "running" : "stopped") : "…"]);
+      if (t?.sites !== undefined) rows.push(["Sites", t.sites]);
+      if (t?.containers !== undefined) rows.push(["Containers", t.containers]);
+      if (t?.memory !== undefined) rows.push(["Memory", bytes(t.memory)]);
+      rows.push(["Route", "the central Traefik passes its domains, still encrypted, to the tenant's own Traefik"]);
+      acts.push(["Open Tenants", open("tenants")]);
+      if (t && !t.running) acts.push(["Start its Docker", () => run(["tenant", "start", x.ref!, ...sv(n!)]), "lf tenant start"]);
+      for (const d of domains.slice(0, 1)) acts.push([`Visit ${d}`, () => void window.open(`https://${d}`, "_blank", "noopener")]);
       break;
     }
     case "redirect": {

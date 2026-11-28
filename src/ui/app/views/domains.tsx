@@ -278,7 +278,13 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
 export function ensureDns(n: string, o: Overview | undefined, force = false) {
   const slot = S.dns[n];
   if (slot?.loading || !o || (slot?.error && !force)) return;
-  const hosts = [...new Set([...o.sites.flatMap((x) => [...x.domains, ...x.redirects]), ...o.redirects.list.map((r) => r.host)])];
+  const hosts = [
+    ...new Set([
+      ...o.sites.flatMap((x) => [...x.domains, ...x.redirects]),
+      ...o.redirects.list.map((r) => r.host),
+      ...(o.tenants ?? []).flatMap((t) => t.domains),
+    ]),
+  ];
   const have = slot?.data;
   const url = (list: string[]) => `/dns?domains=${encodeURIComponent(list.join(","))}`;
   if (force || !have) return void (hosts.length && fetchInto("dns", n, url(hosts)));

@@ -148,6 +148,33 @@ describe("infraGraph", () => {
     expect(ids(g)).toContain("add:setup:fresh");
   });
 
+  it("draws the tenants the central Traefik passes domains to", () => {
+    const shared: ServerInput = {
+      ...web,
+      overview: overview({
+        tenants: [
+          { user: "alice", domains: ["a.example.com", "shop.a.example.com"] },
+          { user: "bob", domains: [] },
+        ],
+      }),
+      tenantRows: [{ user: "alice", active: true, running: true, sites: 2 }],
+    };
+    const g = infraGraph([shared], []);
+    expect(edge(g, "proxy:web", "tenant:web:alice")).toMatchObject({ kind: "passthrough", health: "up" });
+    expect(g.nodes.find((n) => n.id === "tenant:web:alice")).toMatchObject({ kind: "tenant", ref: "alice", sub: "tenant · 2 sites · running" });
+    expect(edge(g, "tenant:web:alice", "domain:web:shop.a.example.com")?.kind).toBe("serves");
+    // Not read yet: no dot.
+    expect(g.nodes.find((n) => n.id === "tenant:web:bob")?.health).toBe("");
+    expect(ids(infraGraph([shared], [], { tenants: false }))).not.toContain("tenant:web:alice");
+    expect(infraGraph([shared], [], { folded: ["web"] }).nodes.find((n) => n.id === "server:web")?.sub).toContain("2 tenants");
+  });
+
+  it("offers a tenant login no setup", () => {
+    const g = infraGraph([{ ...fresh, tenant: true }], []);
+    expect(ids(g)).not.toContain("add:setup:fresh");
+    expect(g.nodes.find((n) => n.id === "server:fresh")?.sub).toBe("tenant · admin@198.51.100.2");
+  });
+
   it("draws a server it cannot read", () => {
     const g = infraGraph([{ name: "down", target: "x", reach: "down", error: "ssh: connect refused" }], []);
     expect(g.nodes.find((n) => n.id === "server:down")).toMatchObject({ health: "down", sub: "cannot read it" });

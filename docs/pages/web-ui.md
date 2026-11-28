@@ -70,15 +70,18 @@ On a server where you are a [tenant](tenants.md), the web UI shows only what a t
 - A dashed line means no domain reaches it: only a tunnel does (`lf tunnel`). Deploy and redirect lines are dashed too.
 - Domains show whether their DNS points at the server and whether HTTPS answers.
 - Compose projects landfall did not deploy show as *not landfall's*. Containers no route reaches are grouped by Compose project.
+- On a server with tenants (`lf tenant`), each tenant sits beside the sites, with the domains its admin gave it. Its dot is green while its Docker runs, red when it is stopped.
+- A site's line says when it deploys on its own (`lf autodeploy`) and when it asks for a login (`lf auth`). Its panel also shows the live release, its commit, hooks, replicas and secrets.
+- A tenant login sees its own Traefik and sites. It gets no **Set up this server** node: the server's admin sets it up.
 - Click a node for its details and actions in a side panel: logs, restart, redeploy, settings, open in the browser.
 - Double-click a node to open its page.
 - Dashed **Add** nodes fill the gaps: **Add a server**, **Set up this server** (`lf setup`), **Deploy a site** and **Add a domain** (`lf domains`).
 - Drag a local project onto a server's band to deploy it there. The deploy dialog opens first.
 - Hover a node to light its direct neighbours. Select it to light its whole path, from this machine to its domains.
 - The search box dims everything that does not match and counts the matches. Enter jumps to the next one.
-- The buttons next to it hide containers, volumes, domains, apps that are not landfall's, and the Add nodes.
+- The buttons next to it hide containers, volumes, domains, apps that are not landfall's, tenants, and the Add nodes.
 - The status button counts what is down or warning. Click it to jump to the next problem; it shows **All up** when nothing is.
-- **Fold** in a server's header (or **Fold on the map** in its panel) shows only the server and its proxy, with a count of its sites, problems and domains.
+- **Fold** in a server's header (or **Fold on the map** in its panel) shows only the server and its proxy, with a count of its sites, problems, tenants and domains.
 - The fold button in the bottom-right row folds or unfolds every server.
 - Scroll to pan; Ctrl or ⌘ and scroll to zoom. Drag the background to pan. Panning stops at the map's edges.
 - The row in the bottom right zooms, fits the map to the window, folds every server and reads every server again. Click the percentage to go back to 100%.

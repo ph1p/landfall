@@ -1,4 +1,18 @@
-import { ArrowRightLeft, Box, Container, FolderGit2, Globe, HardDrive, Laptop, Package, Plus, Server, Waypoints, type LucideIcon } from "lucide-react";
+import {
+  ArrowRightLeft,
+  Box,
+  Container,
+  FolderGit2,
+  Globe,
+  HardDrive,
+  Laptop,
+  Package,
+  Plus,
+  Server,
+  UserRound,
+  Waypoints,
+  type LucideIcon,
+} from "lucide-react";
 import type { GraphOptions, Health, NodeKind } from "../../../../core/views/infra-graph";
 
 export const PAD = 48;
@@ -30,6 +44,7 @@ export const ICON: Record<NodeKind, LucideIcon> = {
   volume: HardDrive,
   domain: Globe,
   redirect: ArrowRightLeft,
+  tenant: UserRound,
   add: Plus,
 };
 
@@ -39,6 +54,7 @@ export const TINT: Partial<Record<NodeKind, string>> = {
   server: "text-accent",
   proxy: "text-accent",
   site: "text-accent",
+  tenant: "text-accent",
   domain: "text-ok",
 };
 
@@ -51,6 +67,7 @@ export const LAYERS: [Exclude<keyof GraphOptions, "folded">, string][] = [
   ["volumes", "Volumes"],
   ["domains", "Domains"],
   ["others", "Not landfall's"],
+  ["tenants", "Tenants"],
   ["add", "Add buttons"],
 ];
 

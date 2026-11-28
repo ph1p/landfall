@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { Graph, GraphNode, GraphOptions, ServerInput } from "../../../../core/views/infra-graph";
-import { S } from "../../lib/store";
+import { S, isTenant } from "../../lib/store";
 import type { SiteStatus } from "../../lib/types";
 import { fetchInto } from "../../lib/api";
 import { ensureDns } from "../domains";
@@ -28,7 +28,18 @@ export function inputs(): ServerInput[] {
               ? "login refused"
               : "unreachable"
             : undefined;
-    return { name: s.name, target: s.target, isDefault: s.isDefault, reach, overview: slot?.data, error: slot?.error, note };
+    const tenantRows = S.tenants[s.name]?.data?.tenants;
+    return {
+      name: s.name,
+      target: s.target,
+      isDefault: s.isDefault,
+      reach,
+      overview: slot?.data,
+      error: slot?.error,
+      note,
+      tenant: isTenant(s.name),
+      tenantRows,
+    };
   });
 }
 
@@ -56,13 +67,19 @@ export function useMapData() {
       const n = s.name;
       if (S.reach[n]?.state === "ok" && !S.overview[n]) fetchInto("overview", n, "");
       ensureDns(n, S.overview[n]?.data);
+      // Whether each tenant's Docker runs: only the admin reads it, and only where tenants are.
+      if (S.overview[n]?.data?.tenants?.length && !isTenant(n) && !S.tenants[n]) fetchInto("tenants", n, "/tenants");
     }
   }, [ready]);
 }
 
 export const reloadAll = () => {
   for (const s of registered())
-    if (S.reach[s.name]?.state !== "down") fetchInto("overview", s.name, "").then(() => ensureDns(s.name, S.overview[s.name]?.data, true));
+    if (S.reach[s.name]?.state !== "down")
+      fetchInto("overview", s.name, "").then(() => {
+        ensureDns(s.name, S.overview[s.name]?.data, true);
+        if (S.overview[s.name]?.data?.tenants?.length && !isTenant(s.name)) fetchInto("tenants", s.name, "/tenants");
+      });
 };
 
 /** Layer toggles and folded servers, remembered in this browser. */
@@ -71,7 +88,7 @@ export type Prefs = { layers: Required<Omit<GraphOptions, "folded">>; folded: st
 const PREFS = "landfall.map";
 
 export function loadPrefs(): Prefs {
-  const all = { containers: true, volumes: true, domains: true, others: true, add: true };
+  const all = { containers: true, volumes: true, domains: true, others: true, tenants: true, add: true };
   try {
     const p = JSON.parse(localStorage.getItem(PREFS) ?? "{}") as Partial<Prefs>;
     return { layers: { ...all, ...p.layers }, folded: Array.isArray(p.folded) ? p.folded : [] };
