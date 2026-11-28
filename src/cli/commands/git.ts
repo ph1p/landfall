@@ -14,6 +14,7 @@ import { c, canConfirm, confirm, confirmRemoval, fail, info, ok, printJson, step
 
 export const gitTrack = defineCommand({
   name: "git track",
+  tenant: true,
   summary: `Say which git refs an environment deploys, in ${PROJECT_FILE}.
 
   lf git track -E prod --tag 'v*'                 # prod deploys tags v1.2.0, v2.0.0 …
@@ -91,6 +92,7 @@ async function addDeployKey(g: GitUrl, publicKey: string, title: string): Promis
 
 export const gitKey = defineCommand({
   name: "git key",
+  tenant: true,
   args: "[url]",
   summary: `Give a server a deploy key for a repository, so it can fetch it (lf deploy --git).
 

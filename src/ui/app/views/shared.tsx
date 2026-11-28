@@ -1,7 +1,7 @@
 import { S, isTenant, sv } from "../lib/store";
 import type { Cap, ServerEntry, SiteStatus } from "../lib/types";
 import { SECTIONS } from "../lib/api";
-import { SAME_FOR_TENANTS, showSection, type CoreTab } from "../lib/sections";
+import { showSection } from "../lib/sections";
 import { pluginTab } from "../../../core/plugins/plugin-api";
 import { Badge, Bone, Dot, cx, noteClass } from "../ui/kit";
 import { Star as StarIcon } from "lucide-react";
@@ -192,8 +192,8 @@ export const sections = (n: string): typeof SECTIONS => {
   const k = can(n);
   const front = S.facts[n]?.data?.cloud?.firewall;
   const tenant = isTenant(n);
-  const core = SECTIONS.filter(([t]) => (k ? showSection(t, k, tenant) : !tenant || SAME_FOR_TENANTS.includes(t as CoreTab) || t === "sites")).map(
-    (s): (typeof SECTIONS)[number] => (front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s),
+  const core = SECTIONS.filter(([t]) => showSection(t, k, tenant)).map((s): (typeof SECTIONS)[number] =>
+    front && s[0] === "firewall" ? [s[0], "Host firewall", s[2]] : s,
   );
   // Plugin panels join their group (after its own sections), or make a new group at the end.
   const out = [...core];

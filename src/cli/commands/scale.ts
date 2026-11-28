@@ -73,6 +73,7 @@ async function printStats(name: string, meta: SiteMeta, secs: number, traffic: P
 
 export const scale = defineCommand({
   name: "scale",
+  tenant: true,
   args: "[site] [service=count...]",
   summary: `Show or change how many containers each service of a site runs.
 
@@ -120,6 +121,7 @@ Undoable with lf undo.`,
 
 export const weight = defineCommand({
   name: "weight",
+  tenant: true,
   args: "[site] [service=weight...]",
   summary: `Show or change how a traffic split shares requests between its services.
 

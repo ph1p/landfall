@@ -49,6 +49,7 @@ function printPlan(name: string, p: PrunePlan) {
 
 export const pruneCmd = defineCommand({
   name: "prune",
+  tenant: true,
   summary:
     "Free disk space: remove unused Docker images, the build cache and unused networks; with --logs also container logs and the systemd journal, with --volumes unused volumes and the backups of removed sites.\n" +
     "Keeps images any container uses (stopped ones too), images of site releases (for rollback) and the ones undo needs. Containers stay.",

@@ -53,6 +53,7 @@ const runLine = (r: Run) =>
 
 export const historyLog = defineCommand({
   name: "history",
+  tenant: true,
   summary: "What landfall changed on a server, newest first. ↺ marks steps `lf undo` can revert.",
   options: {
     server: serverOpt,
@@ -75,6 +76,7 @@ export const historyLog = defineCommand({
 
 export const historyUndo = defineCommand({
   name: "undo",
+  tenant: true,
   args: "[run|run.step]",
   summary: "Revert what landfall did: the latest run, run <n> from `lf history`, one step <n>.<m>, or --all.",
   options: {

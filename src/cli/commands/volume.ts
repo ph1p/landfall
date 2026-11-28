@@ -54,6 +54,7 @@ const runs = (line: string) => info(c.dim(`runs: ${line}`));
 
 export const volumeList = defineCommand({
   name: "volumes",
+  tenant: true,
   args: "[name]",
   summary: `List a site's Docker volumes: size, the services that mount them, their backups.`,
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
@@ -93,6 +94,7 @@ const KEEP_BACKUPS = 7;
 
 export const volumeBackup = defineCommand({
   name: "volume backup",
+  tenant: true,
   args: "[name] [volume]",
   summary: `Save a volume (default: all of the site's) as a .tar.gz in /opt/landfall/sites/<name>/backups.
 The services keep running; a database using it (postgres, mysql, mongo, redis…) is paused while it is
@@ -133,6 +135,7 @@ the target accepts (lf says when it does not yet).`,
 
 export const volumeBackupRemove = defineCommand({
   name: "volume backup rm",
+  tenant: true,
   args: "[name] <backup...>",
   summary: `Delete backups from the site's backups folder (lf volumes lists them). Cannot be undone.`,
   options: { server: serverOpt },
@@ -244,6 +247,7 @@ export async function scheduleBackups(server: Server, site: string, every: strin
 
 export const volumePull = defineCommand({
   name: "volume pull",
+  tenant: true,
   args: "[name] [volume]",
   summary: `Download a volume as a .tar.gz, or unpack it into a folder (--into).
 Reads the live volume (read-only, the services keep running), or one of its backups (--backup).`,
@@ -317,6 +321,7 @@ function stops(v: Volume) {
 
 export const volumePush = defineCommand({
   name: "volume push",
+  tenant: true,
   args: "[name] <volume> <folder|file.tar.gz>",
   summary: `Replace a volume's contents with a local folder or .tar.gz.
 Backs the volume up first and journals it (lf undo restores it). The services using it stop meanwhile.
@@ -371,6 +376,7 @@ export async function offerSeed(server: Server, site: string, dir: string, uploa
 
 export const volumeRestore = defineCommand({
   name: "volume restore",
+  tenant: true,
   args: "[name] [volume] [backup]",
   summary: `Replace a volume's contents with one of its backups (default: the newest).
 Backs the current contents up first and journals it (lf undo reverts the restore).`,
@@ -406,6 +412,7 @@ const redeployHint = (more = "") => info(`redeploy to apply it: ${c.cyan("lf dep
 
 export const volumeAdd = defineCommand({
   name: "volume add",
+  tenant: true,
   args: "[name] [service:]<path>",
   summary: `Keep a folder of a container across deploys and rollbacks, in a named volume.
 Writes it into this folder's project: compose.yaml gets the mount and the volume (plain Compose),
@@ -443,6 +450,7 @@ an app, Dockerfile or image keeps the path in .landfall.json. Redeploy to apply.
 
 export const volumeRemove = defineCommand({
   name: "volume rm",
+  tenant: true,
   args: "[name] <volume>",
   summary: `Stop keeping a volume: take its mounts out of this folder's compose.yaml (or .landfall.json).
 Its data stays on the server, listed as unused, until --data deletes it. --data needs a volume no

@@ -59,6 +59,7 @@ function printDetail(d: Detail, what: string) {
 
 export const trafficCmd = defineCommand({
   name: "traffic",
+  tenant: true,
   args: "[site]",
   summary: "Show requests, errors, response times, busiest paths and clients from Traefik's access log.\nWith a site (or a domain), only its requests.",
   options: {
@@ -141,6 +142,7 @@ function certCell(x?: Cert) {
 
 export const certsCmd = defineCommand({
   name: "certs",
+  tenant: true,
   summary: "Show each site domain's HTTPS certificate: when it expires, who issued it, and why getting one failed.",
   options: {
     server: serverOpt,
@@ -182,6 +184,7 @@ const isDomain = (s: string) => s.includes(".") && DOMAIN.test(s.toLowerCase());
 
 export const checkCmd = defineCommand({
   name: "check",
+  tenant: true,
   args: "[site|domain…]",
   summary:
     "Request each site over HTTPS from this machine: status, response time and days left on the certificate.\nExits 1 when one fails: use it from cron or CI.",

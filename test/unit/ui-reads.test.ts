@@ -16,23 +16,19 @@ vi.mock("../../src/core/views/views", async (orig) => ({
 }));
 
 const { READS, api } = await import("../../src/ui/server/api");
-const { SECTIONS, SECTION_IF, SAME_FOR_TENANTS, URLS, showSection, tenantMay } = await import("../../src/ui/app/lib/sections");
+const { SECTIONS, TENANT_SECTIONS, URLS, showSection } = await import("../../src/ui/app/lib/sections");
 const { CAPS, tenantCaps } = await import("../../src/core/server/facts");
 
 const DENY = ["firewall", "users", "system", "updates", "tenants"];
 
 describe("ui server reads", () => {
-  test("every read declares whether a tenant login may see it", () => {
-    for (const [route, read] of Object.entries(READS)) expect(["allow", "deny"], route).toContain(read.tenant);
-  });
-
   test("only the admin's views are closed to tenants", () => {
     const denied = Object.entries(READS)
-      .filter(([, r]) => r.tenant === "deny")
+      .filter(([, r]) => !r.tenant)
       .map(([k]) => k);
     expect(denied.sort()).toEqual([...DENY].sort());
-    expect(READS.facts.tenant).toBe("allow");
-    expect(READS[""].tenant).toBe("allow");
+    expect(READS.facts.tenant).toBe(true);
+    expect(READS[""].tenant).toBe(true);
   });
 
   const get = (path: string[]) => api(new Request(`http://127.0.0.1/api/${path.join("/")}`), path, {} as never);
@@ -56,26 +52,16 @@ describe("what a tenant login sees in the web UI", () => {
   const all = Object.fromEntries(CAPS.map((c) => [c, true])) as Record<(typeof CAPS)[number], boolean>;
   const core = SECTIONS.map(([t]) => t).filter((t): t is keyof typeof URLS => t in URLS);
 
-  test("every section says whether a tenant sees it", () => {
-    for (const t of core) expect(t in SECTION_IF || SAME_FOR_TENANTS.includes(t), `${t}: add it to SECTION_IF or SAME_FOR_TENANTS`).toBe(true);
-  });
-
   test("a section a tenant sees reads only what the server lets a tenant read", () => {
     const k = tenantCaps({ can: all, why: {} }).can;
     const shown = core.filter((t) => showSection(t, k, true));
     expect(shown).not.toContain("tenants");
     expect(shown).not.toContain("users");
-    for (const t of shown) expect(READS[URLS[t].slice(1)]?.tenant, t).toBe("allow");
+    for (const t of shown) expect(READS[URLS[t].slice(1)]?.tenant, t).toBe(true);
   });
 
-  test("tenantMay: the CLI's allowlist, aliases and plugin commands", () => {
-    expect(tenantMay(["deploy", ".", "-s", "x"])).toBe(true);
-    expect(tenantMay(["sites", "logs", "blog"])).toBe(true);
-    expect(tenantMay(["volume", "backup", "rm", "blog", "data"])).toBe(true);
-    expect(tenantMay(["setup", "x", "--check"])).toBe(false);
-    expect(tenantMay(["tenant", "add", "anna"])).toBe(false);
-    expect(tenantMay(["server", "upgrade", "x"])).toBe(false);
-    expect(tenantMay(["firewall", "allow", "80"])).toBe(false);
-    expect(tenantMay(["analytics", "show"], ["analytics"])).toBe(true);
+  test("before the facts are in, a tenant sees only its sections", () => {
+    expect(core.filter((t) => showSection(t, null, true))).toEqual(core.filter((t) => TENANT_SECTIONS.includes(t)));
+    expect(core.filter((t) => showSection(t, null, false))).toEqual(core);
   });
 });

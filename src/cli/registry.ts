@@ -1,4 +1,4 @@
-import { aliases } from "../core/lib/aliases";
+import { aliases } from "./aliases";
 import type { Command } from "./cmd";
 import { auth, domains, open } from "./commands/access";
 import { config } from "./commands/config";

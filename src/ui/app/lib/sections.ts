@@ -1,6 +1,4 @@
 // The server's sections, their stores and routes, and which a tenant login sees. No page code: the unit tests read it.
-import { aliases } from "../../../core/lib/aliases";
-import { TENANT_COMMANDS } from "../../../core/server/tenant-policy";
 import type { PluginTab } from "../../../core/plugins/plugin-api";
 import type { Cap } from "../../../core/server/facts";
 
@@ -68,30 +66,19 @@ export const SECTIONS: [Tab, string, string][] = [
 
 type Caps = Record<Cap, boolean>;
 /** When each section is worth a tab: the same conditions the CLI checks before doing it. */
-export const SECTION_IF: Partial<Record<CoreTab, (k: Caps, tenant: boolean) => unknown>> = {
+export const SECTION_IF: Partial<Record<CoreTab, (k: Caps) => unknown>> = {
   sites: (k) => k.docker || k.setup,
   tunnels: (k) => k.docker,
   traffic: (k) => k.docker,
   traefik: (k) => k.docker,
-  updates: (k, tenant) => !tenant && (k.packages || k.docker),
+  updates: (k) => k.packages || k.docker,
   firewall: (k) => k.firewall,
   users: (k) => k.users,
-  system: (_, tenant) => !tenant,
   tenants: (k) => k.tenants,
 };
-/** Sections a tenant login sees as the admin does: they read only its own sites, Docker and journal. */
-export const SAME_FOR_TENANTS: CoreTab[] = ["stats", "history", "settings"];
+/** What a tenant login sees: sections that read only its own sites, Docker and journal. */
+export const TENANT_SECTIONS: readonly CoreTab[] = ["sites", "tunnels", "stats", "traffic", "history", "traefik", "settings", "facts"];
 
-export const showSection = (t: string, k: Caps, tenant: boolean) => SECTION_IF[t as CoreTab]?.(k, tenant) ?? true;
-
-/** Whether a tenant login may run argv: the CLI's own allowlist, and plugin commands that say so. The CLI checks again: this only spares a job that would fail. */
-export function tenantMay(argv: string[], plugin: readonly string[] = []): boolean {
-  const end = argv.findIndex((a) => a.startsWith("-"));
-  const words = argv.slice(0, Math.min(end < 0 ? argv.length : end, 3));
-  for (let i = words.length; i > 0; i--) {
-    const said = words.slice(0, i).join(" ");
-    const cmd = aliases[said] ?? said;
-    if (TENANT_COMMANDS.has(cmd) || plugin.includes(cmd)) return true;
-  }
-  return false;
-}
+/** Whether section t shows; k is null until the server's facts are in. */
+export const showSection = (t: string, k: Caps | null, tenant: boolean) =>
+  (!tenant || TENANT_SECTIONS.includes(t as CoreTab)) && (!k || (SECTION_IF[t as CoreTab]?.(k) ?? true));

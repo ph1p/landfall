@@ -16,6 +16,7 @@ import { overview } from "../../core/server/overview";
 
 export const domains = defineCommand({
   name: "domains",
+  tenant: true,
   args: "[site]",
   summary: `Show a site's domains with their DNS and HTTPS state, or change them.
 
@@ -90,6 +91,7 @@ permanent redirect to the site's first domain, path and query kept.`,
 
 export const auth = defineCommand({
   name: "auth",
+  tenant: true,
   args: "[site]",
   summary: `Protect a site with a password (HTTP basic auth in Traefik).
 
@@ -183,6 +185,7 @@ function showLogins(site: string, meta: SiteMeta, key?: string) {
 
 export const open = defineCommand({
   name: "open",
+  tenant: true,
   args: "[site]",
   summary: "Open a site in the browser.",
   options: { server: serverOpt },

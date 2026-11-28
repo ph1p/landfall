@@ -10,6 +10,7 @@ const json = { type: "boolean", desc: "machine-readable output" } as const;
 
 export const pluginsList = defineCommand({
   name: "plugins",
+  tenant: true,
   summary: `List the plugins: the built-in ones and yours in ${tildify(PLUGIN_DIR)}, with their commands.`,
   options: { json },
   async run(_, o) {
@@ -30,6 +31,7 @@ export const pluginsList = defineCommand({
 
 export const pluginAdd = defineCommand({
   name: "plugin add",
+  tenant: true,
   args: "<file|folder>",
   summary: `Install a plugin: copy a .mjs/.js file or a folder (index.mjs or package.json "main") to ${tildify(PLUGIN_DIR)}. It is loaded first, to check it.`,
   options: { force: { type: "boolean", desc: "replace an installed plugin of that name" } },
@@ -61,6 +63,7 @@ export const pluginAdd = defineCommand({
 
 export const pluginRemove = defineCommand({
   name: "plugin rm",
+  tenant: true,
   args: "<name>",
   summary: `Remove an installed plugin from ${tildify(PLUGIN_DIR)}. What it keeps per server on this computer goes too.`,
   async run([name]) {
@@ -137,6 +140,7 @@ record "added a line to /etc/motd" "$undo"\`,
 
 export const pluginNew = defineCommand({
   name: "plugin new",
+  tenant: true,
   args: "<name>",
   summary: `Write a plugin to start from: ${tildify(PLUGIN_DIR)}/<name>.mjs (or --out), with a command and a web UI panel.`,
   options: { out: { type: "string", desc: "where to write it instead (a .mjs file); lf plugin add installs it later" } },

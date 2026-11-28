@@ -51,6 +51,7 @@ async function setupTraefik(name: string, server: Server, opts: Parameters<typeo
 
 export const traefikSetup = defineCommand({
   name: "traefik setup",
+  tenant: true,
   summary: "Install or reconfigure Traefik (reverse proxy + automatic HTTPS) on a server. Safe to re-run; refuses if ports 80/443 belong to something else.",
   options: {
     server: serverOpt,
@@ -155,6 +156,7 @@ With a Traefik of your own (lf traefik use), landfall only stops routing sites t
 
 export const traefikStatus = defineCommand({
   name: "traefik status",
+  tenant: true,
   summary: "Show traefik container state and the routes it serves.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {
@@ -174,6 +176,7 @@ export const traefikStatus = defineCommand({
 
 export const traefikLogs = defineCommand({
   name: "traefik logs",
+  tenant: true,
   summary: "Show traefik logs (certificate errors show up here).\nRequests are left out unless --access: lf traffic sums them up.",
   options: { server: serverOpt, ...logOpts, access: { type: "boolean", desc: "include the access log (a JSON line per request)" } },
   async run(_, o) {
@@ -192,6 +195,7 @@ export const traefikLogs = defineCommand({
 
 export const traefikAccessLog = defineCommand({
   name: "traefik access-log",
+  tenant: true,
   args: "[on|off|clear]",
   summary: `Show, turn on, turn off or empty Traefik's JSON access log, which lf traffic reads.
 
@@ -286,6 +290,7 @@ const UNKNOWN_HOSTS_TEXT: Record<UnknownHostsCheck["state"], string> = {
 
 export const traefikStrictTls = defineCommand({
   name: "traefik strict-tls",
+  tenant: true,
   args: "[on|off]",
   summary: `Show, turn on or turn off refusing HTTPS for hostnames no site serves (Traefik's sniStrict).
 
@@ -352,6 +357,7 @@ const STRICT_TLS_HINT = "set tls.options.default.sniStrict: true in its dynamic 
 
 export const traefikRestart = defineCommand({
   name: "traefik restart",
+  tenant: true,
   summary: "Restart traefik.",
   options: { server: serverOpt },
   async run(_, o) {
@@ -363,6 +369,7 @@ export const traefikRestart = defineCommand({
 
 export const traefikDashboard = defineCommand({
   name: "traefik dashboard",
+  tenant: true,
   summary: `Open Traefik's dashboard on localhost through an SSH tunnel.
 
 No domain or password needed: landfall's Traefik serves the dashboard to the server

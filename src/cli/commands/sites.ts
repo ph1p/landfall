@@ -24,6 +24,7 @@ import { ctrAddress, type Ctr, findContainer, openTunnel, openTunnels, portSchem
 
 export const sitesList = defineCommand({
   name: "sites list",
+  tenant: true,
   summary: "List deployed sites on a server.",
   options: {
     server: serverOpt,
@@ -64,6 +65,7 @@ export const sitesList = defineCommand({
 
 export const sitesInfo = defineCommand({
   name: "sites info",
+  tenant: true,
   args: "[name]",
   summary: "Show a site's services, domains and release history.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output: the site as lf ls --json lists it, with its folder" } },
@@ -111,6 +113,7 @@ export const sitesInfo = defineCommand({
 
 export const sitesLogs = defineCommand({
   name: "logs",
+  tenant: true,
   args: "[name] [service]",
   summary: "Show a site's logs: all its services, or one.",
   options: { server: serverOpt, ...logOpts },
@@ -127,6 +130,7 @@ export const sitesLogs = defineCommand({
 const lifecycle = (verb: "restart" | "stop" | "start", compose: string, done: string, undo?: string, undoWhen?: boolean) =>
   defineCommand({
     name: verb,
+    tenant: true,
     args: "[name] [service]",
     summary: `${verb[0].toUpperCase() + verb.slice(1)} a site's services, or one of them.`,
     options: { server: serverOpt },
@@ -150,6 +154,7 @@ export const sitesStart = lifecycle("start", "up -d --wait", "started", "stop", 
 
 export const sitesRollback = defineCommand({
   name: "rollback",
+  tenant: true,
   args: "[name]",
   summary: `Switch a site back to the previous release (or --to <release>).
 
@@ -183,6 +188,7 @@ const RELEASE_ID = /^\d{14}$/;
 
 export const releaseRemove = defineCommand({
   name: "release rm",
+  tenant: true,
   args: "[name] [release...]",
   summary: `Delete old releases of a site: their folders and the images built for them.
 
@@ -217,6 +223,7 @@ stays. Removed releases are gone for rollback: this cannot be undone. Volumes ar
 
 export const sitesAdopt = defineCommand({
   name: "adopt",
+  tenant: true,
   args: "<project>",
   summary: `Make a Compose project landfall did not deploy a site: \`lf sites\`, logs, restart,
 stop and start then work for it. It keeps running from its folder, with its own files and
@@ -260,6 +267,7 @@ stops it and forgets it again. The projects you can adopt are listed under \`lf 
 
 export const sitesRemove = defineCommand({
   name: "sites rm",
+  tenant: true,
   args: "<name>",
   summary: `Stop a site and delete its files and releases from the server.
 
@@ -307,6 +315,7 @@ async function namedPairs(pos: string[], dotenv: string | undefined, oneLine = f
 
 export const sitesEnv = defineCommand({
   name: "env",
+  tenant: true,
   args: "[name] [KEY=VALUE...]",
   summary: "Show or change a site's .env; services whose environment changed are recreated.",
   options: {
@@ -358,6 +367,7 @@ ${writeFileCmd(".env", next, "600")}`,
 
 export const sitesSecret = defineCommand({
   name: "secret",
+  tenant: true,
   args: "[name] [NAME=VALUE...]",
   summary: "List or change a site's secret files; services read them at /run/secrets/<NAME>.",
   options: {
@@ -444,6 +454,7 @@ export const sitesSecret = defineCommand({
 
 export const sitesTunnel = defineCommand({
   name: "tunnel",
+  tenant: true,
   args: "[name] [service|private]",
   summary: `Open a site on localhost through an SSH tunnel, straight to its container.
 A name from x-landfall.private (lf tunnel blog admin) opens that port.
@@ -498,6 +509,7 @@ The tunnel stays open until Ctrl-C.`,
 
 export const tunnelsList = defineCommand({
   name: "tunnels",
+  tenant: true,
   summary: "List the tunnels open on this machine (lf tunnel, lf traefik dashboard): what, where and since when.",
   options: {
     json: { type: "boolean", desc: "machine-readable output" },

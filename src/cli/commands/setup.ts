@@ -16,6 +16,7 @@ import { DEFAULT_USER, describeTraefik, installTraefik, traefikSettings, useProx
 
 export const keygen = defineCommand({
   name: "keygen",
+  tenant: true,
   args: "<name>",
   summary: "Create an ed25519 key pair at ~/.ssh/landfall_<name> (skips if it exists) and print the public key.",
   async run([name]) {

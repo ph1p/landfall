@@ -19,6 +19,8 @@ export interface Command<O extends Record<string, OptSpec> = Record<string, OptS
   args?: string;
   summary: string;
   options?: O;
+  /** A tenant login may run it: it touches only the tenant's own sites, Docker and files. Admin logins only otherwise. */
+  tenant?: boolean;
   /** Everything after `--` is handed to run untouched. */
   passthrough?: boolean;
   run(pos: string[], opts: Record<string, any>, rest: string[]): Promise<void | number>;

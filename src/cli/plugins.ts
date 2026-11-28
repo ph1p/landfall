@@ -6,7 +6,6 @@ import { fail } from "../core/lib/fail";
 import { dropPlugin, pluginContext, plugins } from "../core/plugins/plugins";
 import { printJson } from "../core/lib/term";
 import { printBlocks } from "../core/plugins/print";
-import { tenantPluginCommands } from "../core/server/tenant-policy";
 
 type Runner = (argv: string[]) => Promise<number>;
 
@@ -15,6 +14,7 @@ function toCommand(p: Plugin, pc: PluginCommand, lf: Runner): Command {
     name: pc.name ? `${p.name} ${pc.name}` : p.name,
     args: pc.args,
     summary: pc.summary,
+    tenant: pc.tenant,
     // checkPlugin refuses options that would shadow landfall's own.
     options: pc.local ? pc.options : { server: serverOpt, ...pc.options },
     run: (pos, opts) => pc.run(pluginContext(p.name, pc.local ? null : opts.server, lf), pos, opts),
@@ -27,6 +27,7 @@ function panelCommand(p: Plugin, lf: Runner): Command {
   return {
     name: p.name,
     summary: p.summary,
+    tenant: p.panel!.tenant,
     options: {
       server: serverOpt,
       json: { type: "boolean", desc: "the panel's blocks as JSON" },
@@ -73,7 +74,5 @@ export function registerPlugins(lf: Runner) {
       pluginCommandNames.add(cmd.name);
     }
     for (const [k, to] of al) aliases[k] = to;
-    for (const pc of p.commands ?? []) if (pc.tenant) tenantPluginCommands.add(pc.name ? `${p.name} ${pc.name}` : p.name);
-    if (p.panel?.tenant) tenantPluginCommands.add(p.name);
   }
 }

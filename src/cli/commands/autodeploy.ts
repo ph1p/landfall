@@ -57,6 +57,7 @@ function show(v: AutodeployView) {
 
 export const autodeploy = defineCommand({
   name: "autodeploy",
+  tenant: true,
   args: "[site]",
   summary: `Let a site deploy new commits on its own: the server checks its repository on a schedule.
 

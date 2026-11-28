@@ -4,6 +4,7 @@ import { maskJobArgs, validateJobArgs } from "../job-args";
 
 export const ui = defineCommand({
   name: "ui",
+  tenant: true,
   summary: "Web dashboard in your browser: servers, sites, firewall, history, every action.\nRuns on 127.0.0.1 only; the printed link logs the browser in.",
   options: {
     port: { type: "string", short: "p", desc: "port to listen on (default: 4777, else the next free one)" },

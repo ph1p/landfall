@@ -1,4 +1,4 @@
-// Other names for commands. No imports: the web page resolves them too, before it runs a job.
+// Other names for commands.
 export const aliases: Record<string, string> = {
   ls: "sites list",
   sites: "sites list",

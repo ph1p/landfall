@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { S, http, render, errorMessage, isTenant } from "./store";
-import { tenantMay } from "./sections";
+import { S, http, render, errorMessage } from "./store";
 import type { Report } from "./types";
 import { invalidate, refreshState } from "./api";
 import { toast, say } from "../ui/toast";
@@ -52,16 +51,6 @@ export interface RunOpts {
 // The server an argv names with -s: its undo and reload follow it, not whichever server is on screen.
 const argvServer = (argv: string[]) => (argv.includes("-s") ? argv[argv.indexOf("-s") + 1] : undefined);
 export async function run(argv: string[], o: RunOpts = {}) {
-  const target = o.server ?? argvServer(argv);
-  if (
-    !o.retry &&
-    isTenant(target) &&
-    !tenantMay(
-      argv,
-      S.state.plugins.flatMap((p) => p.tenantCommands),
-    )
-  )
-    return toast(`${target} is a tenant login: lf ${argv.filter((a) => !a.startsWith("-"))[0] ?? ""} needs the server's admin`);
   let info: JobInfo;
   try {
     // A retry runs the job's own argv on the server: the page only has it with passwords masked.

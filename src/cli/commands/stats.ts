@@ -74,6 +74,7 @@ function printStats(name: string, s: Stats, site?: string) {
 
 export const statsCmd = defineCommand({
   name: "stats",
+  tenant: true,
   args: "[site]",
   summary: "Show live CPU, memory, disk, network, the busiest processes and each container's usage.\nWith a site, only its containers.",
   options: {
@@ -141,6 +142,7 @@ function printDisk(name: string, d: DiskUsage) {
 
 export const diskCmd = defineCommand({
   name: "disk",
+  tenant: true,
   summary: "Show where a server's disk space goes: filesystems, Docker images, volumes, build cache, sites and container logs.",
   options: { server: serverOpt, json: { type: "boolean", desc: "machine-readable output" } },
   async run(_, o) {

@@ -125,46 +125,46 @@ async function reach(q: URLSearchParams): Promise<Response> {
 }
 
 type ReadCtx = { name: string; server: Server; rest?: string; q: URLSearchParams };
-export type Read = { tenant: "allow" | "deny"; view: (c: ReadCtx) => Promise<Response> };
+export type Read = { tenant?: true; view: (c: ReadCtx) => Promise<Response> };
 
 const site = (q: URLSearchParams) => validName(q.get("site") ?? "");
 
-// The same views `--json` prints, by route ("" is the overview). Every new read must declare `tenant`: may a tenant login see it?
+// The same views `--json` prints, by route ("" is the overview). `tenant: true`: a tenant login may read it too, like Command.tenant.
 export const READS: Record<string, Read> = {
-  "": { tenant: "allow", view: async ({ server }) => json(await overview(server)) },
-  firewall: { tenant: "deny", view: async ({ server }) => json(await firewallView(server)) },
-  tenants: { tenant: "deny", view: async ({ server, q }) => json(await tenantsView(server, q.get("sizes") === "1")) },
-  config: { tenant: "allow", view: async ({ name, server }) => json(await configView(name, server)) },
-  history: { tenant: "allow", view: async ({ server }) => json(await historyBrief(server)) },
-  registries: { tenant: "allow", view: async ({ server }) => json(await registries(server)) },
-  facts: { tenant: "allow", view: async ({ name, server }) => json(await factsView(name, server)) },
-  stats: { tenant: "allow", view: async ({ server }) => json(await statsView(server)) },
-  disk: { tenant: "allow", view: async ({ server }) => json(await diskView(server)) },
-  prune: { tenant: "allow", view: async ({ server }) => json(await pruneView(server)) },
-  system: { tenant: "deny", view: async ({ name, server }) => json(await systemView(name, server)) },
-  users: { tenant: "deny", view: async ({ server }) => json(await usersView(server)) },
-  updates: { tenant: "deny", view: async ({ server, q }) => json(await updatesView(server, q.get("refresh") === "1")) },
-  scan: { tenant: "allow", view: async ({ server, q }) => json(await scanView(server, q.get("others") !== "0", q.get("install") === "1")) },
-  trivy: { tenant: "allow", view: async ({ server, q }) => json(await trivyState(server, q.get("sizes") !== "0")) },
+  "": { tenant: true, view: async ({ server }) => json(await overview(server)) },
+  firewall: { view: async ({ server }) => json(await firewallView(server)) },
+  tenants: { view: async ({ server, q }) => json(await tenantsView(server, q.get("sizes") === "1")) },
+  config: { tenant: true, view: async ({ name, server }) => json(await configView(name, server)) },
+  history: { tenant: true, view: async ({ server }) => json(await historyBrief(server)) },
+  registries: { tenant: true, view: async ({ server }) => json(await registries(server)) },
+  facts: { tenant: true, view: async ({ name, server }) => json(await factsView(name, server)) },
+  stats: { tenant: true, view: async ({ server }) => json(await statsView(server)) },
+  disk: { tenant: true, view: async ({ server }) => json(await diskView(server)) },
+  prune: { tenant: true, view: async ({ server }) => json(await pruneView(server)) },
+  system: { view: async ({ name, server }) => json(await systemView(name, server)) },
+  users: { view: async ({ server }) => json(await usersView(server)) },
+  updates: { view: async ({ server, q }) => json(await updatesView(server, q.get("refresh") === "1")) },
+  scan: { tenant: true, view: async ({ server, q }) => json(await scanView(server, q.get("others") !== "0", q.get("install") === "1")) },
+  trivy: { tenant: true, view: async ({ server, q }) => json(await trivyState(server, q.get("sizes") !== "0")) },
   traffic: {
-    tenant: "allow",
+    tenant: true,
     view: async ({ server, q }) => {
       const t = await trafficView(server, parseSince(q.get("since") ?? "24h"));
       const only = q.get("site");
       return json(only ? siteTrafficView(t, only) : t);
     },
   },
-  certs: { tenant: "allow", view: async ({ server }) => json(await certsView(server)) },
-  traefik: { tenant: "allow", view: async ({ server }) => json(await traefikView(server)) },
+  certs: { tenant: true, view: async ({ server }) => json(await certsView(server)) },
+  traefik: { tenant: true, view: async ({ server }) => json(await traefikView(server)) },
   env: {
-    tenant: "allow",
+    tenant: true,
     view: async ({ server, q }) => {
       const { env } = await requireSite(server, site(q), { deployed: "manage the .env of" });
       return json(envView(env, q.get("reveal") === "1"));
     },
   },
   secrets: {
-    tenant: "allow",
+    tenant: true,
     view: async ({ server, q }) => {
       const s = site(q);
       const [, have] = await Promise.all([requireSite(server, s, { deployed: "manage the secrets of" }), readSecrets(server, s)]);
@@ -173,7 +173,7 @@ export const READS: Record<string, Read> = {
     },
   },
   volumes: {
-    tenant: "allow",
+    tenant: true,
     view: async ({ server, q }) => {
       // lf volumes --json: sizes, mounts and backups. sizes=0 skips du (slow on big volumes) but still tells which are empty.
       const sizes = q.get("sizes") !== "0";
@@ -181,9 +181,9 @@ export const READS: Record<string, Read> = {
     },
   },
   // lf autodeploy <site> --json: the setting, what it saw last, the log tail.
-  autodeploy: { tenant: "allow", view: async ({ name, server, q }) => json(await readAutodeploy(server, name, site(q))) },
+  autodeploy: { tenant: true, view: async ({ name, server, q }) => json(await readAutodeploy(server, name, site(q))) },
   plugins: {
-    tenant: "allow",
+    tenant: true,
     view: async ({ name, rest, q }) => {
       const p = pluginNamed(rest ?? "")?.plugin;
       if (!p?.panel) return failure(`no plugin panel ${rest ?? ""}`, 404);
@@ -191,7 +191,7 @@ export const READS: Record<string, Read> = {
     },
   },
   dns: {
-    tenant: "allow",
+    tenant: true,
     view: async ({ server, q }) => {
       const domains = (q.get("domains") ?? "")
         .split(",")
@@ -208,7 +208,7 @@ async function serverRead(name: string, sub: string | undefined, rest: string | 
   const key = sub ?? "";
   const read = sub !== "" && Object.hasOwn(READS, key) ? READS[key] : undefined;
   if (!read) return undefined;
-  if (server.tenant && read.tenant === "deny") return failure(`this view needs the server's admin; ${name} is a tenant login`, 403);
+  if (server.tenant && !read.tenant) return failure(`this view needs the server's admin; ${name} is a tenant login`, 403);
   return read.view({ name, server, rest, q });
 }
 

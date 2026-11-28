@@ -14,6 +14,7 @@ import { siteTarget } from "../target";
 
 export const init = defineCommand({
   name: "init",
+  tenant: true,
   args: "[dir]",
   summary: `Write a compose.yaml for this project, to run it locally and deploy it.
 
@@ -164,6 +165,7 @@ function adopt(root: string, file: string, a: NonNullable<ReturnType<typeof dete
 
 export const eject = defineCommand({
   name: "eject",
+  tenant: true,
   args: "[site]",
   summary: `Write what landfall adds to a site into its project, to run it behind your own Traefik.
 

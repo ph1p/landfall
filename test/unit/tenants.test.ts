@@ -111,18 +111,95 @@ test("only ssh.ts and tunnel.ts start ssh or rsync", () => {
   expect(hits.sort()).toEqual(["core/ssh/ssh.ts", "core/ssh/tunnel.ts"]);
 });
 
-describe("the allowlist", () => {
-  test("names only commands that exist", async () => {
+// A change here is a change of what tenants may do: review it like one.
+const TENANT_COMMANDS = [
+  "adopt",
+  "auth",
+  "autodeploy",
+  "certs",
+  "check",
+  "config",
+  "deploy",
+  "disk",
+  "domains",
+  "eject",
+  "env",
+  "git key",
+  "git track",
+  "history",
+  "init",
+  "keygen",
+  "logs",
+  "open",
+  "plugin add",
+  "plugin new",
+  "plugin rm",
+  "plugins",
+  "promote",
+  "prune",
+  "redirect add",
+  "redirect rm",
+  "redirects",
+  "refs",
+  "registries",
+  "registry login",
+  "registry logout",
+  "release rm",
+  "restart",
+  "rollback",
+  "scale",
+  "secret",
+  "server add",
+  "server config",
+  "server domain",
+  "server info",
+  "server list",
+  "server rm",
+  "server use",
+  "sites info",
+  "sites list",
+  "sites rm",
+  "ssh",
+  "start",
+  "stats",
+  "stop",
+  "traefik access-log",
+  "traefik dashboard",
+  "traefik logs",
+  "traefik restart",
+  "traefik setup",
+  "traefik status",
+  "traefik strict-tls",
+  "traffic",
+  "tunnel",
+  "tunnels",
+  "ui",
+  "undo",
+  "volume add",
+  "volume backup",
+  "volume backup rm",
+  "volume pull",
+  "volume push",
+  "volume restore",
+  "volume rm",
+  "volumes",
+  "weight",
+];
+
+describe("tenant commands", () => {
+  test("only these say tenant: true", async () => {
     const { commands } = await import("../../src/cli/registry");
-    const { TENANT_COMMANDS } = await import("../../src/core/server/tenant-policy");
-    const names = new Set(commands.map((c) => c.name));
-    expect([...TENANT_COMMANDS].filter((n) => !names.has(n))).toEqual([]);
+    expect(
+      commands
+        .filter((c) => c.tenant)
+        .map((c) => c.name)
+        .sort(),
+    ).toEqual(TENANT_COMMANDS);
   });
 
-  test("refuses the rest on a tenant server only", async () => {
+  test("a tenant login is refused the rest", async () => {
     const { tenantRefusal } = await import("../../src/core/server/tenant-policy");
     expect(tenantRefusal("vps", anna, "firewall enable")).toBe("lf firewall enable is for the admin of vps; anna is a tenant there");
-    expect(tenantRefusal("vps", anna, "deploy")).toBeUndefined();
     expect(tenantRefusal("vps", { host: "vps" }, "firewall enable")).toBeUndefined();
     expect(tenantRefusal("vps", anna, undefined)).toBeUndefined();
   });

@@ -41,6 +41,7 @@ import { LATEST_MIGRATION, migrateScript, READ_STAMP, stampOf } from "../../core
 
 export const serverAdd = defineCommand({
   name: "server add",
+  tenant: true,
   args: "<name>",
   summary: `Register a server without setting it up (fresh or not).
 
@@ -106,6 +107,7 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
 
 export const serverList = defineCommand({
   name: "server list",
+  tenant: true,
   summary: `List servers registered with landfall and aliases found in ~/.ssh/config.
 
 Git hosts (github.com, gitlab.*, User git …) are left out: they are not servers.
@@ -148,6 +150,7 @@ Git hosts (github.com, gitlab.*, User git …) are left out: they are not server
 
 export const serverRemove = defineCommand({
   name: "server rm",
+  tenant: true,
   args: "<name>",
   summary: "Forget a server (nothing is changed on the server itself).",
   options: { "ssh-config": { type: "boolean", desc: "also remove the landfall-managed Host block from ~/.ssh/config" } },
@@ -251,6 +254,7 @@ Docker, packages, landfall's key for root and rules from \`lf firewall\` stay.`,
 
 export const serverUse = defineCommand({
   name: "server use",
+  tenant: true,
   args: "<name>",
   summary: "Set the default server used when --server is omitted.",
   async run([name]) {
@@ -262,6 +266,7 @@ export const serverUse = defineCommand({
 
 export const serverSsh = defineCommand({
   name: "ssh",
+  tenant: true,
   args: "[name] [-- command...]",
   summary: "Open a shell on a server, or run a command there.",
   passthrough: true,
@@ -278,6 +283,7 @@ const stampRow = (st: StampStatus) => {
 
 export const serverInfo = defineCommand({
   name: "server info",
+  tenant: true,
   args: "[name]",
   summary: "Show OS, hardware, load, memory, disk, addresses and containers of a server.",
   options: { json: { type: "boolean", desc: "machine-readable output" } },
@@ -347,6 +353,7 @@ When a newer landfall changes how files on the server look, it brings an upgrade
 
 export const serverConfig = defineCommand({
   name: "server config",
+  tenant: true,
   args: "[name]",
   summary: `Show every setting landfall uses for a server: its entry in landfall's config,
 the main domain, Traefik settings, what ssh resolves (host, user, port, keys)
@@ -426,6 +433,7 @@ landfall then tries root, the admin user and other Hosts for the same machine.`,
 
 export const serverDomain = defineCommand({
   name: "server domain",
+  tenant: true,
   args: "[name] [domain...]",
   summary: `Show or set a server's main domains.
 

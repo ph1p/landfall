@@ -15,6 +15,7 @@ const describe = (r: ServerRedirect) =>
 
 export const redirectsList = defineCommand({
   name: "redirects",
+  tenant: true,
   summary: `List the server's redirects with their DNS and HTTPS state.
 
 A server redirect sends every request for a host elsewhere, with no site behind it
@@ -33,6 +34,7 @@ A server redirect sends every request for a host elsewhere, with no site behind 
 
 export const redirectAdd = defineCommand({
   name: "redirect add",
+  tenant: true,
   args: "<host> <url>",
   summary: `Redirect a host to a URL, with no site behind it (undoable).
 
@@ -66,6 +68,7 @@ A bare host name is a subdomain of the main domain. Adding a host again changes 
 
 export const redirectRemove = defineCommand({
   name: "redirect rm",
+  tenant: true,
   args: "<host...>",
   summary: "Remove server redirects (undoable). A bare host name is a subdomain of the main domain.",
   options: { server: serverOpt },

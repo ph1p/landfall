@@ -7,6 +7,7 @@ const json = { type: "boolean", desc: "machine-readable output" } as const;
 
 export const registryList = defineCommand({
   name: "registries",
+  tenant: true,
   summary: "List the registries the server's docker is logged in to (lf deploy --image pulls private images from them).",
   options: { server: serverOpt, json },
   async run(_, o) {
@@ -20,6 +21,7 @@ export const registryList = defineCommand({
 
 export const registryLoginCmd = defineCommand({
   name: "registry login",
+  tenant: true,
   args: "<host>",
   summary: "Log the server's docker in to a registry (ghcr.io, docker.io, …), so deploys pull private images from it.",
   options: {
@@ -42,6 +44,7 @@ export const registryLoginCmd = defineCommand({
 
 export const registryLogoutCmd = defineCommand({
   name: "registry logout",
+  tenant: true,
   args: "<host>",
   summary: "Log the server's docker out of a registry and remove the stored credentials.",
   options: { server: serverOpt },

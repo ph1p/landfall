@@ -104,6 +104,7 @@ async function pickLocalImage(): Promise<string> {
 
 export const deploy = defineCommand({
   name: "deploy",
+  tenant: true,
   args: "[dir]",
   summary: `Deploy a Compose project, app, static folder, Dockerfile or image with HTTPS.
 

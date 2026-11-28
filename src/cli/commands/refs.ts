@@ -22,6 +22,7 @@ function runningText(e: EnvRefs): string {
 
 export const refs = defineCommand({
   name: "refs",
+  tenant: true,
   summary: `Show what each environment deploys (its git rule), what runs there, and what is newer.
 
   lf refs              # every environment of the project
@@ -53,6 +54,7 @@ newest) and each environment's server.`,
 
 export const promote = defineCommand({
   name: "promote",
+  tenant: true,
   args: "<from-env> <to-env>",
   summary: `Deploy the commit that runs in one environment to another: test → prod.
 

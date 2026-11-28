@@ -7,6 +7,7 @@ const KEYS = ["tunnel-only", "email", "keep", "default"] as const;
 
 export const config = defineCommand({
   name: "config",
+  tenant: true,
   summary: `Show or change landfall's defaults for every server.
 
 A server's own setting wins over these (lf server config shows which applies):
