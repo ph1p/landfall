@@ -13,6 +13,8 @@ export const ACTS = "text-right whitespace-nowrap [&_button]:ml-1 max-[760px]:wh
 export const HIDE = "narrow:hidden";
 export const SHOW = "hidden! narrow:flex!";
 export const MONO = "font-mono text-sm";
+/** A block of text to copy: commands, config. */
+export const PRE = cx(MONO, "bg-hover border border-line px-3 py-2.5 rounded-sm overflow-auto whitespace-pre m-0");
 /** A table's name cell: the name and its small markers on one line. */
 export const NAME = "flex items-center gap-0.5 whitespace-nowrap";
 export const SR = "sr-only";

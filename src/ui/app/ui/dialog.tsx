@@ -163,6 +163,8 @@ export function numberError(v: string, min = -Infinity, max = Infinity): string 
 }
 /** For a field's check: what is wrong with a port (empty is the field's own business). */
 export const portError = (x: string) => x && !(/^\d+$/.test(x) && +x >= 1 && +x <= 65535) && "A port from 1 to 65535";
+/** For a field's check: what is wrong with a Linux user name (lf user add's rule). */
+export const userNameError = (x: string) => !new RegExp(S.state.rules.userName).test(x) && "Lowercase letters, digits, _ and -, starting with a letter";
 /** For a field's check: what is wrong with a login's user or password (lf newLogin's rules). */
 export const userError = (user: string) => !new RegExp(S.state.rules.loginName).test(user) && "Only letters, digits and . _ @ -";
 /** For a field's check: an SSH public key line (the .pub file), or nothing. */

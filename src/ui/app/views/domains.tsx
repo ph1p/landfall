@@ -2,7 +2,7 @@ import { S, plural, serverNamed, sv, tilde } from "../lib/store";
 import type { Detected, Dns, Overview, SiteStatus } from "../lib/types";
 import { fetchInto, go, refreshState } from "../lib/api";
 import { run, ifOk } from "../lib/jobs";
-import { toast } from "../ui/toast";
+import { copy, toast } from "../ui/toast";
 import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
 import { autoDomain, domainTaken } from "./flows/names";
@@ -16,13 +16,6 @@ import { hookChoice } from "./hooks";
 import { EnvTable, NO_ENV_CHANGE, type EnvChange } from "./env";
 
 // ---- domains & login ---------------------------------------------------------
-
-export function copy(text: string) {
-  navigator.clipboard?.writeText(text).then(
-    () => toast(`Copied ${text}`),
-    () => toast(text),
-  ) ?? toast(text);
-}
 
 /** What answers a host now, other than `site`: another site, or a server redirect. */
 const servedByOther = (n: string, site: string, d: string): string | undefined => {

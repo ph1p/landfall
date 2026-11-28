@@ -3,7 +3,7 @@ import { runningJobs, showJob, JobPanel } from "../../lib/jobs";
 import { Btn, Spin, badgeClass, cx, MONO } from "../../ui/kit";
 import { folderDialog } from "../flows/folder";
 import { deployHere } from "../flows/deploy";
-import { copy } from "../domains";
+import { copy } from "../../ui/toast";
 import { Main } from "./main";
 import { Nav, Pick } from "./nav";
 

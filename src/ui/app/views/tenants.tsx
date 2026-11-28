@@ -6,7 +6,7 @@ import { ACTS, Actions, Badge, Btn, Card, CardHead, HIDE, MONO, Note, SR, Sub, c
 import { MenuBtn } from "../ui/menu";
 import { confirmDlg, dialog, domainOk, keyError, type Values } from "../ui/dialog";
 import { bytes } from "../../../core/lib/format";
-import { copy } from "./domains";
+import { copy } from "../ui/toast";
 import { toast } from "../ui/toast";
 import { LIMIT_RULES, tenantLogin } from "../../../core/server/tenant-policy";
 

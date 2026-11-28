@@ -4,13 +4,12 @@ import { errorMessage, http } from "../lib/store";
 import { run } from "../lib/jobs";
 import type { CiView } from "../lib/types";
 import { closeDialog, confirmDlg, DBTNS, DFORM, DTEXT, DTITLE, openDialog } from "../ui/dialog";
-import { Badge, Btn, Note, cx, MONO } from "../ui/kit";
+import { Badge, Btn, Note, cx, PRE } from "../ui/kit";
 import { ruleText } from "../../../core/deploy/refs";
 
 type Forge = CiView["forge"];
 const FORGE_NAMES: Record<Forge, string> = { github: "GitHub Actions", gitlab: "GitLab CI" };
 const ext = { target: "_blank", rel: "noopener noreferrer" };
-const PRE = cx(MONO, "bg-hover border border-line px-3 py-2.5 rounded-sm overflow-auto whitespace-pre m-0");
 
 /** Opens the CI wizard for the project folder at path. */
 export const ciDialog = (path: string) => void openDialog(<CiDialog path={path} />, "wide");

@@ -3,13 +3,12 @@ import type { Account, Users } from "../lib/types";
 import { rep, run, type Job } from "../lib/jobs";
 import { ACTS, Actions, Badge, Btn, Card, CardHead, HIDE, MONO, Note, SR, Sub, cx, pending, Table } from "../ui/kit";
 import { MenuBtn } from "../ui/menu";
-import { confirmDlg, dialog, keyError, passwordError, type Values } from "../ui/dialog";
+import { confirmDlg, dialog, keyError, passwordError, userNameError, type Values } from "../ui/dialog";
 import { addKeyDlg } from "./system";
 
 // ---- users -------------------------------------------------------------------
 // Every change is an lf users command: the page checks what the CLI would refuse, the CLI decides.
 
-const nameError = (x: string) => !new RegExp(S.state.rules.userName).test(x) && "Lowercase letters, digits, _ and -, starting with a letter";
 /** An lf command for server n, as a job. */
 const lf = (n: string, argv: string[], o: Omit<Parameters<typeof run>[1], "server"> = {}) => run([...argv, ...sv(n)], { ...o, server: n });
 
@@ -174,7 +173,7 @@ function addUserDlg(n: string, u: Users) {
         placeholder: "anna",
         mono: true,
         required: true,
-        check: (x) => nameError(x) || (u.accounts.some((a) => a.name === x) && `${x} already exists`),
+        check: (x) => userNameError(x) || (u.accounts.some((a) => a.name === x) && `${x} already exists`),
       },
       {
         name: "generate",

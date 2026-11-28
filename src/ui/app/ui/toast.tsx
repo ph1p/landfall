@@ -14,6 +14,14 @@ export function toast(msg: string, action?: Toast["action"]) {
   show({ msg, action, n: ++n });
 }
 
+/** Copy text to the clipboard; what names it in the toast. Without a clipboard the toast shows the text. */
+export function copy(text: string, what = text) {
+  navigator.clipboard?.writeText(text).then(
+    () => toast(`Copied ${what}`),
+    () => toast(text),
+  ) ?? toast(text);
+}
+
 let speak: (text: string) => void = () => {};
 /** Tell screen readers about a change that has no visible text of its own. */
 export const say = (text: string) => speak(text);
