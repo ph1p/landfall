@@ -41,8 +41,8 @@
   "scripts": {
     "dev": "tsx src/cli/cli.ts",
     "build": "tsdown && vite build",
-    "docs:dev": "cd docs && vocs dev",
-    "docs:build": "cd docs && vocs build",
+    "docs:dev": "pnpm --filter landfall-docs dev",
+    "docs:build": "pnpm --filter landfall-docs build",
     "prepublishOnly": "pnpm build",
     "test": "vitest run test/unit",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/app",
@@ -84,8 +84,6 @@
     "typescript": "^7.0.2",
     "vite": "^8.4.0",
     "vitest": "^5.1.2",
-    "vocs": "2.14.1",
-    "waku": "1.0.0-rc.5",
     "web-vitals": "^6.2.3"
   },
   "engines": {
