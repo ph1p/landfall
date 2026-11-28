@@ -43,7 +43,7 @@ export interface Server {
   cloud?: string;
   /** Traefik dashboard, remembered so re-running traefik setup keeps it. */
   dashboard?: { host: string; user: string; htpasswd: string };
-  /** This login is a tenant (`lf tenant add`): its own root and rootless Docker. */
+  /** This login is a tenant (`lf tenant add`): its own root and rootless Docker. Its domains stay on the server. */
   tenant?: Tenant;
 }
 
@@ -52,7 +52,6 @@ export interface Tenant {
   /** Stands in for /opt/landfall. */
   root: string;
   port: number;
-  domains: string[];
   /** The address the tenant's containers see the central Traefik come from. */
   trustedIP?: string;
 }

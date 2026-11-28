@@ -59,7 +59,7 @@ describe("without a tenant nothing changes", () => {
   });
 });
 
-const anna = { host: "vps", user: "anna", tenant: { uid: 1001, root: "/opt/landfall/tenants/anna", port: 8443, domains: [] } };
+const anna = { host: "vps", user: "anna", tenant: { uid: 1001, root: "/opt/landfall/tenants/anna", port: 8443 } };
 
 describe("a tenant server", () => {
   test("every way to the server sends only paths under the tenant root", async () => {
@@ -263,6 +263,15 @@ describe("server add finds the tenant", () => {
       domains: ["a.dev"],
     });
     expect(calls.at(-1)!.input).toContain('f=/opt/landfall/tenants/"$u".json');
+  });
+
+  test("its domains come from the server, not the local config", async () => {
+    const { mineLine, mineOf, tenantLogin } = await import("../../src/core/server/tenant");
+    expect(mineLine({ host: "vps" })).toBe("");
+    expect(mineLine(anna)).toContain('/opt/landfall/tenants/"$(id -un)".json');
+    expect(mineOf('x\nMINE\t{"domains":["a.dev",3]}\n')).toEqual(["a.dev"]);
+    expect(mineOf("MINE\t\n")).toBeUndefined();
+    expect(tenantLogin({ uid: 1, root: "/r", port: 2, domains: ["a.dev"] } as never)).toEqual({ uid: 1, root: "/r", port: 2 });
   });
 
   test("not without a readable, valid file", async () => {

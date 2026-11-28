@@ -19,7 +19,7 @@ import {
   type Server,
 } from "../../core/lib/config";
 import { securityNotes } from "../../core/server/security";
-import { detectTenant } from "../../core/server/tenant";
+import { detectTenant, tenantLogin } from "../../core/server/tenant";
 import { tenantsOn } from "../../core/server/tenants";
 import { canLogin, runScript, shq, sshExec } from "../../core/ssh/ssh";
 import { effectiveSsh, hasManagedBlock, removeHostBlock, sshAliases, SSH_CONFIG } from "../../core/ssh/sshconfig";
@@ -88,7 +88,7 @@ The password comes from the prompt, --password-stdin or $LANDFALL_PASSWORD.`,
     else if (cloud === "") delete entry.cloud;
     if (keyPath) {
       const tenant = await detectTenant(entry);
-      if (tenant) entry.tenant = tenant;
+      if (tenant) entry.tenant = tenantLogin(tenant);
       else delete entry.tenant;
     }
     const saved = await updateConfig((fresh) => {

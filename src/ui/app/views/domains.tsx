@@ -1,11 +1,11 @@
-import { S, plural, serverNamed, sv, tilde } from "../lib/store";
+import { S, plural, sv, tilde } from "../lib/store";
 import type { Detected, Dns, Overview, SiteStatus } from "../lib/types";
 import { fetchInto, go, refreshState } from "../lib/api";
 import { run, ifOk } from "../lib/jobs";
 import { copy, toast } from "../ui/toast";
 import { Btn, Dot } from "../ui/kit";
 import { confirmDlg, dialog, domainOk, passwordError, promptDlg, userError, words, type Spec, type Values } from "../ui/dialog";
-import { autoDomain, domainTaken } from "./flows/names";
+import { autoDomain, domainTaken, ownDomains } from "./flows/names";
 import { browse, openAfter } from "./flows/deploy";
 import { buildForm } from "./flows/build-form";
 import { mainDomain } from "./flows/server-dialogs";
@@ -56,7 +56,7 @@ function settingsDialog(n: string, site: SiteStatus, path?: string, det?: Detect
   const free = autoDomain(n, name);
   const ips = S.dns[n]?.data?.ips ?? [];
   const users = (m.auth ?? []).map((a) => a.split(":")[0]);
-  const own = serverNamed(n)?.saved?.tenant?.domains;
+  const own = ownDomains(n);
   const build = det && buildForm(det);
   const served = (v: Values) => !build || build.served(v);
   // The untouched form already asks for flags (a detected build not yet saved): only a change from them redeploys.

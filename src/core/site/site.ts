@@ -4,6 +4,7 @@ import { onStop } from "../lib/job";
 import { runScript, shq } from "../ssh/ssh";
 import { OWN_PROXY, parseProxy, PROXY_FILE, SITES, TRAEFIK_DIR, type Proxy } from "../ssh/templates";
 import { fail } from "../lib/term";
+import { mineLine, mineOf } from "../server/tenant";
 
 export const siteDir = (name: string) => `${SITES}/${name}`;
 
@@ -60,7 +61,10 @@ export const SEP = "\n--8<--landfall--8<--\n";
 
 /** Fetch site.json and .env of a site, and the Traefik it goes through, in one round trip. */
 /** `routed`: a Traefik serves this server's sites (landfall's own, or one they were pointed at). Without one a domain answers nothing. */
-export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMeta; env: string; proxy: Proxy; exists: boolean; routed: boolean }> {
+export async function readSite(
+  s: Server,
+  name: string,
+): Promise<{ meta?: SiteMeta; env: string; proxy: Proxy; exists: boolean; routed: boolean; mine?: string[] }> {
   const dir = siteDir(name);
   const { stdout } = await runScript(
     s,
@@ -68,12 +72,20 @@ export async function readSite(s: Server, name: string): Promise<{ meta?: SiteMe
       ...[`${dir}/site.json`, `${dir}/.env`, PROXY_FILE].map((f) => `cat ${shq(f)} 2>/dev/null || true`),
       `[ ! -d ${shq(dir)} ] || echo 1`,
       `{ [ ! -f ${shq(PROXY_FILE)} ] && [ ! -f ${shq(`${TRAEFIK_DIR}/docker-compose.yml`)} ]; } || echo 1`,
+      ...(s.tenant ? [mineLine(s)] : []),
     ].join(`; printf %s ${shq(SEP)}; `),
     { capture: true },
   );
-  const [json, env = "", proxy = "", exists = "", routed = ""] = stdout.split(SEP);
+  const [json, env = "", proxy = "", exists = "", routed = "", mine = ""] = stdout.split(SEP);
   const meta = parseSiteMeta(s, name, json);
-  return { meta, env, proxy: parseProxy(proxy) ?? OWN_PROXY, exists: exists.trim() === "1", routed: routed.trim() === "1" };
+  return {
+    meta,
+    env,
+    proxy: parseProxy(proxy) ?? OWN_PROXY,
+    exists: exists.trim() === "1",
+    routed: routed.trim() === "1",
+    ...(s.tenant && { mine: mineOf(mine) }),
+  };
 }
 
 /** A site that exists and is a Compose project; `deployed` also refuses adopted ones (no releases). */

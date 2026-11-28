@@ -7,6 +7,7 @@ import { scaleView, scales, type ScaleRow } from "../site/scale";
 import { runScript } from "../ssh/ssh";
 import { ctrPs, PROXY_CTR, PROXY_FILE, SITES, TRAEFIK_DIR, TUNNEL_ROUTER } from "../ssh/templates";
 import { warn } from "../lib/term";
+import { mineLine, mineOf } from "./tenant";
 import { REDIRECTS_STATE, redirectsStateOf, type RedirectsState } from "../traefik/server-redirects";
 import { traefikStateOf, type TraefikState } from "../traefik/traefik";
 
@@ -70,6 +71,8 @@ export interface Overview {
   owner: Omit<TraefikState, "sites">;
   /** The domains the central Traefik passes to tenants: no site here may route them. */
   tenants?: { user: string; domains: string[] }[];
+  /** A tenant login: the domains its admin gave it. */
+  mine?: string[];
 }
 
 export interface Unrouted {
@@ -182,7 +185,7 @@ ${ctrPs(true)} 2>/dev/null || true
 # Docker is there but does not answer (no access to its socket, daemon down): say why, an empty list would lie.
 ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 || printf 'DOCKER\\t%s\\n' "$(docker ps -q 2>&1 | tail -n1)"; }
 # inspect, unlike ps, does not expand \\t: hence {{"\\t"}}.
-[ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true`,
+[ -z "$ids" ] || docker inspect -f 'LABELS{{"\\t"}}{{.Name}}{{"\\t"}}{{json .Config.Labels}}' $ids 2>/dev/null || true${s.tenant ? `\n${mineLine(s)}` : ""}`,
     { capture: true },
   );
   const status = new Map<string, string>();
@@ -200,6 +203,7 @@ ids=$(docker ps -aq 2>/dev/null) || { ids=; ! command -v docker >/dev/null 2>&1 
     unrouted: [],
     redirects: redirectsStateOf(stdout),
     owner: traefikStateOf(stdout),
+    ...(s.tenant && { mine: mineOf(stdout) }),
   };
   const ctrs: Unrouted[] = [];
   for (const line of stdout.split("\n")) {

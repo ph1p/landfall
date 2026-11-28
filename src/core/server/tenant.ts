@@ -4,8 +4,22 @@ import { fail } from "../lib/term";
 import { runScript } from "../ssh/ssh";
 import { TENANTS } from "../ssh/templates";
 
+/** The tenant file of the login running the script, on one line after MINE; nothing for any other login. */
+export const mineLine = (s: Server) => (s.tenant ? `printf 'MINE\\t%s\\n' "$(tr -d '\\n' < ${TENANTS}/"$(id -un)".json 2>/dev/null)"` : "");
+
+/** The domains the admin gave this tenant, from mineLine's output; undefined when the file is gone or unreadable. */
+export function mineOf(stdout: string): string[] | undefined {
+  const line = stdout.split("\n").find((l) => l.startsWith("MINE\t"));
+  try {
+    const { domains } = JSON.parse(line!.slice(5)) as { domains?: unknown };
+    return Array.isArray(domains) ? domains.filter((d): d is string => typeof d === "string") : [];
+  } catch {
+    return;
+  }
+}
+
 /** The tenant the login of s is on its server, read from the one file the admin left for it. */
-export async function detectTenant(s: Server): Promise<Tenant | undefined> {
+export async function detectTenant(s: Server): Promise<(Tenant & { domains: string[] }) | undefined> {
   const { tenant: _, ...login } = s;
   const { stdout } = await runScript(
     login,
@@ -32,13 +46,16 @@ export async function detectTenant(s: Server): Promise<Tenant | undefined> {
   };
 }
 
-/** s with its tenant as the server has it now (the admin may have changed its domains); saved when it changed. */
+/** What a connection needs of a tenant; its domains stay on the server, where the admin changes them. */
+export const tenantLogin = ({ uid, root, port, trustedIP }: Tenant): Tenant => ({ uid, root, port, ...(trustedIP && { trustedIP }) });
+
+/** s with its tenant as the server has it now; saved when it changed. */
 export async function freshTenant(name: string, s: Server): Promise<Server> {
   if (!s.tenant) return s;
-  const tenant = (await detectTenant(s)) ?? fail(`${s.user ?? "this login"} is no longer a tenant on ${name}; ask its admin, or lf server add ${name} again`);
+  const found = (await detectTenant(s)) ?? fail(`${s.user ?? "this login"} is no longer a tenant on ${name}; ask its admin, or lf server add ${name} again`);
+  const tenant = tenantLogin(found);
   if (isDeepStrictEqual(tenant, s.tenant)) return s;
-  const next = { ...s, tenant };
   const before = loadConfig().servers[name];
   if (before) await updateConfig((cfg) => void patchServer(cfg, name, before, { ...before, tenant }));
-  return next;
+  return { ...s, tenant };
 }

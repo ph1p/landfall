@@ -8,7 +8,6 @@ import { overview, type Overview } from "../server/overview";
 import { dropRedirects } from "../traefik/server-redirects";
 import type { Proxy } from "../ssh/templates";
 import { c, confirmRemoval, fail, info, warn } from "../lib/term";
-import { freshTenant } from "../server/tenant";
 import { covers } from "../lib/domain-match";
 
 /**
@@ -29,15 +28,15 @@ export async function claimDomains(
   const site = by === "redirect" ? undefined : by.site;
   // No domain to claim (--no-domain, a worker): nothing to compare, no need to read every site.
   if (!domains.length) return async () => {};
+  const all = opts.overview ?? (await overview(server));
   if (server.tenant) {
-    const { domains: mayUse } = (await freshTenant(serverName, server)).tenant!;
+    const mayUse = all.mine ?? fail(`${server.user ?? "this login"} is no longer a tenant on ${serverName}; ask its admin`);
     const outside = domains.filter((d) => !mayUse.some((w) => covers(w, d)));
     if (outside.length)
       fail(
         `${outside.join(", ")} ${oneOrMany(outside.length, "is", "are")} not among your domains on ${serverName} (${mayUse.join(", ")}); ask its admin to add ${oneOrMany(outside.length, "it", "them")}`,
       );
   }
-  const all = opts.overview ?? (await overview(server));
   for (const t of all.tenants ?? []) {
     const held = domains.filter((d) => t.domains.some((w) => covers(w, d)));
     if (held.length)

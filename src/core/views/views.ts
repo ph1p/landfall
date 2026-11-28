@@ -41,6 +41,7 @@ import { effectiveSsh, findHostBlock, sameMachineLogins, SSH_CONFIG } from "../s
 import { DYNAMIC_DIR, JOURNAL, PROXY_FILE, ROOT, SITES, SSHD_CONF, SSHD_OPTIONS_CONF, SYSCTL_CONF, TRAEFIK_DIR } from "../ssh/templates";
 import { fail } from "../lib/term";
 import { listUsers } from "../server/users";
+import { detectTenant } from "../server/tenant";
 import { readRedirects } from "../traefik/server-redirects";
 import { engineNotes, engineStatus, imageStatus, pkgStatus } from "../server/updates";
 
@@ -60,10 +61,9 @@ export async function configView(name: string, server: Server) {
 /** `lf server info --json`. */
 export async function factsView(name: string, server: Server) {
   const f = await facts(server);
-  const [ips, caps] = await Promise.all([serverIps(server, f), serverCaps(server, f)]);
+  const [ips, caps, t] = await Promise.all([serverIps(server, f), serverCaps(server, f), server.tenant && detectTenant(server)]);
   const ip = pickIp(ips);
   // What a site gets when deployed without a domain and no main domain is set: <site>.<this>.
-  const t = server.tenant;
   return {
     name,
     ...f,
@@ -71,7 +71,7 @@ export async function factsView(name: string, server: Server) {
     ips,
     sslipIp: ip ?? null,
     sslipSuffix: ip ? sslipDomain("", ip).slice(1) : null,
-    role: t ? ("tenant" as const) : ("admin" as const),
+    role: server.tenant ? ("tenant" as const) : ("admin" as const),
     ...(t && { tenant: { user: server.user ?? "", domains: t.domains, port: t.port } }),
   };
 }

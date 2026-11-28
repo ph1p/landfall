@@ -1,8 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { Overview } from "../../src/core/server/overview";
-
-vi.mock("../../src/core/server/tenant", () => ({ freshTenant: async (_: string, s: unknown) => s }));
 
 const { claimDomains } = await import("../../src/core/site/claim");
 const { traefikCompose } = await import("../../src/core/ssh/templates");
@@ -12,17 +10,20 @@ const { covers } = await import("../../src/core/lib/domain-match");
 
 const bashOk = (script: string) => execFileSync("bash", ["-n"], { input: script });
 
-const empty = (tenants?: Overview["tenants"]) => ({ sites: [], others: [], redirects: { list: [] }, ...(tenants && { tenants }) }) as unknown as Overview;
-const anna = { host: "vps", user: "anna", tenant: { uid: 1001, root: "/opt/landfall/tenants/anna", port: 20000, domains: ["anna.dev", "*.anna.dev"] } };
+const empty = (tenants?: Overview["tenants"], mine?: string[]) =>
+  ({ sites: [], others: [], redirects: { list: [] }, ...(tenants && { tenants }), ...(mine && { mine }) }) as unknown as Overview;
+const anna = { host: "vps", user: "anna", tenant: { uid: 1001, root: "/opt/landfall/tenants/anna", port: 20000 } };
+const annas = empty(undefined, ["anna.dev", "*.anna.dev"]);
 const proxy = { network: "web", entrypoint: "websecure", resolver: "le" } as never;
 
 describe("domains on a server with tenants", () => {
   test("a tenant routes only its own domains", async () => {
-    await expect(claimDomains(anna, "vps", { site: "blog" }, ["anna.dev", "blog.anna.dev"], proxy, { overview: empty() })).resolves.toBeTypeOf("function");
-    await expect(claimDomains(anna, "vps", { site: "blog" }, ["blog.anna.dev", "bob.dev"], proxy, { overview: empty() })).rejects.toThrow(
+    await expect(claimDomains(anna, "vps", { site: "blog" }, ["anna.dev", "blog.anna.dev"], proxy, { overview: annas })).resolves.toBeTypeOf("function");
+    await expect(claimDomains(anna, "vps", { site: "blog" }, ["blog.anna.dev", "bob.dev"], proxy, { overview: annas })).rejects.toThrow(
       /bob\.dev is not among your domains on vps/,
     );
-    await expect(claimDomains(anna, "vps", { site: "blog" }, ["a.b.anna.dev"], proxy, { overview: empty() })).rejects.toThrow(/not among your domains/);
+    await expect(claimDomains(anna, "vps", { site: "blog" }, ["anna.dev"], proxy, { overview: empty() })).rejects.toThrow(/no longer a tenant on vps/);
+    await expect(claimDomains(anna, "vps", { site: "blog" }, ["a.b.anna.dev"], proxy, { overview: annas })).rejects.toThrow(/not among your domains/);
   });
 
   test("the admin cannot route what a tenant holds", async () => {

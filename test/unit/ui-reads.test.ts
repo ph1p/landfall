@@ -3,7 +3,7 @@ import type { Server } from "../../src/core/lib/config";
 
 const servers: Record<string, Server> = {
   admin: { host: "admin.example" } as Server,
-  shared: { host: "shared.example", tenant: { uid: 1001, root: "/home/t/landfall", port: 8081, domains: ["*.t.example"] } } as Server,
+  shared: { host: "shared.example", tenant: { uid: 1001, root: "/home/t/landfall", port: 8081 } } as Server,
 };
 
 vi.mock("../../src/core/lib/config", async (orig) => ({

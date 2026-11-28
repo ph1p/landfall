@@ -456,7 +456,7 @@ postdeploy on the server; onfailure here when anything fails. --skip-hook <name>
               );
             if (!domains.length && !unrouted) {
               // <name>.<main domain>, or with no DNS needed: <name>.<ip>.sslip.io resolves to the server.
-              const main = autoBase(server);
+              const main = autoBase(server, site.mine);
               const ip = main || server.tenant ? undefined : pickIp(await serverIps(server));
               const auto = main ? `${name}.${main}` : ip ? sslipDomain(name, ip) : undefined;
               const answer = await ask("Domain(s) to serve (comma separated; none: reach it by tunnel only):", auto);

@@ -144,6 +144,7 @@ anna is a tenant on vps: sites go to /opt/landfall/tenants/anna
 From then on, every command on that server works inside the tenant:
 
 - Sites, releases, volumes and backups live under `/opt/landfall/tenants/anna`.
+- The tenant's domains are read from the server on each deploy. When you change them, the tenant needs no new `lf server add`.
 - Docker commands go to the tenant's own rootless Docker.
 - `lf traefik setup` sets up the tenant's Traefik on its local port. It has no port 80, no HTTP/3 and no dashboard domain.
 - A site may use only the tenant's domains. Others fail with `… not among your domains on vps (…); ask its admin to add it`.
