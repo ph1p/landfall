@@ -122,13 +122,14 @@ lf fail2ban web off                              # remove the web jails
 - `web on` and `web off` are journaled; `lf undo` reverts them.
 
 The jails read Traefik's Docker log file, which changes when Traefik is recreated.
-landfall rewrites the jails whenever it recreates Traefik (`lf traefik setup`, `lf update`, `lf tenant`).
+landfall rewrites the jails whenever it recreates Traefik (`lf traefik setup`, `lf traefik access-log`, `lf traefik strict-tls`, `lf update`, `lf tenant`).
 That needs root or passwordless sudo; without it the command warns.
 `lf fail2ban web` then says the jails read an old log. Run `lf fail2ban web on` to fix it.
 Do the same after you recreate Traefik by hand.
 
 `lf traffic <site>` shows each client's 4xx answers beside its requests: who is close to a ban.
 With the web jails on, the Traffic tab of the web UI has a Ban button per client.
+Tenants get no Ban button: the jails watch the central Traefik, and banning needs root.
 
 ### trivy
 
